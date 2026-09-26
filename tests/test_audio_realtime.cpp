@@ -138,6 +138,64 @@ void testTb303DspStressTest() {
     assert(elapsedMs < 200.0); // Real-time margin
 }
 
+void testTb303CutoffSweepStability() {
+    std::cout << "[Test] TB-303 Cutoff Sweep Stability & Non-Linear Diode Saturation..." << std::endl;
+    Tb303Core tb303;
+    tb303.setSampleRate(48000.0f);
+    tb303.setResonance(0.95f);
+    tb303.setEnvMod(0.85f);
+    tb303.setOverdrive(0.25f);
+
+    // Trigger note with slide & accent
+    tb303.noteOn(38, 0.90f, true, true);
+
+    // Sweep cutoff across entire range: 100 Hz to 8000 Hz
+    float peak = 0.0f;
+    for (int step = 0; step < 500; ++step) {
+        float sweepCutoff = 100.0f + (step / 500.0f) * 7900.0f;
+        tb303.setCutoff(sweepCutoff);
+        for (int s = 0; s < 64; ++s) {
+            float smp = tb303.processSample();
+            assert(!std::isnan(smp) && !std::isinf(smp));
+            peak = std::max(peak, std::abs(smp));
+        }
+    }
+
+    std::cout << "  -> Peak amplitude across 100Hz-8000Hz sweep: " << peak << std::endl;
+    assert(peak <= 1.0f);
+    assert(peak > 0.05f); // Must produce healthy non-zero signal
+    std::cout << "  [PASS] TB-303 Cutoff sweep remains strictly bounded within [-1.0, 1.0]." << std::endl;
+}
+
+void testAudioEnginePanic() {
+    std::cout << "[Test] AudioEngine::panic() hard reset and buffer clearing..." << std::endl;
+    AudioEngine engine;
+    engine.initialize();
+    engine.setupDefaultAcidBeatGraph();
+    engine.getSequencer().start();
+    assert(engine.getSequencer().isPlaying());
+
+    // Render a block to populate delay and synth buffers
+    float outL[256], outR[256];
+    engine.renderOfflineBlock(outL, outR, 256);
+
+    // Initiate Panic
+    engine.panic();
+
+    // Verify sequencer is stopped
+    assert(!engine.getSequencer().isPlaying());
+
+    // Verify that rendering immediately after panic yields silent/bounded output
+    engine.renderOfflineBlock(outL, outR, 256);
+    float postPanicPeak = 0.0f;
+    for (int i = 0; i < 256; ++i) {
+        postPanicPeak = std::max(postPanicPeak, std::max(std::abs(outL[i]), std::abs(outR[i])));
+    }
+    std::cout << "  -> Post-panic output peak: " << postPanicPeak << std::endl;
+    assert(postPanicPeak < 0.001f);
+    std::cout << "  [PASS] AudioEngine::panic() halted sequencer and flushed all audio buffers." << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits Audio & Real-Time DSP Test Suite ===" << std::endl;
     testRingBufferConcurrency();
@@ -146,6 +204,8 @@ int main() {
     testBufferStressTest(64);
     testBufferStressTest(128);
     testTb303DspStressTest();
+    testTb303CutoffSweepStability();
+    testAudioEnginePanic();
     std::cout << "=== ALL AUDIO TESTS PASSED SUCCESSFULLY! ===" << std::endl;
     return 0;
 }

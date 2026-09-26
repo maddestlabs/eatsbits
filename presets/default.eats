@@ -1,0 +1,23 @@
+# Eatsbits DAW Preset
+[project]
+title = "Default Cybernetic Session"
+tempo = 128.0
+steps = 16
+
+[track.0]
+name = "Eats 303 Bass"
+type = "synth"
+engine = "303"
+cutoff = 1400.0
+resonance = 0.75
+volume = 0.8
+pan = 0.0
+
+[track.1]
+name = "Kick 909"
+type = "drum"
+engine = "analog"
+tune = 50.0
+decay = 0.4
+volume = 0.9
+pan = 0.0

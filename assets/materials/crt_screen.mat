@@ -1,0 +1,255 @@
+material {
+    name : crt_screen,
+    shadingModel : unlit,
+    culling : none,
+    doubleSided : true,
+    parameters : [
+        {
+            type : sampler2d,
+            name : dawTexture
+        },
+        {
+            type : sampler2d,
+            name : reflectionTexture
+        },
+        {
+            type : float,
+            name : curvature
+        },
+        {
+            type : float,
+            name : scanlineIntensity
+        },
+        {
+            type : float,
+            name : topBarFraction
+        },
+        {
+            type : float,
+            name : bottomBarFraction
+        },
+        {
+            type : float,
+            name : iTime
+        }
+    ],
+    requires : [
+        uv0
+    ]
+}
+
+fragment {
+    // Pseudo-random hash for procedural rumble and flicker
+    float hash(float n) {
+        return fract(sin(n) * 43758.5453123);
+    }
+
+    // Apocalypse CRT RGB chromatic fringing (rgbDistortion)
+    vec3 sampleRgbDistortion(sampler2D tex, vec2 uv, float offset) {
+        float r = texture(tex, uv + vec2(offset, 0.0)).r;
+        float g = texture(tex, uv).g;
+        float b = texture(tex, uv - vec2(offset, 0.0)).b;
+        return vec3(r, g, b);
+    }
+
+    // Apocalypse CRT Analytic Overhead Swaying Spotlight (Visible moving light beam)
+    float calculateLightFactor(vec2 uv, float iTime) {
+        // Dynamic incandescent spotlight swinging like a studio pendant lamp
+        float lightX = 0.5 + sin(iTime * 1.6) * 0.38;
+        // Centered across upper third so the moving beam sweeps across both top chassis and CRT
+        vec2 lightPos = vec2(lightX, 0.72);
+
+        vec2 lightDelta = uv - lightPos;
+        lightDelta.x *= 1.15; // Elliptical spotlight cone
+        float dist = length(lightDelta);
+
+        // Soft radial spotlight falloff
+        float spot = pow(clamp(1.0 - (dist / 1.10), 0.0, 1.0), 1.25);
+
+        // Visible dramatic sweep: ambient floor at 0.55, spotlight peak up to 1.55!
+        return mix(0.55, 1.55, spot);
+    }
+
+    void material(inout MaterialInputs result) {
+        prepareMaterial(result);
+
+        vec2 uv = getUV0();
+        float bottomCut = materialParams.bottomBarFraction;
+        float topCut = 1.0 - materialParams.topBarFraction;
+        float iTime = materialParams.iTime;
+
+        // Warm 2700K incandescent studio lighting tint
+        vec3 warmLightTint = vec3(1.0, 0.96, 0.90);
+        float lightFactor = calculateLightFactor(uv, iTime);
+
+        // =====================================================================
+        // VERTICAL ZONED PROCESSING
+        // =====================================================================
+        if (uv.y >= bottomCut && uv.y <= topCut) {
+            // -----------------------------------------------------------------
+            // ZONE 1: MIDDLE CRT WORKSTATION DISPLAY (Full Apocalypse CRT)
+            // -----------------------------------------------------------------
+            float span = max(0.01, topCut - bottomCut);
+            vec2 suv = vec2(uv.x, (uv.y - bottomCut) / span);
+
+            // 1. Apocalypse CRT Rumble & Analog Micro-Jitter Effect
+            float cycleInterval = 8.5 + hash(floor(iTime / 8.5)) * 4.0; // Every 8.5 - 12.5 seconds
+            float phase = mod(iTime, cycleInterval);
+            float rumbleDuration = 1.2; // 1.2-second rumble event
+            float rumbleStrength = 0.0;
+            float rumbleDim = 0.0;
+
+            if (phase < rumbleDuration) {
+                // Smooth sine wave bell curve for rumble onset and decay
+                rumbleStrength = sin((phase / rumbleDuration) * 3.14159265);
+                rumbleDim = 0.065 * rumbleStrength;
+
+                // High-frequency mechanical vibration offset (2-3px jitter)
+                vec2 rumbleOffset = vec2(
+                    sin(iTime * 32.0 + 0.3) * cos(iTime * 19.0),
+                    cos(iTime * 26.0 - 0.7) * sin(iTime * 17.0)
+                ) * rumbleStrength * 0.0022;
+
+                suv += rumbleOffset;
+            }
+
+            // 2. Apocalypse CRT Horizontal Sync Scan Wave
+            float hCycle = 3.0;
+            float hPhase = mod(iTime, hCycle);
+            if (hPhase < 0.22) {
+                float hWaveNorm = hPhase / 0.22;
+                float hWaveStrength = sin(hWaveNorm * 3.14159265) * 0.0035;
+                float hWave = sin(suv.y * 14.0 + iTime * 6.0) * hWaveStrength;
+                suv.x += hWave;
+            }
+
+            // 3. Spherical Barrel Curvature
+            if (materialParams.curvature > 0.001) {
+                vec2 center = vec2(0.5, 0.5);
+                vec2 dCenter = suv - center;
+                float distSq = dot(dCenter, dCenter);
+                
+                // Visible, authentic retro CRT outward barrel bulge
+                suv += dCenter * distSq * (materialParams.curvature * 0.048);
+            }
+
+            // Frame and Border Dimensions
+            float frameW = 0.024;   // Reflective chamfered outer bezel frame
+            float borderW = 0.014;  // Inner black CRT overscan padding
+
+            // Check if outside CRT boundaries after curvature
+            if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) {
+                // Deep outer chassis bezel crevice
+                result.baseColor = vec4(vec3(0.035, 0.030, 0.026) * lightFactor, 1.0);
+                return;
+            }
+
+            bool isFrame = (suv.x < frameW || suv.x > 1.0 - frameW ||
+                            suv.y < frameW || suv.y > 1.0 - frameW);
+
+            if (isFrame) {
+                // 4. REFLECTIVE CHAMFERED FRAME (Apocalypse CRT Mirrored Reflection)
+                vec2 reflUV = suv;
+                if (reflUV.x < frameW) reflUV.x = frameW + (frameW - reflUV.x);
+                else if (reflUV.x > 1.0 - frameW) reflUV.x = (1.0 - frameW) - (reflUV.x - (1.0 - frameW));
+                if (reflUV.y < frameW) reflUV.y = frameW + (frameW - reflUV.y);
+                else if (reflUV.y > 1.0 - frameW) reflUV.y = (1.0 - frameW) - (reflUV.y - (1.0 - frameW));
+
+                float mappedV = bottomCut + clamp(reflUV.y, 0.01, 0.99) * span;
+                vec3 screenSpill = texture(materialParams_dawTexture, vec2(clamp(reflUV.x, 0.01, 0.99), mappedV)).rgb;
+
+                // Frame bevel sheen & dark metallic tint
+                float edgeDist = min(min(suv.x, 1.0 - suv.x), min(suv.y, 1.0 - suv.y));
+                float bevelSheen = smoothstep(0.0, frameW, edgeDist);
+                vec3 frameBase = mix(vec3(0.045, 0.040, 0.035), vec3(0.09, 0.08, 0.07), bevelSheen);
+                
+                vec3 frameColor = frameBase + screenSpill * 0.35;
+                result.baseColor = vec4(frameColor * (warmLightTint * lightFactor) - rumbleDim, 1.0);
+                return;
+            }
+
+            // Inner margin boundaries
+            float totalMargin = frameW + borderW;
+            bool isBorder = (suv.x < totalMargin || suv.x > 1.0 - totalMargin ||
+                             suv.y < totalMargin || suv.y > 1.0 - totalMargin);
+
+            if (isBorder) {
+                // 5. INNER BLACK CRT BORDER (Overscan margin)
+                vec3 borderColor = vec3(0.012, 0.013, 0.015) * (warmLightTint * lightFactor) - rumbleDim;
+                result.baseColor = vec4(borderColor, 1.0);
+                return;
+            }
+
+            // 6. ACTIVE CRT PHOSPHOR SCREEN CONTENT AREA
+            vec2 screenUV = (suv - vec2(totalMargin)) / (1.0 - 2.0 * totalMargin);
+            
+            // Rounded corners on active screen area
+            vec2 cornerP = abs(screenUV - 0.5) * 2.0;
+            float cornerRadius = 0.045;
+            vec2 cornerDelta = max(cornerP - vec2(1.0 - cornerRadius), vec2(0.0));
+            if (length(cornerDelta) > cornerRadius) {
+                // Smooth black corner padding
+                result.baseColor = vec4(vec3(0.012, 0.013, 0.015) * (warmLightTint * lightFactor) - rumbleDim, 1.0);
+                return;
+            }
+
+            vec2 texUV = vec2(clamp(screenUV.x, 0.001, 0.999),
+                              bottomCut + clamp(screenUV.y, 0.001, 0.999) * span);
+
+            // A. RGB Chromatic Distortion (Apocalypse CRT rgbDistortion)
+            float chromaticOffset = 0.0014;
+            vec3 color = sampleRgbDistortion(materialParams_dawTexture, texUV, chromaticOffset);
+
+            // B. Retro CRT Scanlines
+            float scanIntensity = materialParams.scanlineIntensity > 0.001 ? materialParams.scanlineIntensity : 0.32;
+            float scanline = 1.0 - scanIntensity * (0.5 + 0.5 * sin(screenUV.y * 360.0 * 3.14159));
+            color *= scanline;
+
+            // C. Aperture Grille Triad Striping
+            float grille = 1.0 - 0.08 * (0.5 + 0.5 * sin(screenUV.x * 720.0 * 3.14159));
+            color *= grille;
+
+            // D. Vignette Darkening at tube edges
+            vec2 vigUV = screenUV * (1.0 - screenUV.yx);
+            float vig = clamp(pow(vigUV.x * vigUV.y * 14.0, 0.20), 0.0, 1.0);
+            color *= vig;
+
+            // E. Eatsbits Blurred Monochrome Logo Reflection Glare
+            vec2 cxcy = screenUV * 2.0 - 1.0;
+            vec2 reflCenter = vec2(0.28, 0.46);
+            vec2 reflDelta = cxcy - reflCenter;
+            float cos11 = 0.981627;
+            float sin11 = -0.190809;
+            vec2 rotDelta = vec2(reflDelta.x * cos11 - reflDelta.y * sin11,
+                                 reflDelta.x * sin11 + reflDelta.y * cos11);
+            float logoHalfSize = 0.32;
+            vec2 logoUV = (rotDelta / (logoHalfSize * 2.0)) + 0.5;
+            float logoGlare = 0.0;
+            if (logoUV.x >= 0.0 && logoUV.x <= 1.0 && logoUV.y >= 0.0 && logoUV.y <= 1.0) {
+                float edgeFade = smoothstep(0.0, 0.08, logoUV.x) * smoothstep(1.0, 0.92, logoUV.x) *
+                                 smoothstep(0.0, 0.08, logoUV.y) * smoothstep(1.0, 0.92, logoUV.y);
+                vec4 reflSample = texture(materialParams_reflectionTexture, logoUV);
+                logoGlare = reflSample.r * edgeFade * 0.075;
+            }
+            color += vec3(0.95, 0.94, 0.92) * logoGlare;
+
+            // F. Overhead Swaying Spotlight Illumination & Rumble Dimming
+            color *= (warmLightTint * lightFactor);
+            color -= rumbleDim;
+
+            result.baseColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+        } else {
+            // -----------------------------------------------------------------
+            // ZONE 0 & ZONE 2: TOP TRANSPORT BAR & BOTTOM NAVIGATION CHIN
+            // -----------------------------------------------------------------
+            // 100% flat, crisp, zero curvature, zero scanlines, zero RGB distortion.
+            // Brushed metal micro-texture + swaying spotlight illumination!
+            vec4 tex = texture(materialParams_dawTexture, uv);
+            
+            // Subtle horizontal brushed chassis grain
+            float brush = sin(uv.y * 1200.0) * 0.015 + cos(uv.x * 400.0) * 0.008;
+            vec3 panelRgb = clamp(tex.rgb * (1.0 + brush) * (warmLightTint * lightFactor), 0.0, 1.0);
+            result.baseColor = vec4(panelRgb, 1.0);
+        }
+    }
+}

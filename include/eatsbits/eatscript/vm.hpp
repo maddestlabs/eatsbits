@@ -26,6 +26,15 @@ public:
     [[nodiscard]] double executeProcess(double time, double freq, double note,
                                        const float* params = nullptr, size_t numParams = 0) noexcept;
 
+    /// Real-time safe stereo Audio FX process execution: def process(in_l, in_r, params) -> [out_l, out_r]
+    [[nodiscard]] std::pair<double, double> executeStereoProcess(double inL, double inR,
+                                                                 const float* params = nullptr,
+                                                                 size_t numParams = 0) noexcept;
+
+    [[nodiscard]] bool isStereoEffect() const noexcept {
+        return isStereoEffect_;
+    }
+
     [[nodiscard]] bool hasCompiledProcess() const noexcept {
         return hasProcess_;
     }
@@ -48,6 +57,9 @@ private:
 
     Chunk processChunk_;
     bool hasProcess_{false};
+    bool isStereoEffect_{false};
+    int slotInL_{-1};
+    int slotInR_{-1};
 
     // Pre-allocated runtime evaluation environment (Zero runtime allocations)
     static constexpr size_t STACK_MAX = 256;

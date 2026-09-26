@@ -1,4 +1,5 @@
 build/
+build-web/
 bin/
 *.user
 *.suo
@@ -8,3 +9,14 @@ bin/
 *.exe
 *.pdb
 *.ilk
+*.log
+*.wav
+CMakeFiles/
+Testing/
+emsdk/
+scratch/
+test_roundtrip.eats
+test_rack_export.svg
+.DS_Store
+Thumbs.db
+third_party/filament/

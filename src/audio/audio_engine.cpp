@@ -13,6 +13,13 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include "eatsbits/audio/graph/nodes/tb303_node.hpp"
+#include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
+#include "eatsbits/audio/graph/nodes/biquad_node.hpp"
+#include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/audio/graph/nodes/delay_node.hpp"
+#include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
+#include "eatsbits/project/project_file.hpp"
 
 namespace eatsbits::audio {
 
@@ -47,6 +54,7 @@ bool AudioEngine::initialize(const AudioEngineConfig& config) {
     polySynth_.setSampleRate(static_cast<float>(config_.sampleRate));
     tb303_.setSampleRate(static_cast<float>(config_.sampleRate));
     masterMixer_.prepare(static_cast<double>(config_.sampleRate), config_.bufferFrameSize);
+    sequencer_.getTransport().setSampleRate(config_.sampleRate);
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = ma_format_f32;
@@ -68,7 +76,87 @@ bool AudioEngine::initialize(const AudioEngineConfig& config) {
 
     std::cout << "[Eatsbits] Audio device initialized: " << impl_->device.playback.name
               << " | " << config_.sampleRate << " Hz | Buffer: " << config_.bufferFrameSize << " frames" << std::endl;
+
+    graph_.prepare(config_.sampleRate, config_.bufferFrameSize);
     return true;
+}
+
+void AudioEngine::setupDefaultAcidGraph() {
+    graph_.clear();
+    auto tb = std::make_shared<Tb303Node>("Tb303");
+    auto delay = std::make_shared<DelayNode>("AcidEcho");
+    auto gain = std::make_shared<GainNode>("MasterGain");
+
+    delay->setDelayTimeMs(250.0f);
+    delay->setFeedback(0.30f);
+    delay->setDryWet(0.20f);
+
+    NodeId tbId = graph_.addNode(tb);
+    NodeId delayId = graph_.addNode(delay);
+    NodeId gainId = graph_.addNode(gain);
+
+    graph_.connect(tbId, 0, delayId, 0);
+    graph_.connect(delayId, 0, gainId, 0);
+    graph_.setOutputNode(gainId, 0);
+
+    engineMode_ = SynthEngineMode::ModularGraph;
+}
+
+void AudioEngine::setupDefaultPolyGraph() {
+    graph_.clear();
+    auto poly = std::make_shared<PolySynthNode>("PolySynth");
+    auto biquad = std::make_shared<BiquadNode>("Filter");
+    auto delay = std::make_shared<DelayNode>("Delay");
+    auto gain = std::make_shared<GainNode>("MasterGain");
+
+    NodeId polyId = graph_.addNode(poly);
+    NodeId biquadId = graph_.addNode(biquad);
+    NodeId delayId = graph_.addNode(delay);
+    NodeId gainId = graph_.addNode(gain);
+
+    graph_.connect(polyId, 0, biquadId, 0);
+    graph_.connect(biquadId, 0, delayId, 0);
+    graph_.connect(delayId, 0, gainId, 0);
+    graph_.setOutputNode(gainId, 0);
+
+    engineMode_ = SynthEngineMode::ModularGraph;
+}
+
+void AudioEngine::setupDefaultAcidBeatGraph() {
+    graph_.clear();
+    auto tb = std::make_shared<Tb303Node>("Tb303");
+    auto tbStrip = std::make_shared<GainNode>("Track1_Gain");
+    auto drums = std::make_shared<DrumKitNode>("Drums");
+    auto drumStrip = std::make_shared<GainNode>("Track2_Gain");
+    auto delay = std::make_shared<DelayNode>("AcidEcho");
+    auto masterGain = std::make_shared<GainNode>("MasterOut");
+
+    delay->setDelayTimeMs(125.0f); // 16th note echo
+    delay->setFeedback(0.35f);
+    delay->setDryWet(0.30f);
+
+    tbStrip->setVolume(0.80f);
+    drumStrip->setVolume(0.85f);
+    masterGain->setVolume(0.85f); // Bus headroom to prevent clipping when summing
+
+    NodeId tbId = graph_.addNode(tb);
+    NodeId delayId = graph_.addNode(delay);
+    NodeId tbStripId = graph_.addNode(tbStrip);
+    NodeId drumsId = graph_.addNode(drums);
+    NodeId drumStripId = graph_.addNode(drumStrip);
+    NodeId masterId = graph_.addNode(masterGain);
+
+    // Route Track 1: Tb303 -> AcidEcho -> Track1_Gain -> MasterOut
+    graph_.connect(tbId, 0, delayId, 0);
+    graph_.connect(delayId, 0, tbStripId, 0);
+    graph_.connect(tbStripId, 0, masterId, 0);
+
+    // Route Track 2: Drums -> Track2_Gain -> MasterOut
+    graph_.connect(drumsId, 0, drumStripId, 0);
+    graph_.connect(drumStripId, 0, masterId, 0);
+
+    graph_.setOutputNode(masterId, 0);
+    engineMode_ = SynthEngineMode::ModularGraph;
 }
 
 bool AudioEngine::start() {
@@ -114,40 +202,198 @@ uint32_t AudioEngine::getBufferFrameSize() const noexcept {
     return config_.bufferFrameSize;
 }
 
-bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent) noexcept {
-    AudioEvent evt;
+bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent, int trackIndex) noexcept {
+    AudioEvent evt{};
     evt.type = AudioEventType::NoteOn;
     evt.note = note;
     evt.velocity = velocity;
     evt.paramId = isSlide ? 1 : 0;
     evt.paramValue = isAccent ? 1.0f : 0.0f;
+
+    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    NodeId targetNodeId = 0;
+    if (tIdx < sequencer_.getNumTracks()) {
+        const auto* trk = sequencer_.getTrack(tIdx);
+        if (trk) {
+            targetNodeId = trk->getTargetNodeId();
+        }
+    }
+    if (targetNodeId == 0 && tIdx < 5) {
+        targetNodeId = static_cast<NodeId>(tIdx + 1);
+    }
+    evt.channel = static_cast<uint8_t>(targetNodeId);
     return eventQueue_.push(evt);
 }
 
-bool AudioEngine::postNoteOff(uint8_t note) noexcept {
-    AudioEvent evt;
+bool AudioEngine::postNoteOff(uint8_t note, int trackIndex) noexcept {
+    AudioEvent evt{};
     evt.type = AudioEventType::NoteOff;
     evt.note = note;
     evt.velocity = 0.0f;
+
+    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    NodeId targetNodeId = 0;
+    if (tIdx < sequencer_.getNumTracks()) {
+        const auto* trk = sequencer_.getTrack(tIdx);
+        if (trk) {
+            targetNodeId = trk->getTargetNodeId();
+        }
+    }
+    if (targetNodeId == 0 && tIdx < 5) {
+        targetNodeId = static_cast<NodeId>(tIdx + 1);
+    }
+    evt.channel = static_cast<uint8_t>(targetNodeId);
     return eventQueue_.push(evt);
 }
 
+bool AudioEngine::postTrackNoteOn(uint32_t trackIndex, uint8_t note, float velocity, bool isSlide, bool isAccent) noexcept {
+    return postNoteOn(note, velocity, isSlide, isAccent, static_cast<int>(trackIndex));
+}
+
+bool AudioEngine::postTrackNoteOff(uint32_t trackIndex, uint8_t note) noexcept {
+    return postNoteOff(note, static_cast<int>(trackIndex));
+}
+
 bool AudioEngine::postParameter(uint32_t paramId, float value) noexcept {
-    AudioEvent evt;
+    AudioEvent evt{};
     evt.type = AudioEventType::SetParameter;
+    evt.channel = 0;
+    evt.paramId = paramId;
+    evt.paramValue = value;
+    return eventQueue_.push(evt);
+}
+
+bool AudioEngine::postNodeParameter(NodeId nodeId, uint32_t paramId, float value) noexcept {
+    AudioEvent evt{};
+    evt.type = AudioEventType::SetParameter;
+    evt.channel = static_cast<uint8_t>(nodeId);
     evt.paramId = paramId;
     evt.paramValue = value;
     return eventQueue_.push(evt);
 }
 
 bool AudioEngine::postAllNotesOff() noexcept {
-    AudioEvent evt;
+    AudioEvent evt{};
     evt.type = AudioEventType::AllNotesOff;
     return eventQueue_.push(evt);
 }
 
+void AudioEngine::panic() noexcept {
+    // 1. Halt sequencer playhead and active voice registry
+    sequencer_.stop();
+
+    // 2. Kill all active notes on standalone synths
+    polySynth_.allNotesOff();
+    tb303_.reset();
+
+    // 3. Reset modular audio graph (clears delay lines, IIR filter states, drum playheads)
+    graph_.reset();
+
+    // 4. Drain pending audio event queue
+    AudioEvent evt;
+    while (eventQueue_.pop(evt)) {}
+
+    // 5. Zero out intermediate scratch rendering buffers
+    std::fill_n(scratchL_, MAX_BLOCK_SIZE, 0.0f);
+    std::fill_n(scratchR_, MAX_BLOCK_SIZE, 0.0f);
+
+    // 6. Drain oscilloscope ring buffer and feedback queue to eliminate visual/audio artifacts
+    float dummySample = 0.0f;
+    while (scopeRingBuffer_.pop(dummySample)) {}
+    MeterFeedback dummyFeedback{};
+    while (feedbackQueue_.pop(dummyFeedback)) {}
+}
+
 bool AudioEngine::pollMeterFeedback(MeterFeedback& feedback) noexcept {
-    return feedbackQueue_.pop(feedback);
+    MeterFeedback fb{};
+    bool hadAny = false;
+    float maxPeakL = 0.0f;
+    float maxPeakR = 0.0f;
+    float sumRmsL = 0.0f;
+    float sumRmsR = 0.0f;
+    int count = 0;
+
+    while (feedbackQueue_.pop(fb)) {
+        hadAny = true;
+        if (fb.peakLeft > maxPeakL) maxPeakL = fb.peakLeft;
+        if (fb.peakRight > maxPeakR) maxPeakR = fb.peakRight;
+        sumRmsL += fb.rmsLeft;
+        sumRmsR += fb.rmsRight;
+        count++;
+    }
+
+    if (hadAny && count > 0) {
+        feedback.peakLeft = maxPeakL;
+        feedback.peakRight = maxPeakR;
+        feedback.rmsLeft = sumRmsL / static_cast<float>(count);
+        feedback.rmsRight = sumRmsR / static_cast<float>(count);
+        return true;
+    }
+    return false;
+}
+
+void AudioEngine::flushMeterFeedback() noexcept {
+    MeterFeedback dummyFeedback{};
+    while (feedbackQueue_.pop(dummyFeedback)) {}
+}
+
+bool AudioEngine::getTrackMeterFeedback(uint32_t trackIndex, MeterFeedback& feedback) const noexcept {
+    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (node && node->getName() == stripName) {
+            if (auto* gn = dynamic_cast<GainNode*>(node.get())) {
+                float pL = 0.0f, pR = 0.0f;
+                gn->getPeakLevels(pL, pR);
+                feedback.peakLeft = pL;
+                feedback.peakRight = pR;
+                feedback.rmsLeft = pL * 0.707f;
+                feedback.rmsRight = pR * 0.707f;
+                return true;
+            }
+        }
+    }
+
+    if (trackIndex < sequencer_.getNumTracks()) {
+        const auto* trk = const_cast<sequencer::StepSequencer&>(sequencer_).getTrack(trackIndex);
+        if (trk) {
+            auto node = graph_.getNode(trk->getTargetNodeId());
+            if (auto* gn = dynamic_cast<GainNode*>(node.get())) {
+                float pL = 0.0f, pR = 0.0f;
+                gn->getPeakLevels(pL, pR);
+                feedback.peakLeft = pL;
+                feedback.peakRight = pR;
+                feedback.rmsLeft = pL * 0.707f;
+                feedback.rmsRight = pR * 0.707f;
+                return true;
+            }
+        }
+    }
+
+    // Default graph fallback for Track 0 or master
+    if (trackIndex == 0) {
+        NodeId outId = graph_.getOutputNodeId();
+        auto outNode = graph_.getNode(outId);
+        if (auto* gn = dynamic_cast<GainNode*>(outNode.get())) {
+            float pL = 0.0f, pR = 0.0f;
+            gn->getPeakLevels(pL, pR);
+            feedback.peakLeft = pL;
+            feedback.peakRight = pR;
+            feedback.rmsLeft = pL * 0.707f;
+            feedback.rmsRight = pR * 0.707f;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+size_t AudioEngine::getScopeSamples(float* dest, size_t maxCount) noexcept {
+    if (!dest || maxCount == 0) return 0;
+    size_t count = 0;
+    while (count < maxCount && scopeRingBuffer_.pop(dest[count])) {
+        count++;
+    }
+    return count;
 }
 
 void AudioEngine::setEngineMode(SynthEngineMode mode) noexcept {
@@ -157,15 +403,76 @@ void AudioEngine::setEngineMode(SynthEngineMode mode) noexcept {
 void AudioEngine::setCutoff(float cutoffHz) noexcept {
     polySynth_.setCutoff(cutoffHz);
     tb303_.setCutoff(cutoffHz);
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (auto* tb = dynamic_cast<Tb303Node*>(node.get())) {
+            tb->setCutoff(cutoffHz);
+        }
+    }
 }
 
 void AudioEngine::setResonance(float res) noexcept {
     polySynth_.setResonance(res);
     tb303_.setResonance(res);
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (auto* tb = dynamic_cast<Tb303Node*>(node.get())) {
+            tb->setResonance(res);
+        }
+    }
 }
 
 void AudioEngine::setMasterVolume(float volume) noexcept {
     masterMixer_.setVolume(volume);
+}
+
+void AudioEngine::setTrackVolume(uint32_t trackIndex, float volume) noexcept {
+    if (trackIndex < sequencer_.getNumTracks()) {
+        auto* tr = sequencer_.getTrack(trackIndex);
+        if (tr) tr->setVolume(volume);
+    }
+    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (node && node->getName() == stripName) {
+            postNodeParameter(id, 0, volume);
+            return;
+        }
+    }
+    if (trackIndex < sequencer_.getNumTracks()) {
+        auto* tr = sequencer_.getTrack(trackIndex);
+        if (tr && tr->getTargetNodeId() != 0) {
+            auto nodePtr = graph_.getNode(tr->getTargetNodeId());
+            if (nodePtr && dynamic_cast<DrumKitNode*>(nodePtr.get())) {
+                postNodeParameter(tr->getTargetNodeId(), 0, volume);
+            }
+        }
+    }
+}
+
+void AudioEngine::setTrackPan(uint32_t trackIndex, float pan) noexcept {
+    if (trackIndex < sequencer_.getNumTracks()) {
+        auto* tr = sequencer_.getTrack(trackIndex);
+        if (tr) tr->setPan(pan);
+    }
+    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (node && node->getName() == stripName) {
+            postNodeParameter(id, 1, pan);
+            return;
+        }
+    }
+}
+
+void AudioEngine::setTrackMute(uint32_t trackIndex, bool mute) noexcept {
+    if (trackIndex < sequencer_.getNumTracks()) {
+        auto* tr = sequencer_.getTrack(trackIndex);
+        if (tr) tr->setMuted(mute);
+    }
+    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
+    for (const auto& [id, node] : graph_.getNodes()) {
+        if (node && node->getName() == stripName) {
+            postNodeParameter(id, 2, mute ? 1.0f : 0.0f);
+            return;
+        }
+    }
 }
 
 void AudioEngine::attachPlugin(const EatsPluginDescriptor* desc, void* instance) noexcept {
@@ -183,6 +490,18 @@ void AudioEngine::detachPlugin() noexcept {
 void AudioEngine::processEvents() noexcept {
     AudioEvent evt;
     while (eventQueue_.pop(evt)) {
+        if (engineMode_ == SynthEngineMode::ModularGraph) {
+            if (evt.channel != 0) {
+                graph_.sendNodeEvent(evt.channel, evt);
+            } else if (evt.type != AudioEventType::SetParameter) {
+                graph_.broadcastEvent(evt);
+            }
+            if (evt.type == AudioEventType::SetParameter && evt.paramId == 2 && evt.channel == 0) {
+                masterMixer_.setVolume(evt.paramValue);
+            }
+            continue;
+        }
+
         switch (evt.type) {
             case AudioEventType::NoteOn:
                 if (attachedPluginDesc_ && attachedPluginInstance_) {
@@ -240,7 +559,12 @@ void AudioEngine::renderOfflineBlock(float* outL, float* outR, uint32_t frameCou
 
     processEvents();
 
-    if (engineMode_ == SynthEngineMode::Tb303Acid) {
+    if (engineMode_ == SynthEngineMode::ModularGraph) {
+        if (sequencer_.isPlaying()) {
+            sequencer_.processBlock(frameCount, graph_);
+        }
+        graph_.process(outL, outR, frameCount);
+    } else if (engineMode_ == SynthEngineMode::Tb303Acid) {
         for (uint32_t i = 0; i < frameCount; ++i) {
             const float s = tb303_.processSample();
             outL[i] = s;
@@ -265,6 +589,11 @@ void AudioEngine::renderOfflineBlock(float* outL, float* outR, uint32_t frameCou
 
     // Push meter feedback
     feedbackQueue_.push(masterMixer_.getMeterFeedback());
+
+    // Push oscilloscope samples (mono sum)
+    for (uint32_t i = 0; i < frameCount; ++i) {
+        scopeRingBuffer_.push(0.5f * (outL[i] + outR[i]));
+    }
 }
 
 void AudioEngine::audioCallbackInternal(float* pOutput, uint32_t frameCount) noexcept {
@@ -272,11 +601,73 @@ void AudioEngine::audioCallbackInternal(float* pOutput, uint32_t frameCount) noe
 
     renderOfflineBlock(scratchL_, scratchR_, framesToRender);
 
+    // Track real-time sub-bass energy (<90Hz) with 2-pole lowpass & peak follower
+    const float dt = 1.0f / (config_.sampleRate > 0 ? static_cast<float>(config_.sampleRate) : 48000.0f);
+    const float cutoffHz = 85.0f;
+    const float alpha = std::clamp(2.0f * 3.14159265f * cutoffHz * dt, 0.001f, 0.5f);
+    const float decay = std::exp(-dt / 0.075f); // 75ms smooth release
+
+    float maxBlockSub = subEnv_;
+    for (uint32_t i = 0; i < framesToRender; ++i) {
+        float mono = 0.5f * (scratchL_[i] + scratchR_[i]);
+        subLp1_ += alpha * (mono - subLp1_);
+        subLp2_ += alpha * (subLp1_ - subLp2_);
+        float mag = std::abs(subLp2_);
+        if (mag > maxBlockSub) {
+            maxBlockSub = mag;
+        } else {
+            maxBlockSub *= decay;
+        }
+    }
+    subEnv_ = maxBlockSub;
+    subBassEnergy_.store(subEnv_, std::memory_order_relaxed);
+
     // Interleave planar scratch buffers into interleaved stereo output
     for (uint32_t i = 0; i < framesToRender; ++i) {
         pOutput[2 * i + 0] = scratchL_[i];
         pOutput[2 * i + 1] = scratchR_[i];
     }
+}
+
+bool AudioEngine::saveProject(const std::string& path, const std::string& title) {
+    return project::ProjectFile::saveToFile(path, graph_, sequencer_, title, sequencer_.getBpm(), sequencer_.getSwing());
+}
+
+bool AudioEngine::loadProject(const std::string& path) {
+    std::string title;
+    double bpm = 135.0;
+    double swing = 0.50;
+    bool success = project::ProjectFile::loadFromFile(path, graph_, sequencer_, title, bpm, swing);
+    if (success) {
+        engineMode_ = SynthEngineMode::ModularGraph;
+    }
+    return success;
+}
+
+exporting::BounceStats AudioEngine::bounceProject(const std::string& wavPath,
+                                                 double durationSeconds,
+                                                 exporting::WavFormat format,
+                                                 bool enableDither) {
+    exporting::BounceConfig cfg{};
+    cfg.sampleRate = config_.sampleRate > 0 ? config_.sampleRate : 48000;
+    cfg.numChannels = 2;
+    cfg.durationSeconds = durationSeconds;
+    cfg.format = format;
+    cfg.enableDither = enableDither;
+    return exporting::WavExporter::bounceMaster(graph_, sequencer_, cfg, wavPath);
+}
+
+std::vector<exporting::BounceStats> AudioEngine::bounceStems(const std::string& outputDir,
+                                                           double durationSeconds,
+                                                           exporting::WavFormat format,
+                                                           bool enableDither) {
+    exporting::BounceConfig cfg{};
+    cfg.sampleRate = config_.sampleRate > 0 ? config_.sampleRate : 48000;
+    cfg.numChannels = 2;
+    cfg.durationSeconds = durationSeconds;
+    cfg.format = format;
+    cfg.enableDither = enableDither;
+    return exporting::WavExporter::bounceStems(graph_, sequencer_, cfg, outputDir);
 }
 
 } // namespace eatsbits::audio

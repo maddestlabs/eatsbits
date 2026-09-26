@@ -1,0 +1,46 @@
+{
+  "id": "eatsbits-modular-workstation",
+  "name": "Eatsbits Modular Workstation",
+  "short_name": "Eatsbits",
+  "description": "High-performance modular synthesizer, tracker, and real-time DSP audio workstation built in C++20 and WebGPU.",
+  "start_url": "./eatsbits.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0d0f14",
+  "theme_color": "#0d0f14",
+  "categories": ["music", "audio", "multimedia", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "app_icon.svg",
+      "sizes": "256x256",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

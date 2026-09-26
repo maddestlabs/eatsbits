@@ -1,0 +1,32 @@
+material {
+    name : readout_display,
+    shadingModel : unlit,
+    culling : none,
+    doubleSided : true,
+    parameters : [
+        {
+            type : sampler2d,
+            name : dawTexture
+        },
+        {
+            type : float,
+            name : emissiveBoost
+        }
+    ],
+    requires : [
+        uv0
+    ]
+}
+
+fragment {
+    void material(inout MaterialInputs result) {
+        prepareMaterial(result);
+        vec2 uv = getUV0();
+        vec4 tex = texture(materialParams_dawTexture, uv);
+
+        // Dark tinted recessed acrylic glass with bright Nixie/LED segments
+        float brightness = max(tex.r, max(tex.g, tex.b));
+        vec3 col = (brightness > 0.40) ? (tex.rgb * materialParams.emissiveBoost) : (tex.rgb * 0.95);
+        result.baseColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    }
+}

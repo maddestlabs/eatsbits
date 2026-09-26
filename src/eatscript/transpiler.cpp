@@ -25,12 +25,12 @@ std::string Transpiler::transpile(const Program& program, const std::string& plu
 
     // Scan for process function
     for (const auto& stmt : program.statements) {
-        auto* func = dynamic_cast<FunctionDef*>(stmt.get());
+        auto* func = ast_cast<FunctionDef>(stmt.get());
         if (func && func->name == "process") {
             inProcessFunction_ = true;
             indentLevel_ = 2;
             for (const auto& s : func->body) {
-                s->accept(this);
+                transpileStmt(s.get());
             }
             inProcessFunction_ = false;
         }
@@ -124,6 +124,63 @@ std::string Transpiler::transpile(const Program& program, const std::string& plu
     return ss.str();
 }
 
+void Transpiler::transpileStmt(const Stmt* stmt) {
+    if (!stmt) return;
+    switch (stmt->kind) {
+        case StmtKind::Expr:
+            visit(static_cast<ExprStmt*>(const_cast<Stmt*>(stmt)));
+            break;
+        case StmtKind::Assign:
+            visit(static_cast<AssignStmt*>(const_cast<Stmt*>(stmt)));
+            break;
+        case StmtKind::Return:
+            visit(static_cast<ReturnStmt*>(const_cast<Stmt*>(stmt)));
+            break;
+        case StmtKind::If:
+            visit(static_cast<IfStmt*>(const_cast<Stmt*>(stmt)));
+            break;
+        case StmtKind::FunctionDef:
+            visit(static_cast<FunctionDef*>(const_cast<Stmt*>(stmt)));
+            break;
+    }
+}
+
+void Transpiler::transpileExpr(const Expr* expr) {
+    if (!expr) return;
+    switch (expr->kind) {
+        case ExprKind::Number:
+            visit(static_cast<NumberLiteral*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::String:
+            visit(static_cast<StringLiteral*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Boolean:
+            visit(static_cast<BooleanLiteral*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Identifier:
+            visit(static_cast<IdentifierExpr*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Member:
+            visit(static_cast<MemberExpr*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Binary:
+            visit(static_cast<BinaryExpr*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Unary:
+            visit(static_cast<UnaryExpr*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Call:
+            visit(static_cast<CallExpr*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::List:
+            visit(static_cast<ListLiteral*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Dict:
+            visit(static_cast<DictLiteral*>(const_cast<Expr*>(expr)));
+            break;
+    }
+}
+
 void Transpiler::visit(NumberLiteral* node) {
     output_ += std::to_string(node->value);
 }
@@ -145,18 +202,18 @@ void Transpiler::visit(IdentifierExpr* node) {
 }
 
 void Transpiler::visit(MemberExpr* node) {
-    auto* objId = dynamic_cast<IdentifierExpr*>(node->object.get());
+    auto* objId = ast_cast<IdentifierExpr>(node->object.get());
     if (objId && objId->name == "math" && node->member == "pi") {
         output_ += "std::numbers::pi_v<double>";
     } else {
-        node->object->accept(this);
+        transpileExpr(node->object.get());
         output_ += "." + node->member;
     }
 }
 
 void Transpiler::visit(BinaryExpr* node) {
     output_ += "(";
-    node->left->accept(this);
+    transpileExpr(node->left.get());
     switch (node->op) {
         case TokenType::Plus: output_ += " + "; break;
         case TokenType::Minus: output_ += " - "; break;
@@ -165,29 +222,29 @@ void Transpiler::visit(BinaryExpr* node) {
         case TokenType::Power:
             // Rewrite a ** b as std::pow(a, b)
             output_ = "std::pow(" + output_;
-            node->right->accept(this);
+            transpileExpr(node->right.get());
             output_ += ")";
             return;
         default: output_ += " + "; break;
     }
-    node->right->accept(this);
+    transpileExpr(node->right.get());
     output_ += ")";
 }
 
 void Transpiler::visit(UnaryExpr* node) {
     if (node->op == TokenType::Minus) output_ += "-";
-    node->operand->accept(this);
+    transpileExpr(node->operand.get());
 }
 
 void Transpiler::visit(CallExpr* node) {
-    auto* mem = dynamic_cast<MemberExpr*>(node->callee.get());
+    auto* mem = ast_cast<MemberExpr>(node->callee.get());
     if (mem) {
-        auto* objId = dynamic_cast<IdentifierExpr*>(mem->object.get());
+        auto* objId = ast_cast<IdentifierExpr>(mem->object.get());
         if (objId && objId->name == "math") {
             output_ += "std::" + mem->member + "(";
             for (size_t i = 0; i < node->args.size(); ++i) {
                 if (i > 0) output_ += ", ";
-                node->args[i]->accept(this);
+                transpileExpr(node->args[i].get());
             }
             output_ += ")";
             return;
@@ -197,18 +254,18 @@ void Transpiler::visit(CallExpr* node) {
         }
     }
 
-    node->callee->accept(this);
+    transpileExpr(node->callee.get());
     output_ += "(";
     for (size_t i = 0; i < node->args.size(); ++i) {
         if (i > 0) output_ += ", ";
-        node->args[i]->accept(this);
+        transpileExpr(node->args[i].get());
     }
     output_ += ")";
 }
 
 void Transpiler::visit(ListLiteral* node) {
     if (!node->elements.empty()) {
-        node->elements[0]->accept(this);
+        transpileExpr(node->elements[0].get());
     }
 }
 
@@ -216,31 +273,31 @@ void Transpiler::visit(DictLiteral* /*node*/) {}
 
 void Transpiler::visit(ExprStmt* node) {
     output_.clear();
-    node->expression->accept(this);
+    transpileExpr(node->expression.get());
     processBodyCode_ += emitIndent() + output_ + ";\n";
 }
 
 void Transpiler::visit(AssignStmt* node) {
     output_.clear();
-    node->value->accept(this);
+    transpileExpr(node->value.get());
     processBodyCode_ += emitIndent() + "double " + node->variableName + " = " + output_ + ";\n";
 }
 
 void Transpiler::visit(ReturnStmt* node) {
     output_.clear();
     if (node->value) {
-        node->value->accept(this);
+        transpileExpr(node->value.get());
         processBodyCode_ += emitIndent() + "sample = " + output_ + ";\n";
     }
 }
 
 void Transpiler::visit(IfStmt* node) {
     output_.clear();
-    node->condition->accept(this);
+    transpileExpr(node->condition.get());
     processBodyCode_ += emitIndent() + "if (" + output_ + ") {\n";
     indentLevel_++;
     for (const auto& s : node->thenBranch) {
-        s->accept(this);
+        transpileStmt(s.get());
     }
     indentLevel_--;
     processBodyCode_ += emitIndent() + "}\n";

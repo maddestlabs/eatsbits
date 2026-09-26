@@ -1,0 +1,91 @@
+name: Build & Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@master
+        with:
+          version: 1.11.1
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '4.0.1'
+
+      - name: Verify Emscripten Toolchain
+        run: |
+          emcc --version
+
+      - name: Configure CMake with Emscripten
+        run: |
+          emcmake cmake -B build-web -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CROSSCOMPILING_EMULATOR=node
+
+      - name: Compile Eatsbits Web (WebGPU & WASM)
+        run: |
+          cmake --build build-web --target eatsbits_web
+
+      - name: Assemble GitHub Pages Distribution
+        run: |
+          mkdir -p dist
+          # Copy core WASM, preloaded assets, runtime bridge, and HTML hosts
+          cp -f build-web/eatsbits.wasm dist/
+          cp -f build-web/eatsbits.data dist/
+          cp -f build-web/eatsbits.js dist/
+          cp -f build-web/eatsbits.html dist/
+          cp -f build-web/index.html dist/
+          
+          # Copy PWA & static assets
+          cp -f build-web/manifest.json dist/
+          cp -f build-web/sw.js dist/
+          cp -f build-web/app_icon.svg dist/
+          cp -f build-web/icon-*.png dist/
+          cp -f build-web/apple-touch-icon.png dist/
+          cp -f build-web/favicon.ico dist/
+          cp -f build-web/tui.html dist/
+
+          # Custom domain configuration for eatsbits.app
+          if [ -f "web/CNAME" ]; then
+            cp -f web/CNAME dist/CNAME
+          fi
+
+          # Disable Jekyll processing on GitHub Pages
+          touch dist/.nojekyll
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

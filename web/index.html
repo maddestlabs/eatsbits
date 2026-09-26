@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Eatsbits Modular Workstation (WebGPU)</title>
+    
+    <!-- PWA & Mobile Web App Meta -->
+    <meta name="application-name" content="Eatsbits">
+    <meta name="apple-mobile-web-app-title" content="Eatsbits">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0d0f14">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="High-performance modular synthesizer, tracker, and real-time DSP audio workstation built in C++20 and WebGPU.">
+    
+    <!-- Authentic Eatsbits Icons & Manifest -->
+    <link rel="icon" type="image/svg+xml" href="app_icon.svg">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background-color: #0d0f14;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at 50% 30%, #161a23 0%, #0d0f14 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas#canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            outline: none;
+            cursor: default;
+        }
+
+        /* Loading & WebGPU Banner Overlay */
+        #status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 15, 20, 0.94);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.4s ease;
+        }
+
+        .brand-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .brand-subtitle {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            letter-spacing: 0.08em;
+            margin-bottom: 28px;
+            text-transform: uppercase;
+        }
+
+        .spinner {
+            width: 44px;
+            height: 44px;
+            border: 3px solid rgba(0, 242, 254, 0.15);
+            border-top-color: #00f2fe;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #status-text {
+            font-size: 0.95rem;
+            color: #cbd5e1;
+            margin-bottom: 24px;
+        }
+
+        .start-btn {
+            background: linear-gradient(135deg, #00f2fe 0%, #0072ff 100%);
+            color: #000;
+            font-weight: 700;
+            font-size: 1rem;
+            padding: 12px 32px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0, 242, 254, 0.35);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            display: none;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.04);
+            box-shadow: 0 6px 28px rgba(0, 242, 254, 0.55);
+        }
+
+        .webgpu-badge {
+            position: absolute;
+            bottom: 16px;
+            right: 18px;
+            font-size: 0.75rem;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .error-msg {
+            color: #f87171 !important;
+            font-size: 0.9rem;
+            max-width: 480px;
+            text-align: center;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+        <div id="status-overlay">
+            <img src="app_icon.svg" alt="Eatsbits Logo" width="76" height="76" style="margin-bottom: 16px; border-radius: 16px; box-shadow: 0 8px 30px rgba(255, 140, 0, 0.35); pointer-events: none;">
+            <div class="brand-title">EATSBITS</div>
+            <div class="brand-subtitle">C++20 Modular Workstation & Live DSP</div>
+            <div class="spinner" id="loading-spinner"></div>
+            <div id="status-text">Initializing WebGPU pipeline and WebAssembly...</div>
+            <button class="start-btn" id="start-btn" onclick="startAudioAndHideOverlay()">START AUDIO & LAUNCH</button>
+        </div>
+
+        <div class="webgpu-badge" id="gpu-badge">
+            <div class="badge-dot"></div>
+            <span>WebGPU Active</span>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        const statusText = document.getElementById('status-text');
+        const spinner = document.getElementById('loading-spinner');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('status-overlay');
+        const badge = document.getElementById('gpu-badge');
+
+        // Verify WebGPU support and initiate device acquisition immediately
+        let webgpuDevicePromise = null;
+        if (navigator.gpu) {
+            webgpuDevicePromise = navigator.gpu.requestAdapter().then(function(adapter) {
+                if (!adapter) {
+                    throw new Error('No appropriate GPUAdapter found.');
+                }
+                return adapter.requestDevice();
+            }).catch(function(err) {
+                console.error('[WebGPU] Failed to acquire WebGPU device:', err);
+                return null;
+            });
+        } else {
+            badge.innerHTML = '<div class="badge-dot" style="background:#ef4444;box-shadow:0 0 8px #ef4444;"></div><span>WebGPU Unsupported</span>';
+            statusText.className = 'error-msg';
+            statusText.innerText = 'WebGPU is not supported in this browser. Please use a WebGPU-compatible browser (e.g. Chrome, Edge) with hardware acceleration enabled.';
+            spinner.style.display = 'none';
+        }
+
+        function startAudioAndHideOverlay() {
+            // Unlock all WebAudio AudioContexts upon user gesture
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+                if (window.miniaudio && window.miniaudio.device_instances) {
+                    for (var k in window.miniaudio.device_instances) {
+                        var dev = window.miniaudio.device_instances[k];
+                        if (dev && dev.audioContext && dev.audioContext.state === 'suspended') {
+                            dev.audioContext.resume();
+                        }
+                    }
+                }
+                const dummyCtx = new AudioContext();
+                if (dummyCtx.state === 'suspended') {
+                    dummyCtx.resume();
+                }
+            }
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 400);
+        }
+
+        var Module = {
+            preRun: [
+                function() {
+                    if (webgpuDevicePromise) {
+                        Module.addRunDependency('webgpu-device');
+                        webgpuDevicePromise.then(function(device) {
+                            if (device) {
+                                Module.preinitializedWebGPUDevice = device;
+                                console.log('[WebGPU] Preinitialized WebGPU GPUDevice ready on Module:', device);
+                            } else {
+                                console.warn('[WebGPU] WebGPU device promise resolved to null.');
+                            }
+                            Module.removeRunDependency('webgpu-device');
+                        }).catch(function(err) {
+                            console.error('[WebGPU] Error resolving WebGPU device for Module:', err);
+                            Module.removeRunDependency('webgpu-device');
+                        });
+                    }
+                }
+            ],
+            postRun: [function() {
+                spinner.style.display = 'none';
+                statusText.innerText = "Engine loaded. Click below to activate real-time audio:";
+                startBtn.style.display = 'inline-block';
+            }],
+            print: function(text) {
+                console.log('[Eatsbits WASM]', text);
+            },
+            printErr: function(text) {
+                console.error('[Eatsbits WASM Error]', text);
+            },
+            canvas: (function() {
+                var c = document.getElementById('canvas');
+                return c;
+            })(),
+            setStatus: function(text) {
+                if (text && text.length > 0) {
+                    statusText.innerText = text;
+                }
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                Module.setStatus(left ? 'Loading assets... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : 'All assets loaded.');
+            }
+        };
+
+        window.onerror = function(event) {
+            statusText.className = 'error-msg';
+            statusText.innerText = 'Initialization Error: ' + event;
+            spinner.style.display = 'none';
+        };
+
+        // Register Service Worker for Offline PWA execution & Cross-Origin Isolation (COOP/COEP)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(function(reg) {
+                        console.log('[Eatsbits PWA] ServiceWorker registered with scope:', reg.scope);
+                        // On static hosts like GitHub Pages that do not send COOP/COEP HTTP headers,
+                        // reload once after service worker activation so sw.js injects headers and window.crossOriginIsolated becomes true.
+                        if (!window.crossOriginIsolated && !sessionStorage.getItem('coi_reloaded')) {
+                            const reloadPage = function() {
+                                sessionStorage.setItem('coi_reloaded', '1');
+                                window.location.reload();
+                            };
+                            if (navigator.serviceWorker.controller) {
+                                reloadPage();
+                            } else {
+                                navigator.serviceWorker.addEventListener('controllerchange', reloadPage);
+                            }
+                        }
+                    })
+                    .catch(function(err) {
+                        console.warn('[Eatsbits PWA] ServiceWorker registration failed:', err);
+                    });
+            });
+        }
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

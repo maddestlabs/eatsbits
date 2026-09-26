@@ -11,7 +11,7 @@ namespace eatsbits::eatscript {
  * Ahead-Of-Time (AOT) C++ Transpiler for Eatscript scripts.
  * Emits pure C++ structs and C-ABI export functions matching EatsPluginDescriptor.
  */
-class Transpiler : public ASTVisitor {
+class Transpiler {
 public:
     Transpiler() = default;
 
@@ -21,22 +21,24 @@ public:
     std::string transpileSource(const std::string& source, const std::string& pluginId = "my_synth",
                                 const std::string& pluginName = "My Synth");
 
-    // AST Visitor methods
-    void visit(NumberLiteral* node) override;
-    void visit(StringLiteral* node) override;
-    void visit(BooleanLiteral* node) override;
-    void visit(IdentifierExpr* node) override;
-    void visit(MemberExpr* node) override;
-    void visit(BinaryExpr* node) override;
-    void visit(UnaryExpr* node) override;
-    void visit(CallExpr* node) override;
-    void visit(ListLiteral* node) override;
-    void visit(DictLiteral* node) override;
-    void visit(ExprStmt* node) override;
-    void visit(AssignStmt* node) override;
-    void visit(ReturnStmt* node) override;
-    void visit(IfStmt* node) override;
-    void visit(FunctionDef* node) override;
+    void transpileStmt(const Stmt* stmt);
+    void transpileExpr(const Expr* expr);
+
+    void visit(NumberLiteral* node);
+    void visit(StringLiteral* node);
+    void visit(BooleanLiteral* node);
+    void visit(IdentifierExpr* node);
+    void visit(MemberExpr* node);
+    void visit(BinaryExpr* node);
+    void visit(UnaryExpr* node);
+    void visit(CallExpr* node);
+    void visit(ListLiteral* node);
+    void visit(DictLiteral* node);
+    void visit(ExprStmt* node);
+    void visit(AssignStmt* node);
+    void visit(ReturnStmt* node);
+    void visit(IfStmt* node);
+    void visit(FunctionDef* node);
 
 private:
     std::string emitIndent() const;

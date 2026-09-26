@@ -278,19 +278,22 @@ std::shared_ptr<Expr> Parser::parseCall() {
         if (match(TokenType::LeftParen)) {
             // Function call
             std::vector<std::shared_ptr<Expr>> args;
+            std::vector<std::string> argNames;
             if (!check(TokenType::RightParen)) {
                 do {
+                    std::string argName;
                     // Check for named argument: step=0.25
                     if (check(TokenType::Identifier) && current_ + 1 < tokens_.size() &&
                         tokens_[current_ + 1].type == TokenType::Assign) {
-                        advance(); // name
+                        argName = advance().text; // name
                         advance(); // =
                     }
+                    argNames.push_back(std::move(argName));
                     args.push_back(parseExpression());
                 } while (match(TokenType::Comma));
             }
             consume(TokenType::RightParen, "Expected ')' after argument list");
-            expr = std::make_shared<CallExpr>(std::move(expr), std::move(args));
+            expr = std::make_shared<CallExpr>(std::move(expr), std::move(args), std::move(argNames));
         } else if (match(TokenType::Dot)) {
             const Token& name = consume(TokenType::Identifier, "Expected property or method name after '.'");
             expr = std::make_shared<MemberExpr>(std::move(expr), name.text);
@@ -322,12 +325,15 @@ std::shared_ptr<Expr> Parser::parsePrimary() {
     // List: [a, b, c]
     if (match(TokenType::LeftBracket)) {
         std::vector<std::shared_ptr<Expr>> elements;
+        skipNewlines();
         if (!check(TokenType::RightBracket)) {
-            do {
+            while (true) {
                 skipNewlines();
+                if (check(TokenType::RightBracket)) break;
                 elements.push_back(parseExpression());
                 skipNewlines();
-            } while (match(TokenType::Comma));
+                if (!match(TokenType::Comma)) break;
+            }
         }
         skipNewlines();
         consume(TokenType::RightBracket, "Expected ']' after list");
@@ -339,15 +345,17 @@ std::shared_ptr<Expr> Parser::parsePrimary() {
         std::vector<DictEntry> entries;
         skipNewlines();
         if (!check(TokenType::RightBrace)) {
-            do {
+            while (true) {
                 skipNewlines();
+                if (check(TokenType::RightBrace)) break;
                 const Token& keyToken = consume(TokenType::String, "Expected string key in dictionary");
                 consume(TokenType::Colon, "Expected ':' after dictionary key");
                 skipNewlines();
                 auto val = parseExpression();
                 entries.push_back(DictEntry{keyToken.text, std::move(val)});
                 skipNewlines();
-            } while (match(TokenType::Comma));
+                if (!match(TokenType::Comma)) break;
+            }
         }
         skipNewlines();
         consume(TokenType::RightBrace, "Expected '}' after dictionary");

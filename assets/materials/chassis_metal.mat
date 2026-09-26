@@ -1,0 +1,28 @@
+material {
+    name : chassis_metal,
+    shadingModel : unlit,
+    culling : none,
+    doubleSided : true,
+    parameters : [
+        {
+            type : sampler2d,
+            name : dawTexture
+        }
+    ],
+    requires : [
+        uv0
+    ]
+}
+
+fragment {
+    void material(inout MaterialInputs result) {
+        prepareMaterial(result);
+        vec2 uv = getUV0();
+        vec4 tex = texture(materialParams_dawTexture, uv);
+
+        // Grungy dark chassis metal with fine brushed micro-surface
+        float brush = sin(uv.y * 1200.0) * 0.02 + cos(uv.x * 400.0) * 0.01;
+        vec3 metalRgb = clamp(tex.rgb * (1.0 + brush), 0.0, 1.0);
+        result.baseColor = vec4(metalRgb, 1.0);
+    }
+}

@@ -162,7 +162,6 @@ public:
         float freq = currentFreq_;
         if (isSlide_ || (state_.startFreq != currentFreq_)) {
             constexpr float glideTime = 0.060f;
-            const float progress = std::clamp(time / glideTime, 0.0f, 1.0f);
             const float expFactor = std::exp(-time / (glideTime * 0.35f));
             const float startPitch = 69.0f + 12.0f * (std::log(state_.startFreq / 440.0f) / std::numbers::ln2_v<float>);
             const float targetPitch = 69.0f + 12.0f * (std::log(currentFreq_ / 440.0f) / std::numbers::ln2_v<float>);
@@ -183,24 +182,25 @@ public:
             tmp2 = accent_ * state_.rc2;
         }
 
-        const float instCutoff = std::clamp(nominalCutoff_ * std::pow(2.0f, tmp1 + tmp2), 40.0f, 18000.0f);
+        const float envShift = std::clamp(tmp1 + tmp2, -3.0f, 3.5f);
+        const float instCutoff = std::clamp(nominalCutoff_ * std::pow(2.0f, envShift), 40.0f, 15000.0f);
 
         // Mystran & Kunn Diode Ladder coefficients
         const float wc = 2.0f * static_cast<float>(std::numbers::pi) * instCutoff / filterRate_;
         const float fx = wc * (1.0f / static_cast<float>(std::numbers::sqrt2)) / (2.0f * static_cast<float>(std::numbers::pi));
-        const float b0 = (0.00045522346f + 6.1922189f * fx) / (1.0f + 12.358354f * fx + 4.4156345f * (fx * fx));
+        const float b0 = std::clamp((0.00045522346f + 6.1922189f * fx) / (1.0f + 12.358354f * fx + 4.4156345f * (fx * fx)), 0.0001f, 0.40f);
 
         float k = fx * (fx * (fx * (fx * (fx * (fx + 7198.6997f) - 5837.7917f) - 476.47308f) + 614.95611f) + 213.87126f) + 16.998792f;
         float g = k * (1.0f / 17.0f);
         g = (g - 1.0f) * r_ + 1.0f;
-        g = g * (1.0f + r_);
-        k = k * r_;
+        g = std::clamp(g * (1.0f + 0.5f * r_), 0.5f, 2.5f);
+        k = std::clamp(k * r_, 0.0f, 18.0f);
 
         // Amp envelope step
         state_.ampEnv *= ampDecayCoeff_;
-        const float totalAmp = state_.ampEnv + 0.45f * state_.mainEnv + (isAccent_ ? 2.5f * accent_ * state_.mainEnv : 0.0f);
+        const float totalAmp = state_.ampEnv + 0.40f * state_.mainEnv + (isAccent_ ? 1.5f * accent_ * state_.mainEnv : 0.0f);
 
-        // 4x Oversampled diode ladder loop
+        // 4x Oversampled diode ladder loop with authentic non-linear diode stage saturation
         const float phaseInc = freq / filterRate_;
         float filtered = 0.0f;
 
@@ -224,14 +224,18 @@ public:
             state_.feedbackHpX1 = fbHpIn;
             state_.feedbackHpY1 = fbHpOut;
 
-            // Diode ladder stage coupling
-            const float y0 = preHpOut - fbHpOut;
+            // Diode ladder stage coupling with non-linear stage soft-limiting
+            const float y0 = fastTanh(preHpOut - fbHpOut);
             state_.stage1 += 2.0f * b0 * (y0 - state_.stage1 + state_.stage2);
+            state_.stage1 = fastTanh(state_.stage1);
             state_.stage2 += b0 * (state_.stage1 - 2.0f * state_.stage2 + state_.stage3);
+            state_.stage2 = fastTanh(state_.stage2);
             state_.stage3 += b0 * (state_.stage2 - 2.0f * state_.stage3 + state_.stage4);
+            state_.stage3 = fastTanh(state_.stage3);
             state_.stage4 += b0 * (state_.stage3 - 2.0f * state_.stage4);
+            state_.stage4 = fastTanh(state_.stage4);
 
-            filtered = 2.0f * g * state_.stage4;
+            filtered = 1.35f * g * state_.stage4;
         }
 
         // Post-filter DC blocking highpass (24 Hz)
@@ -241,8 +245,8 @@ public:
 
         // VCA Stage & Saturation
         float output = postHpOut * totalAmp * 0.45f;
-        if (drive_ > 0.02f) {
-            output = fastTanh(output * (1.0f + drive_ * 3.5f));
+        if (drive_ > 0.01f) {
+            output = fastTanh(output * (1.0f + drive_ * 2.5f));
         }
 
         // Auto-cutoff when sound drops to silence
@@ -323,7 +327,7 @@ private:
     float envMod_{0.75f};
     float decayNorm_{0.5f};
     float accent_{0.0f};
-    float drive_{0.3f};
+    float drive_{0.25f};
     float waveform_{0.0f}; // 0.0 = Saw, 1.0 = Square
     float velocity_{0.9f};
     float currentFreq_{110.0f};

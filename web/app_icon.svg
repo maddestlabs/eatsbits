@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Eatsbits Orange Rounded Chassis -->
+  <rect x="16" y="16" width="224" height="224" rx="40" ry="40" fill="#ff8c00"/>
+  
+  <!-- Creature Silhouette (near-black) -->
+  <path d="M 50 50 H 190 V 110 H 110 V 170 H 190 V 205 H 50 Z" fill="#141210"/>
+  
+  <!-- Creature Eye -->
+  <circle cx="130" cy="80" r="16" fill="#ff8c00"/>
+  
+  <!-- Bit 1 (upper floating bit) -->
+  <rect x="200" y="115" width="24" height="24" rx="3.5" ry="3.5" fill="#141210"/>
+  
+  <!-- Bit 2 (lower floating bit) -->
+  <rect x="200" y="160" width="18" height="18" rx="3" ry="3" fill="#141210"/>
+</svg>

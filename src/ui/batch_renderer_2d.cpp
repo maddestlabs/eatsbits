@@ -1,0 +1,2222 @@
+#include "eatsbits/ui/batch_renderer_2d.hpp"
+#include <cmath>
+#include <cstring>
+#include <algorithm>
+#include <iostream>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
+#endif
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#include <emscripten/html5.h>
+#if defined(EATS_ENABLE_WEBGPU)
+#include <webgpu/webgpu.h>
+#include <webgpu/webgpu_glfw.h>
+#endif
+#endif
+
+namespace eatsbits::ui {
+
+// ============================================================================
+// Filament Batch Backend (Modern GPU / Filament PBR Stream + Zero-OpenGL DIB Presenter)
+// ============================================================================
+class FilamentBatchBackend : public IBatchRenderBackend {
+public:
+    FilamentBatchBackend() = default;
+    ~FilamentBatchBackend() override {
+        shutdown();
+    }
+
+    bool initialize(void* windowHandle, uint32_t width, uint32_t height) override {
+        viewportWidth_ = width;
+        viewportHeight_ = height;
+        atlasWidth_ = 1024;
+        atlasHeight_ = 1024;
+        fontAtlas_.assign(atlasWidth_ * atlasHeight_, 0);
+
+        if (width > 0 && height > 0) {
+            framebuffer_.assign(static_cast<size_t>(width) * height, 0xFF14171E);
+        }
+
+#if defined(_WIN32)
+        if (windowHandle) {
+            if (IsWindow(reinterpret_cast<HWND>(windowHandle))) {
+                hwnd_ = reinterpret_cast<HWND>(windowHandle);
+            } else {
+                hwnd_ = glfwGetWin32Window(static_cast<GLFWwindow*>(windowHandle));
+            }
+        }
+#else
+        (void)windowHandle;
+#endif
+        return true;
+    }
+
+    void shutdown() override {
+        fontAtlas_.clear();
+        framebuffer_.clear();
+#if defined(_WIN32)
+        hwnd_ = nullptr;
+#endif
+    }
+
+    void resize(uint32_t width, uint32_t height) override {
+        if (width == 0 || height == 0) return;
+        viewportWidth_ = width;
+        viewportHeight_ = height;
+        framebuffer_.assign(static_cast<size_t>(width) * height, 0xFF14171E);
+    }
+
+    void beginPass(float width, float height) override {
+        viewportWidth_ = static_cast<uint32_t>(width);
+        viewportHeight_ = static_cast<uint32_t>(height);
+        size_t totalPixels = static_cast<size_t>(viewportWidth_) * viewportHeight_;
+        if (framebuffer_.size() != totalPixels) {
+            framebuffer_.assign(totalPixels, 0xFF14171E);
+        } else {
+            std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF14171E);
+        }
+    }
+
+    void updateFontTexture(int /*x*/, int /*y*/, int /*w*/, int /*h*/, const unsigned char* data, int atlasW, int atlasH) override {
+        atlasWidth_ = atlasW;
+        atlasHeight_ = atlasH;
+        size_t totalBytes = static_cast<size_t>(atlasW) * atlasH;
+        if (fontAtlas_.size() != totalBytes) {
+            fontAtlas_.resize(totalBytes, 0);
+        }
+        if (data && totalBytes > 0) {
+            // FontStash passes stash->texData (the full atlas buffer)
+            std::memcpy(fontAtlas_.data(), data, totalBytes);
+        }
+    }
+
+    void renderBatch(const std::vector<Vertex2D>& vertices) override {
+        totalVerticesRendered_ += vertices.size();
+        if (vertices.size() < 3 || viewportWidth_ == 0 || viewportHeight_ == 0 || framebuffer_.empty()) return;
+
+        const size_t triCount = vertices.size() / 3;
+        for (size_t t = 0; t < triCount; ) {
+            // 1. Analytical Rounded Rect / Circle quad (mode == 2)
+            if (t + 1 < triCount && vertices[t * 3 + 0].mode == 2 && vertices[(t + 1) * 3 + 0].mode == 2) {
+                const auto& v0 = vertices[t * 3 + 0];
+                const auto& v1 = vertices[t * 3 + 1];
+                const auto& v2 = vertices[t * 3 + 2];
+                const auto& w2 = vertices[(t + 1) * 3 + 2];
+                rasterizeRoundedRect(v0, v1, v2, w2, v0.u);
+                t += 2;
+                continue;
+            }
+
+            // 2. Check if triangles t and t+1 form an axis-aligned or convex quad
+            if (t + 1 < triCount) {
+                const auto& v0 = vertices[t * 3 + 0];
+                const auto& v1 = vertices[t * 3 + 1];
+                const auto& v2 = vertices[t * 3 + 2];
+                const auto& w0 = vertices[(t + 1) * 3 + 0];
+                const auto& w1 = vertices[(t + 1) * 3 + 1];
+                const auto& w2 = vertices[(t + 1) * 3 + 2];
+
+                // Fast path: standard quad emitted by drawRect / drawKnurledRing
+                if (std::abs(v0.x - w0.x) < 0.001f && std::abs(v0.y - w0.y) < 0.001f &&
+                    std::abs(v2.x - w1.x) < 0.001f && std::abs(v2.y - w1.y) < 0.001f &&
+                    v0.mode == w0.mode && v0.color == w0.color && v2.color == w1.color) {
+                    rasterizeQuad(v0, v1, v2, w2);
+                    t += 2;
+                    continue;
+                }
+
+                // Generalized quad detection: any 2 shared vertices between solid coplanar triangles
+                if (v0.mode == 0 && w0.mode == 0 &&
+                    v0.color == v1.color && v0.color == v2.color &&
+                    v0.color == w0.color && v0.color == w1.color && v0.color == w2.color) {
+                    
+                    const Vertex2D* vArr[3] = { &v0, &v1, &v2 };
+                    const Vertex2D* wArr[3] = { &w0, &w1, &w2 };
+
+                    int vMatch[3] = { -1, -1, -1 };
+                    int matchCount = 0;
+                    for (int vi = 0; vi < 3; ++vi) {
+                        for (int wi = 0; wi < 3; ++wi) {
+                            if (std::abs(vArr[vi]->x - wArr[wi]->x) < 0.001f &&
+                                std::abs(vArr[vi]->y - wArr[wi]->y) < 0.001f) {
+                                vMatch[vi] = wi;
+                                ++matchCount;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (matchCount == 2) {
+                        int vUnmatched = 0;
+                        while (vUnmatched < 3 && vMatch[vUnmatched] != -1) ++vUnmatched;
+
+                        bool wMatched[3] = { false, false, false };
+                        for (int vi = 0; vi < 3; ++vi) {
+                            if (vMatch[vi] != -1) wMatched[vMatch[vi]] = true;
+                        }
+                        int wUnmatched = 0;
+                        while (wUnmatched < 3 && wMatched[wUnmatched]) ++wUnmatched;
+
+                        int m0 = (vUnmatched + 1) % 3;
+                        int m1 = (vUnmatched + 2) % 3;
+
+                        const Vertex2D& q0 = *vArr[vUnmatched];
+                        const Vertex2D& q1 = *vArr[m0];
+                        const Vertex2D& q2 = *wArr[wUnmatched];
+                        const Vertex2D& q3 = *vArr[m1];
+
+                        float cp0 = (q1.x - q0.x) * (q2.y - q1.y) - (q1.y - q0.y) * (q2.x - q1.x);
+                        float cp1 = (q2.x - q1.x) * (q3.y - q2.y) - (q2.y - q1.y) * (q3.x - q2.x);
+                        float cp2 = (q3.x - q2.x) * (q0.y - q3.y) - (q3.y - q2.y) * (q0.x - q3.x);
+                        float cp3 = (q0.x - q3.x) * (q1.y - q0.y) - (q0.y - q3.y) * (q1.x - q0.x);
+
+                        bool allPos = (cp0 > 1e-4f && cp1 > 1e-4f && cp2 > 1e-4f && cp3 > 1e-4f);
+                        bool allNeg = (cp0 < -1e-4f && cp1 < -1e-4f && cp2 < -1e-4f && cp3 < -1e-4f);
+
+                        if (allPos || allNeg) {
+                            rasterizeQuad(q0, q1, q2, q3);
+                            t += 2;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            rasterizeTriangle(vertices[t * 3 + 0], vertices[t * 3 + 1], vertices[t * 3 + 2]);
+            t += 1;
+        }
+    }
+
+    void endPass() override {
+#if defined(_WIN32)
+        if (directPresent_ && hwnd_ && !framebuffer_.empty() && viewportWidth_ > 0 && viewportHeight_ > 0) {
+            HDC hdc = GetDC(hwnd_);
+            if (hdc) {
+                RECT clientRect{};
+                GetClientRect(hwnd_, &clientRect);
+                int clientW = clientRect.right - clientRect.left;
+                int clientH = clientRect.bottom - clientRect.top;
+
+                BITMAPINFO bmi{};
+                bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                bmi.bmiHeader.biWidth = static_cast<LONG>(viewportWidth_);
+                bmi.bmiHeader.biHeight = -static_cast<LONG>(viewportHeight_); // Top-down DIB
+                bmi.bmiHeader.biPlanes = 1;
+                bmi.bmiHeader.biBitCount = 32;
+                bmi.bmiHeader.biCompression = BI_RGB;
+
+                StretchDIBits(
+                    hdc,
+                    0, 0, clientW, clientH,
+                    0, 0, viewportWidth_, viewportHeight_,
+                    framebuffer_.data(),
+                    &bmi,
+                    DIB_RGB_COLORS,
+                    SRCCOPY
+                );
+                ReleaseDC(hwnd_, hdc);
+            }
+        }
+#endif
+    }
+
+    RenderBackendType getBackendType() const noexcept override {
+        return RenderBackendType::Filament;
+    }
+
+    const std::vector<unsigned char>& getFontAtlas() const noexcept { return fontAtlas_; }
+    const uint32_t* getFramebuffer() const noexcept override { return framebuffer_.data(); }
+    void setDirectPresent(bool enable) noexcept override { directPresent_ = enable; }
+    void setAntiAliasingMode(int mode) override { antiAliasingMode_ = std::clamp(mode, 0, 2); }
+    size_t getTotalVerticesRendered() const noexcept { return totalVerticesRendered_; }
+
+    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+        if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || framebuffer_.empty() || opacity <= 0.001f) return;
+
+        int minX = std::max(0, static_cast<int>(std::floor(x)));
+        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(x + w)));
+        int minY = std::max(0, static_cast<int>(std::floor(y)));
+        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(y + h)));
+
+        if (minX > maxX || minY > maxY) return;
+
+        const float invW = 1.0f / w;
+        const float invH = 1.0f / h;
+
+        for (int py = minY; py <= maxY; ++py) {
+            float v = std::clamp((static_cast<float>(py) + 0.5f - y) * invH, 0.0f, 1.0f);
+            float fy = v * static_cast<float>(imgH) - 0.5f;
+            int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, imgH - 1);
+            int y1 = std::min(y0 + 1, imgH - 1);
+            float wy = std::clamp(fy - std::floor(fy), 0.0f, 1.0f);
+
+            uint32_t* dstPtr = &framebuffer_[py * viewportWidth_ + minX];
+            for (int px = minX; px <= maxX; ++px, ++dstPtr) {
+                float u = std::clamp((static_cast<float>(px) + 0.5f - x) * invW, 0.0f, 1.0f);
+                float fx = u * static_cast<float>(imgW) - 0.5f;
+                int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, imgW - 1);
+                int x1 = std::min(x0 + 1, imgW - 1);
+                float wx = std::clamp(fx - std::floor(fx), 0.0f, 1.0f);
+
+                const uint8_t* p00 = &rgba[(y0 * imgW + x0) * 4];
+                const uint8_t* p10 = &rgba[(y0 * imgW + x1) * 4];
+                const uint8_t* p01 = &rgba[(y1 * imgW + x0) * 4];
+                const uint8_t* p11 = &rgba[(y1 * imgW + x1) * 4];
+
+                float w00 = (1.0f - wx) * (1.0f - wy);
+                float w10 = wx * (1.0f - wy);
+                float w01 = (1.0f - wx) * wy;
+                float w11 = wx * wy;
+
+                float r = p00[0] * w00 + p10[0] * w10 + p01[0] * w01 + p11[0] * w11;
+                float g = p00[1] * w00 + p10[1] * w10 + p01[1] * w01 + p11[1] * w11;
+                float b = p00[2] * w00 + p10[2] * w10 + p01[2] * w01 + p11[2] * w11;
+                float a = (p00[3] * w00 + p10[3] * w10 + p01[3] * w01 + p11[3] * w11) * opacity;
+
+                uint32_t ua = static_cast<uint32_t>(a + 0.5f);
+                if (ua >= 255) {
+                    *dstPtr = (0xFF << 24) | (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
+                } else if (ua > 0) {
+                    uint32_t dst = *dstPtr;
+                    uint32_t dr = (dst >> 16) & 0xFF;
+                    uint32_t dg = (dst >> 8) & 0xFF;
+                    uint32_t db = dst & 0xFF;
+                    uint32_t invA = 255 - ua;
+                    uint32_t ur = static_cast<uint32_t>(r);
+                    uint32_t ug = static_cast<uint32_t>(g);
+                    uint32_t ub = static_cast<uint32_t>(b);
+                    *dstPtr = (0xFF << 24) | (((ur * ua + dr * invA) / 255) << 16)
+                                           | (((ug * ua + dg * invA) / 255) << 8)
+                                           | ((ub * ua + db * invA) / 255);
+                }
+            }
+        }
+    }
+
+    void applyBackdropBlur(float radius = 3.0f, float dimFactor = 0.50f) override {
+        if (framebuffer_.empty() || viewportWidth_ == 0 || viewportHeight_ == 0) return;
+
+        const uint32_t w = viewportWidth_;
+        const uint32_t h = viewportHeight_;
+        const uint32_t dsW = std::max(1u, w / 2);
+        const uint32_t dsH = std::max(1u, h / 2);
+
+        // 1. Downsample 2x with 2x2 box average into temp buffer
+        std::vector<uint32_t> smallBuf(static_cast<size_t>(dsW) * dsH);
+        for (uint32_t dy = 0; dy < dsH; ++dy) {
+            uint32_t sy0 = dy * 2;
+            uint32_t sy1 = std::min(sy0 + 1, h - 1);
+            const uint32_t* row0 = &framebuffer_[static_cast<size_t>(sy0) * w];
+            const uint32_t* row1 = &framebuffer_[static_cast<size_t>(sy1) * w];
+            uint32_t* dstRow = &smallBuf[static_cast<size_t>(dy) * dsW];
+
+            for (uint32_t dx = 0; dx < dsW; ++dx) {
+                uint32_t sx0 = dx * 2;
+                uint32_t sx1 = std::min(sx0 + 1, w - 1);
+
+                uint32_t p00 = row0[sx0];
+                uint32_t p01 = row0[sx1];
+                uint32_t p10 = row1[sx0];
+                uint32_t p11 = row1[sx1];
+
+                // Average RGBA
+                uint32_t r = (((p00 & 0xFF) + (p01 & 0xFF) + (p10 & 0xFF) + (p11 & 0xFF)) >> 2);
+                uint32_t g = ((((p00 >> 8) & 0xFF) + ((p01 >> 8) & 0xFF) + ((p10 >> 8) & 0xFF) + ((p11 >> 8) & 0xFF)) >> 2);
+                uint32_t b = ((((p00 >> 16) & 0xFF) + ((p01 >> 16) & 0xFF) + ((p10 >> 16) & 0xFF) + ((p11 >> 16) & 0xFF)) >> 2);
+                dstRow[dx] = 0xFF000000 | (b << 16) | (g << 8) | r;
+            }
+        }
+
+        // 2. Horizontal Blur pass (5-tap Gaussian)
+        std::vector<uint32_t> tempBuf(smallBuf.size());
+        for (uint32_t y = 0; y < dsH; ++y) {
+            const uint32_t* srcRow = &smallBuf[static_cast<size_t>(y) * dsW];
+            uint32_t* dstRow = &tempBuf[static_cast<size_t>(y) * dsW];
+            for (uint32_t x = 0; x < dsW; ++x) {
+                int xL2 = std::max(0, static_cast<int>(x) - 2);
+                int xL1 = std::max(0, static_cast<int>(x) - 1);
+                int xR1 = std::min(static_cast<int>(dsW) - 1, static_cast<int>(x) + 1);
+                int xR2 = std::min(static_cast<int>(dsW) - 1, static_cast<int>(x) + 2);
+
+                uint32_t c0 = srcRow[xL2];
+                uint32_t c1 = srcRow[xL1];
+                uint32_t c2 = srcRow[x];
+                uint32_t c3 = srcRow[xR1];
+                uint32_t c4 = srcRow[xR2];
+
+                // Weights: 1, 2, 4, 2, 1 (sum = 10)
+                uint32_t r = ((c0 & 0xFF) + 2 * (c1 & 0xFF) + 4 * (c2 & 0xFF) + 2 * (c3 & 0xFF) + (c4 & 0xFF)) / 10;
+                uint32_t g = (((c0 >> 8) & 0xFF) + 2 * ((c1 >> 8) & 0xFF) + 4 * ((c2 >> 8) & 0xFF) + 2 * ((c3 >> 8) & 0xFF) + ((c4 >> 8) & 0xFF)) / 10;
+                uint32_t b = (((c0 >> 16) & 0xFF) + 2 * ((c1 >> 16) & 0xFF) + 4 * ((c2 >> 16) & 0xFF) + 2 * ((c3 >> 16) & 0xFF) + ((c4 >> 16) & 0xFF)) / 10;
+                dstRow[x] = 0xFF000000 | (b << 16) | (g << 8) | r;
+            }
+        }
+
+        // 3. Vertical Blur pass
+        for (uint32_t y = 0; y < dsH; ++y) {
+            int yT2 = std::max(0, static_cast<int>(y) - 2);
+            int yT1 = std::max(0, static_cast<int>(y) - 1);
+            int yB1 = std::min(static_cast<int>(dsH) - 1, static_cast<int>(y) + 1);
+            int yB2 = std::min(static_cast<int>(dsH) - 1, static_cast<int>(y) + 2);
+
+            const uint32_t* rT2 = &tempBuf[static_cast<size_t>(yT2) * dsW];
+            const uint32_t* rT1 = &tempBuf[static_cast<size_t>(yT1) * dsW];
+            const uint32_t* rM  = &tempBuf[static_cast<size_t>(y) * dsW];
+            const uint32_t* rB1 = &tempBuf[static_cast<size_t>(yB1) * dsW];
+            const uint32_t* rB2 = &tempBuf[static_cast<size_t>(yB2) * dsW];
+            uint32_t* dstRow = &smallBuf[static_cast<size_t>(y) * dsW];
+
+            for (uint32_t x = 0; x < dsW; ++x) {
+                uint32_t c0 = rT2[x];
+                uint32_t c1 = rT1[x];
+                uint32_t c2 = rM[x];
+                uint32_t c3 = rB1[x];
+                uint32_t c4 = rB2[x];
+
+                uint32_t r = ((c0 & 0xFF) + 2 * (c1 & 0xFF) + 4 * (c2 & 0xFF) + 2 * (c3 & 0xFF) + (c4 & 0xFF)) / 10;
+                uint32_t g = (((c0 >> 8) & 0xFF) + 2 * ((c1 >> 8) & 0xFF) + 4 * ((c2 >> 8) & 0xFF) + 2 * ((c3 >> 8) & 0xFF) + ((c4 >> 8) & 0xFF)) / 10;
+                uint32_t b = (((c0 >> 16) & 0xFF) + 2 * ((c1 >> 16) & 0xFF) + 4 * ((c2 >> 16) & 0xFF) + 2 * ((c3 >> 16) & 0xFF) + ((c4 >> 16) & 0xFF)) / 10;
+                dstRow[x] = 0xFF000000 | (b << 16) | (g << 8) | r;
+            }
+        }
+
+        // 4. Bilinear upsample back to framebuffer_ with dimFactor
+        float dim = std::clamp(dimFactor, 0.0f, 1.0f);
+        for (uint32_t y = 0; y < h; ++y) {
+            float srcY = (static_cast<float>(y) + 0.5f) * (static_cast<float>(dsH) / static_cast<float>(h)) - 0.5f;
+            int y0 = std::clamp(static_cast<int>(std::floor(srcY)), 0, static_cast<int>(dsH) - 1);
+            int y1 = std::clamp(y0 + 1, 0, static_cast<int>(dsH) - 1);
+            float fy = std::clamp(srcY - static_cast<float>(y0), 0.0f, 1.0f);
+
+            const uint32_t* row0 = &smallBuf[static_cast<size_t>(y0) * dsW];
+            const uint32_t* row1 = &smallBuf[static_cast<size_t>(y1) * dsW];
+            uint32_t* dstRow = &framebuffer_[static_cast<size_t>(y) * w];
+
+            for (uint32_t x = 0; x < w; ++x) {
+                float srcX = (static_cast<float>(x) + 0.5f) * (static_cast<float>(dsW) / static_cast<float>(w)) - 0.5f;
+                int x0 = std::clamp(static_cast<int>(std::floor(srcX)), 0, static_cast<int>(dsW) - 1);
+                int x1 = std::clamp(x0 + 1, 0, static_cast<int>(dsW) - 1);
+                float fx = std::clamp(srcX - static_cast<float>(x0), 0.0f, 1.0f);
+
+                uint32_t p00 = row0[x0];
+                uint32_t p10 = row0[x1];
+                uint32_t p01 = row1[x0];
+                uint32_t p11 = row1[x1];
+
+                float r0 = (p00 & 0xFF) * (1.0f - fx) + (p10 & 0xFF) * fx;
+                float r1 = (p01 & 0xFF) * (1.0f - fx) + (p11 & 0xFF) * fx;
+                float r = (r0 * (1.0f - fy) + r1 * fy) * dim;
+
+                float g0 = ((p00 >> 8) & 0xFF) * (1.0f - fx) + ((p10 >> 8) & 0xFF) * fx;
+                float g1 = ((p01 >> 8) & 0xFF) * (1.0f - fx) + ((p11 >> 8) & 0xFF) * fx;
+                float g = (g0 * (1.0f - fy) + g1 * fy) * dim;
+
+                float b0 = ((p00 >> 16) & 0xFF) * (1.0f - fx) + ((p10 >> 16) & 0xFF) * fx;
+                float b1 = ((p01 >> 16) & 0xFF) * (1.0f - fx) + ((p11 >> 16) & 0xFF) * fx;
+                float b = (b0 * (1.0f - fy) + b1 * fy) * dim;
+
+                dstRow[x] = 0xFF000000 | (static_cast<uint32_t>(b) << 16) | (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(r);
+            }
+        }
+    }
+
+private:
+    void rasterizeRoundedRect(const Vertex2D& q0, const Vertex2D& q1, const Vertex2D& q2, const Vertex2D& q3, float radius) {
+        float fMinX = std::min({q0.x, q1.x, q2.x, q3.x});
+        float fMaxX = std::max({q0.x, q1.x, q2.x, q3.x});
+        float fMinY = std::min({q0.y, q1.y, q2.y, q3.y});
+        float fMaxY = std::max({q0.y, q1.y, q2.y, q3.y});
+
+        int minX = std::max(0, static_cast<int>(std::floor(fMinX)));
+        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(fMaxX)));
+        int minY = std::max(0, static_cast<int>(std::floor(fMinY)));
+        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(fMaxY)));
+
+        if (minX > maxX || minY > maxY) return;
+
+        float halfW = (fMaxX - fMinX) * 0.5f;
+        float halfH = (fMaxY - fMinY) * 0.5f;
+        float cx = fMinX + halfW;
+        float cy = fMinY + halfH;
+        float rad = std::clamp(radius, 0.0f, std::min(halfW, halfH));
+        float innerW = halfW - rad;
+        float innerH = halfH - rad;
+        float radSq = rad * rad;
+
+        bool isSolid = (q0.color == q2.color);
+        float c0_r = static_cast<float>(q0.color & 0xFF);
+        float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+        float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+        float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+        float c1_r = static_cast<float>(q2.color & 0xFF);
+        float c1_g = static_cast<float>((q2.color >> 8) & 0xFF);
+        float c1_b = static_cast<float>((q2.color >> 16) & 0xFF);
+        float c1_a = static_cast<float>((q2.color >> 24) & 0xFF);
+
+        float invH = (fMaxY > fMinY) ? (1.0f / (fMaxY - fMinY)) : 1.0f;
+
+        const int numSamples = (antiAliasingMode_ == 0) ? 1 : ((antiAliasingMode_ == 1) ? 2 : 4);
+        const float ox[4] = { 0.375f, -0.125f,  0.125f, -0.375f };
+        const float oy[4] = {-0.125f, -0.375f,  0.375f,  0.125f };
+
+        for (int y = minY; y <= maxY; ++y) {
+            float py = static_cast<float>(y) + 0.5f;
+            float qy = std::abs(py - cy) - innerH;
+            if (qy > rad + 0.6f) continue;
+
+            float r, g, b, a;
+            if (isSolid) {
+                r = c0_r; g = c0_g; b = c0_b; a = c0_a;
+            } else {
+                float t = std::clamp((py - fMinY) * invH, 0.0f, 1.0f);
+                r = c0_r + (c1_r - c0_r) * t;
+                g = c0_g + (c1_g - c0_g) * t;
+                b = c0_b + (c1_b - c0_b) * t;
+                a = c0_a + (c1_a - c0_a) * t;
+            }
+
+            uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+            uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+            uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+            uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
+            if (ua == 0) continue;
+
+            float rowExt = (qy <= 0.0f) ? halfW : (innerW + std::sqrt(std::max(0.0f, radSq - qy * qy)));
+            float rowMinX = cx - rowExt;
+            float rowMaxX = cx + rowExt;
+
+            int rStart = std::max(minX, static_cast<int>(std::floor(rowMinX - 0.5f)));
+            int rEnd   = std::min(maxX, static_cast<int>(std::ceil(rowMaxX + 0.5f)));
+            if (rStart > rEnd) continue;
+
+            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rStart];
+
+            for (int x = rStart; x <= rEnd; ++x, ++rowDst) {
+                float px = static_cast<float>(x) + 0.5f;
+
+                // Quick interior check: strictly inside horizontal span by > 0.75px
+                if (px >= rowMinX + 0.75f && px <= rowMaxX - 0.75f) {
+                    if (ua >= 255) {
+                        *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                    } else {
+                        uint32_t dst = *rowDst;
+                        uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                        uint32_t invA = 255 - ua;
+                        *rowDst = (0xFF << 24) | (((ur * ua + dr * invA) / 255) << 16)
+                                               | (((ug * ua + dg * invA) / 255) << 8)
+                                               | ((ub * ua + db * invA) / 255);
+                    }
+                    continue;
+                }
+
+                // Silhouette boundary pixel: evaluate subpixel samples
+                uint32_t mask = 0;
+                if (antiAliasingMode_ == 0) {
+                    float spx = px;
+                    float spy = py;
+                    float sqx = std::abs(spx - cx) - innerW;
+                    float sqy = std::abs(spy - cy) - innerH;
+                    if (sqx <= 0.0f && sqy <= 0.0f) {
+                        mask = 1;
+                    } else if (sqx <= 0.0f) {
+                        if (sqy <= rad) mask = 1;
+                    } else if (sqy <= 0.0f) {
+                        if (sqx <= rad) mask = 1;
+                    } else if (sqx * sqx + sqy * sqy <= radSq) {
+                        mask = 1;
+                    }
+                } else {
+                    for (int s = 0; s < numSamples; ++s) {
+                        float spx = px + ox[s];
+                        float spy = py + oy[s];
+                        float sqx = std::abs(spx - cx) - innerW;
+                        float sqy = std::abs(spy - cy) - innerH;
+                        if (sqx <= 0.0f && sqy <= 0.0f) {
+                            ++mask;
+                        } else if (sqx <= 0.0f) {
+                            if (sqy <= rad) ++mask;
+                        } else if (sqy <= 0.0f) {
+                            if (sqx <= rad) ++mask;
+                        } else if (sqx * sqx + sqy * sqy <= radSq) {
+                            ++mask;
+                        }
+                    }
+                }
+
+                if (mask > 0) {
+                    uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? ua : ((ua * mask + (numSamples / 2)) / numSamples);
+                    if (effA >= 255) {
+                        *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                    } else if (effA > 0) {
+                        uint32_t dst = *rowDst;
+                        uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                        uint32_t invA = 255 - effA;
+                        *rowDst = (0xFF << 24) | (((ur * effA + dr * invA) / 255) << 16)
+                                               | (((ug * effA + dg * invA) / 255) << 8)
+                                               | ((ub * effA + db * invA) / 255);
+                    }
+                }
+            }
+        }
+    }
+
+    void rasterizeQuad(const Vertex2D& q0, const Vertex2D& q1, const Vertex2D& q2, const Vertex2D& q3) {
+        float fMinX = std::min({q0.x, q1.x, q2.x, q3.x});
+        float fMaxX = std::max({q0.x, q1.x, q2.x, q3.x});
+        float fMinY = std::min({q0.y, q1.y, q2.y, q3.y});
+        float fMaxY = std::max({q0.y, q1.y, q2.y, q3.y});
+
+        int minX = std::max(0, static_cast<int>(std::floor(fMinX)));
+        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(fMaxX)));
+        int minY = std::max(0, static_cast<int>(std::floor(fMinY)));
+        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(fMaxY)));
+
+        if (minX > maxX || minY > maxY) return;
+
+        // Check if this is an axis-aligned solid or vertically gradient rectangle
+        bool isAxisAligned = (std::abs(q0.y - q1.y) < 0.01f && std::abs(q1.x - q2.x) < 0.01f &&
+                              std::abs(q2.y - q3.y) < 0.01f && std::abs(q3.x - q0.x) < 0.01f);
+
+        if (isAxisAligned) {
+            int rMinX = std::max(0, static_cast<int>(std::round(fMinX)));
+            int rMaxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::round(fMaxX)) - 1);
+            int rMinY = std::max(0, static_cast<int>(std::round(fMinY)));
+            int rMaxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::round(fMaxY)) - 1);
+
+            if (rMinX <= rMaxX && rMinY <= rMaxY) {
+                if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
+                    // Solid Axis-Aligned Rectangle: Direct high-speed fill with ZERO diagonal line!
+                    uint32_t a = (q0.color >> 24) & 0xFF;
+                    uint32_t c_r = q0.color & 0xFF;
+                    uint32_t c_g = (q0.color >> 8) & 0xFF;
+                    uint32_t c_b = (q0.color >> 16) & 0xFF;
+
+                    if (a >= 255) {
+                        uint32_t col = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                        int count = rMaxX - rMinX + 1;
+                        for (int y = rMinY; y <= rMaxY; ++y) {
+                            std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
+                        }
+                        return;
+                    } else if (a > 0) {
+                        uint32_t invA = 255 - a;
+                        for (int y = rMinY; y <= rMaxY; ++y) {
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                            for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t outR = (c_r * a + dr * invA) / 255;
+                                uint32_t outG = (c_g * a + dg * invA) / 255;
+                                uint32_t outB = (c_b * a + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        }
+                        return;
+                    }
+                } else if (q0.mode == 0 && q0.color == q1.color && q2.color == q3.color) {
+                    // Vertical Gradient Axis-Aligned Rectangle: Fast row-by-row interpolation using FLOAT arithmetic!
+                    float c0_r = static_cast<float>(q0.color & 0xFF);
+                    float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                    float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                    float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                    float c1_r = static_cast<float>(q2.color & 0xFF);
+                    float c1_g = static_cast<float>((q2.color >> 8) & 0xFF);
+                    float c1_b = static_cast<float>((q2.color >> 16) & 0xFF);
+                    float c1_a = static_cast<float>((q2.color >> 24) & 0xFF);
+
+                    float invH = (fMaxY > fMinY) ? (1.0f / (fMaxY - fMinY)) : 1.0f;
+                    int count = rMaxX - rMinX + 1;
+                    for (int y = rMinY; y <= rMaxY; ++y) {
+                        float t = std::clamp((static_cast<float>(y) + 0.5f - fMinY) * invH, 0.0f, 1.0f);
+                        float r = c0_r + (c1_r - c0_r) * t;
+                        float g = c0_g + (c1_g - c0_g) * t;
+                        float b = c0_b + (c1_b - c0_b) * t;
+                        float a = c0_a + (c1_a - c0_a) * t;
+
+                        uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+                        uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+                        uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+                        uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
+
+                        if (ua >= 255) {
+                            uint32_t col = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                            std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
+                        } else if (ua > 0) {
+                            uint32_t invA = 255 - ua;
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                            for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t outR = (ur * ua + dr * invA) / 255;
+                                uint32_t outG = (ug * ua + dg * invA) / 255;
+                                uint32_t outB = (ub * ua + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        }
+                    }
+                    return;
+                } else if (q0.mode == 0 && q0.color == q3.color && q1.color == q2.color) {
+                    // Horizontal Gradient Axis-Aligned Rectangle
+                    float c0_r = static_cast<float>(q0.color & 0xFF);
+                    float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                    float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                    float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                    float c1_r = static_cast<float>(q1.color & 0xFF);
+                    float c1_g = static_cast<float>((q1.color >> 8) & 0xFF);
+                    float c1_b = static_cast<float>((q1.color >> 16) & 0xFF);
+                    float c1_a = static_cast<float>((q1.color >> 24) & 0xFF);
+
+                    float invW = (fMaxX > fMinX) ? (1.0f / (fMaxX - fMinX)) : 1.0f;
+                    for (int y = rMinY; y <= rMaxY; ++y) {
+                        uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                        for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                            float t = std::clamp((static_cast<float>(x) + 0.5f - fMinX) * invW, 0.0f, 1.0f);
+                            float r = c0_r + (c1_r - c0_r) * t;
+                            float g = c0_g + (c1_g - c0_g) * t;
+                            float b = c0_b + (c1_b - c0_b) * t;
+                            float a = c0_a + (c1_a - c0_a) * t;
+
+                            uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+                            uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+                            uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+                            uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
+
+                            if (ua >= 255) {
+                                *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                            } else if (ua > 0) {
+                                uint32_t invA = 255 - ua;
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t outR = (ur * ua + dr * invA) / 255;
+                                uint32_t outG = (ug * ua + dg * invA) / 255;
+                                uint32_t outB = (ub * ua + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
+        // If not a solid quad, split into 2 triangles with exact per-vertex color interpolation
+        if (q0.color != q1.color || q0.color != q2.color || q0.color != q3.color) {
+            rasterizeTriangle(q0, q1, q2);
+            rasterizeTriangle(q0, q2, q3);
+            return;
+        }
+
+        // General Convex Quad (Angled Line, Rotated Slab, Bezier Segment):
+        // Rasterize using its 4 OUTER edges (Zero diagonal line!):
+        // Edge 0: q0 -> q1, Edge 1: q1 -> q2, Edge 2: q2 -> q3, Edge 3: q3 -> q0
+        float dx0 = q1.x - q0.x, dy0 = q1.y - q0.y;
+        float dx1 = q2.x - q1.x, dy1 = q2.y - q1.y;
+        float dx2 = q3.x - q2.x, dy2 = q3.y - q2.y;
+        float dx3 = q0.x - q3.x, dy3 = q0.y - q3.y;
+
+        // Verify winding (positive area)
+        float area = (q1.x - q0.x) * (q2.y - q0.y) - (q1.y - q0.y) * (q2.x - q0.x);
+        Vertex2D p0 = q0, p1 = q1, p2 = q2, p3 = q3;
+        if (area < 0.0f) {
+            std::swap(p1, p3);
+            dx0 = p1.x - p0.x; dy0 = p1.y - p0.y;
+            dx1 = p2.x - p1.x; dy1 = p2.y - p1.y;
+            dx2 = p3.x - p2.x; dy2 = p3.y - p2.y;
+            dx3 = p0.x - p3.x; dy3 = p0.y - p3.y;
+        }
+
+        const float stepX0 = -dy0, stepX1 = -dy1, stepX2 = -dy2, stepX3 = -dy3;
+        const uint32_t c0_r = p0.color & 0xFF, c0_g = (p0.color >> 8) & 0xFF, c0_b = (p0.color >> 16) & 0xFF, c0_a = (p0.color >> 24) & 0xFF;
+        const float startPx = static_cast<float>(minX) + 0.5f;
+
+        if (antiAliasingMode_ == 0) {
+            // Fast 1-Sample Point Sampling
+            for (int y = minY; y <= maxY; ++y) {
+                const float py = static_cast<float>(y) + 0.5f;
+                float e0 = dx0 * (py - p0.y) - dy0 * (startPx - p0.x);
+                float e1 = dx1 * (py - p1.y) - dy1 * (startPx - p1.x);
+                float e2 = dx2 * (py - p2.y) - dy2 * (startPx - p2.x);
+                float e3 = dx3 * (py - p3.y) - dy3 * (startPx - p3.x);
+
+                uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
+                for (int x = minX; x <= maxX; ++x, ++rowDst) {
+                    if (e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f && e3 >= 0.0f) {
+                        if (c0_a >= 255) {
+                            *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
+                        } else if (c0_a > 0) {
+                            uint32_t dst = *rowDst;
+                            uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                            uint32_t invA = 255 - c0_a;
+                            *rowDst = (0xFF << 24) | (((c0_r * c0_a + dr * invA) / 255) << 16)
+                                                   | (((c0_g * c0_a + dg * invA) / 255) << 8)
+                                                   | ((c0_b * c0_a + db * invA) / 255);
+                        }
+                    }
+                    e0 += stepX0; e1 += stepX1; e2 += stepX2; e3 += stepX3;
+                }
+            }
+            return;
+        }
+
+        // Subpixel Sampling: 2x Fast or 4x RGSS
+        const int numSamples = (antiAliasingMode_ == 1) ? 2 : 4;
+        const float ox[4] = { 0.375f, -0.125f,  0.125f, -0.375f };
+        const float oy[4] = {-0.125f, -0.375f,  0.375f,  0.125f };
+
+        float de0[4], de1[4], de2[4], de3[4];
+        for (int s = 0; s < numSamples; ++s) {
+            de0[s] = dx0 * oy[s] - dy0 * ox[s];
+            de1[s] = dx1 * oy[s] - dy1 * ox[s];
+            de2[s] = dx2 * oy[s] - dy2 * ox[s];
+            de3[s] = dx3 * oy[s] - dy3 * ox[s];
+        }
+
+        float minDe0 = de0[0], maxDe0 = de0[0];
+        float minDe1 = de1[0], maxDe1 = de1[0];
+        float minDe2 = de2[0], maxDe2 = de2[0];
+        float minDe3 = de3[0], maxDe3 = de3[0];
+        for (int s = 1; s < numSamples; ++s) {
+            minDe0 = std::min(minDe0, de0[s]); maxDe0 = std::max(maxDe0, de0[s]);
+            minDe1 = std::min(minDe1, de1[s]); maxDe1 = std::max(maxDe1, de1[s]);
+            minDe2 = std::min(minDe2, de2[s]); maxDe2 = std::max(maxDe2, de2[s]);
+            minDe3 = std::min(minDe3, de3[s]); maxDe3 = std::max(maxDe3, de3[s]);
+        }
+
+        for (int y = minY; y <= maxY; ++y) {
+            const float py = static_cast<float>(y) + 0.5f;
+            float e0 = dx0 * (py - p0.y) - dy0 * (startPx - p0.x);
+            float e1 = dx1 * (py - p1.y) - dy1 * (startPx - p1.x);
+            float e2 = dx2 * (py - p2.y) - dy2 * (startPx - p2.x);
+            float e3 = dx3 * (py - p3.y) - dy3 * (startPx - p3.x);
+
+            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
+
+            for (int x = minX; x <= maxX; ++x, ++rowDst) {
+                if (e0 + maxDe0 >= 0.0f && e1 + maxDe1 >= 0.0f && e2 + maxDe2 >= 0.0f && e3 + maxDe3 >= 0.0f) {
+                    uint32_t mask = numSamples;
+                    if (!(e0 + minDe0 >= 0.0f && e1 + minDe1 >= 0.0f && e2 + minDe2 >= 0.0f && e3 + minDe3 >= 0.0f)) {
+                        mask = 0;
+                        for (int s = 0; s < numSamples; ++s) {
+                            if (e0 + de0[s] >= 0.0f && e1 + de1[s] >= 0.0f && e2 + de2[s] >= 0.0f && e3 + de3[s] >= 0.0f) {
+                                ++mask;
+                            }
+                        }
+                    }
+
+                    if (mask > 0) {
+                        uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
+                        if (effA >= 255) {
+                            *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
+                        } else if (effA > 0) {
+                            uint32_t dst = *rowDst;
+                            uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                            uint32_t invA = 255 - effA;
+                            *rowDst = (0xFF << 24) | (((c0_r * effA + dr * invA) / 255) << 16)
+                                                   | (((c0_g * effA + dg * invA) / 255) << 8)
+                                                   | ((c0_b * effA + db * invA) / 255);
+                        }
+                    }
+                }
+                e0 += stepX0; e1 += stepX1; e2 += stepX2; e3 += stepX3;
+            }
+        }
+    }
+
+    void rasterizeTriangle(const Vertex2D& v0, const Vertex2D& v1, const Vertex2D& v2) {
+        int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
+        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
+        int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
+        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
+
+        if (minX > maxX || minY > maxY) return;
+
+        Vertex2D t0 = v0;
+        Vertex2D t1 = v1;
+        Vertex2D t2 = v2;
+
+        float area = (t1.x - t0.x) * (t2.y - t0.y) - (t1.y - t0.y) * (t2.x - t0.x);
+        if (std::abs(area) < 1e-4f) return;
+        if (area < 0.0f) {
+            std::swap(t1, t2);
+            area = -area;
+        }
+
+        const float invArea = 1.0f / area;
+
+        // Edge 0: t0 -> t1
+        const float dx0 = t1.x - t0.x;
+        const float dy0 = t1.y - t0.y;
+        const float stepX0 = -dy0;
+
+        // Edge 1: t1 -> t2
+        const float dx1 = t2.x - t1.x;
+        const float dy1 = t2.y - t1.y;
+        const float stepX1 = -dy1;
+
+        // Edge 2: t2 -> t0
+        const float dx2 = t0.x - t2.x;
+        const float dy2 = t0.y - t2.y;
+        const float stepX2 = -dy2;
+
+        const bool isText = (t0.mode == 1 || t1.mode == 1 || t2.mode == 1);
+        const bool isSolid = (!isText && t0.color == t1.color && t0.color == t2.color);
+
+        const uint32_t c0_r = t0.color & 0xFF;
+        const uint32_t c0_g = (t0.color >> 8) & 0xFF;
+        const uint32_t c0_b = (t0.color >> 16) & 0xFF;
+        const uint32_t c0_a = (t0.color >> 24) & 0xFF;
+
+        const uint32_t c1_r = t1.color & 0xFF;
+        const uint32_t c1_g = (t1.color >> 8) & 0xFF;
+        const uint32_t c1_b = (t1.color >> 16) & 0xFF;
+        const uint32_t c1_a = (t1.color >> 24) & 0xFF;
+
+        const uint32_t c2_r = t2.color & 0xFF;
+        const uint32_t c2_g = (t2.color >> 8) & 0xFF;
+        const uint32_t c2_b = (t2.color >> 16) & 0xFF;
+        const uint32_t c2_a = (t2.color >> 24) & 0xFF;
+
+        const float startPx = static_cast<float>(minX) + 0.5f;
+
+        if (antiAliasingMode_ == 0) {
+            // Fast 1-Sample Point Sampling
+            for (int y = minY; y <= maxY; ++y) {
+                const float py = static_cast<float>(y) + 0.5f;
+                float e0 = dx0 * (py - t0.y) - dy0 * (startPx - t0.x);
+                float e1 = dx1 * (py - t1.y) - dy1 * (startPx - t1.x);
+                float e2 = dx2 * (py - t2.y) - dy2 * (startPx - t2.x);
+
+                uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
+                for (int x = minX; x <= maxX; ++x, ++rowDst) {
+                    if (e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f) {
+                        if (isSolid) {
+                            if (c0_a >= 255) {
+                                *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
+                            } else if (c0_a > 0) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                                uint32_t invA = 255 - c0_a;
+                                *rowDst = (0xFF << 24) | (((c0_r * c0_a + dr * invA) / 255) << 16)
+                                                       | (((c0_g * c0_a + dg * invA) / 255) << 8)
+                                                       | ((c0_b * c0_a + db * invA) / 255);
+                            }
+                        } else if (isText) {
+                            float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
+                            float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
+                            float fx = u * static_cast<float>(atlasWidth_) - 0.5f;
+                            float fy = v * static_cast<float>(atlasHeight_) - 0.5f;
+                            int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, atlasWidth_ - 1);
+                            int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, atlasHeight_ - 1);
+                            int x1 = std::min(x0 + 1, atlasWidth_ - 1);
+                            int y1 = std::min(y0 + 1, atlasHeight_ - 1);
+                            float wx = fx - std::floor(fx), wy = fy - std::floor(fy);
+                            float a00 = fontAtlas_[static_cast<size_t>(y0 * atlasWidth_ + x0)];
+                            float a10 = fontAtlas_[static_cast<size_t>(y0 * atlasWidth_ + x1)];
+                            float a01 = fontAtlas_[static_cast<size_t>(y1 * atlasWidth_ + x0)];
+                            float a11 = fontAtlas_[static_cast<size_t>(y1 * atlasWidth_ + x1)];
+                            float fontAlphaF = (a00 * (1.0f - wx) + a10 * wx) * (1.0f - wy) +
+                                               (a01 * (1.0f - wx) + a11 * wx) * wy;
+                            uint32_t fontAlpha = static_cast<uint32_t>(fontAlphaF + 0.5f);
+                            if (fontAlpha > 0) {
+                                uint32_t a = (c0_a * fontAlpha) / 255;
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                                uint32_t invA = 255 - a;
+                                *rowDst = (0xFF << 24) | (((c0_r * a + dr * invA) / 255) << 16)
+                                                       | (((c0_g * a + dg * invA) / 255) << 8)
+                                                       | ((c0_b * a + db * invA) / 255);
+                            }
+                        } else {
+                            uint32_t r = static_cast<uint32_t>((e1 * c0_r + e2 * c1_r + e0 * c2_r) * invArea);
+                            uint32_t g = static_cast<uint32_t>((e1 * c0_g + e2 * c1_g + e0 * c2_g) * invArea);
+                            uint32_t b = static_cast<uint32_t>((e1 * c0_b + e2 * c1_b + e0 * c2_b) * invArea);
+                            uint32_t a = static_cast<uint32_t>((e1 * c0_a + e2 * c1_a + e0 * c2_a) * invArea);
+                            if (a >= 255) {
+                                *rowDst = (0xFF << 24) | (r << 16) | (g << 8) | b;
+                            } else if (a > 0) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
+                                uint32_t invA = 255 - a;
+                                *rowDst = (0xFF << 24) | (((r * a + dr * invA) / 255) << 16)
+                                                       | (((g * a + dg * invA) / 255) << 8)
+                                                       | ((b * a + db * invA) / 255);
+                            }
+                        }
+                    }
+                    e0 += stepX0; e1 += stepX1; e2 += stepX2;
+                }
+            }
+            return;
+        }
+
+        // Subpixel Sampling: 2x Fast or 4x RGSS
+        const int numSamples = (antiAliasingMode_ == 1) ? 2 : 4;
+        const float ox[4] = { 0.375f, -0.125f,  0.125f, -0.375f };
+        const float oy[4] = {-0.125f, -0.375f,  0.375f,  0.125f };
+
+        float de0[4], de1[4], de2[4];
+        for (int s = 0; s < numSamples; ++s) {
+            de0[s] = dx0 * oy[s] - dy0 * ox[s];
+            de1[s] = dx1 * oy[s] - dy1 * ox[s];
+            de2[s] = dx2 * oy[s] - dy2 * ox[s];
+        }
+
+        float minDe0 = de0[0], maxDe0 = de0[0];
+        float minDe1 = de1[0], maxDe1 = de1[0];
+        float minDe2 = de2[0], maxDe2 = de2[0];
+        for (int s = 1; s < numSamples; ++s) {
+            minDe0 = std::min(minDe0, de0[s]); maxDe0 = std::max(maxDe0, de0[s]);
+            minDe1 = std::min(minDe1, de1[s]); maxDe1 = std::max(maxDe1, de1[s]);
+            minDe2 = std::min(minDe2, de2[s]); maxDe2 = std::max(maxDe2, de2[s]);
+        }
+
+        for (int y = minY; y <= maxY; ++y) {
+            const float py = static_cast<float>(y) + 0.5f;
+
+            float e0 = dx0 * (py - t0.y) - dy0 * (startPx - t0.x);
+            float e1 = dx1 * (py - t1.y) - dy1 * (startPx - t1.x);
+            float e2 = dx2 * (py - t2.y) - dy2 * (startPx - t2.x);
+
+            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
+
+            for (int x = minX; x <= maxX; ++x, ++rowDst) {
+                // Quick reject if outside any edge's maximum subpixel reach
+                if (e0 + maxDe0 >= 0.0f && e1 + maxDe1 >= 0.0f && e2 + maxDe2 >= 0.0f) {
+                    uint32_t mask = numSamples;
+                    // Check if interior (all subpixel samples guaranteed inside)
+                    if (!(e0 + minDe0 >= 0.0f && e1 + minDe1 >= 0.0f && e2 + minDe2 >= 0.0f)) {
+                        mask = 0;
+                        for (int s = 0; s < numSamples; ++s) {
+                            if (e0 + de0[s] >= 0.0f && e1 + de1[s] >= 0.0f && e2 + de2[s] >= 0.0f) {
+                                ++mask;
+                            }
+                        }
+                    }
+
+                    if (mask > 0) {
+                        if (isSolid) {
+                            uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
+                            if (effA >= 255) {
+                                *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
+                            } else if (effA > 0) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t invA = 255 - effA;
+                                uint32_t outR = (c0_r * effA + dr * invA) / 255;
+                                uint32_t outG = (c0_g * effA + dg * invA) / 255;
+                                uint32_t outB = (c0_b * effA + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        } else if (isText) {
+                            float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
+                            float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
+
+                            // Bilinear interpolation for smooth, crisp font glyph antialiasing
+                            float fx = u * static_cast<float>(atlasWidth_) - 0.5f;
+                            float fy = v * static_cast<float>(atlasHeight_) - 0.5f;
+                            int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, atlasWidth_ - 1);
+                            int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, atlasHeight_ - 1);
+                            int x1 = std::min(x0 + 1, atlasWidth_ - 1);
+                            int y1 = std::min(y0 + 1, atlasHeight_ - 1);
+                            float wx = fx - std::floor(fx);
+                            float wy = fy - std::floor(fy);
+
+                            float a00 = fontAtlas_[static_cast<size_t>(y0 * atlasWidth_ + x0)];
+                            float a10 = fontAtlas_[static_cast<size_t>(y0 * atlasWidth_ + x1)];
+                            float a01 = fontAtlas_[static_cast<size_t>(y1 * atlasWidth_ + x0)];
+                            float a11 = fontAtlas_[static_cast<size_t>(y1 * atlasWidth_ + x1)];
+                            float fontAlphaF = (a00 * (1.0f - wx) + a10 * wx) * (1.0f - wy) +
+                                               (a01 * (1.0f - wx) + a11 * wx) * wy;
+                            uint32_t fontAlpha = static_cast<uint32_t>(fontAlphaF + 0.5f);
+
+                            if (fontAlpha > 0) {
+                                uint32_t a = (c0_a * fontAlpha) / 255;
+                                if (mask < static_cast<uint32_t>(numSamples)) a = (a * mask + (numSamples / 2)) / numSamples;
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t invA = 255 - a;
+                                uint32_t outR = (c0_r * a + dr * invA) / 255;
+                                uint32_t outG = (c0_g * a + dg * invA) / 255;
+                                uint32_t outB = (c0_b * a + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        } else {
+                            // Smooth color gradient
+                            uint32_t r = static_cast<uint32_t>((e1 * c0_r + e2 * c1_r + e0 * c2_r) * invArea);
+                            uint32_t g = static_cast<uint32_t>((e1 * c0_g + e2 * c1_g + e0 * c2_g) * invArea);
+                            uint32_t b = static_cast<uint32_t>((e1 * c0_b + e2 * c1_b + e0 * c2_b) * invArea);
+                            uint32_t a = static_cast<uint32_t>((e1 * c0_a + e2 * c1_a + e0 * c2_a) * invArea);
+                            uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? a : ((a * mask + (numSamples / 2)) / numSamples);
+
+                            if (effA >= 255) {
+                                *rowDst = (0xFF << 24) | (r << 16) | (g << 8) | b;
+                            } else if (effA > 0) {
+                                uint32_t dst = *rowDst;
+                                uint32_t dr = (dst >> 16) & 0xFF;
+                                uint32_t dg = (dst >> 8) & 0xFF;
+                                uint32_t db = dst & 0xFF;
+                                uint32_t invA = 255 - effA;
+                                uint32_t outR = (r * effA + dr * invA) / 255;
+                                uint32_t outG = (g * effA + dg * invA) / 255;
+                                uint32_t outB = (b * effA + db * invA) / 255;
+                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            }
+                        }
+                    }
+                }
+                e0 += stepX0;
+                e1 += stepX1;
+                e2 += stepX2;
+            }
+        }
+    }
+
+    std::vector<unsigned char> fontAtlas_;
+    std::vector<uint32_t> framebuffer_;
+    int atlasWidth_{1024};
+    int atlasHeight_{1024};
+    size_t totalVerticesRendered_{0};
+    uint32_t viewportWidth_{1280};
+    uint32_t viewportHeight_{800};
+    bool directPresent_{true};
+    int antiAliasingMode_{2};
+#if defined(_WIN32)
+    HWND hwnd_{nullptr};
+#endif
+};
+
+// ============================================================================
+// WebGPU Backend (WebAssembly / Native WebGPU WGSL Pipeline)
+// ============================================================================
+#if defined(__EMSCRIPTEN__) && defined(EATS_ENABLE_WEBGPU)
+static inline WGPUStringView makeWgpuStringView(const char* s) {
+    return WGPUStringView{ s, WGPU_STRLEN };
+}
+
+class WebGpuBatchBackend : public IBatchRenderBackend {
+public:
+    WebGpuBatchBackend() = default;
+    ~WebGpuBatchBackend() override {
+        shutdown();
+    }
+
+    bool initialize(void* /*windowHandle*/, uint32_t width, uint32_t height) override {
+        width_ = width;
+        height_ = height;
+
+#if defined(__EMSCRIPTEN__)
+        int hasDevice = EM_ASM_INT({
+            return (typeof Module !== 'undefined' && Module['preinitializedWebGPUDevice']) ? 1 : 0;
+        });
+        if (!hasDevice) {
+            std::cerr << "[WebGPU] Module['preinitializedWebGPUDevice'] is not available! Browser WebGPU device was not initialized." << std::endl;
+            return false;
+        }
+#endif
+
+        device_ = emscripten_webgpu_get_device();
+        if (!device_) {
+            std::cerr << "[WebGPU] Failed to retrieve WebGPU device from Emscripten!" << std::endl;
+            return false;
+        }
+
+        // Create surface configuration on HTML5 canvas
+        WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasDesc{};
+        canvasDesc.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
+        canvasDesc.selector = makeWgpuStringView("#canvas");
+
+        WGPUSurfaceDescriptor surfDesc{};
+        surfDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&canvasDesc);
+
+        WGPUInstance instance = wgpuCreateInstance(nullptr);
+        surface_ = wgpuInstanceCreateSurface(instance, &surfDesc);
+
+        WGPUTextureFormat prefFormat = WGPUTextureFormat_BGRA8Unorm;
+        WGPUSurfaceConfiguration config{};
+        config.device = device_;
+        config.format = prefFormat;
+        config.usage = WGPUTextureUsage_RenderAttachment;
+        config.viewFormatCount = 0;
+        config.viewFormats = nullptr;
+        config.alphaMode = WGPUCompositeAlphaMode_Auto;
+        config.width = width_;
+        config.height = height_;
+        config.presentMode = WGPUPresentMode_Fifo;
+
+        wgpuSurfaceConfigure(surface_, &config);
+
+        initShadersAndPipeline();
+        return true;
+    }
+
+    void shutdown() override {
+        if (currentBackBufferView_) {
+            wgpuTextureViewRelease(currentBackBufferView_);
+            currentBackBufferView_ = nullptr;
+        }
+        if (currentSurfaceTexture_.texture) {
+            wgpuTextureRelease(currentSurfaceTexture_.texture);
+            currentSurfaceTexture_.texture = nullptr;
+        }
+        if (rgbaTextureView_) {
+            wgpuTextureViewRelease(rgbaTextureView_);
+            rgbaTextureView_ = nullptr;
+        }
+        if (rgbaTexture_) {
+            wgpuTextureDestroy(rgbaTexture_);
+            wgpuTextureRelease(rgbaTexture_);
+            rgbaTexture_ = nullptr;
+        }
+        if (bindGroup_) {
+            wgpuBindGroupRelease(bindGroup_);
+            bindGroup_ = nullptr;
+        }
+        if (uniformBuffer_) {
+            wgpuBufferDestroy(uniformBuffer_);
+            wgpuBufferRelease(uniformBuffer_);
+            uniformBuffer_ = nullptr;
+        }
+        if (fontSampler_) {
+            wgpuSamplerRelease(fontSampler_);
+            fontSampler_ = nullptr;
+        }
+        if (fontTextureView_) {
+            wgpuTextureViewRelease(fontTextureView_);
+            fontTextureView_ = nullptr;
+        }
+        if (fontTexture_) {
+            wgpuTextureDestroy(fontTexture_);
+            wgpuTextureRelease(fontTexture_);
+            fontTexture_ = nullptr;
+        }
+        if (pipeline_) {
+            wgpuRenderPipelineRelease(pipeline_);
+            pipeline_ = nullptr;
+        }
+        if (surface_) {
+            wgpuSurfaceRelease(surface_);
+            surface_ = nullptr;
+        }
+    }
+
+    uint32_t surfaceConfiguredWidth_{0};
+    uint32_t surfaceConfiguredHeight_{0};
+
+    void resize(uint32_t width, uint32_t height) override {
+        if (width == 0 || height == 0) return;
+        if (width == surfaceConfiguredWidth_ && height == surfaceConfiguredHeight_ && surface_ && device_) {
+            return;
+        }
+        surfaceConfiguredWidth_ = width;
+        surfaceConfiguredHeight_ = height;
+        width_ = width;
+        height_ = height;
+        if (currentBackBufferView_) {
+            wgpuTextureViewRelease(currentBackBufferView_);
+            currentBackBufferView_ = nullptr;
+        }
+        if (currentSurfaceTexture_.texture) {
+            wgpuTextureRelease(currentSurfaceTexture_.texture);
+            currentSurfaceTexture_.texture = nullptr;
+        }
+        if (surface_ && device_) {
+            WGPUSurfaceConfiguration config{};
+            config.device = device_;
+            config.format = WGPUTextureFormat_BGRA8Unorm;
+            config.usage = WGPUTextureUsage_RenderAttachment;
+            config.alphaMode = WGPUCompositeAlphaMode_Auto;
+            config.width = width_;
+            config.height = height_;
+            config.presentMode = WGPUPresentMode_Fifo;
+            wgpuSurfaceConfigure(surface_, &config);
+        }
+    }
+
+    void beginPass(float width, float height) override {
+        width_ = static_cast<uint32_t>(width);
+        height_ = static_cast<uint32_t>(height);
+        if (device_ && uniformBuffer_) {
+            float vp[4] = { width, height, 0.0f, 0.0f };
+            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, vp, sizeof(vp));
+        }
+        if (currentBackBufferView_) {
+            wgpuTextureViewRelease(currentBackBufferView_);
+            currentBackBufferView_ = nullptr;
+        }
+        if (currentSurfaceTexture_.texture) {
+            wgpuTextureRelease(currentSurfaceTexture_.texture);
+            currentSurfaceTexture_.texture = nullptr;
+        }
+        isFirstBatchOfFrame_ = true;
+    }
+
+    void updateFontTexture(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) override {
+        if (!device_ || !fontTexture_ || !data || w <= 0 || h <= 0) return;
+
+        WGPUTexelCopyTextureInfo dst{};
+        dst.texture = fontTexture_;
+        dst.mipLevel = 0;
+        dst.origin = WGPUOrigin3D{ static_cast<uint32_t>(x), static_cast<uint32_t>(y), 0 };
+        dst.aspect = WGPUTextureAspect_All;
+
+        WGPUTexelCopyBufferLayout layout{};
+        layout.offset = static_cast<uint64_t>(y * atlasW + x);
+        layout.bytesPerRow = static_cast<uint32_t>(atlasW);
+        layout.rowsPerImage = static_cast<uint32_t>(atlasH);
+
+        WGPUExtent3D writeSize{ static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 };
+        size_t totalDataSize = static_cast<size_t>(atlasW * atlasH);
+
+        wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, data, totalDataSize, &layout, &writeSize);
+    }
+
+    void renderBatch(const std::vector<Vertex2D>& vertices) override {
+        if (vertices.empty() || !surface_ || !device_ || !pipeline_) return;
+
+        if (!currentBackBufferView_) {
+            wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
+            if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                return;
+            }
+
+            WGPUTextureViewDescriptor viewDesc{};
+            viewDesc.format = WGPUTextureFormat_BGRA8Unorm;
+            viewDesc.dimension = WGPUTextureViewDimension_2D;
+            viewDesc.baseMipLevel = 0;
+            viewDesc.mipLevelCount = 1;
+            viewDesc.baseArrayLayer = 0;
+            viewDesc.arrayLayerCount = 1;
+            viewDesc.aspect = WGPUTextureAspect_All;
+
+            currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
+            if (!currentBackBufferView_) return;
+        }
+
+        WGPUCommandEncoderDescriptor encDesc{};
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+
+        WGPURenderPassColorAttachment colorAttachment{};
+        colorAttachment.view = currentBackBufferView_;
+        colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        colorAttachment.loadOp = isFirstBatchOfFrame_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+        colorAttachment.clearValue = WGPUColor{0.08, 0.09, 0.12, 1.0}; // DAW Dark theme clear
+
+        isFirstBatchOfFrame_ = false;
+
+        WGPURenderPassDescriptor passDesc{};
+        passDesc.colorAttachmentCount = 1;
+        passDesc.colorAttachments = &colorAttachment;
+
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+        wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
+        if (bindGroup_) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
+        }
+
+        // Dynamic vertex upload
+        uint64_t bufferSize = vertices.size() * sizeof(Vertex2D);
+        if (bufferSize > 0) {
+            WGPUBufferDescriptor bufDesc{};
+            bufDesc.size = bufferSize;
+            bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            WGPUBuffer vbo = wgpuDeviceCreateBuffer(device_, &bufDesc);
+            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), vbo, 0, vertices.data(), bufferSize);
+
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbo, 0, bufferSize);
+            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+
+            wgpuBufferRelease(vbo);
+        }
+
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+
+        WGPUCommandBufferDescriptor cmdBufDesc{};
+        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+        wgpuCommandEncoderRelease(encoder);
+
+        WGPUQueue queue = wgpuDeviceGetQueue(device_);
+        wgpuQueueSubmit(queue, 1, &commands);
+        wgpuCommandBufferRelease(commands);
+    }
+
+    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+        if (!device_ || !rgbaTexture_ || !rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f) return;
+
+        uint32_t uploadW = static_cast<uint32_t>(std::min(imgW, 256));
+        uint32_t uploadH = static_cast<uint32_t>(std::min(imgH, 256));
+
+        WGPUTexelCopyTextureInfo dst{};
+        dst.texture = rgbaTexture_;
+        dst.mipLevel = 0;
+        dst.origin = WGPUOrigin3D{ 0, 0, 0 };
+        dst.aspect = WGPUTextureAspect_All;
+
+        WGPUTexelCopyBufferLayout layout{};
+        layout.offset = 0;
+        layout.bytesPerRow = static_cast<uint32_t>(imgW * 4);
+        layout.rowsPerImage = static_cast<uint32_t>(imgH);
+
+        WGPUExtent3D writeSize{ uploadW, uploadH, 1 };
+        wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, rgba, static_cast<size_t>(imgW * imgH * 4), &layout, &writeSize);
+
+        float maxU = static_cast<float>(uploadW) / 256.0f;
+        float maxV = static_cast<float>(uploadH) / 256.0f;
+        uint8_t aByte = static_cast<uint8_t>(std::clamp(opacity * 255.0f, 0.0f, 255.0f));
+        uint32_t col = (static_cast<uint32_t>(aByte) << 24) | 0x00FFFFFF;
+
+        std::vector<Vertex2D> quad(6);
+        quad[0] = { x,     y,     0.0f, 0.0f, col, 3u, {0.0f, 0.0f} };
+        quad[1] = { x + w, y,     maxU, 0.0f, col, 3u, {0.0f, 0.0f} };
+        quad[2] = { x + w, y + h, maxU, maxV, col, 3u, {0.0f, 0.0f} };
+        quad[3] = { x,     y,     0.0f, 0.0f, col, 3u, {0.0f, 0.0f} };
+        quad[4] = { x + w, y + h, maxU, maxV, col, 3u, {0.0f, 0.0f} };
+        quad[5] = { x,     y + h, 0.0f, maxV, col, 3u, {0.0f, 0.0f} };
+
+        renderBatch(quad);
+    }
+
+    void endPass() override {
+        if (currentBackBufferView_) {
+            wgpuTextureViewRelease(currentBackBufferView_);
+            currentBackBufferView_ = nullptr;
+        }
+        if (currentSurfaceTexture_.texture) {
+            wgpuTextureRelease(currentSurfaceTexture_.texture);
+            currentSurfaceTexture_.texture = nullptr;
+        }
+    }
+
+    RenderBackendType getBackendType() const noexcept override {
+        return RenderBackendType::WebGPU;
+    }
+
+private:
+    void initShadersAndPipeline() {
+        static const char* wgslSource = R"(
+            struct Uniforms {
+                viewport: vec2<f32>,
+            };
+
+            @group(0) @binding(0) var fontTexture: texture_2d<f32>;
+            @group(0) @binding(1) var fontSampler: sampler;
+            @group(0) @binding(2) var<uniform> uniforms: Uniforms;
+            @group(0) @binding(3) var rgbaTexture: texture_2d<f32>;
+
+            struct VertexInput {
+                @location(0) position: vec2<f32>,
+                @location(1) uv: vec2<f32>,
+                @location(2) color: u32,
+                @location(3) mode: u32,
+            };
+
+            struct VertexOutput {
+                @builtin(position) clip_position: vec4<f32>,
+                @location(0) uv: vec2<f32>,
+                @location(1) color: vec4<f32>,
+                @location(2) @interpolate(flat) mode: u32,
+            };
+
+            @vertex
+            fn vs_main(in: VertexInput) -> VertexOutput {
+                var out: VertexOutput;
+                let c = in.color;
+                let r = f32(c & 255u) / 255.0;
+                let g = f32((c >> 8u) & 255u) / 255.0;
+                let b = f32((c >> 16u) & 255u) / 255.0;
+                let a = f32((c >> 24u) & 255u) / 255.0;
+                out.color = vec4<f32>(r, g, b, a);
+                out.uv = in.uv;
+                out.mode = in.mode;
+
+                // Screen pixels to NDC [-1, 1] using dynamic viewport
+                let ndcX = (in.position.x / uniforms.viewport.x) * 2.0 - 1.0;
+                let ndcY = 1.0 - (in.position.y / uniforms.viewport.y) * 2.0;
+                out.clip_position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+                return out;
+            }
+
+            @fragment
+            fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+                if (in.mode == 1u) {
+                    let alpha = textureSampleLevel(fontTexture, fontSampler, in.uv, 0.0).r;
+                    return vec4<f32>(in.color.rgb, in.color.a * alpha);
+                } else if (in.mode == 3u) {
+                    let tex = textureSampleLevel(rgbaTexture, fontSampler, in.uv, 0.0);
+                    return tex * in.color;
+                }
+                return in.color;
+            }
+        )";
+
+        WGPUShaderSourceWGSL wgslDesc{};
+        wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+        wgslDesc.code = makeWgpuStringView(wgslSource);
+
+        WGPUShaderModuleDescriptor smDesc{};
+        smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+        WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &smDesc);
+
+        // Vertex layout
+        WGPUVertexAttribute attribs[4]{};
+        attribs[0].format = WGPUVertexFormat_Float32x2; // position
+        attribs[0].offset = 0;
+        attribs[0].shaderLocation = 0;
+
+        attribs[1].format = WGPUVertexFormat_Float32x2; // uv
+        attribs[1].offset = offsetof(Vertex2D, u);
+        attribs[1].shaderLocation = 1;
+
+        attribs[2].format = WGPUVertexFormat_Uint32;     // color
+        attribs[2].offset = offsetof(Vertex2D, color);
+        attribs[2].shaderLocation = 2;
+
+        attribs[3].format = WGPUVertexFormat_Uint32;     // mode
+        attribs[3].offset = offsetof(Vertex2D, mode);
+        attribs[3].shaderLocation = 3;
+
+        WGPUVertexBufferLayout vbLayout{};
+        vbLayout.arrayStride = sizeof(Vertex2D);
+        vbLayout.stepMode = WGPUVertexStepMode_Vertex;
+        vbLayout.attributeCount = 4;
+        vbLayout.attributes = attribs;
+
+        WGPURenderPipelineDescriptor plDesc{};
+        plDesc.vertex.module = shaderModule;
+        plDesc.vertex.entryPoint = makeWgpuStringView("vs_main");
+        plDesc.vertex.bufferCount = 1;
+        plDesc.vertex.buffers = &vbLayout;
+
+        WGPUColorTargetState colorTarget{};
+        colorTarget.format = WGPUTextureFormat_BGRA8Unorm;
+        
+        WGPUBlendState blend{};
+        blend.color.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+        blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        colorTarget.blend = &blend;
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragment{};
+        fragment.module = shaderModule;
+        fragment.entryPoint = makeWgpuStringView("fs_main");
+        fragment.targetCount = 1;
+        fragment.targets = &colorTarget;
+
+        plDesc.fragment = &fragment;
+        plDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        plDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+        plDesc.primitive.frontFace = WGPUFrontFace_CCW;
+        plDesc.primitive.cullMode = WGPUCullMode_None;
+        plDesc.multisample.count = 1;
+        plDesc.multisample.mask = ~0u;
+        plDesc.multisample.alphaToCoverageEnabled = false;
+
+        // 1. Create font atlas texture (1024x1024 R8Unorm)
+        WGPUTextureDescriptor texDesc{};
+        texDesc.dimension = WGPUTextureDimension_2D;
+        texDesc.size = WGPUExtent3D{ 1024, 1024, 1 };
+        texDesc.format = WGPUTextureFormat_R8Unorm;
+        texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        texDesc.mipLevelCount = 1;
+        texDesc.sampleCount = 1;
+        fontTexture_ = wgpuDeviceCreateTexture(device_, &texDesc);
+
+        WGPUTextureViewDescriptor tvDesc{};
+        tvDesc.format = WGPUTextureFormat_R8Unorm;
+        tvDesc.dimension = WGPUTextureViewDimension_2D;
+        tvDesc.baseMipLevel = 0;
+        tvDesc.mipLevelCount = 1;
+        tvDesc.baseArrayLayer = 0;
+        tvDesc.arrayLayerCount = 1;
+        tvDesc.aspect = WGPUTextureAspect_All;
+        fontTextureView_ = wgpuTextureCreateView(fontTexture_, &tvDesc);
+
+        // 2. Create RGBA texture for rasterized SVG bitmaps & icons (256x256 RGBA8Unorm)
+        WGPUTextureDescriptor rgbaTexDesc{};
+        rgbaTexDesc.dimension = WGPUTextureDimension_2D;
+        rgbaTexDesc.size = WGPUExtent3D{ 256, 256, 1 };
+        rgbaTexDesc.format = WGPUTextureFormat_RGBA8Unorm;
+        rgbaTexDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        rgbaTexDesc.mipLevelCount = 1;
+        rgbaTexDesc.sampleCount = 1;
+        rgbaTexture_ = wgpuDeviceCreateTexture(device_, &rgbaTexDesc);
+
+        WGPUTextureViewDescriptor rtvDesc{};
+        rtvDesc.format = WGPUTextureFormat_RGBA8Unorm;
+        rtvDesc.dimension = WGPUTextureViewDimension_2D;
+        rtvDesc.baseMipLevel = 0;
+        rtvDesc.mipLevelCount = 1;
+        rtvDesc.baseArrayLayer = 0;
+        rtvDesc.arrayLayerCount = 1;
+        rtvDesc.aspect = WGPUTextureAspect_All;
+        rgbaTextureView_ = wgpuTextureCreateView(rgbaTexture_, &rtvDesc);
+
+        WGPUSamplerDescriptor sampDesc{};
+        sampDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+        sampDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+        sampDesc.addressModeW = WGPUAddressMode_ClampToEdge;
+        sampDesc.magFilter = WGPUFilterMode_Linear;
+        sampDesc.minFilter = WGPUFilterMode_Linear;
+        sampDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+        sampDesc.lodMinClamp = 0.0f;
+        sampDesc.lodMaxClamp = 32.0f;
+        sampDesc.maxAnisotropy = 1;
+        fontSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
+
+        pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
+        wgpuShaderModuleRelease(shaderModule);
+
+        // Uniform buffer for viewport dimension upload
+        WGPUBufferDescriptor uboDesc{};
+        uboDesc.size = 16;
+        uboDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &uboDesc);
+        float initVp[4] = { static_cast<float>(width_), static_cast<float>(height_), 0.0f, 0.0f };
+        wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, initVp, sizeof(initVp));
+
+        // Bind group matching auto layout (font texture, sampler, uniforms, rgba texture)
+        WGPUBindGroupEntry entries[4]{};
+        entries[0].binding = 0;
+        entries[0].textureView = fontTextureView_;
+        entries[1].binding = 1;
+        entries[1].sampler = fontSampler_;
+        entries[2].binding = 2;
+        entries[2].buffer = uniformBuffer_;
+        entries[2].offset = 0;
+        entries[2].size = 16;
+        entries[3].binding = 3;
+        entries[3].textureView = rgbaTextureView_;
+
+        WGPUBindGroupDescriptor bgDesc{};
+        WGPUBindGroupLayout bgLayout = wgpuRenderPipelineGetBindGroupLayout(pipeline_, 0);
+        bgDesc.layout = bgLayout;
+        bgDesc.entryCount = 4;
+        bgDesc.entries = entries;
+        bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        wgpuBindGroupLayoutRelease(bgLayout);
+    }
+
+    WGPUDevice device_{nullptr};
+    WGPUSurface surface_{nullptr};
+    WGPURenderPipeline pipeline_{nullptr};
+    WGPUTexture fontTexture_{nullptr};
+    WGPUTextureView fontTextureView_{nullptr};
+    WGPUSampler fontSampler_{nullptr};
+    WGPUTexture rgbaTexture_{nullptr};
+    WGPUTextureView rgbaTextureView_{nullptr};
+    WGPUBuffer uniformBuffer_{nullptr};
+    WGPUBindGroup bindGroup_{nullptr};
+    WGPUSurfaceTexture currentSurfaceTexture_{};
+    WGPUTextureView currentBackBufferView_{nullptr};
+    bool isFirstBatchOfFrame_{true};
+    uint32_t width_{1280};
+    uint32_t height_{800};
+};
+#endif
+
+// ============================================================================
+// BatchRenderer2D Frontend
+// ============================================================================
+BatchRenderer2D::BatchRenderer2D() {
+    vertices_.reserve(32768);
+}
+
+BatchRenderer2D::~BatchRenderer2D() {
+    shutdown();
+}
+
+bool BatchRenderer2D::initialize(void* windowHandle, uint32_t width, uint32_t height, RenderBackendType backend) {
+    currentWidth_ = static_cast<float>(width);
+    currentHeight_ = static_cast<float>(height);
+
+#if defined(__EMSCRIPTEN__) && defined(EATS_ENABLE_WEBGPU)
+    (void)backend;
+    backend_ = std::make_unique<WebGpuBatchBackend>();
+    return backend_->initialize(windowHandle, width, height);
+#else
+    if (backend == RenderBackendType::WebGPU) {
+#if defined(EATS_ENABLE_WEBGPU)
+        backend_ = std::make_unique<WebGpuBatchBackend>();
+        if (backend_->initialize(windowHandle, width, height)) {
+            return true;
+        }
+#endif
+    }
+
+    backend_ = std::make_unique<FilamentBatchBackend>();
+    return backend_->initialize(windowHandle, width, height);
+#endif
+}
+
+void BatchRenderer2D::shutdown() {
+    if (backend_) {
+        backend_->shutdown();
+        backend_.reset();
+    }
+    vertices_.clear();
+}
+
+void BatchRenderer2D::resize(uint32_t width, uint32_t height) {
+    currentWidth_ = static_cast<float>(width);
+    currentHeight_ = static_cast<float>(height);
+    if (backend_) {
+        backend_->resize(width, height);
+    }
+}
+
+RenderBackendType BatchRenderer2D::getBackendType() const noexcept {
+    return backend_ ? backend_->getBackendType() : RenderBackendType::Filament;
+}
+
+void BatchRenderer2D::beginFrame(float width, float height) {
+    currentWidth_ = width;
+    currentHeight_ = height;
+    vertices_.clear();
+    inFrame_ = true;
+    resetRotation();
+
+    if (backend_) {
+        float passW = width * renderScaleX_;
+        float passH = height * renderScaleY_;
+        backend_->beginPass(passW, passH);
+    }
+}
+
+void BatchRenderer2D::setRotation(float angleDegrees, float originX, float originY) {
+    if (std::abs(angleDegrees) < 0.001f) {
+        resetRotation();
+        return;
+    }
+    float rad = angleDegrees * 0.017453292519943295f; // deg to rad
+    transformCos_ = std::cos(rad);
+    transformSin_ = std::sin(rad);
+    transformOriginX_ = originX;
+    transformOriginY_ = originY;
+    transformActive_ = true;
+}
+
+void BatchRenderer2D::resetRotation() noexcept {
+    transformActive_ = false;
+    transformCos_ = 1.0f;
+    transformSin_ = 0.0f;
+    transformOriginX_ = 0.0f;
+    transformOriginY_ = 0.0f;
+}
+
+void BatchRenderer2D::endFrame() {
+    if (!inFrame_) return;
+    inFrame_ = false;
+    resetRotation();
+
+    if (backend_) {
+        if (!vertices_.empty()) {
+            if (std::abs(renderScaleX_ - 1.0f) > 0.001f || std::abs(renderScaleY_ - 1.0f) > 0.001f) {
+                for (auto& v : vertices_) {
+                    v.x *= renderScaleX_;
+                    v.y *= renderScaleY_;
+                    if (v.mode == 2) {
+                        v.u *= renderScaleX_;
+                    }
+                }
+            }
+            backend_->renderBatch(vertices_);
+            vertices_.clear();
+        }
+        backend_->endPass();
+    }
+}
+
+void BatchRenderer2D::flush() {
+    if (!inFrame_ || !backend_ || vertices_.empty()) return;
+    if (std::abs(renderScaleX_ - 1.0f) > 0.001f || std::abs(renderScaleY_ - 1.0f) > 0.001f) {
+        for (auto& v : vertices_) {
+            v.x *= renderScaleX_;
+            v.y *= renderScaleY_;
+            if (v.mode == 2) {
+                v.u *= renderScaleX_;
+            }
+        }
+    }
+    backend_->renderBatch(vertices_);
+    vertices_.clear();
+}
+
+void BatchRenderer2D::applyBackdropBlur(float radius, float dimFactor) {
+    flush();
+    if (backend_) {
+        backend_->applyBackdropBlur(radius, dimFactor);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Primitive Tessellation
+// ----------------------------------------------------------------------------
+void BatchRenderer2D::drawTriangle(float x0, float y0, float x1, float y1, float x2, float y2, float r, float g, float b, float a) {
+    uint32_t col = packColor(r, g, b, a);
+    applyTransform(x0, y0);
+    applyTransform(x1, y1);
+    applyTransform(x2, y2);
+    vertices_.push_back({x0, y0, 0.0f, 0.0f, col, 0, {0, 0}});
+    vertices_.push_back({x1, y1, 0.0f, 0.0f, col, 0, {0, 0}});
+    vertices_.push_back({x2, y2, 0.0f, 0.0f, col, 0, {0, 0}});
+}
+
+void BatchRenderer2D::drawRect(float x, float y, float w, float h, float r, float g, float b, float a) {
+    uint32_t col = packColor(r, g, b, a);
+    Vertex2D v0{x, y, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v1{x + w, y, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v2{x + w, y + h, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v3{x, y + h, 0.0f, 0.0f, col, 0, {0, 0}};
+    applyTransform(v0.x, v0.y);
+    applyTransform(v1.x, v1.y);
+    applyTransform(v2.x, v2.y);
+    applyTransform(v3.x, v3.y);
+
+    // Triangle 1
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+
+    // Triangle 2
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
+}
+
+void BatchRenderer2D::drawRectGradient(float x, float y, float w, float h,
+                                       float r0, float g0, float b0,
+                                       float r1, float g1, float b1, float a) {
+    uint32_t col0 = packColor(r0, g0, b0, a);
+    uint32_t col1 = packColor(r1, g1, b1, a);
+
+    Vertex2D v0{x, y, 0.0f, 0.0f, col0, 0, {0, 0}};
+    Vertex2D v1{x + w, y, 0.0f, 0.0f, col0, 0, {0, 0}};
+    Vertex2D v2{x + w, y + h, 0.0f, 0.0f, col1, 0, {0, 0}};
+    Vertex2D v3{x, y + h, 0.0f, 0.0f, col1, 0, {0, 0}};
+    applyTransform(v0.x, v0.y);
+    applyTransform(v1.x, v1.y);
+    applyTransform(v2.x, v2.y);
+    applyTransform(v3.x, v3.y);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
+}
+
+void BatchRenderer2D::drawRectOutline(float x, float y, float w, float h,
+                                      float r, float g, float b, float a, float lineWidth) {
+    float lw = std::max(0.5f, lineWidth);
+    // Top border
+    drawRect(x, y, w, lw, r, g, b, a);
+    // Bottom border
+    drawRect(x, y + h - lw, w, lw, r, g, b, a);
+    // Left border
+    drawRect(x, y + lw, lw, std::max(0.0f, h - 2.0f * lw), r, g, b, a);
+    // Right border
+    drawRect(x + w - lw, y + lw, lw, std::max(0.0f, h - 2.0f * lw), r, g, b, a);
+}
+
+void BatchRenderer2D::drawRoundedRect(float x, float y, float w, float h, float radius,
+                                      float r, float g, float b, float a, int /*cornerSegments*/) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    float rad = std::min(radius, std::min(w, h) * 0.5f);
+    if (rad <= 0.5f) {
+        drawRect(x, y, w, h, r, g, b, a);
+        return;
+    }
+
+    uint32_t col = packColor(r, g, b, a);
+    Vertex2D v0{x, y, rad, 0.0f, col, 2, {0, 0}};
+    Vertex2D v1{x + w, y, rad, 0.0f, col, 2, {0, 0}};
+    Vertex2D v2{x + w, y + h, rad, 0.0f, col, 2, {0, 0}};
+    Vertex2D v3{x, y + h, rad, 0.0f, col, 2, {0, 0}};
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
+}
+
+void BatchRenderer2D::drawRoundedRectGradient(float x, float y, float w, float h, float radius,
+                                              float r0, float g0, float b0,
+                                              float r1, float g1, float b1, float a, int /*cornerSegments*/) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    float rad = std::min(radius, std::min(w, h) * 0.5f);
+    if (rad <= 0.5f) {
+        drawRectGradient(x, y, w, h, r0, g0, b0, r1, g1, b1, a);
+        return;
+    }
+
+    uint32_t col0 = packColor(r0, g0, b0, a);
+    uint32_t col1 = packColor(r1, g1, b1, a);
+
+    Vertex2D v0{x, y, rad, 0.0f, col0, 2, {0, 0}};
+    Vertex2D v1{x + w, y, rad, 0.0f, col0, 2, {0, 0}};
+    Vertex2D v2{x + w, y + h, rad, 0.0f, col1, 2, {0, 0}};
+    Vertex2D v3{x, y + h, rad, 0.0f, col1, 2, {0, 0}};
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
+}
+
+void BatchRenderer2D::drawRoundedRectOutline(float x, float y, float w, float h, float radius,
+                                             float r, float g, float b, float a,
+                                             float lineWidth, int cornerSegments) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    float rad = std::min(radius, std::min(w, h) * 0.5f);
+    float lw = std::max(0.5f, lineWidth);
+    if (rad <= 0.5f) {
+        drawRectOutline(x, y, w, h, r, g, b, a, lw);
+        return;
+    }
+
+    uint32_t col = packColor(r, g, b, a);
+    int segs = std::clamp(cornerSegments, 2, 32);
+
+    // 4 Straight edge borders
+    // Top border
+    drawRect(x + rad, y, std::max(0.0f, w - 2.0f * rad), lw, r, g, b, a);
+    // Bottom border
+    drawRect(x + rad, y + h - lw, std::max(0.0f, w - 2.0f * rad), lw, r, g, b, a);
+    // Left border
+    drawRect(x, y + rad, lw, std::max(0.0f, h - 2.0f * rad), r, g, b, a);
+    // Right border
+    drawRect(x + w - lw, y + rad, lw, std::max(0.0f, h - 2.0f * rad), r, g, b, a);
+
+    // 4 Curved corner strips
+    constexpr float kHalfPi = 1.57079632679f;
+    struct CornerDef { float cx, cy, startAngle; };
+    const CornerDef corners[4] = {
+        {x + w - rad, y + rad,         0.0f * kHalfPi},
+        {x + rad,     y + rad,         1.0f * kHalfPi},
+        {x + rad,     y + h - rad,     2.0f * kHalfPi},
+        {x + w - rad, y + h - rad,     3.0f * kHalfPi}
+    };
+    const float angleStep = kHalfPi / static_cast<float>(segs);
+    float rOut = rad;
+    float rIn = std::max(0.0f, rad - lw);
+
+    for (int c = 0; c < 4; ++c) {
+        for (int s = 0; s < segs; ++s) {
+            float a0 = corners[c].startAngle + static_cast<float>(s) * angleStep;
+            float a1 = corners[c].startAngle + static_cast<float>(s + 1) * angleStep;
+            float c0 = std::cos(a0), s0 = std::sin(a0);
+            float c1 = std::cos(a1), s1 = std::sin(a1);
+
+            Vertex2D v0{corners[c].cx + rIn * c0,  corners[c].cy - rIn * s0,  0.0f, 0.0f, col, 0, {0, 0}};
+            Vertex2D v1{corners[c].cx + rOut * c0, corners[c].cy - rOut * s0, 0.0f, 0.0f, col, 0, {0, 0}};
+            Vertex2D v2{corners[c].cx + rOut * c1, corners[c].cy - rOut * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+            Vertex2D v3{corners[c].cx + rIn * c1,  corners[c].cy - rIn * s1,  0.0f, 0.0f, col, 0, {0, 0}};
+
+            vertices_.push_back(v0); vertices_.push_back(v1); vertices_.push_back(v2);
+            vertices_.push_back(v0); vertices_.push_back(v2); vertices_.push_back(v3);
+        }
+    }
+}
+
+void BatchRenderer2D::drawCircle(float cx, float cy, float radius, float r, float g, float b, float a, int /*segments*/) {
+    if (radius <= 0.0f) return;
+    drawRoundedRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, radius, r, g, b, a);
+}
+
+void BatchRenderer2D::drawRgbaBitmap(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) {
+    if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
+    if (backend_ && !vertices_.empty()) {
+        if (std::abs(renderScaleX_ - 1.0f) > 0.001f || std::abs(renderScaleY_ - 1.0f) > 0.001f) {
+            for (auto& v : vertices_) {
+                v.x *= renderScaleX_;
+                v.y *= renderScaleY_;
+                if (v.mode == 2) v.u *= renderScaleX_;
+            }
+        }
+        backend_->renderBatch(vertices_);
+        vertices_.clear();
+    }
+    if (backend_) {
+        backend_->renderRgba(x * renderScaleX_, y * renderScaleY_, w * renderScaleX_, h * renderScaleY_, rgba, imgW, imgH, opacity);
+    }
+}
+
+void BatchRenderer2D::drawCircleOutline(float cx, float cy, float radius,
+                                        float r, float g, float b, float a,
+                                        float lineWidth, int segments) {
+    if (radius <= 0.0f || segments < 3) return;
+    uint32_t col = packColor(r, g, b, a);
+    float halfW = lineWidth * 0.5f;
+    float rIn = std::max(0.0f, radius - halfW);
+    float rOut = radius + halfW;
+    const float step = 6.2831853f / static_cast<float>(segments);
+
+    for (int i = 0; i < segments; ++i) {
+        float theta0 = static_cast<float>(i) * step;
+        float theta1 = static_cast<float>(i + 1) * step;
+
+        float c0 = std::cos(theta0), s0 = std::sin(theta0);
+        float c1 = std::cos(theta1), s1 = std::sin(theta1);
+
+        Vertex2D v0{cx + rIn * c0, cy + rIn * s0, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v1{cx + rOut * c0, cy + rOut * s0, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v2{cx + rOut * c1, cy + rOut * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v3{cx + rIn * c1, cy + rIn * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+}
+
+void BatchRenderer2D::drawArc(float cx, float cy, float radius,
+                              float startAngle, float endAngle,
+                              float r, float g, float b, float a,
+                              float lineWidth, int segments) {
+    if (endAngle <= startAngle || radius <= 0.0f || segments < 2) return;
+    uint32_t col = packColor(r, g, b, a);
+    float halfW = lineWidth * 0.5f;
+    float rIn = std::max(0.0f, radius - halfW);
+    float rOut = radius + halfW;
+    const float step = (endAngle - startAngle) / static_cast<float>(segments);
+
+    for (int i = 0; i < segments; ++i) {
+        float theta0 = startAngle + static_cast<float>(i) * step;
+        float theta1 = startAngle + static_cast<float>(i + 1) * step;
+
+        float x0_in = cx + rIn * std::sin(theta0), y0_in = cy - rIn * std::cos(theta0);
+        float x0_out = cx + rOut * std::sin(theta0), y0_out = cy - rOut * std::cos(theta0);
+        float x1_in = cx + rIn * std::sin(theta1), y1_in = cy - rIn * std::cos(theta1);
+        float x1_out = cx + rOut * std::sin(theta1), y1_out = cy - rOut * std::cos(theta1);
+
+        Vertex2D v0{x0_in, y0_in, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v1{x0_out, y0_out, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v2{x1_out, y1_out, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v3{x1_in, y1_in, 0.0f, 0.0f, col, 0, {0, 0}};
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+}
+
+void BatchRenderer2D::drawLine(float x0, float y0, float x1, float y1,
+                               float r, float g, float b, float a, float lineWidth) {
+    float dx = x1 - x0;
+    float dy = y1 - y0;
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len <= 0.0001f) return;
+
+    float halfW = std::max(0.5f, lineWidth * 0.5f);
+    float nx = (-dy / len) * halfW;
+    float ny = (dx / len) * halfW;
+
+    uint32_t col = packColor(r, g, b, a);
+    Vertex2D v0{x0 + nx, y0 + ny, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v1{x1 + nx, y1 + ny, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v2{x1 - nx, y1 - ny, 0.0f, 0.0f, col, 0, {0, 0}};
+    Vertex2D v3{x0 - nx, y0 - ny, 0.0f, 0.0f, col, 0, {0, 0}};
+    applyTransform(v0.x, v0.y);
+    applyTransform(v1.x, v1.y);
+    applyTransform(v2.x, v2.y);
+    applyTransform(v3.x, v3.y);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
+}
+
+void BatchRenderer2D::drawCatenaryBezier(Point2D p0, Point2D cp0, Point2D cp1, Point2D p1,
+                                         float r, float g, float b, float a, float lineWidth) {
+    constexpr int SEGMENTS = 32;
+    float prevX = p0.x;
+    float prevY = p0.y;
+
+    for (int i = 1; i <= SEGMENTS; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(SEGMENTS);
+        float u = 1.0f - t;
+        float tt = t * t;
+        float uu = u * u;
+        float uuu = uu * u;
+        float ttt = tt * t;
+
+        float currX = uuu * p0.x + 3.0f * uu * t * cp0.x + 3.0f * u * tt * cp1.x + ttt * p1.x;
+        float currY = uuu * p0.y + 3.0f * uu * t * cp0.y + 3.0f * u * tt * cp1.y + ttt * p1.y;
+
+        drawLine(prevX, prevY, currX, currY, r, g, b, a, lineWidth);
+        prevX = currX;
+        prevY = currY;
+    }
+}
+
+void BatchRenderer2D::updateFontAtlas(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) {
+    if (backend_) {
+        backend_->updateFontTexture(x, y, w, h, data, atlasW, atlasH);
+    }
+}
+
+void BatchRenderer2D::drawTexturedTriangles(const float* verts, const float* tcoords, const unsigned int* colors, int nverts) {
+    if (!verts || !tcoords || !colors || nverts <= 0) return;
+
+    for (int i = 0; i < nverts; ++i) {
+        Vertex2D v{};
+        v.x = verts[i * 2 + 0];
+        v.y = verts[i * 2 + 1];
+        applyTransform(v.x, v.y);
+        v.u = tcoords[i * 2 + 0];
+        v.v = tcoords[i * 2 + 1];
+        v.color = colors[i];
+        v.mode = 1; // Font atlas mode
+        vertices_.push_back(v);
+    }
+}
+
+void BatchRenderer2D::drawCircleDropShadow(float cx, float cy, float radius, float elevation,
+                                           const LightSource2D& light, float opacity) {
+    if (radius <= 0.0f || elevation <= 0.0f || opacity <= 0.001f) return;
+    ShadowOffset shadow = light.computeShadowOffset(cx, cy, elevation, opacity);
+
+    float sx = cx + shadow.dx;
+    float sy = cy + shadow.dy;
+    float blur = shadow.blur;
+
+    // Multi-layer penumbra falloff using concentric discs
+    drawCircle(sx, sy, radius + blur * 0.25f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.40f, 24);
+    drawCircle(sx, sy, radius + blur * 0.60f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.22f, 24);
+    drawCircle(sx, sy, radius + blur * 1.05f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.10f, 24);
+}
+
+void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, float cornerRadius,
+                                         float elevation, const LightSource2D& light, float opacity) {
+    if (w <= 0.0f || h <= 0.0f || elevation <= 0.0f || opacity <= 0.001f) return;
+    float cx = x + w * 0.5f;
+    float cy = y + h * 0.5f;
+    ShadowOffset shadow = light.computeShadowOffset(cx, cy, elevation, opacity);
+
+    float sx = x + shadow.dx;
+    float sy = y + shadow.dy;
+    float blur = shadow.blur;
+
+    drawRoundedRect(sx - blur * 0.25f, sy - blur * 0.25f, w + blur * 0.5f, h + blur * 0.5f,
+                    cornerRadius + blur * 0.25f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.35f, 3);
+    drawRoundedRect(sx - blur * 0.70f, sy - blur * 0.70f, w + blur * 1.4f, h + blur * 1.4f,
+                    cornerRadius + blur * 0.60f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.16f, 3);
+}
+
+void BatchRenderer2D::drawKnurledRing(float cx, float cy, float rInner, float rOuter,
+                                      int numTeeth, float rotationAngle,
+                                      const LightSource2D& light,
+                                      float baseR, float baseG, float baseB,
+                                      float highlightR, float highlightG, float highlightB,
+                                      float shadowR, float shadowG, float shadowB) {
+    if (numTeeth < 6 || rInner >= rOuter) return;
+
+    Point lDir = light.getLightDirection(cx, cy);
+    const float step = 6.2831853f / static_cast<float>(numTeeth);
+    const float toothWidth = step * 0.58f;
+
+    // Draw dark under-groove circle between teeth
+    drawCircle(cx, cy, (rInner + rOuter) * 0.5f, shadowR * 0.8f, shadowG * 0.8f, shadowB * 0.8f, 1.0f, 32);
+
+    for (int i = 0; i < numTeeth; ++i) {
+        float a0 = rotationAngle + static_cast<float>(i) * step;
+        float a1 = a0 + toothWidth;
+        float aMid = (a0 + a1) * 0.5f;
+
+        float nx = std::cos(aMid);
+        float ny = std::sin(aMid);
+        float dotLight = nx * lDir.x + ny * lDir.y;
+
+        float blendFactor = (std::clamp(dotLight, -1.0f, 1.0f) + 1.0f) * 0.5f; // [0, 1]
+
+        // Directional specular glint
+        float specular = 0.0f;
+        if (dotLight > 0.55f) {
+            specular = std::pow((dotLight - 0.55f) / 0.45f, 3.5f) * 0.42f;
+        }
+
+        float rCol = shadowR + blendFactor * (baseR - shadowR);
+        float gCol = shadowG + blendFactor * (baseG - shadowG);
+        float bCol = shadowB + blendFactor * (baseB - shadowB);
+
+        if (dotLight > 0.0f) {
+            rCol += (highlightR - rCol) * (dotLight * 0.55f) + specular;
+            gCol += (highlightG - gCol) * (dotLight * 0.55f) + specular;
+            bCol += (highlightB - bCol) * (dotLight * 0.55f) + specular;
+        }
+
+        rCol = std::clamp(rCol, 0.0f, 1.0f);
+        gCol = std::clamp(gCol, 0.0f, 1.0f);
+        bCol = std::clamp(bCol, 0.0f, 1.0f);
+        uint32_t col = packColor(rCol, gCol, bCol, 1.0f);
+
+        float c0 = std::cos(a0), s0 = std::sin(a0);
+        float c1 = std::cos(a1), s1 = std::sin(a1);
+
+        Vertex2D v0{cx + rInner * c0, cy + rInner * s0, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v1{cx + rOuter * c0, cy + rOuter * s0, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v2{cx + rOuter * c1, cy + rOuter * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+        Vertex2D v3{cx + rInner * c1, cy + rInner * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+}
+
+} // namespace eatsbits::ui
