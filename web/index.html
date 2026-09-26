@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-title" content="Eatsbits">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#0d0f14">
+    <meta name="theme-color" content="#141210">
     <meta name="color-scheme" content="dark">
     <meta name="description" content="High-performance modular synthesizer, tracker, and real-time DSP audio workstation built in C++20 and WebGPU.">
     
@@ -20,6 +20,12 @@
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
     <link rel="manifest" href="manifest.json">
+
+    <!-- Fonts matching Eatsbeats DAW aesthetic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;500;700&family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+
     <style>
         * {
             margin: 0;
@@ -32,7 +38,7 @@
         html, body {
             width: 100%;
             height: 100%;
-            background-color: #0d0f14;
+            background-color: #141210;
             color: #e2e8f0;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             overflow: hidden;
@@ -44,7 +50,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: radial-gradient(circle at 50% 30%, #161a23 0%, #0d0f14 100%);
+            background: radial-gradient(circle at 50% 30%, #1a1714 0%, #0d0c0a 100%);
             position: relative;
             overflow: hidden;
         }
@@ -57,77 +63,124 @@
             cursor: default;
         }
 
-        /* Loading & WebGPU Banner Overlay */
-        #status-overlay {
+        /* Startup & WebGPU Loader Overlay from Eatsbeats */
+        #app-loading-screen {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(13, 15, 20, 0.94);
+            background-color: #141210;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 100;
-            transition: opacity 0.4s ease;
+            z-index: 99999;
+            transition: opacity 0.4s ease-out;
         }
 
-        .brand-title {
-            font-size: 2.2rem;
-            font-weight: 800;
-            letter-spacing: 0.15em;
-            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
+        #app-loading-screen.fade-out {
+            opacity: 0;
+            pointer-events: none;
         }
 
-        .brand-subtitle {
-            font-size: 0.9rem;
-            color: #94a3b8;
-            letter-spacing: 0.08em;
-            margin-bottom: 28px;
-            text-transform: uppercase;
+        .eatsbeats-loader-box {
+            background: radial-gradient(circle at center, #24211D 0%, #161412 100%);
+            border: 2px solid #332F2A;
+            border-radius: 12px;
+            padding: 32px 48px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 90vw;
+            box-sizing: border-box;
         }
 
-        .spinner {
-            width: 44px;
-            height: 44px;
-            border: 3px solid rgba(0, 242, 254, 0.15);
-            border-top-color: #00f2fe;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-bottom: 20px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        #status-text {
-            font-size: 0.95rem;
-            color: #cbd5e1;
+        .eatsbeats-logo-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
             margin-bottom: 24px;
         }
 
-        .start-btn {
-            background: linear-gradient(135deg, #00f2fe 0%, #0072ff 100%);
-            color: #000;
-            font-weight: 700;
-            font-size: 1rem;
-            padding: 12px 32px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            box-shadow: 0 4px 20px rgba(0, 242, 254, 0.35);
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-            display: none;
+        .eatsbeats-logo-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            filter: drop-shadow(0 0 12px rgba(255, 140, 0, 0.6));
         }
 
-        .start-btn:hover {
-            transform: scale(1.04);
-            box-shadow: 0 6px 28px rgba(0, 242, 254, 0.55);
+        .eatsbeats-title {
+            color: #FF8C00;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 3px;
+            text-shadow: 0 0 10px rgba(255, 140, 0, 0.5);
+            margin: 0;
+            font-family: 'Roboto Condensed', -apple-system, sans-serif;
+        }
+
+        .eatsbeats-subtitle {
+            color: #21F4E8;
+            font-size: 11px;
+            letter-spacing: 1.5px;
+            margin-top: 4px;
+            opacity: 0.9;
+            text-transform: uppercase;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        .vu-meter-bar {
+            display: flex;
+            gap: 8px;
+            margin: 20px 0;
+            padding: 8px 16px;
+            background: #0B0A09;
+            border: 1px solid #2B2621;
+            border-radius: 6px;
+        }
+
+        .vu-segment {
+            width: 10px;
+            height: 32px;
+            background-color: #26221D;
+            border-radius: 2px;
+            animation: vuPulse 1.2s infinite ease-in-out;
+        }
+
+        .vu-segment:nth-child(1) { animation-delay: 0.0s; }
+        .vu-segment:nth-child(2) { animation-delay: 0.15s; }
+        .vu-segment:nth-child(3) { animation-delay: 0.3s; }
+        .vu-segment:nth-child(4) { animation-delay: 0.45s; }
+        .vu-segment:nth-child(5) { animation-delay: 0.6s; }
+
+        @keyframes vuPulse {
+            0%, 100% {
+                background-color: #26221D;
+                box-shadow: none;
+            }
+            40% {
+                background-color: #21F4E8;
+                box-shadow: 0 0 10px #21F4E8;
+            }
+            70% {
+                background-color: #FF8C00;
+                box-shadow: 0 0 10px #FF8C00;
+            }
+        }
+
+        .loading-text {
+            color: #8E9BAE;
+            font-size: 12px;
+            letter-spacing: 2px;
+            animation: textBlink 1.5s infinite;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        @keyframes textBlink {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1.0; }
         }
 
         .webgpu-badge {
@@ -139,6 +192,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
+            font-family: 'Roboto Mono', monospace;
         }
 
         .badge-dot {
@@ -155,6 +209,7 @@
             max-width: 480px;
             text-align: center;
             line-height: 1.5;
+            animation: none !important;
         }
     </style>
 </head>
@@ -162,13 +217,24 @@
     <div id="canvas-container">
         <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
 
-        <div id="status-overlay">
-            <img src="app_icon.svg" alt="Eatsbits Logo" width="76" height="76" style="margin-bottom: 16px; border-radius: 16px; box-shadow: 0 8px 30px rgba(255, 140, 0, 0.35); pointer-events: none;">
-            <div class="brand-title">EATSBITS</div>
-            <div class="brand-subtitle">C++20 Modular Workstation & Live DSP</div>
-            <div class="spinner" id="loading-spinner"></div>
-            <div id="status-text">Initializing WebGPU pipeline and WebAssembly...</div>
-            <button class="start-btn" id="start-btn" onclick="startAudioAndHideOverlay()">START AUDIO & LAUNCH</button>
+        <div id="app-loading-screen">
+            <div class="eatsbeats-loader-box">
+                <div class="eatsbeats-logo-container">
+                    <img class="eatsbeats-logo-icon" src="app_icon.svg" alt="Eatsbits Logo" />
+                    <div>
+                        <h1 class="eatsbeats-title">EATSBITS</h1>
+                        <div class="eatsbeats-subtitle">C++20 MODULAR WORKSTATION // WEBGPU DAW</div>
+                    </div>
+                </div>
+                <div class="vu-meter-bar">
+                    <div class="vu-segment"></div>
+                    <div class="vu-segment"></div>
+                    <div class="vu-segment"></div>
+                    <div class="vu-segment"></div>
+                    <div class="vu-segment"></div>
+                </div>
+                <div class="loading-text" id="status-text">INITIALIZING WEBGPU PIPELINE &amp; AUDIO ENGINE...</div>
+            </div>
         </div>
 
         <div class="webgpu-badge" id="gpu-badge">
@@ -179,10 +245,44 @@
 
     <script type="text/javascript">
         const statusText = document.getElementById('status-text');
-        const spinner = document.getElementById('loading-spinner');
-        const startBtn = document.getElementById('start-btn');
-        const overlay = document.getElementById('status-overlay');
         const badge = document.getElementById('gpu-badge');
+
+        // Function to smoothly dismiss the loader screen
+        window.hideAppLoadingScreen = function() {
+            var loader = document.getElementById('app-loading-screen');
+            if (loader && !loader.classList.contains('fade-out')) {
+                loader.classList.add('fade-out');
+                setTimeout(function() {
+                    if (loader.parentNode) {
+                        loader.parentNode.removeChild(loader);
+                    }
+                }, 450);
+            }
+        };
+
+        // Automatic audio unlocker without manual button click requirement
+        function unlockAudio() {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (window.miniaudio && window.miniaudio.device_instances) {
+                for (var k in window.miniaudio.device_instances) {
+                    var dev = window.miniaudio.device_instances[k];
+                    if (dev && dev.audioContext && dev.audioContext.state === 'suspended') {
+                        dev.audioContext.resume();
+                    }
+                }
+            }
+            if (AudioContext) {
+                var dummyCtx = new AudioContext();
+                if (dummyCtx.state === 'suspended') {
+                    dummyCtx.resume();
+                }
+            }
+        }
+
+        // Silent unlock listeners for first user gesture (touch, click, keydown)
+        ['click', 'pointerdown', 'keydown', 'touchstart'].forEach(function(evt) {
+            window.addEventListener(evt, unlockAudio, { passive: true, capture: true });
+        });
 
         // Verify WebGPU support and initiate device acquisition immediately
         let webgpuDevicePromise = null;
@@ -200,30 +300,6 @@
             badge.innerHTML = '<div class="badge-dot" style="background:#ef4444;box-shadow:0 0 8px #ef4444;"></div><span>WebGPU Unsupported</span>';
             statusText.className = 'error-msg';
             statusText.innerText = 'WebGPU is not supported in this browser. Please use a WebGPU-compatible browser (e.g. Chrome, Edge) with hardware acceleration enabled.';
-            spinner.style.display = 'none';
-        }
-
-        function startAudioAndHideOverlay() {
-            // Unlock all WebAudio AudioContexts upon user gesture
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (AudioContext) {
-                if (window.miniaudio && window.miniaudio.device_instances) {
-                    for (var k in window.miniaudio.device_instances) {
-                        var dev = window.miniaudio.device_instances[k];
-                        if (dev && dev.audioContext && dev.audioContext.state === 'suspended') {
-                            dev.audioContext.resume();
-                        }
-                    }
-                }
-                const dummyCtx = new AudioContext();
-                if (dummyCtx.state === 'suspended') {
-                    dummyCtx.resume();
-                }
-            }
-            overlay.style.opacity = '0';
-            setTimeout(() => {
-                overlay.style.display = 'none';
-            }, 400);
         }
 
         var Module = {
@@ -247,9 +323,9 @@
                 }
             ],
             postRun: [function() {
-                spinner.style.display = 'none';
-                statusText.innerText = "Engine loaded. Click below to activate real-time audio:";
-                startBtn.style.display = 'inline-block';
+                // Immediately unlock audio and dismiss the loading screen without user button press
+                unlockAudio();
+                window.hideAppLoadingScreen();
             }],
             print: function(text) {
                 console.log('[Eatsbits WASM]', text);
@@ -262,21 +338,22 @@
                 return c;
             })(),
             setStatus: function(text) {
-                if (text && text.length > 0) {
-                    statusText.innerText = text;
+                if (text && text.length > 0 && statusText) {
+                    statusText.innerText = text.toUpperCase();
                 }
             },
             totalDependencies: 0,
             monitorRunDependencies: function(left) {
                 this.totalDependencies = Math.max(this.totalDependencies, left);
-                Module.setStatus(left ? 'Loading assets... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : 'All assets loaded.');
+                Module.setStatus(left ? 'LOADING ASSETS... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : 'ASSETS LOADED. INITIALIZING ENGINE...');
             }
         };
 
         window.onerror = function(event) {
-            statusText.className = 'error-msg';
-            statusText.innerText = 'Initialization Error: ' + event;
-            spinner.style.display = 'none';
+            if (statusText) {
+                statusText.className = 'error-msg';
+                statusText.innerText = 'INITIALIZATION ERROR: ' + event;
+            }
         };
 
         // Register Service Worker for Offline PWA execution & Cross-Origin Isolation (COOP/COEP)
