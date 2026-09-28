@@ -1,0 +1,53 @@
+# @id: cyberpunk_neon_lead
+# @name: Cyberpunk Neon Lead
+# @category: instrument
+# @tags: lead, synth, cyberpunk, dual-osc, analog, aggressive
+# @description: Dual-oscillator lead with sub-bass punch, dynamic resonant filter sweep, and overdrive.
+
+def init():
+    return {
+        "waveform": eat.param("waveform", 0.0, 3.0, 1.0, unit=""),
+        "pulse_width": eat.param("pulse_width", 0.1, 0.9, 0.45, unit=""),
+        "sub_osc": eat.param("sub_osc", 0.0, 1.0, 0.35, unit=""),
+        "cutoff": eat.param("cutoff", 50.0, 14000.0, 2800.0, unit="Hz"),
+        "resonance": eat.param("resonance", 0.1, 8.0, 2.2, unit=""),
+        "env_mod": eat.param("env_mod", -1.0, 1.0, 0.45, unit=""),
+        "drive": eat.param("drive", 0.0, 2.0, 0.35, unit=""),
+        "attack": eat.param("attack", 0.001, 1.0, 0.008, unit="s"),
+        "decay": eat.param("decay", 0.01, 2.0, 0.25, unit="s"),
+        "sustain": eat.param("sustain", 0.0, 1.0, 0.65, unit=""),
+        "release": eat.param("release", 0.01, 3.0, 0.20, unit="s"),
+    }
+
+def process(time, freq, note, params):
+    return eat.synth(note, time, params)
+
+def gui():
+    return {
+        "panel": {
+            "title": "NEON LEAD",
+            "subtitle": "Cyberpunk Dual-DCO Synthesizer",
+            "background": "carbon",
+            "accent": "#00FFCC",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "cutoff", "label": "CUTOFF", "unit": "Hz"},
+                        {"type": "knob", "param": "resonance", "label": "RESO"},
+                        {"type": "knob", "param": "env_mod", "label": "ENV MOD"},
+                        {"type": "knob", "param": "drive", "label": "DRIVE"}
+                    ]
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "attack", "label": "ATK", "unit": "s"},
+                        {"type": "knob", "param": "decay", "label": "DEC", "unit": "s"},
+                        {"type": "knob", "param": "sustain", "label": "SUS"},
+                        {"type": "knob", "param": "release", "label": "REL", "unit": "s"}
+                    ]
+                }
+            ]
+        }
+    }

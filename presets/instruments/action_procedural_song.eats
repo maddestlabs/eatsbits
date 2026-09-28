@@ -1,0 +1,31 @@
+# @id: action_procedural_song
+# @name: Procedural Multi-Track Song Generator
+# @category: projectAction
+# @description: Procedurally generates a complete multi-track arrangement (GM Standard Drums, Bass, Chords, Lead/Hook) with authentic genre styles, seeded determinism, and loop alignment.
+# @tags: PROCGEN, SONG, LOFI, SYNTHWAVE, ARRANGER, DRUMS
+
+# @author: Eatsbeats
+# @category: project_action
+# @description: Procedurally generates a complete multi-track arrangement (GM Standard Drums, Bass, Chords, Lead/Hook) with authentic genre styles, seeded determinism, and loop alignment.
+
+def init():
+    return {
+        "Style": eat.param("Style", 0, 7, 0, options=["Lo-Fi Hip Hop", "Synthwave / Retrowave", "Deep House", "Cyberpunk Acid", "Neo-Soul / R&B", "Pop / Funk Anthem", "SNES 16-Bit Adventure", "C64 SID 8-Bit Chiptune"]),
+        "Root": eat.param("Root", 0, 12, 0, options=["Auto / From Key", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
+        "Structure": eat.param("Structure", 0, 2, 0, options=["Full Arrangement (Intro-Verse-Chorus-Outro)", "Groove Loop (Verse-Chorus)", "Seamless Loop"]),
+        "Bars": eat.param("Bars", 4, 32, 16, step=4),
+        "Seed": eat.param("Seed", 1, 999999, 42, step=1),
+        "Swing": eat.param("Swing", 0.0, 1.0, 0.25, step=0.05),
+        "Humanize": eat.param("Humanize", 0.0, 1.0, 0.25, step=0.05),
+    }
+
+def run(project, params):
+    return {
+        "style": params.get("Style", 0),
+        "root": params.get("Root", 0),
+        "structure": params.get("Structure", 0),
+        "bars": params.get("Bars", 16),
+        "seed": params.get("Seed", 42),
+        "swing": params.get("Swing", 0.25),
+        "humanize": params.get("Humanize", 0.25),
+    }

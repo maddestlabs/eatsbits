@@ -1,0 +1,90 @@
+# @id: c64_sid_drum_kit
+# @name: C64 SID Drum Kit
+# @category: instrument
+# @description: Authentic MOS 6581 / 8580 Commodore 64 Chiptune Drum Machine: 23-bit Galois LFSR noise snares, triangle chip kicks, high-frequency noise ticks, toms, and cymbals mapped to General MIDI drum notes (35-81).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "MasterTune": eat.param("MasterTune", -12.0, 12.0, 0.0, step=1.0),
+        "KickPunch": eat.param("KickPunch", 0.0, 1.0, 0.75, step=0.0),
+        "SnareSnap": eat.param("SnareSnap", 0.0, 1.0, 0.65, step=0.0),
+        "NoiseMetal": eat.param("NoiseMetal", 0.0, 1.0, 0.50, step=0.0),
+        "ChipModel": eat.param("ChipModel", 0.0, 1.0, 0.0, step=0.0, allow_variance=False),
+        "Overdrive": eat.param("Overdrive", 1.0, 3.0, 1.35, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "C64 SID DRUM KIT",
+            "subtitle": "MOS 6581 / 8580 Chiptune Percussion Machine",
+            "background": "c64_breadbin",
+            "accent": "#6C5EB5",
+            "rackSides": "none",
+            "cornerRadius": 4,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "SID CHIPTUNE PERCUSSION CONTROLS",
+                    "accent": "#6C5EB5",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "MasterTune",
+                                    "label": "TUNE (ST)",
+                                    "unit": "st",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "KickPunch",
+                                    "label": "KICK PUNCH",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SnareSnap",
+                                    "label": "SNARE SNAP",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "NoiseMetal",
+                                    "label": "NOISE METAL",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ChipModel",
+                                    "label": "6581 / 8580",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Overdrive",
+                                    "label": "FET DRIVE",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    # Evaluated by SIDDrumKitEngine in EatDspSynthesizer
+    return 0.0

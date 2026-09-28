@@ -1,0 +1,129 @@
+# @id: concert_grand_piano
+# @name: Concert Grand Piano
+# @category: instrument
+# @description: Physical modeling of a 9-foot Concert Grand Piano: non-linear felt hammer compression, coupled trichord string waveguides with inharmonic dispersion, 2D spruce soundboard modal resonance, duplex scaling high shimmer, and sympathetic pedal resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "HammerHardness": eat.param("HammerHardness", 0.1, 2.0, 0.85, step=0.0),
+        "Brightness": eat.param("Brightness", 0.0, 1.0, 0.5, step=0.0),
+        "Stiffness": eat.param("Stiffness", 0.0, 3.0, 1.0, step=0.0),
+        "UnisonDetune": eat.param("UnisonDetune", 0.0, 3.0, 1.0, step=0.0),
+        "PedalReso": eat.param("PedalReso", 0.0, 2.0, 0.55, step=0.0),
+        "Sustain": eat.param("Sustain", 0.5, 1.2, 1.0, step=0.0),
+        "LidOpen": eat.param("LidOpen", -6.0, 8.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 18000.0, 14000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "CONCERT GRAND PIANO",
+            "subtitle": "Stanford CCRMA / Bank-Bensa Commuted Waveguide Model",
+            "accent": "#D4AF37",
+            "background": "matte_metal",
+            "rackSides": "brushed_steel",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "FELT HAMMER COMPRESSION & BRIGHTNESS (GOLD)",
+                    "accent": "#D4AF37",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "HammerHardness",
+                                    "label": "HARDNESS",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Brightness",
+                                    "label": "FELT CUTOFF",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Stiffness",
+                                    "label": "INHARMONIC",
+                                    "unit": "x",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "UnisonDetune",
+                                    "label": "DETUNE",
+                                    "unit": "x",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "ACOUSTIC ENVIRONMENT & BLOOM (BRONZE)",
+                    "accent": "#CD7F32",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PedalReso",
+                                    "label": "PEDAL BLOOM",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Sustain",
+                                    "label": "SUSTAIN",
+                                    "unit": "x",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "LidOpen",
+                                    "label": "LID AIR",
+                                    "unit": "dB",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "BRILLIANCE",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    strike = eat.node.hammer(hardness="HammerHardness", click=1.0)
+    strings = eat.node.waveguide(in_sig=strike, damping="Brightness", feedback=0.996)
+    body = eat.node.acoustic_body(in_sig=strings, profile=0.8, gain="LidOpen")
+    return body
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

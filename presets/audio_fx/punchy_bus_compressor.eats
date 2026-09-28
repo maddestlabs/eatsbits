@@ -1,0 +1,50 @@
+# @id: punchy_bus_comp
+# @name: Punchy Bus Compressor
+# @category: audioFx
+# @engine: compressor
+# @tags: compressor, bus, glue, vca, punchy, mastering, studio
+# @description: Studio VCA bus compressor with auto-makeup gain, punchy attack, and dynamic glue.
+
+def init():
+    eat.use_engine("compressor")
+    return {
+        "Threshold": eat.param("Threshold", -40.0, 0.0, -14.0, unit="dB"),
+        "Ratio": eat.param("Ratio", 1.0, 20.0, 4.0, unit=""),
+        "Attack": eat.param("Attack", 0.5, 100.0, 10.0, unit="ms"),
+        "Release": eat.param("Release", 10.0, 1000.0, 100.0, unit="ms"),
+        "Makeup": eat.param("Makeup", 0.0, 24.0, 2.5, unit="dB"),
+        "Mix": eat.param("Mix", 0.0, 1.0, 1.0, unit=""),
+    }
+
+def process(input_l, input_r, params):
+    return [input_l, input_r]
+
+def gui():
+    return {
+        "panel": {
+            "title": "VCA BUS COMPRESSOR",
+            "subtitle": "Studio Master Dynamics & Glue",
+            "background": "matteMetal",
+            "accent": "#FFB300",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Threshold", "label": "THRESH", "unit": "dB"},
+                        {"type": "knob", "param": "Ratio", "label": "RATIO"},
+                        {"type": "knob", "param": "Attack", "label": "ATTACK", "unit": "ms"},
+                        {"type": "knob", "param": "Release", "label": "RELEASE", "unit": "ms"},
+                        {"type": "knob", "param": "Makeup", "label": "GAIN", "unit": "dB"},
+                        {"type": "knob", "param": "Mix", "label": "MIX"}
+                    ]
+                }
+            ]
+        }
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    in_sig = eat.node.input()
+    comp = eat.node.compressor(in_sig, threshold="Threshold", ratio="Ratio", attack="Attack", release="Release", makeup="Makeup", mix="Mix")
+    return comp
+

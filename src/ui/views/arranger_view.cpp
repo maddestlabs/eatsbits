@@ -3,6 +3,7 @@
 #include "eatsbits/audio/audio_engine.hpp"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace eatsbits::ui {
 
@@ -22,6 +23,7 @@ ArrangerView::ArrangerView() {
     ArrangerTimelineTrack t1;
     t1.name = "303 Acid Bass";
     t1.instrument = "Roland TB-303";
+    t1.instrumentEngine = "tb303";
     t1.iconRef = "preset:inst_synth";
     t1.r = 1.0f; t1.g = 0.55f; t1.b = 0.0f;
     t1.knob1 = 0.65f; t1.knob1Name = "CUTOFF";
@@ -29,19 +31,19 @@ ArrangerView::ArrangerView() {
     t1.knob3 = 0.45f; t1.knob3Name = "DECAY";
     t1.knob4 = 0.80f; t1.knob4Name = "ACCENT";
 
-    ArrangerTimelineClip c1{"c1", "Acid Pattern A", 0, 1, 4, 1.0f, 0.55f, 0.0f, false, false, false, 4, 0, 1.0f, false};
+    ArrangerTimelineClip c1{"c1", "Acid Pattern A", 0, 1, 4, 1.0f, 0.55f, 0.0f, false, false, true, 1, 0, 1.0f, false};
     c1.notes = {
-        {36, 0.0f, 1.0f, 0.95f}, {36, 2.0f, 1.0f, 0.70f}, {48, 3.0f, 0.75f, 1.00f},
-        {39, 4.0f, 1.0f, 0.80f}, {41, 6.0f, 1.5f, 0.90f}, {43, 8.0f, 1.0f, 0.85f},
-        {36, 10.0f, 1.0f, 0.92f}, {46, 12.0f, 0.5f, 0.95f}, {48, 14.0f, 1.5f, 1.00f}
+        {36, 0.0f, 0.2f, 0.95f}, {36, 0.5f, 0.2f, 0.70f}, {48, 0.75f, 0.2f, 1.00f},
+        {39, 1.0f, 0.2f, 0.80f}, {41, 1.5f, 0.2f, 0.90f}, {43, 2.0f, 0.2f, 0.85f},
+        {36, 2.5f, 0.2f, 0.92f}, {46, 3.0f, 0.2f, 0.95f}, {48, 3.5f, 0.2f, 1.00f}
     };
     t1.clips.push_back(c1);
 
-    ArrangerTimelineClip c2{"c2", "Acid Pattern B", 0, 5, 4, 1.0f, 0.55f, 0.0f, false, false, false, 4, 0, 1.0f, false};
+    ArrangerTimelineClip c2{"c2", "Acid Pattern B", 0, 5, 4, 1.0f, 0.55f, 0.0f, false, false, true, 1, 0, 1.0f, false};
     c2.notes = {
-        {36, 0.0f, 0.75f, 0.85f}, {48, 1.0f, 0.5f, 1.00f}, {36, 2.0f, 1.0f, 0.65f},
-        {41, 4.0f, 1.0f, 0.90f}, {44, 6.0f, 1.0f, 0.85f}, {46, 8.0f, 1.5f, 0.95f},
-        {48, 11.0f, 0.5f, 1.00f}, {39, 12.0f, 1.0f, 0.75f}, {41, 14.0f, 1.0f, 0.85f}
+        {36, 0.0f, 0.2f, 0.85f}, {48, 0.25f, 0.2f, 1.00f}, {36, 0.5f, 0.2f, 0.65f},
+        {41, 1.0f, 0.2f, 0.90f}, {44, 1.5f, 0.2f, 0.85f}, {46, 2.0f, 0.3f, 0.95f},
+        {48, 2.75f, 0.2f, 1.00f}, {39, 3.0f, 0.2f, 0.75f}, {41, 3.5f, 0.2f, 0.85f}
     };
     t1.clips.push_back(c2);
 
@@ -52,6 +54,7 @@ ArrangerView::ArrangerView() {
     ArrangerTimelineTrack t2;
     t2.name = "TR-808 Kit";
     t2.instrument = "Analog 808";
+    t2.instrumentEngine = "tr808";
     t2.iconRef = "preset:drum_machine";
     t2.r = 0.13f; t2.g = 0.96f; t2.b = 0.91f;
     t2.knob1 = 0.70f; t2.knob1Name = "TONE";
@@ -59,15 +62,15 @@ ArrangerView::ArrangerView() {
     t2.knob3 = 0.60f; t2.knob3Name = "DECAY";
     t2.knob4 = 0.50f; t2.knob4Name = "TUNING";
 
-    ArrangerTimelineClip c3{"c3", "808 Beat 01", 1, 1, 8, 0.13f, 0.96f, 0.91f, false, false, true, 4, 0, 1.0f, false};
+    ArrangerTimelineClip c3{"c3", "808 Beat 01", 1, 1, 8, 0.13f, 0.96f, 0.91f, false, false, true, 1, 0, 1.0f, false};
     c3.notes = {
-        {36, 0.0f, 0.75f, 1.00f}, {42, 0.0f, 0.4f, 0.75f}, {42, 1.0f, 0.4f, 0.45f},
-        {42, 2.0f, 0.4f, 0.70f}, {42, 3.0f, 0.4f, 0.40f}, {38, 4.0f, 0.8f, 0.95f},
-        {42, 4.0f, 0.4f, 0.80f}, {42, 5.0f, 0.4f, 0.50f}, {42, 6.0f, 0.4f, 0.70f},
-        {36, 7.0f, 0.6f, 0.85f}, {36, 8.0f, 0.75f, 1.00f}, {42, 8.0f, 0.4f, 0.85f},
-        {42, 9.0f, 0.4f, 0.45f}, {36, 10.5f, 0.5f, 0.75f}, {42, 10.0f, 0.4f, 0.70f},
-        {38, 12.0f, 0.8f, 1.00f}, {42, 12.0f, 0.4f, 0.80f}, {42, 14.0f, 0.4f, 0.75f},
-        {46, 15.0f, 0.8f, 0.65f}
+        {36, 0.0f, 0.2f, 1.00f}, {42, 0.0f, 0.1f, 0.75f}, {42, 0.25f, 0.1f, 0.45f},
+        {42, 0.5f, 0.1f, 0.70f}, {42, 0.75f, 0.1f, 0.40f}, {38, 1.0f, 0.2f, 0.95f},
+        {42, 1.0f, 0.1f, 0.80f}, {42, 1.25f, 0.1f, 0.50f}, {42, 1.5f, 0.1f, 0.70f},
+        {36, 1.75f, 0.2f, 0.85f}, {36, 2.0f, 0.2f, 1.00f}, {42, 2.0f, 0.1f, 0.85f},
+        {42, 2.25f, 0.1f, 0.45f}, {36, 2.5f, 0.2f, 0.75f}, {42, 2.5f, 0.1f, 0.70f},
+        {38, 3.0f, 0.2f, 1.00f}, {42, 3.0f, 0.1f, 0.80f}, {42, 3.5f, 0.1f, 0.75f},
+        {46, 3.75f, 0.2f, 0.65f}
     };
     t2.clips.push_back(c3);
     t2.audioFx.push_back({"Studio Dynamics", "DYNAMICS_COMP", 0.70f, 0.90f, true});
@@ -76,6 +79,7 @@ ArrangerView::ArrangerView() {
     ArrangerTimelineTrack t3;
     t3.name = "TR-909 Drive";
     t3.instrument = "Analog 909";
+    t3.instrumentEngine = "tr909";
     t3.iconRef = "preset:drum_kick";
     t3.r = 1.0f; t3.g = 0.16f; t3.b = 0.43f;
     t3.knob1 = 0.85f; t3.knob1Name = "ATTACK";
@@ -83,13 +87,13 @@ ArrangerView::ArrangerView() {
     t3.knob3 = 0.50f; t3.knob3Name = "TUNE";
     t3.knob4 = 0.60f; t3.knob4Name = "CRACK";
 
-    ArrangerTimelineClip c4{"c4", "909 Groove", 2, 5, 4, 1.0f, 0.16f, 0.43f, false, false, false, 4, 0, 1.0f, false};
+    ArrangerTimelineClip c4{"c4", "909 Groove", 2, 5, 4, 1.0f, 0.16f, 0.43f, false, false, true, 1, 0, 1.0f, false};
     c4.notes = {
-        {36, 0.0f, 0.8f, 1.00f}, {42, 0.5f, 0.4f, 0.70f}, {36, 2.0f, 0.8f, 0.90f},
-        {42, 2.5f, 0.4f, 0.65f}, {38, 4.0f, 0.8f, 0.95f}, {36, 4.0f, 0.8f, 1.00f},
-        {46, 5.0f, 0.8f, 0.75f}, {36, 6.0f, 0.8f, 0.85f}, {36, 8.0f, 0.8f, 1.00f},
-        {42, 8.5f, 0.4f, 0.70f}, {36, 10.0f, 0.8f, 0.90f}, {38, 12.0f, 0.8f, 1.00f},
-        {46, 13.0f, 0.8f, 0.80f}, {36, 14.0f, 0.8f, 0.90f}, {42, 15.0f, 0.4f, 0.60f}
+        {36, 0.0f, 0.2f, 1.00f}, {42, 0.125f, 0.1f, 0.70f}, {36, 0.5f, 0.2f, 0.90f},
+        {42, 0.625f, 0.1f, 0.65f}, {38, 1.0f, 0.2f, 0.95f}, {36, 1.0f, 0.2f, 1.00f},
+        {46, 1.25f, 0.2f, 0.75f}, {36, 1.5f, 0.2f, 0.85f}, {36, 2.0f, 0.2f, 1.00f},
+        {42, 2.125f, 0.1f, 0.70f}, {36, 2.5f, 0.2f, 0.90f}, {38, 3.0f, 0.2f, 1.00f},
+        {46, 3.25f, 0.2f, 0.80f}, {36, 3.5f, 0.2f, 0.90f}, {42, 3.75f, 0.1f, 0.60f}
     };
     t3.clips.push_back(c4);
 
@@ -97,6 +101,7 @@ ArrangerView::ArrangerView() {
     ArrangerTimelineTrack t4;
     t4.name = "DX7 Rhodes";
     t4.instrument = "Yamaha DX7 6-Op FM";
+    t4.instrumentEngine = "dx7";
     t4.iconRef = "preset:inst_piano";
     t4.r = 0.62f; t4.g = 0.31f; t4.b = 0.87f;
     t4.knob1 = 0.50f; t4.knob1Name = "BRIGHT";
@@ -111,14 +116,20 @@ ArrangerView::ArrangerView() {
         {56, 16.0f, 7.5f, 0.70f}, {60, 16.0f, 7.5f, 0.65f}, {63, 16.0f, 7.5f, 0.75f}, {67, 16.0f, 7.5f, 0.80f},
         {58, 24.0f, 7.5f, 0.80f}, {62, 24.0f, 7.5f, 0.75f}, {65, 24.0f, 7.5f, 0.85f}, {68, 24.0f, 7.5f, 0.90f}
     };
+    t4.isChordLeader = true;
     t4.clips.push_back(c5);
     t4.midiFx.push_back({"Arpeggiator Pro", "ARP_PRO", 0, 0, true});
     t4.audioFx.push_back({"Chorus / Flanger", "CHORUS_FLANGER", 0.50f, 0.75f, true});
+
+    // Sub Bass syncs to DX7 Rhodes chords in Bass mode
+    t2.chordLeaderTrackIndex = 3; // DX7 Rhodes
+    t2.chordFollowMode = theory::ChordFollowMode::Bass;
 
     // 5. Concert Grand Piano (Waveguide Physical Modeling)
     ArrangerTimelineTrack t5;
     t5.name = "Concert Grand";
     t5.instrument = "Waveguide Grand Piano";
+    t5.instrumentEngine = "piano";
     t5.iconRef = "preset:inst_piano";
     t5.r = 0.88f; t5.g = 0.66f; t5.b = 0.43f;
     t5.knob1 = 0.55f; t5.knob1Name = "HARDNESS";
@@ -137,6 +148,7 @@ ArrangerView::ArrangerView() {
     t5.audioFx.push_back({"Partitioned Convolver", "CONVOLVER_REVERB", 0.40f, 0.50f, true});
 
     tracks_ = {t1, t2, t3, t4, t5};
+    refreshAllClipChords();
 
     // Connect Reusable PluginSearchDialog callbacks
     pluginDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t targetIdx) {
@@ -189,6 +201,10 @@ ArrangerView::ArrangerView() {
     iconDialog_.onIconSelected = [this](const std::string& iconRef, uint32_t targetIdx) {
         if (targetIdx < tracks_.size()) {
             tracks_[targetIdx].iconRef = iconRef;
+            drawerData_.iconRef = iconRef;
+            if (onTrackIconChanged) {
+                onTrackIconChanged(targetIdx, iconRef);
+            }
         }
     };
 
@@ -202,6 +218,119 @@ ArrangerView::ArrangerView() {
         {"chord_10", 10, 2.0f, 7, theory::ChordQuality::Major, -1},  // Bar 11-12: G Major
         {"chord_12", 12, 2.0f, 9, theory::ChordQuality::Minor, -1},  // Bar 13-14: A Minor
         {"chord_14", 14, 2.0f, 5, theory::ChordQuality::Major, -1}   // Bar 15-16: F Major
+    };
+
+    // Shared TrackPropertiesDrawer callbacks across Arranger and Mixer
+    propertiesDrawer_.onVolumeChanged = [this](uint32_t trackIdx, float vol) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].volume = vol;
+            if (onVolumeChanged) onVolumeChanged(trackIdx, vol);
+        }
+    };
+    propertiesDrawer_.onPanChanged = [this](uint32_t trackIdx, float pan) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].pan = pan;
+            if (onPanChanged) onPanChanged(trackIdx, pan);
+        }
+    };
+    propertiesDrawer_.onMuteToggled = [this](uint32_t trackIdx, bool mute) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].mute = mute;
+            if (onMuteToggled) onMuteToggled(trackIdx, mute);
+        }
+    };
+    propertiesDrawer_.onSoloToggled = [this](uint32_t trackIdx, bool solo) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].solo = solo;
+            if (onSoloToggled) onSoloToggled(trackIdx, solo);
+        }
+    };
+    propertiesDrawer_.onColorChanged = [this](uint32_t trackIdx, float r, float g, float b) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].r = r;
+            tracks_[trackIdx].g = g;
+            tracks_[trackIdx].b = b;
+            for (auto& cl : tracks_[trackIdx].clips) {
+                cl.r = r; cl.g = g; cl.b = b;
+            }
+        }
+    };
+    propertiesDrawer_.onParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+        if (trackIdx < tracks_.size()) {
+            auto& trk = tracks_[trackIdx];
+            if (paramName == "cutoff" || paramName == "tone" || paramName == "attack" || paramName == "param1") {
+                trk.knob1 = normVal;
+            } else if (paramName == "resonance" || paramName == "snappy" || paramName == "punch" || paramName == "decay" || paramName == "param2") {
+                trk.knob2 = normVal;
+            } else if (paramName == "decay" || paramName == "tune" || paramName == "bright" || paramName == "param3") {
+                trk.knob3 = normVal;
+            } else if (paramName == "accent" || paramName == "tuning" || paramName == "crack" || paramName == "detune" || paramName == "param4") {
+                trk.knob4 = normVal;
+            }
+        }
+    };
+    propertiesDrawer_.onTabSelected = [this](TrackPropertiesTab tab) {
+        inspectorTab_ = (tab == TrackPropertiesTab::Clip) ? ArrangerInspectorTab::Clip : ArrangerInspectorTab::Track;
+        drawerData_.tab = tab;
+    };
+    propertiesDrawer_.onEditInPianoRoll = [this](uint32_t trackIdx, int clipIdx) {
+        if (onEditClipInPianoRoll) {
+            onEditClipInPianoRoll(trackIdx, clipIdx);
+        }
+    };
+    propertiesDrawer_.getPanel().getPluginSearchDialog().onPluginSelected =
+        [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t targetIdx) {
+            if (mode == PluginDialogMode::AddInstrument) {
+                if (targetIdx < tracks_.size()) {
+                    tracks_[targetIdx].instrument = entry.name;
+                    tracks_[targetIdx].instrumentEngine = entry.engineTag;
+                    tracks_[targetIdx].r = entry.r;
+                    tracks_[targetIdx].g = entry.g;
+                    tracks_[targetIdx].b = entry.b;
+                    drawerData_.instrument = entry.name;
+                    drawerData_.instrumentEngine = entry.engineTag;
+                    drawerData_.r = entry.r;
+                    drawerData_.g = entry.g;
+                    drawerData_.b = entry.b;
+                }
+            } else if (mode == PluginDialogMode::AddMidiFx) {
+                if (targetIdx < tracks_.size()) {
+                    tracks_[targetIdx].midiFx.push_back({entry.name, entry.engineTag, true});
+                    drawerData_.midiFx.push_back({entry.name, entry.engineTag, true});
+                }
+            } else if (mode == PluginDialogMode::AddAudioFx) {
+                if (targetIdx < tracks_.size()) {
+                    tracks_[targetIdx].audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                    drawerData_.audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                }
+            }
+        };
+    propertiesDrawer_.onRemoveMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFx.size()) {
+            tracks_[trackIdx].midiFx.erase(tracks_[trackIdx].midiFx.begin() + fxIdx);
+        }
+    };
+    propertiesDrawer_.onRemoveAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFx.size()) {
+            tracks_[trackIdx].audioFx.erase(tracks_[trackIdx].audioFx.begin() + fxIdx);
+        }
+    };
+    propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {
+        if (trackIdx < tracks_.size()) {
+            iconDialog_.open(tracks_[trackIdx].name, trackIdx, tracks_[trackIdx].iconRef);
+        }
+    };
+    propertiesDrawer_.onTrackRenameWithText = [this](uint32_t trackIdx, const std::string& newName) {
+        if (trackIdx < tracks_.size() && !newName.empty()) {
+            tracks_[trackIdx].name = newName;
+            drawerData_.trackName = newName;
+            if (trackIdx < drawerData_.allTrackNames.size()) {
+                drawerData_.allTrackNames[trackIdx] = newName;
+            }
+            if (onTrackRename) {
+                onTrackRename(trackIdx, newName);
+            }
+        }
     };
 }
 
@@ -219,6 +348,7 @@ void ArrangerView::addTrack(const std::string& name, const std::string& instrume
     ArrangerTimelineTrack t;
     t.name = name;
     t.instrument = instrument;
+    t.instrumentEngine = "synth";
     t.iconRef = "preset:inst_synth";
     t.r = r; t.g = g; t.b = b;
     // Add default initial clip
@@ -380,6 +510,189 @@ uint32_t ArrangerView::extractChordsFromClip(uint32_t trackIdx, uint32_t clipIdx
     return count;
 }
 
+void ArrangerView::updateClipDetectedChords(ArrangerTimelineClip& clip) {
+    if (clip.notes.empty()) {
+        clip.detectedChords.clear();
+        return;
+    }
+    std::vector<theory::TheoryNote> tnotes;
+    tnotes.reserve(clip.notes.size());
+    for (const auto& n : clip.notes) {
+        theory::TheoryNote tn;
+        tn.pitch = n.pitch;
+        tn.startStep = n.startBeat * 4.0f; // 4 steps per beat
+        tn.durationSteps = n.lengthBeats * 4.0f;
+        tn.velocity = n.velocity;
+        tnotes.push_back(tn);
+    }
+    uint32_t effBars = clip.isLooped ? clip.loopLengthBars : clip.lengthBars;
+    if (effBars == 0) effBars = 1;
+    clip.detectedChords = theory::ChordTheory::extractChordsFromNotes(tnotes, 0, effBars, 16);
+}
+
+void ArrangerView::refreshAllClipChords() {
+    for (auto& track : tracks_) {
+        for (auto& clip : track.clips) {
+            updateClipDetectedChords(clip);
+        }
+    }
+}
+
+const theory::ChordEvent* ArrangerView::getActiveChordForTrackAtBar(uint32_t trackIdx, float bar) const noexcept {
+    // 1. If this track explicitly specifies a chord leader track
+    int leaderIdx = (trackIdx < tracks_.size()) ? tracks_[trackIdx].chordLeaderTrackIndex : -1;
+    if (leaderIdx >= 0 && leaderIdx < static_cast<int>(tracks_.size())) {
+        const auto& leaderTrack = tracks_[leaderIdx];
+        for (const auto& clip : leaderTrack.clips) {
+            float clipStart = static_cast<float>(clip.startBar - 1);
+            float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
+            if (bar >= clipStart && bar < clipEnd) {
+                if (!clip.detectedChords.empty()) {
+                    float localBar = bar - clipStart;
+                    if (clip.isLooped && clip.loopLengthBars > 0) {
+                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
+                    }
+                    for (const auto& c : clip.detectedChords) {
+                        if (localBar >= static_cast<float>(c.startBar) &&
+                            localBar < static_cast<float>(c.startBar) + c.barLength) {
+                            return &c;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. If track itself has a clip at this bar with detected chords
+    if (trackIdx < tracks_.size()) {
+        const auto& track = tracks_[trackIdx];
+        for (const auto& clip : track.clips) {
+            float clipStart = static_cast<float>(clip.startBar - 1);
+            float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
+            if (bar >= clipStart && bar < clipEnd) {
+                if (!clip.detectedChords.empty()) {
+                    float localBar = bar - clipStart;
+                    if (clip.isLooped && clip.loopLengthBars > 0) {
+                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
+                    }
+                    for (const auto& c : clip.detectedChords) {
+                        if (localBar >= static_cast<float>(c.startBar) &&
+                            localBar < static_cast<float>(c.startBar) + c.barLength) {
+                            return &c;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Check any designated leader track (track.isChordLeader == true)
+    for (size_t t = 0; t < tracks_.size(); ++t) {
+        if (tracks_[t].isChordLeader && t != trackIdx) {
+            const auto* c = getActiveChordForTrackAtBar(static_cast<uint32_t>(t), bar);
+            if (c) return c;
+        }
+    }
+
+    // 4. Fall back to any track with chords at bar
+    for (size_t t = 0; t < tracks_.size(); ++t) {
+        if (t != trackIdx) {
+            for (const auto& clip : tracks_[t].clips) {
+                float clipStart = static_cast<float>(clip.startBar - 1);
+                float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
+                if (bar >= clipStart && bar < clipEnd && !clip.detectedChords.empty()) {
+                    float localBar = bar - clipStart;
+                    if (clip.isLooped && clip.loopLengthBars > 0) {
+                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
+                    }
+                    for (const auto& c : clip.detectedChords) {
+                        if (localBar >= static_cast<float>(c.startBar) &&
+                            localBar < static_cast<float>(c.startBar) + c.barLength) {
+                            return &c;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Fall back to legacy global chord track if present
+    return getActiveChordAtBar(bar);
+}
+
+std::vector<ArrangerView::OverviewChordInfo> ArrangerView::getHarmonicOverviewChords() const {
+    std::vector<OverviewChordInfo> result;
+
+    // 1. First preference: Check designated leader track(s)
+    int leaderIdx = -1;
+    for (size_t t = 0; t < tracks_.size(); ++t) {
+        if (tracks_[t].isChordLeader) {
+            leaderIdx = static_cast<int>(t);
+            break;
+        }
+    }
+    // If no explicit leader, find first track with detected chords in clips
+    if (leaderIdx < 0) {
+        for (size_t t = 0; t < tracks_.size(); ++t) {
+            for (const auto& cl : tracks_[t].clips) {
+                if (!cl.detectedChords.empty()) {
+                    leaderIdx = static_cast<int>(t);
+                    break;
+                }
+            }
+            if (leaderIdx >= 0) break;
+        }
+    }
+
+    if (leaderIdx >= 0 && leaderIdx < static_cast<int>(tracks_.size())) {
+        const auto& trk = tracks_[leaderIdx];
+        for (size_t ci = 0; ci < trk.clips.size(); ++ci) {
+            const auto& clip = trk.clips[ci];
+            if (clip.detectedChords.empty()) continue;
+
+            float clipStart = static_cast<float>(clip.startBar - 1);
+            float effLength = static_cast<float>(clip.isLooped ? clip.loopLengthBars : clip.lengthBars);
+            int cycles = clip.isLooped ? static_cast<int>(std::ceil(static_cast<float>(clip.lengthBars) / effLength)) : 1;
+
+            for (int cyc = 0; cyc < cycles; ++cyc) {
+                float cycleOffset = clipStart + static_cast<float>(cyc) * effLength;
+                for (const auto& ch : clip.detectedChords) {
+                    float chStart = cycleOffset + static_cast<float>(ch.startBar);
+                    if (chStart >= clipStart + static_cast<float>(clip.lengthBars)) continue;
+                    float actualLength = std::min(ch.barLength, (clipStart + static_cast<float>(clip.lengthBars)) - chStart);
+
+                    OverviewChordInfo info;
+                    info.chord = ch;
+                    info.chord.startBar = static_cast<uint32_t>(chStart);
+                    info.chord.barLength = actualLength;
+                    info.sourceTrackIdx = leaderIdx;
+                    info.sourceTrackName = trk.name;
+                    info.sourceClipIdx = static_cast<int>(ci);
+                    info.startBar = chStart;
+                    info.barLength = actualLength;
+                    result.push_back(info);
+                }
+            }
+        }
+    }
+
+    // 2. If result is still empty, fall back to global chordTrack_ if populated
+    if (result.empty() && !chordTrack_.empty()) {
+        for (const auto& ch : chordTrack_) {
+            OverviewChordInfo info;
+            info.chord = ch;
+            info.sourceTrackIdx = -1;
+            info.sourceTrackName = "Chord Track";
+            info.sourceClipIdx = -1;
+            info.startBar = static_cast<float>(ch.startBar);
+            info.barLength = ch.barLength;
+            result.push_back(info);
+        }
+    }
+
+    return result;
+}
+
 void ArrangerView::bakeChordsToTrack(uint32_t trackIdx) {
     if (trackIdx >= tracks_.size()) return;
     auto& track = tracks_[trackIdx];
@@ -389,12 +702,13 @@ void ArrangerView::bakeChordsToTrack(uint32_t trackIdx) {
         float clipStartBar = static_cast<float>(clip.startBar - 1);
         for (auto& note : clip.notes) {
             float noteBar = clipStartBar + (note.startBeat / 4.0f);
-            const auto* chord = getActiveChordAtBar(noteBar);
+            const auto* chord = getActiveChordForTrackAtBar(trackIdx, noteBar);
             if (chord) {
                 note.pitch = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(
                     note.pitch, *chord, track.chordFollowMode));
             }
         }
+        updateClipDetectedChords(clip);
     }
     track.chordFollowMode = theory::ChordFollowMode::Off;
 }
@@ -404,7 +718,10 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     trackHeaderWidth_ = ctx.isMobile ? 130.0f : 190.0f;
     inspectorWidth_ = ctx.isMobile ? 260.0f : 320.0f;
 
-    float inspW = inspectorOpen_ ? inspectorWidth_ : 24.0f;
+    propertiesDrawer_.layout(bounds, 0.0f);
+    inspectorOpen_ = propertiesDrawer_.isExpanded();
+
+    float inspW = inspectorOpen_ ? propertiesDrawer_.getWidth() : TrackPropertiesDrawer::kPullTabWidth;
     float mainW = bounds_.w - inspW;
 
     rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
@@ -419,7 +736,7 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     tracksListBounds_ = Rect2D(bounds_.x, gridTopY, trackHeaderWidth_, gridH);
     gridBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, gridTopY, mainW - trackHeaderWidth_, gridH);
-    inspectorBounds_ = Rect2D(bounds_.x + mainW, bounds_.y, inspW, bounds_.h);
+    inspectorBounds_ = propertiesDrawer_.getDrawerBounds();
 
     // + ADD track row directly below the last track
     float addRowY = tracksListBounds_.y + static_cast<float>(tracks_.size()) * trackRowHeight_ - scrollY_;
@@ -473,9 +790,7 @@ void ArrangerView::render(const ViewContext& ctx) {
     }
 
     // 8. Reusable Contextual Dialogs (Rendered on top if open)
-    if (pluginDialog_.isOpen()) {
-        pluginDialog_.render(r, theme);
-    }
+    // Note: pluginDialog_ is rendered at the top-level overlay pass in GuiWindow for full-screen backdrop coverage
     if (circleOfFifthsDialog_.isOpen()) {
         circleOfFifthsDialog_.render(r, theme);
     }
@@ -519,7 +834,7 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
-    // 1. Background strip for Chord Lane
+    // 1. Background strip for Harmonic Overview Lane
     drawRect(r, chordLaneBounds_.x, chordLaneBounds_.y, chordLaneBounds_.w, chordLaneBounds_.h,
              0.075f, 0.080f, 0.095f, 0.98f);
     drawLine(r, chordLaneBounds_.x, chordLaneBounds_.y + chordLaneBounds_.h,
@@ -535,18 +850,28 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
                  theme.gridLineMinor.r, theme.gridLineMinor.g, theme.gridLineMinor.b, 0.40f, 1.0f);
     }
 
+    auto overview = getHarmonicOverviewChords();
+
     // 3. Render Chord Blocks
-    if (chordTrack_.empty()) {
-        drawText(r, "+ Double-click or click [WHEEL] to insert chords / explore Circle of Fifths",
+    if (overview.empty()) {
+        drawText(r, "♫ Harmonic Overview (Read-Only) • Draw notes in clips to auto-detect chords • Double-click to jump to clip",
                  chordLaneBounds_.x + 20.0f, chordLaneBounds_.y + 9.0f, 10.0f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.65f);
+                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
         return;
     }
 
-    for (size_t i = 0; i < chordTrack_.size(); ++i) {
-        const auto& chord = chordTrack_[i];
-        float cx = chordLaneBounds_.x + static_cast<float>(chord.startBar) * barWidth_ - scrollX_;
-        float cw = chord.barLength * barWidth_;
+    // Right-hand header hint
+    float hintX = chordLaneBounds_.x + chordLaneBounds_.w - 230.0f;
+    if (hintX > chordLaneBounds_.x + 200.0f) {
+        drawText(r, "READ-ONLY OVERVIEW • DOUBLE-CLICK TO EDIT", hintX, chordLaneBounds_.y + 9.0f, 8.0f,
+                 0.50f, 0.55f, 0.65f, 0.70f);
+    }
+
+    for (size_t i = 0; i < overview.size(); ++i) {
+        const auto& info = overview[i];
+        const auto& chord = info.chord;
+        float cx = chordLaneBounds_.x + info.startBar * barWidth_ - scrollX_;
+        float cw = info.barLength * barWidth_;
         float cy = chordLaneBounds_.y + 2.0f;
         float ch = chordLaneBounds_.h - 4.0f;
 
@@ -556,7 +881,6 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
         bool isSelected = (selectedChordIndex_ == static_cast<int>(i));
 
         // Harmonic Color Palette (Eatsbeats visual aesthetic)
-        // Major: Vibrant Cyan / Teal, Minor: Purple / Magenta, Dominant: Amber, Dim/Aug: Crimson, Sus: Emerald
         float bgR = 0.12f, bgG = 0.22f, bgB = 0.32f;
         float edgeR = 0.18f, edgeG = 0.75f, edgeB = 0.90f;
 
@@ -614,13 +938,14 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
             drawText(r, chordName, textX, cy + 6.5f, 11.0f, 1.0f, 1.0f, 1.0f, 1.0f);
         }
 
-        // Right resize grip handle
-        if (cw >= 24.0f) {
-            float gripX = cx + cw - 7.0f;
-            float gripH = ch * 0.4f;
-            float gripY = cy + (ch - gripH) * 0.5f;
-            drawLine(r, gripX, gripY, gripX, gripY + gripH, 1.0f, 1.0f, 1.0f, 0.35f, 1.5f);
-            drawLine(r, gripX + 3.0f, gripY, gripX + 3.0f, gripY + gripH, 1.0f, 1.0f, 1.0f, 0.35f, 1.5f);
+        // Source track label if space permits
+        if (cw >= 90.0f && !info.sourceTrackName.empty()) {
+            float srcX = textX + static_cast<float>(chordName.length()) * 7.0f + 6.0f;
+            if (srcX + 30.0f < cx + cw) {
+                std::string srcTag = "• " + info.sourceTrackName;
+                drawText(r, srcTag, srcX, cy + 8.0f, 8.0f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.70f);
+            }
         }
     }
 }
@@ -680,7 +1005,7 @@ void ArrangerView::renderClips(const ViewContext& ctx) {
 
             // 7. Note preview blocks inside clip body (sharp rectangles matching track color with velocity intensity)
             float noteAreaY = cy + 20.0f;
-            float noteAreaH = ch - 22.0f;
+            float noteAreaH = clip.detectedChords.empty() ? (ch - 22.0f) : (ch - 37.0f);
             float patternW = static_cast<float>(clip.isLooped ? clip.loopLengthBars : clip.lengthBars) * barWidth_;
             int cycles = clip.isLooped ? static_cast<int>(std::ceil(static_cast<float>(clip.lengthBars) / static_cast<float>(clip.loopLengthBars))) : 1;
             float clipBeats = static_cast<float>(clip.isLooped ? clip.loopLengthBars : clip.lengthBars) * 4.0f;
@@ -736,6 +1061,47 @@ void ArrangerView::renderClips(const ViewContext& ctx) {
                 }
             }
 
+            // 7b. Clip Chord Progression Text (render raw detected chord names & Roman numerals directly over clip)
+            if (!clip.detectedChords.empty()) {
+                float chordTextY = cy + ch - 15.0f;
+                float effBars = static_cast<float>(clip.isLooped ? clip.loopLengthBars : clip.lengthBars);
+                if (effBars <= 0.0f) effBars = 1.0f;
+
+                // Color: match notes in the respective clip (brightened slightly for crisp visibility against dark clip body)
+                float noteTextR = std::clamp(clip.r * 1.35f, 0.40f, 1.0f);
+                float noteTextG = std::clamp(clip.g * 1.35f, 0.40f, 1.0f);
+                float noteTextB = std::clamp(clip.b * 1.35f, 0.40f, 1.0f);
+
+                for (int cyc = 0; cyc < cycles; ++cyc) {
+                    float cycleStartX = cx + static_cast<float>(cyc) * patternW;
+
+                    for (const auto& chord : clip.detectedChords) {
+                        float chX = cycleStartX + (static_cast<float>(chord.startBar) / effBars) * patternW + 4.0f;
+                        float chW = (chord.barLength / effBars) * patternW - 4.0f;
+                        if (chX + 10.0f > cx + cw || chX < cx) continue;
+                        if (chW < 12.0f) continue;
+
+                        std::string cname = chord.getDisplayName();
+                        std::string roman = theory::ChordTheory::getRomanNumeral(
+                            songKeyRoot_, isSongKeyMinor_, chord.rootPitchClass, chord.quality);
+
+                        if (chW > 38.0f) {
+                            // Roman numeral in theme highlight color
+                            drawText(r, roman, chX, chordTextY, 8.5f,
+                                     theme.highlight.r, theme.highlight.g, theme.highlight.b, 0.95f);
+                            float romanOffset = static_cast<float>(roman.length()) * 6.5f + 4.0f;
+                            // Chord name in note color
+                            drawText(r, cname, chX + romanOffset, chordTextY, 9.5f,
+                                     noteTextR, noteTextG, noteTextB, 1.0f);
+                        } else {
+                            // Just chord name when width is compact
+                            drawText(r, cname, chX, chordTextY, 8.5f,
+                                     noteTextR, noteTextG, noteTextB, 1.0f);
+                        }
+                    }
+                }
+            }
+
             // 8. Selection outline with glowing accent
             if (isSelected) {
                 drawRoundedRectOutline(r, cx, cy, cw, ch, 4.0f,
@@ -768,33 +1134,17 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
     drawRect(r, chordHeaderBounds_.x, chordHeaderBounds_.y, 4.0f, chordHeaderBounds_.h,
              0.18f, 0.85f, 0.95f, 1.0f);
 
-    // "CHORDS" Title
-    drawText(r, "CHORDS", chordHeaderBounds_.x + 10.0f, chordHeaderBounds_.y + 8.5f, 10.5f,
+    // "HARMONY" Title with "[OVERVIEW]"
+    drawText(r, "HARMONY", chordHeaderBounds_.x + 10.0f, chordHeaderBounds_.y + 8.5f, 10.0f,
              0.18f, 0.85f, 0.95f, 1.0f);
+    drawText(r, "[OVERVIEW]", chordHeaderBounds_.x + 62.0f, chordHeaderBounds_.y + 9.5f, 7.5f,
+             0.50f, 0.60f, 0.70f, 0.85f);
 
-    // Song Key Badge (e.g. "C", "Am")
-    std::string keyShort = std::string(theory::ChordTheory::pitchClassNames[songKeyRoot_]) +
-                           (isSongKeyMinor_ ? "m" : "");
-    float keyBadgeW = 34.0f;
-    float keyBadgeH = 16.0f;
-    float keyBadgeX = chordHeaderBounds_.x + 64.0f;
-    float keyBadgeY = chordHeaderBounds_.y + 7.0f;
-    drawRoundedRect(r, keyBadgeX, keyBadgeY, keyBadgeW, keyBadgeH, 3.0f, 0.14f, 0.16f, 0.22f, 0.9f);
-    drawRoundedRectOutline(r, keyBadgeX, keyBadgeY, keyBadgeW, keyBadgeH, 3.0f, 0.18f, 0.85f, 0.95f, 0.7f, 1.0f);
-    drawText(r, keyShort, keyBadgeX + (keyBadgeW - static_cast<float>(keyShort.length()) * 6.0f) * 0.5f,
-             keyBadgeY + 3.0f, 8.5f, 1.0f, 1.0f, 1.0f, 1.0f);
-
-    // "WHEEL" Button (Opens Circle of Fifths modal)
-    float wheelBtnW = 46.0f;
-    float wheelBtnH = 16.0f;
-    float wheelBtnX = chordHeaderBounds_.x + chordHeaderBounds_.w - wheelBtnW - 8.0f;
-    float wheelBtnY = chordHeaderBounds_.y + 7.0f;
-    drawRoundedRect(r, wheelBtnX, wheelBtnY, wheelBtnW, wheelBtnH, 3.0f,
-                    0.18f * 0.35f, 0.85f * 0.35f, 0.95f * 0.35f, 0.9f);
-    drawRoundedRectOutline(r, wheelBtnX, wheelBtnY, wheelBtnW, wheelBtnH, 3.0f,
-                           0.18f, 0.85f, 0.95f, 0.9f, 1.0f);
-    drawText(r, "WHEEL", wheelBtnX + 6.0f, wheelBtnY + 3.0f, 8.5f,
-             0.18f, 0.85f, 0.95f, 1.0f);
+    // Song Key text indicator (static read-only, no interactive buttons)
+    std::string keyText = std::string(theory::ChordTheory::pitchClassNames[songKeyRoot_]) +
+                          (isSongKeyMinor_ ? "m" : " maj");
+    drawText(r, keyText, chordHeaderBounds_.x + chordHeaderBounds_.w - 46.0f, chordHeaderBounds_.y + 9.0f, 9.0f,
+             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
     // Header strip container
     drawRect(r, tracksListBounds_.x, tracksListBounds_.y, tracksListBounds_.w, tracksListBounds_.h,
@@ -981,394 +1331,71 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
 }
 
 void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
-    auto& r = *ctx.renderer;
-    const auto& theme = *ctx.theme;
+    if (activeTrackIndex_ < tracks_.size()) {
+        auto& track = tracks_[activeTrackIndex_];
+        drawerData_.trackIndex = activeTrackIndex_;
+        drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+        drawerData_.trackName = track.name;
+        drawerData_.instrument = track.instrument;
+        drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+        drawerData_.iconRef = track.iconRef;
+        drawerData_.r = track.r;
+        drawerData_.g = track.g;
+        drawerData_.b = track.b;
+        drawerData_.volume = track.volume;
+        drawerData_.pan = track.pan;
+        drawerData_.mute = track.mute;
+        drawerData_.solo = track.solo;
+        drawerData_.isMasterSelected = false;
+        drawerData_.isMixerMode = false;
+        drawerData_.tab = (inspectorTab_ == ArrangerInspectorTab::Clip) ? TrackPropertiesTab::Clip : TrackPropertiesTab::Track;
 
-    // Pull Tab
-    float pullTabX = inspectorBounds_.x;
-    float pullTabW = 22.0f;
-    float pullTabH = 96.0f;
-    float pullTabY = inspectorBounds_.y + 60.0f;
-    drawRoundedRect(r, pullTabX - pullTabW, pullTabY, pullTabW, pullTabH, 4.0f,
-                    theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 0.95f);
-    drawRoundedRectOutline(r, pullTabX - pullTabW, pullTabY, pullTabW, pullTabH, 4.0f,
-                           theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f, 1.0f);
+        drawerData_.knob1 = track.knob1;
+        drawerData_.knob2 = track.knob2;
+        drawerData_.knob3 = track.knob3;
+        drawerData_.knob4 = track.knob4;
+        drawerData_.knob1Name = track.knob1Name;
+        drawerData_.knob2Name = track.knob2Name;
+        drawerData_.knob3Name = track.knob3Name;
+        drawerData_.knob4Name = track.knob4Name;
 
-    // Properties Icon at top of pull tab
-    float iconW = 12.0f;
-    float iconH = 12.0f;
-    float iconX = pullTabX - pullTabW + (pullTabW - iconW) * 0.5f;
-    float iconY = pullTabY + 9.0f;
-    drawPropertiesIcon(r, iconX, iconY, iconW, iconH,
-                       inspectorOpen_ ? theme.secondaryAccent : theme.primaryAccent);
-
-    // "PROPERTIES" text rendered sideways (-90 deg: reads cleanly from bottom to top)
-    float textCx = pullTabX - (pullTabW * 0.5f);
-    float textCy = pullTabY + 56.0f;
-    drawRotatedText(r, "PROPERTIES", textCx, textCy, -90.0f, 9.5f,
-                    inspectorOpen_ ? theme.secondaryAccent : theme.primaryAccent);
-
-    if (!inspectorOpen_) return;
-
-    // Drawer Container Background
-    drawRect(r, inspectorBounds_.x, inspectorBounds_.y, inspectorBounds_.w, inspectorBounds_.h,
-             theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 0.98f);
-    drawLine(r, inspectorBounds_.x, inspectorBounds_.y, inspectorBounds_.x, inspectorBounds_.y + inspectorBounds_.h,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.85f, 1.5f);
-
-    if (activeTrackIndex_ >= tracks_.size()) return;
-    auto& track = tracks_[activeTrackIndex_];
-
-    // Toggle Tabs Header: TRACK vs CLIP
-    float tabW = (inspectorBounds_.w - 24.0f) * 0.5f;
-    float tabY = inspectorBounds_.y + 10.0f;
-
-    // Track Tab
-    bool isTrk = (inspectorTab_ == ArrangerInspectorTab::Track);
-    drawRoundedRect(r, inspectorBounds_.x + 10.0f, tabY, tabW, 26.0f, 4.0f,
-                    isTrk ? theme.primaryAccent.r * 0.25f : theme.controlBackground.r,
-                    isTrk ? theme.primaryAccent.g * 0.25f : theme.controlBackground.g,
-                    isTrk ? theme.primaryAccent.b * 0.25f : theme.controlBackground.b, 0.9f);
-    drawText(r, "TRACK PROPERTIES", inspectorBounds_.x + 16.0f, tabY + 7.0f, 9.5f,
-             isTrk ? theme.primaryAccent.r : theme.textMuted.r,
-             isTrk ? theme.primaryAccent.g : theme.textMuted.g,
-             isTrk ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
-
-    // Clip Tab
-    bool isClp = (inspectorTab_ == ArrangerInspectorTab::Clip);
-    drawRoundedRect(r, inspectorBounds_.x + 14.0f + tabW, tabY, tabW, 26.0f, 4.0f,
-                    isClp ? theme.primaryAccent.r * 0.25f : theme.controlBackground.r,
-                    isClp ? theme.primaryAccent.g * 0.25f : theme.controlBackground.g,
-                    isClp ? theme.primaryAccent.b * 0.25f : theme.controlBackground.b, 0.9f);
-    drawText(r, "CLIP PROPERTIES", inspectorBounds_.x + 20.0f + tabW, tabY + 7.0f, 9.5f,
-             isClp ? theme.primaryAccent.r : theme.textMuted.r,
-             isClp ? theme.primaryAccent.g : theme.textMuted.g,
-             isClp ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
-
-    drawLine(r, inspectorBounds_.x, tabY + 34.0f, inspectorBounds_.x + inspectorBounds_.w, tabY + 34.0f,
-             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f, 1.0f);
-
-    if (isTrk) {
-        renderTrackProperties(ctx, track);
-    } else {
+        drawerData_.selectedClipIndex = selectedClipIndex_;
         if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
-            renderClipProperties(ctx, track, track.clips[selectedClipIndex_]);
-        } else {
-            drawText(r, "Select a clip to view properties", inspectorBounds_.x + 20.0f, tabY + 60.0f, 11.0f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
+            const auto& cl = track.clips[selectedClipIndex_];
+            drawerData_.clipName = cl.name;
+            drawerData_.clipStartBar = cl.startBar;
+            drawerData_.clipLengthBars = cl.lengthBars;
+            drawerData_.clipLooped = cl.isLooped;
+            drawerData_.clipLoopLengthBars = cl.loopLengthBars;
+            drawerData_.clipTranspose = cl.transposeSemitones;
         }
-    }
-}
 
-void ArrangerView::renderTrackProperties(const ViewContext& ctx, ArrangerTimelineTrack& track) {
-    auto& r = *ctx.renderer;
-    const auto& theme = *ctx.theme;
-    float startY = inspectorBounds_.y + 50.0f;
-    float cardW = inspectorBounds_.w - 20.0f;
-    float cardX = inspectorBounds_.x + 10.0f;
-
-    // 1. Track Title Card
-    drawRoundedRect(r, cardX, startY, cardW, 38.0f, 5.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, startY, cardW, 38.0f, 5.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-    drawText(r, track.name, cardX + 14.0f, startY + 11.0f, 13.0f,
-             theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-    drawText(r, "[PENCIL]", cardX + cardW - 32.0f, startY + 11.0f, 10.0f,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f);
-
-    // 1b. Track Volume & Pan Card (Quick Controls)
-    float mixCardY = startY + 44.0f;
-    float mixCardH = 46.0f;
-    drawRoundedRect(r, cardX, mixCardY, cardW, mixCardH, 5.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, mixCardY, cardW, mixCardH, 5.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-
-    // Volume Slider in Sidebar
-    drawText(r, "VOL", cardX + 10.0f, mixCardY + 11.0f, 9.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.9f);
-    float sbVolX = cardX + 38.0f;
-    float sbVolY = mixCardY + 14.0f;
-    float sbVolW = cardW - 120.0f;
-    drawRoundedRect(r, sbVolX, sbVolY, sbVolW, 5.0f, 2.5f, 0.10f, 0.10f, 0.12f, 1.0f);
-    float normV = std::clamp(track.volume / 1.5f, 0.0f, 1.0f);
-    drawRoundedRect(r, sbVolX, sbVolY, sbVolW * normV, 5.0f, 2.5f, track.r, track.g, track.b, 1.0f);
-    drawCircle(r, sbVolX + sbVolW * normV, sbVolY + 2.5f, 5.5f, 0.9f, 0.9f, 0.95f, 1.0f);
-    int volPct = static_cast<int>(std::round(track.volume * 100.0f));
-    drawText(r, std::to_string(volPct) + "%", sbVolX + sbVolW + 8.0f, mixCardY + 11.0f, 8.5f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.9f);
-
-    // Pan Knob in Sidebar
-    float sbPanX = cardX + cardW - 24.0f;
-    float sbPanY = mixCardY + 23.0f;
-    drawCircle(r, sbPanX, sbPanY, 10.0f, 0.14f, 0.15f, 0.17f, 1.0f);
-    drawCircle(r, sbPanX, sbPanY, 8.5f, 0.08f, 0.08f, 0.09f, 1.0f);
-    float sbPanAng = -1.57f + track.pan * 2.2f;
-    drawLine(r, sbPanX, sbPanY, sbPanX + std::cos(sbPanAng) * 7.0f, sbPanY + std::sin(sbPanAng) * 7.0f,
-             track.r, track.g, track.b, 1.0f, 1.6f);
-    std::string panStr = (std::abs(track.pan) < 0.04f) ? "C" : ((track.pan < 0.0f) ? "L" : "R");
-    drawText(r, panStr, sbPanX - 4.0f, mixCardY + 36.0f, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
-
-    // 2. Instrument Card with 4 Knobs & Change Instrument Button
-    float instY = mixCardY + mixCardH + 8.0f;
-    float instH = 126.0f;
-    drawRoundedRect(r, cardX, instY, cardW, instH, 6.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, instY, cardW, instH, 6.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-
-    drawCircle(r, cardX + 14.0f, instY + 16.0f, 3.5f, track.r, track.g, track.b, 1.0f);
-    drawText(r, track.instrument, cardX + 24.0f, instY + 10.0f, 11.5f,
-             theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-
-    // 4 Rotary Knobs
-    float kw = (cardW - 20.0f) / 4.0f;
-    for (int k = 0; k < 4; ++k) {
-        float kcx = cardX + 10.0f + static_cast<float>(k) * kw + kw * 0.5f;
-        float kcy = instY + 50.0f;
-        float val = (k == 0) ? track.knob1 : ((k == 1) ? track.knob2 : ((k == 2) ? track.knob3 : track.knob4));
-        const std::string& kname = (k == 0) ? track.knob1Name : ((k == 1) ? track.knob2Name : ((k == 2) ? track.knob3Name : track.knob4Name));
-        bool isDraggingThis = (dragMode_ == ClipDragMode::InspectorKnob && dragKnobIdx_ == k);
-
-        drawCircle(r, kcx, kcy, 13.0f, 0.14f, 0.15f, 0.18f, 1.0f);
-        drawCircle(r, kcx, kcy, 11.0f, 0.08f, 0.08f, 0.09f, 1.0f);
-        float ang = -2.35f + val * 4.71f;
-        Color pointerCol = isDraggingThis ? theme.highlight : theme.secondaryAccent;
-        drawLine(r, kcx, kcy, kcx + std::cos(ang) * 9.5f, kcy + std::sin(ang) * 9.5f,
-                 pointerCol.r, pointerCol.g, pointerCol.b, 1.0f, isDraggingThis ? 2.2f : 1.8f);
-
-        drawText(r, kname, kcx - static_cast<float>(kname.length()) * 2.8f, kcy + 16.0f, 8.0f,
-                 isDraggingThis ? theme.highlight.r : theme.textMuted.r,
-                 isDraggingThis ? theme.highlight.g : theme.textMuted.g,
-                 isDraggingThis ? theme.highlight.b : theme.textMuted.b, 0.9f);
-        int pct = static_cast<int>(std::round(val * 100.0f));
-        std::string pctStr = std::to_string(pct) + "%";
-        drawText(r, pctStr, kcx - static_cast<float>(pctStr.length()) * 2.4f, kcy + 25.0f, 7.5f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
-    }
-
-    // Change Instrument Button
-    float chgBtnY = instY + instH - 26.0f;
-    drawRoundedRect(r, cardX + 10.0f, chgBtnY, cardW - 20.0f, 20.0f, 4.0f,
-                    0.10f, 0.10f, 0.12f, 0.9f);
-    drawRoundedRectOutline(r, cardX + 10.0f, chgBtnY, cardW - 20.0f, 20.0f, 4.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-    drawText(r, "<-> CHANGE INSTRUMENT", cardX + (cardW * 0.5f) - 62.0f, chgBtnY + 4.5f, 9.5f,
-             theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.9f);
-
-    // 3. MIDI FX Section with '+ ADD MIDI FX'
-    float midiY = instY + instH + 12.0f;
-    drawText(r, "MIDI FX RACK", cardX + 4.0f, midiY + 4.0f, 11.0f,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-
-    // '+ ADD MIDI FX' button on right
-    float addMidiBtnW = 90.0f;
-    float addMidiBtnX = cardX + cardW - addMidiBtnW;
-    drawRoundedRect(r, addMidiBtnX, midiY, addMidiBtnW, 20.0f, 3.0f,
-                    theme.primaryAccent.r * 0.25f, theme.primaryAccent.g * 0.25f, theme.primaryAccent.b * 0.25f, 0.9f);
-    drawRoundedRectOutline(r, addMidiBtnX, midiY, addMidiBtnW, 20.0f, 3.0f,
-                           theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f, 1.0f);
-    drawText(r, "+ ADD MIDI FX", addMidiBtnX + 10.0f, midiY + 4.5f, 9.0f,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-
-    // MIDI FX cards list
-    float mCardY = midiY + 26.0f;
-    for (size_t mi = 0; mi < track.midiFx.size(); ++mi) {
-        const auto& mfx = track.midiFx[mi];
-        drawRoundedRect(r, cardX, mCardY, cardW, 36.0f, 4.0f,
-                        theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
-        drawRoundedRectOutline(r, cardX, mCardY, cardW, 36.0f, 4.0f,
-                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f, 1.0f);
-
-        drawCircle(r, cardX + 12.0f, mCardY + 18.0f, 3.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-        drawText(r, mfx.name, cardX + 22.0f, mCardY + 11.0f, 10.5f,
-                 theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-        drawText(r, "[X]", cardX + cardW - 20.0f, mCardY + 11.0f, 9.0f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
-
-        mCardY += 42.0f;
-    }
-
-    // 4. Audio FX Section with '+ ADD FX'
-    float fxY = mCardY + 6.0f;
-    drawText(r, "AUDIO FX RACK (" + std::to_string(track.audioFx.size()) + ")", cardX + 4.0f, fxY + 4.0f, 11.0f,
-             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-
-    float addFxBtnW = 76.0f;
-    float addFxBtnX = cardX + cardW - addFxBtnW;
-    drawRoundedRect(r, addFxBtnX, fxY, addFxBtnW, 20.0f, 3.0f,
-                    theme.secondaryAccent.r * 0.25f, theme.secondaryAccent.g * 0.25f, theme.secondaryAccent.b * 0.25f, 0.9f);
-    drawRoundedRectOutline(r, addFxBtnX, fxY, addFxBtnW, 20.0f, 3.0f,
-                           theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.8f, 1.0f);
-    drawText(r, "+ ADD FX", addFxBtnX + 12.0f, fxY + 4.5f, 9.0f,
-             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-
-    float fxCardY = fxY + 26.0f;
-    for (size_t fi = 0; fi < track.audioFx.size(); ++fi) {
-        const auto& afx = track.audioFx[fi];
-        drawRoundedRect(r, cardX, fxCardY, cardW, 36.0f, 4.0f,
-                        theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
-        drawRoundedRectOutline(r, cardX, fxCardY, cardW, 36.0f, 4.0f,
-                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f, 1.0f);
-
-        drawCircle(r, cardX + 12.0f, fxCardY + 18.0f, 3.0f, theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-        drawText(r, afx.name, cardX + 22.0f, fxCardY + 11.0f, 10.5f,
-                 theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-        drawText(r, "[X]", cardX + cardW - 20.0f, fxCardY + 11.0f, 9.0f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
-
-        fxCardY += 42.0f;
-    }
-
-    // 5. Track Color Swatches (8 Quick Colors matching Eatsbeats)
-    float colY = fxCardY + 8.0f;
-    drawText(r, "TRACK COLOR", cardX + 4.0f, colY, 10.0f,
-             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.9f);
-
-    float swatchSpacing = cardW / 8.0f;
-    for (int p = 0; p < 8; ++p) {
-        float scx = cardX + static_cast<float>(p) * swatchSpacing + swatchSpacing * 0.5f;
-        float scy = colY + 22.0f;
-        float cr = kQuickPalette[p][0];
-        float cg = kQuickPalette[p][1];
-        float cb = kQuickPalette[p][2];
-
-        bool isCurCol = (std::abs(track.r - cr) < 0.05f && std::abs(track.g - cg) < 0.05f && std::abs(track.b - cb) < 0.05f);
-
-        drawCircle(r, scx, scy, 11.0f, cr, cg, cb, 1.0f);
-        if (isCurCol) {
-            drawCircle(r, scx, scy, 14.0f, cr, cg, cb, 0.4f);
-            drawText(r, "V", scx - 3.5f, scy - 4.5f, 9.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+        drawerData_.midiFx.clear();
+        for (const auto& fx : track.midiFx) {
+            drawerData_.midiFx.push_back({fx.name, fx.type, fx.enabled});
         }
+        drawerData_.audioFx.clear();
+        for (const auto& fx : track.audioFx) {
+            drawerData_.audioFx.push_back({fx.name, fx.type, fx.drive, fx.mix, fx.enabled});
+        }
+
+        drawerData_.syncKnobsIfEmpty();
     }
 
-    // 6. Harmonic Chord Follow Card (Eatsbeats parity)
-    float flwCardY = colY + 44.0f;
-    float flwCardH = 56.0f;
-    drawRoundedRect(r, cardX, flwCardY, cardW, flwCardH, 6.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, flwCardY, cardW, flwCardH, 6.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-
-    drawText(r, "HARMONIC CHORD FOLLOW", cardX + 10.0f, flwCardY + 8.0f, 9.5f,
-             0.18f, 0.85f, 0.95f, 1.0f);
-
-    // 5 Mode Chips: Off, Chord, Bass, Scale, ColorLead
-    static const std::array<std::pair<theory::ChordFollowMode, const char*>, 5> kFollowChips = {{
-        {theory::ChordFollowMode::Off, "Off"},
-        {theory::ChordFollowMode::Chord, "Chord"},
-        {theory::ChordFollowMode::Bass, "Bass"},
-        {theory::ChordFollowMode::Scale, "Scale"},
-        {theory::ChordFollowMode::ColorLead, "Lead"}
-    }};
-
-    float chipSpacing = (cardW - 16.0f) / 5.0f;
-    for (size_t ci = 0; ci < kFollowChips.size(); ++ci) {
-        float chpX = cardX + 8.0f + static_cast<float>(ci) * chipSpacing;
-        float chpY = flwCardY + 26.0f;
-        float chpW = chipSpacing - 4.0f;
-        float chpH = 20.0f;
-        bool isSel = (track.chordFollowMode == kFollowChips[ci].first);
-
-        drawRoundedRect(r, chpX, chpY, chpW, chpH, 3.0f,
-                        isSel ? 0.18f * 0.4f : 0.10f,
-                        isSel ? 0.85f * 0.4f : 0.10f,
-                        isSel ? 0.95f * 0.4f : 0.12f, 0.95f);
-        drawRoundedRectOutline(r, chpX, chpY, chpW, chpH, 3.0f,
-                               isSel ? 0.18f : theme.borderSubtle.r,
-                               isSel ? 0.85f : theme.borderSubtle.g,
-                               isSel ? 0.95f : theme.borderSubtle.b,
-                               isSel ? 1.0f : 0.5f, 1.0f);
-        drawText(r, kFollowChips[ci].second,
-                 chpX + (chpW - static_cast<float>(std::strlen(kFollowChips[ci].second)) * 5.5f) * 0.5f,
-                 chpY + 4.0f, 8.5f,
-                 isSel ? 1.0f : theme.textMuted.r,
-                 isSel ? 1.0f : theme.textMuted.g,
-                 isSel ? 1.0f : theme.textMuted.b, 1.0f);
-    }
-
-    // "BAKE TO MIDI" button if follow mode is active
-    if (track.chordFollowMode != theory::ChordFollowMode::Off) {
-        float bakeW = 76.0f;
-        float bakeH = 16.0f;
-        float bakeX = cardX + cardW - bakeW - 8.0f;
-        float bakeY = flwCardY + 6.0f;
-        drawRoundedRect(r, bakeX, bakeY, bakeW, bakeH, 3.0f, 0.85f * 0.25f, 0.65f * 0.25f, 0.15f * 0.25f, 0.95f);
-        drawRoundedRectOutline(r, bakeX, bakeY, bakeW, bakeH, 3.0f, 0.95f, 0.75f, 0.20f, 0.8f, 1.0f);
-        drawText(r, "BAKE TO MIDI", bakeX + 5.0f, bakeY + 3.0f, 7.5f, 1.0f, 0.85f, 0.3f, 1.0f);
-    }
-}
-
-void ArrangerView::renderClipProperties(const ViewContext& ctx, ArrangerTimelineTrack& track, ArrangerTimelineClip& clip) {
-    auto& r = *ctx.renderer;
-    const auto& theme = *ctx.theme;
-    float startY = inspectorBounds_.y + 50.0f;
-    float cardW = inspectorBounds_.w - 20.0f;
-    float cardX = inspectorBounds_.x + 10.0f;
-
-    // 1. Clip Title Card
-    drawRoundedRect(r, cardX, startY, cardW, 40.0f, 5.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, startY, cardW, 40.0f, 5.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-    drawText(r, clip.name, cardX + 14.0f, startY + 12.0f, 13.0f,
-             theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-
-    // 2. Clip Timing & Loop Parameters Card
-    float infoY = startY + 48.0f;
-    float infoH = 130.0f;
-    drawRoundedRect(r, cardX, infoY, cardW, infoH, 6.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
-    drawRoundedRectOutline(r, cardX, infoY, cardW, infoH, 6.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
-
-    drawText(r, "Track: " + track.name, cardX + 14.0f, infoY + 12.0f, 10.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
-    drawText(r, "Start Bar: " + std::to_string(clip.startBar), cardX + 14.0f, infoY + 30.0f, 10.5f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-    drawText(r, "Length: " + std::to_string(clip.lengthBars) + " Bars", cardX + 14.0f, infoY + 48.0f, 10.5f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-
-    // Loop Mode Toggle Button
-    float loopTglY = infoY + 70.0f;
-    drawRoundedRect(r, cardX + 14.0f, loopTglY, cardW - 28.0f, 24.0f, 4.0f,
-                    clip.isLooped ? theme.primaryAccent.r * 0.3f : 0.12f,
-                    clip.isLooped ? theme.primaryAccent.g * 0.3f : 0.12f,
-                    clip.isLooped ? theme.primaryAccent.b * 0.3f : 0.14f, 0.9f);
-    drawRoundedRectOutline(r, cardX + 14.0f, loopTglY, cardW - 28.0f, 24.0f, 4.0f,
-                           clip.isLooped ? theme.primaryAccent.r : theme.borderSubtle.r,
-                           clip.isLooped ? theme.primaryAccent.g : theme.borderSubtle.g,
-                           clip.isLooped ? theme.primaryAccent.b : theme.borderSubtle.b, 0.8f, 1.0f);
-    drawText(r, clip.isLooped ? "LOOP MODE: ON (" + std::to_string(clip.loopLengthBars) + "b)" : "LOOP MODE: OFF",
-             cardX + 24.0f, loopTglY + 6.0f, 9.5f,
-             clip.isLooped ? theme.primaryAccent.r : theme.textMuted.r,
-             clip.isLooped ? theme.primaryAccent.g : theme.textMuted.g,
-             clip.isLooped ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
-
-    // 3. Edit in Piano Roll Action Button
-    float actY = infoY + infoH + 16.0f;
-    drawRoundedRect(r, cardX, actY, cardW, 34.0f, 5.0f,
-                    theme.secondaryAccent.r * 0.3f, theme.secondaryAccent.g * 0.3f, theme.secondaryAccent.b * 0.3f, 0.95f);
-    drawRoundedRectOutline(r, cardX, actY, cardW, 34.0f, 5.0f,
-                           theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f, 1.2f);
-    drawText(r, "[EDIT IN PIANO ROLL]", cardX + (cardW * 0.5f) - 64.0f, actY + 10.0f, 11.0f,
-             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-
-    // 4. Duplicate Clip Button
-    float dupY = actY + 42.0f;
-    drawRoundedRect(r, cardX, dupY, cardW, 30.0f, 4.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
-    drawText(r, "DUPLICATE CLIP (Ctrl+D)", cardX + (cardW * 0.5f) - 68.0f, dupY + 9.0f, 10.0f,
-             theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.9f);
-
-    // 5. Delete Clip Button
-    float delY = dupY + 36.0f;
-    drawRoundedRect(r, cardX, delY, cardW, 30.0f, 4.0f,
-                    0.4f, 0.1f, 0.1f, 0.85f);
-    drawText(r, "DELETE CLIP", cardX + (cardW * 0.5f) - 34.0f, delY + 9.0f, 10.0f,
-             1.0f, 0.5f, 0.5f, 1.0f);
+    propertiesDrawer_.render(*ctx.renderer, *ctx.theme, drawerData_, ctx.mouseX, ctx.mouseY);
 }
 
 bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     // 0. Forward to Reusable Contextual Dialog if open
     if (pluginDialog_.isOpen()) {
         return pluginDialog_.handlePointer(ev);
+    }
+    if (propertiesDrawer_.isPluginDialogOpen()) {
+        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
+            inspectorOpen_ = propertiesDrawer_.isExpanded();
+            return true;
+        }
+        return true;
     }
     if (circleOfFifthsDialog_.isOpen()) {
         return circleOfFifthsDialog_.handlePointer(ev);
@@ -1380,7 +1407,14 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return iconDialog_.handlePointer(ev);
     }
 
-    // 0b. Mouse Wheel / 2D Scroll
+    // 0b. Mouse Wheel scroll inside expanded Properties Drawer Sidebar
+    if (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y)) {
+        propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
+        inspectorOpen_ = propertiesDrawer_.isExpanded();
+        return true;
+    }
+
+    // 0c. Mouse Wheel / 2D Scroll on Arranger Grid
     if (ev.action == PointerAction::Scroll) {
         float totalArrangerW = static_cast<float>(totalBars_) * barWidth_;
         scrollX_ = std::clamp(scrollX_ - ev.scrollX * 30.0f, 0.0f, std::max(0.0f, totalArrangerW - gridBounds_.w));
@@ -1522,6 +1556,10 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 }
             }
         } else if (ev.action == PointerAction::Up) {
+            bool clipDrag = (dragMode_ == ClipDragMode::Move ||
+                             dragMode_ == ClipDragMode::LoopResize ||
+                             dragMode_ == ClipDragMode::ResizeRight ||
+                             dragMode_ == ClipDragMode::ResizeLeft);
             if (dragMode_ == ClipDragMode::ChordMove || dragMode_ == ClipDragMode::ChordResize) {
                 std::sort(chordTrack_.begin(), chordTrack_.end(), [](const theory::ChordEvent& a, const theory::ChordEvent& b) {
                     return a.startBar < b.startBar;
@@ -1531,6 +1569,9 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
             dragClipIdx_ = -1;
             dragKnobIdx_ = -1;
             dragChordIdx_ = -1;
+            if (clipDrag && onClipsChanged) {
+                onClipsChanged();
+            }
             return true;
         }
     }
@@ -1545,307 +1586,42 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return true;
     }
 
-    // 1. Properties Drawer Pull-Tab & Panel Click
-    float pullTabX = inspectorBounds_.x;
-    float pullTabW = 22.0f;
-    float pullTabH = 96.0f;
-    Rect2D pullTabRect(pullTabX - pullTabW, inspectorBounds_.y + 60.0f, pullTabW, pullTabH);
-
-    if (ev.action == PointerAction::Down && pullTabRect.contains(ev.x, ev.y)) {
-        toggleInspector();
-        return true;
-    }
-
-    if (inspectorOpen_ && inspectorBounds_.contains(ev.x, ev.y)) {
-        if (ev.action != PointerAction::Down) return true;
-
-        float tabW = (inspectorBounds_.w - 24.0f) * 0.5f;
-        float tabY = inspectorBounds_.y + 10.0f;
-        Rect2D trackTabRect(inspectorBounds_.x + 10.0f, tabY, tabW, 26.0f);
-        Rect2D clipTabRect(inspectorBounds_.x + 14.0f + tabW, tabY, tabW, 26.0f);
-
-        if (trackTabRect.contains(ev.x, ev.y)) {
-            inspectorTab_ = ArrangerInspectorTab::Track;
-            return true;
-        }
-        if (clipTabRect.contains(ev.x, ev.y)) {
-            inspectorTab_ = ArrangerInspectorTab::Clip;
-            return true;
-        }
-
+    // 1. Properties Drawer Pull-Tab & Panel Pointer Handling
+    if (propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
+        (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
         if (activeTrackIndex_ < tracks_.size()) {
             auto& track = tracks_[activeTrackIndex_];
-            float cardW = inspectorBounds_.w - 20.0f;
-            float cardX = inspectorBounds_.x + 10.0f;
-
-            if (inspectorTab_ == ArrangerInspectorTab::Track) {
-                float startY = inspectorBounds_.y + 50.0f;
-
-                // 1. Quick Controls: Volume Slider & Pan Knob
-                float mixCardY = startY + 44.0f;
-                float mixCardH = 46.0f;
-                float sbVolX = cardX + 38.0f;
-                float sbVolY = mixCardY + 14.0f;
-                float sbVolW = cardW - 120.0f;
-                Rect2D sbVolBox(sbVolX - 6.0f, sbVolY - 8.0f, sbVolW + 12.0f, 22.0f);
-                float sbPanX = cardX + cardW - 24.0f;
-                float sbPanY = mixCardY + 23.0f;
-                Rect2D sbPanBox(sbPanX - 14.0f, sbPanY - 14.0f, 28.0f, 28.0f);
-
-                if (sbVolBox.contains(ev.x, ev.y)) {
-                    if (ev.button == PointerButton::Right) {
-                        if (ctx.onOpenValueEdit) {
-                            ValueEditRequest req;
-                            req.title = track.name + " VOLUME";
-                            req.paramName = track.name + " Volume";
-                            req.currentValue = track.volume;
-                            req.minValue = 0.0f;
-                            req.maxValue = 1.5f;
-                            req.defaultValue = 1.0f;
-                            req.hasDefault = true;
-                            req.allowPercentage = true;
-                            req.accentColor = Color(track.r, track.g, track.b, 1.0f);
-                            req.onCommit = [this](float val) {
-                                if (activeTrackIndex_ < tracks_.size()) {
-                                    tracks_[activeTrackIndex_].volume = val;
-                                    if (onVolumeChanged) onVolumeChanged(activeTrackIndex_, val);
-                                }
-                            };
-                            ctx.onOpenValueEdit(req);
-                        }
-                        return true;
-                    }
-                    dragMode_ = ClipDragMode::InspectorVolume;
-                    dragStartPointerX_ = ev.x;
-                    dragStartPointerY_ = ev.y;
-                    dragStartVal_ = track.volume;
-                    float norm = std::clamp((ev.x - sbVolX) / sbVolW, 0.0f, 1.0f);
-                    track.volume = norm * 1.5f;
-                    if (onVolumeChanged) onVolumeChanged(activeTrackIndex_, track.volume);
-                    return true;
-                }
-
-                if (sbPanBox.contains(ev.x, ev.y)) {
-                    if (ev.button == PointerButton::Right) {
-                        if (ctx.onOpenValueEdit) {
-                            ValueEditRequest req;
-                            req.title = track.name + " PAN";
-                            req.paramName = track.name + " Pan";
-                            req.currentValue = track.pan;
-                            req.minValue = -1.0f;
-                            req.maxValue = 1.0f;
-                            req.defaultValue = 0.0f;
-                            req.hasDefault = true;
-                            req.allowPercentage = false;
-                            req.accentColor = Color(track.r, track.g, track.b, 1.0f);
-                            req.onCommit = [this](float val) {
-                                if (activeTrackIndex_ < tracks_.size()) {
-                                    tracks_[activeTrackIndex_].pan = val;
-                                    if (onPanChanged) onPanChanged(activeTrackIndex_, val);
-                                }
-                            };
-                            ctx.onOpenValueEdit(req);
-                        }
-                        return true;
-                    }
-                    dragMode_ = ClipDragMode::InspectorPan;
-                    dragStartPointerX_ = ev.x;
-                    dragStartPointerY_ = ev.y;
-                    dragStartVal_ = track.pan;
-                    return true;
-                }
-
-                // 2. Instrument Card: 4 Rotary Knobs
-                float instY = mixCardY + mixCardH + 8.0f;
-                float instH = 126.0f;
-                float kw = (cardW - 20.0f) / 4.0f;
-                for (int k = 0; k < 4; ++k) {
-                    float kcx = cardX + 10.0f + static_cast<float>(k) * kw + kw * 0.5f;
-                    float kcy = instY + 50.0f;
-                    Rect2D knobBox(kcx - 18.0f, kcy - 18.0f, 36.0f, 48.0f);
-                    if (knobBox.contains(ev.x, ev.y)) {
-                        std::string kname = (k == 0) ? track.knob1Name : ((k == 1) ? track.knob2Name : ((k == 2) ? track.knob3Name : track.knob4Name));
-                        float curVal = (k == 0) ? track.knob1 : ((k == 1) ? track.knob2 : ((k == 2) ? track.knob3 : track.knob4));
-                        if (ev.button == PointerButton::Right) {
-                            if (ctx.onOpenValueEdit) {
-                                ValueEditRequest req;
-                                req.title = track.name + " " + kname;
-                                req.paramName = kname;
-                                req.currentValue = curVal;
-                                req.minValue = 0.0f;
-                                req.maxValue = 1.0f;
-                                req.defaultValue = 0.5f;
-                                req.hasDefault = true;
-                                req.allowPercentage = true;
-                                req.accentColor = Color(track.r, track.g, track.b, 1.0f);
-                                req.onCommit = [this, k](float val) {
-                                    if (activeTrackIndex_ < tracks_.size()) {
-                                        auto& trk = tracks_[activeTrackIndex_];
-                                        std::string name;
-                                        if (k == 0) { trk.knob1 = val; name = trk.knob1Name; }
-                                        else if (k == 1) { trk.knob2 = val; name = trk.knob2Name; }
-                                        else if (k == 2) { trk.knob3 = val; name = trk.knob3Name; }
-                                        else if (k == 3) { trk.knob4 = val; name = trk.knob4Name; }
-                                        if (onParamChanged) onParamChanged(activeTrackIndex_, name, val);
-                                    }
-                                };
-                                ctx.onOpenValueEdit(req);
-                            }
-                            return true;
-                        }
-                        dragMode_ = ClipDragMode::InspectorKnob;
-                        dragKnobIdx_ = k;
-                        dragStartPointerX_ = ev.x;
-                        dragStartPointerY_ = ev.y;
-                        dragStartVal_ = curVal;
-                        return true;
-                    }
-                }
-
-                // Change Instrument button
-                float chgBtnY = instY + instH - 26.0f;
-                Rect2D chgBtn(cardX + 10.0f, chgBtnY, cardW - 20.0f, 22.0f);
-                if (chgBtn.contains(ev.x, ev.y)) {
-                    pluginDialog_.open(PluginDialogMode::AddInstrument, track.name, activeTrackIndex_);
-                    return true;
-                }
-
-                // '+ ADD MIDI FX' button
-                float midiY = instY + instH + 12.0f;
-                float addMidiBtnW = 90.0f;
-                Rect2D addMidiBtn(cardX + cardW - addMidiBtnW, midiY, addMidiBtnW, 20.0f);
-                if (addMidiBtn.contains(ev.x, ev.y)) {
-                    pluginDialog_.open(PluginDialogMode::AddMidiFx, track.name, activeTrackIndex_);
-                    return true;
-                }
-
-                // Delete MIDI FX buttons
-                float mCardY = midiY + 26.0f;
-                for (size_t mi = 0; mi < track.midiFx.size(); ++mi) {
-                    Rect2D delBtn(cardX + cardW - 24.0f, mCardY + 8.0f, 20.0f, 20.0f);
-                    if (delBtn.contains(ev.x, ev.y)) {
-                        track.midiFx.erase(track.midiFx.begin() + mi);
-                        return true;
-                    }
-                    mCardY += 42.0f;
-                }
-
-                // '+ ADD FX' button
-                float fxY = mCardY + 6.0f;
-                float addFxBtnW = 76.0f;
-                Rect2D addFxBtn(cardX + cardW - addFxBtnW, fxY, addFxBtnW, 20.0f);
-                if (addFxBtn.contains(ev.x, ev.y)) {
-                    pluginDialog_.open(PluginDialogMode::AddAudioFx, track.name, activeTrackIndex_);
-                    return true;
-                }
-
-                // Delete Audio FX buttons
-                float fxCardY = fxY + 26.0f;
-                for (size_t fi = 0; fi < track.audioFx.size(); ++fi) {
-                    Rect2D delBtn(cardX + cardW - 24.0f, fxCardY + 8.0f, 20.0f, 20.0f);
-                    if (delBtn.contains(ev.x, ev.y)) {
-                        track.audioFx.erase(track.audioFx.begin() + fi);
-                        return true;
-                    }
-                    fxCardY += 42.0f;
-                }
-
-                // Track Color Swatch buttons
-                float colY = fxCardY + 8.0f;
-                float swatchSpacing = cardW / 8.0f;
-                for (int p = 0; p < 8; ++p) {
-                    float scx = cardX + static_cast<float>(p) * swatchSpacing + swatchSpacing * 0.5f;
-                    float scy = colY + 22.0f;
-                    float dist = std::hypot(ev.x - scx, ev.y - scy);
-                    if (dist <= 14.0f) {
-                        track.r = kQuickPalette[p][0];
-                        track.g = kQuickPalette[p][1];
-                        track.b = kQuickPalette[p][2];
-                        for (auto& cl : track.clips) {
-                            cl.r = track.r; cl.g = track.g; cl.b = track.b;
-                        }
-                        return true;
-                    }
-                }
-
-                // Harmonic Chord Follow Chips & Bake to MIDI Button
-                float flwCardY = colY + 44.0f;
-                if (track.chordFollowMode != theory::ChordFollowMode::Off) {
-                    float bakeW = 76.0f;
-                    float bakeH = 16.0f;
-                    float bakeX = cardX + cardW - bakeW - 8.0f;
-                    float bakeY = flwCardY + 6.0f;
-                    Rect2D bakeBtn(bakeX, bakeY, bakeW, bakeH);
-                    if (bakeBtn.contains(ev.x, ev.y)) {
-                        bakeChordsToTrack(activeTrackIndex_);
-                        return true;
-                    }
-                }
-
-                float chipSpacing = (cardW - 16.0f) / 5.0f;
-                for (size_t ci = 0; ci < 5; ++ci) {
-                    float chpX = cardX + 8.0f + static_cast<float>(ci) * chipSpacing;
-                    float chpY = flwCardY + 26.0f;
-                    float chpW = chipSpacing - 4.0f;
-                    float chpH = 20.0f;
-                    Rect2D chpRect(chpX, chpY, chpW, chpH);
-                    if (chpRect.contains(ev.x, ev.y)) {
-                        track.chordFollowMode = static_cast<theory::ChordFollowMode>(ci);
-                        if (onTrackChordFollowChanged) {
-                            onTrackChordFollowChanged(activeTrackIndex_, track.chordFollowMode);
-                        }
-                        return true;
-                    }
-                }
-            } else {
-                // Clip properties buttons
-                if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
-                    auto& clip = track.clips[selectedClipIndex_];
-                    float infoY = inspectorBounds_.y + 50.0f + 48.0f;
-
-                    // Loop mode toggle
-                    float loopTglY = infoY + 70.0f;
-                    Rect2D loopTglBtn(cardX + 14.0f, loopTglY, cardW - 28.0f, 24.0f);
-                    if (loopTglBtn.contains(ev.x, ev.y)) {
-                        clip.isLooped = !clip.isLooped;
-                        return true;
-                    }
-
-                    // Edit in piano roll
-                    float actY = infoY + 130.0f + 16.0f;
-                    Rect2D editBtn(cardX, actY, cardW, 34.0f);
-                    if (editBtn.contains(ev.x, ev.y)) {
-                        if (ctx.onJumpToClipEdit) {
-                            ctx.onJumpToClipEdit(activeTrackIndex_, selectedClipIndex_);
-                        }
-                        return true;
-                    }
-
-                    // Duplicate clip
-                    float dupY = actY + 42.0f;
-                    Rect2D dupBtn(cardX, dupY, cardW, 30.0f);
-                    if (dupBtn.contains(ev.x, ev.y)) {
-                        auto copy = clip;
-                        copy.id = "c_" + std::to_string(track.clips.size() + 1);
-                        copy.startBar += copy.lengthBars;
-                        track.clips.push_back(copy);
-                        selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
-                        return true;
-                    }
-
-                    // Delete clip
-                    float delY = dupY + 36.0f;
-                    Rect2D delBtn(cardX, delY, cardW, 30.0f);
-                    if (delBtn.contains(ev.x, ev.y)) {
-                        track.clips.erase(track.clips.begin() + selectedClipIndex_);
-                        selectedClipIndex_ = -1;
-                        inspectorTab_ = ArrangerInspectorTab::Track;
-                        return true;
-                    }
-                }
+            drawerData_.trackIndex = activeTrackIndex_;
+            drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+            drawerData_.trackName = track.name;
+            drawerData_.instrument = track.instrument;
+            drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+            drawerData_.r = track.r;
+            drawerData_.g = track.g;
+            drawerData_.b = track.b;
+            drawerData_.volume = track.volume;
+            drawerData_.pan = track.pan;
+            drawerData_.mute = track.mute;
+            drawerData_.solo = track.solo;
+            drawerData_.isMasterSelected = false;
+            drawerData_.isMixerMode = false;
+            drawerData_.tab = (inspectorTab_ == ArrangerInspectorTab::Clip) ? TrackPropertiesTab::Clip : TrackPropertiesTab::Track;
+            drawerData_.selectedClipIndex = selectedClipIndex_;
+            if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
+                const auto& cl = track.clips[selectedClipIndex_];
+                drawerData_.clipName = cl.name;
+                drawerData_.clipStartBar = cl.startBar;
+                drawerData_.clipLengthBars = cl.lengthBars;
+                drawerData_.clipLooped = cl.isLooped;
+                drawerData_.clipLoopLengthBars = cl.loopLengthBars;
+                drawerData_.clipTranspose = cl.transposeSemitones;
             }
+            drawerData_.syncKnobsIfEmpty();
         }
-        return true;
+        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
+            inspectorOpen_ = propertiesDrawer_.isExpanded();
+            return true;
+        }
     }
 
     // 2. Timeline Minimap Scrubbing / Jump
@@ -1878,75 +1654,59 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         }
     }
 
-    // 3b. Chord Track Lane Header Card Click (WHEEL / Key / Card)
+    // 3b. Harmonic Overview Lane Header Card Click (Read-only status card)
     if (chordHeaderBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down) {
-            circleOfFifthsDialog_.open(0, songKeyRoot_, isSongKeyMinor_);
-            return true;
-        }
+        return false;
     }
 
-    // 3c. Chord Lane Interaction (Add, Move, Resize, Audition, Delete)
+    // 3c. Harmonic Overview Lane Interaction (Audition on click, Jump to Leader Clip on double-click)
     if (chordLaneBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {
             float localX = ev.x - chordLaneBounds_.x + scrollX_;
+            auto overview = getHarmonicOverviewChords();
 
-            for (size_t i = 0; i < chordTrack_.size(); ++i) {
-                const auto& chord = chordTrack_[i];
-                float cx = static_cast<float>(chord.startBar) * barWidth_;
-                float cw = chord.barLength * barWidth_;
+            for (size_t i = 0; i < overview.size(); ++i) {
+                const auto& info = overview[i];
+                float cx = info.startBar * barWidth_;
+                float cw = info.barLength * barWidth_;
 
                 if (localX >= cx && localX <= cx + cw) {
                     selectedChordIndex_ = static_cast<int>(i);
 
-                    // Right click: Remove Chord
-                    if (ev.button == PointerButton::Right) {
-                        removeChord(chord.id);
-                        selectedChordIndex_ = -1;
-                        return true;
-                    }
-
-                    // Check right edge resize handle (last 16px)
-                    if (localX >= cx + cw - 16.0f) {
-                        dragMode_ = ClipDragMode::ChordResize;
-                        dragChordIdx_ = static_cast<int>(i);
-                        dragChordOrigLength_ = chord.barLength;
-                        dragStartPointerX_ = ev.x;
-                        dragStartPointerY_ = ev.y;
-                        return true;
-                    }
-
                     // Audition chord
                     if (onAuditionChord) {
-                        onAuditionChord(chord);
+                        onAuditionChord(info.chord);
                     }
 
-                    // Check double click -> Open Circle of Fifths modal for this chord
+                    // Check double click -> Jump directly to the leader chord track and clip!
                     auto now = std::chrono::steady_clock::now();
-                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastClipClickTime_).count();
-                    if (lastClickedClipIdx_ == static_cast<int>(i) && elapsedMs < 350) {
-                        lastClipClickTime_ = std::chrono::steady_clock::time_point{};
-                        lastClickedClipIdx_ = -1;
-                        circleOfFifthsDialog_.openForChord(chord, songKeyRoot_, isSongKeyMinor_);
-                        return true;
-                    }
-                    lastClipClickTime_ = now;
-                    lastClickedClipIdx_ = static_cast<int>(i);
+                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastOverviewClickTime_).count();
+                    if (lastClickedOverviewChordIdx_ == static_cast<int>(i) && elapsedMs < 400) {
+                        lastOverviewClickTime_ = std::chrono::steady_clock::time_point{};
+                        lastClickedOverviewChordIdx_ = -1;
 
-                    // Move chord drag
-                    dragMode_ = ClipDragMode::ChordMove;
-                    dragChordIdx_ = static_cast<int>(i);
-                    dragChordOrigStartBar_ = chord.startBar;
-                    dragStartPointerX_ = ev.x;
-                    dragStartPointerY_ = ev.y;
+                        if (info.sourceTrackIdx >= 0 && info.sourceTrackIdx < static_cast<int>(tracks_.size())) {
+                            setActiveTrack(static_cast<uint32_t>(info.sourceTrackIdx));
+                            if (info.sourceClipIdx >= 0) {
+                                setSelectedClip(info.sourceClipIdx);
+                            }
+                            if (ctx.onJumpToClipEdit && info.sourceClipIdx >= 0) {
+                                ctx.onJumpToClipEdit(static_cast<uint32_t>(info.sourceTrackIdx), info.sourceClipIdx);
+                            }
+                            if (ctx.onShowNotification) {
+                                ctx.onShowNotification("Navigating to '" + info.sourceTrackName + "' to edit harmony");
+                            }
+                            return true;
+                        }
+                    }
+                    lastOverviewClickTime_ = now;
+                    lastClickedOverviewChordIdx_ = static_cast<int>(i);
                     return true;
                 }
             }
 
-            // Clicked empty chord lane space -> Open Circle of Fifths dialog at clicked bar!
-            int clickedBar = static_cast<int>(localX / barWidth_);
+            // Clicked empty overview lane space -> deselect, read-only
             selectedChordIndex_ = -1;
-            circleOfFifthsDialog_.open(static_cast<uint32_t>(std::max(0, clickedBar)), songKeyRoot_, isSongKeyMinor_);
             return true;
         }
     }
@@ -1969,17 +1729,47 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 selectedClipIndex_ = -1;
                 inspectorTab_ = ArrangerInspectorTab::Track; // Expose Track properties
                 inspectorOpen_ = true;
+                if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 
                 float rowY = tracksListBounds_.y + static_cast<float>(clickedTrack) * trackRowHeight_ - scrollY_;
                 float btnY = rowY + 8.0f;
 
-                // Click on track icon glyph opens IconSearchDialog
+                auto openTrackTitleAndIconEdit = [this, clickedTrack, &ctx]() {
+                    if (ctx.onOpenValueEdit) {
+                        ValueEditRequest req;
+                        req.title = "EDIT TRACK PROPERTIES";
+                        req.paramName = "Track Name";
+                        req.isTextMode = true;
+                        req.initialText = tracks_[clickedTrack].name;
+                        req.currentIconRef = tracks_[clickedTrack].iconRef;
+                        req.accentColor = Color(tracks_[clickedTrack].r, tracks_[clickedTrack].g, tracks_[clickedTrack].b, 1.0f);
+                        req.actionLinkLabel = "🎨 Choose Track Icon...";
+                        req.onActionLink = [this, clickedTrack]() {
+                            iconDialog_.open(tracks_[clickedTrack].name, clickedTrack, tracks_[clickedTrack].iconRef);
+                        };
+                        req.onCommitText = [this, clickedTrack](const std::string& newName) {
+                            if (!newName.empty()) {
+                                tracks_[clickedTrack].name = newName;
+                                drawerData_.trackName = newName;
+                                if (clickedTrack < drawerData_.allTrackNames.size()) {
+                                    drawerData_.allTrackNames[clickedTrack] = newName;
+                                }
+                                if (onTrackRename) {
+                                    onTrackRename(clickedTrack, newName);
+                                }
+                            }
+                        };
+                        ctx.onOpenValueEdit(req);
+                    }
+                };
+
+                // Click on track icon glyph opens Title Edit Dialog with icon picker option
                 float iconBoxX = tracksListBounds_.x + 10.0f;
                 float iconBoxY = rowY + 7.5f;
                 float iconBoxSize = 15.0f;
                 Rect2D iconHitBox(iconBoxX - 3.0f, iconBoxY - 3.0f, iconBoxSize + 6.0f, iconBoxSize + 6.0f);
                 if (iconHitBox.contains(ev.x, ev.y)) {
-                    iconDialog_.open(tracks_[clickedTrack].name, clickedTrack, tracks_[clickedTrack].iconRef);
+                    openTrackTitleAndIconEdit();
                     return true;
                 }
 
@@ -2002,9 +1792,11 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
 
                 if (muteRect.contains(ev.x, ev.y)) {
                     tracks_[clickedTrack].mute = !tracks_[clickedTrack].mute;
+                    if (onMuteToggled) onMuteToggled(clickedTrack, tracks_[clickedTrack].mute);
                     return true;
                 } else if (soloRect.contains(ev.x, ev.y)) {
                     tracks_[clickedTrack].solo = !tracks_[clickedTrack].solo;
+                    if (onSoloToggled) onSoloToggled(clickedTrack, tracks_[clickedTrack].solo);
                     return true;
                 }
 
@@ -2081,23 +1873,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 }
 
                 if (ev.button == PointerButton::Right) {
-                    if (ctx.onOpenValueEdit) {
-                        ValueEditRequest req;
-                        req.title = tracks_[clickedTrack].name + " VOLUME";
-                        req.paramName = tracks_[clickedTrack].name + " Volume";
-                        req.currentValue = tracks_[clickedTrack].volume;
-                        req.minValue = 0.0f;
-                        req.maxValue = 1.5f;
-                        req.defaultValue = 1.0f;
-                        req.hasDefault = true;
-                        req.allowPercentage = true;
-                        req.accentColor = Color(tracks_[clickedTrack].r, tracks_[clickedTrack].g, tracks_[clickedTrack].b, 1.0f);
-                        req.onCommit = [this, clickedTrack](float val) {
-                            tracks_[clickedTrack].volume = val;
-                            if (onVolumeChanged) onVolumeChanged(clickedTrack, val);
-                        };
-                        ctx.onOpenValueEdit(req);
-                    }
+                    openTrackTitleAndIconEdit();
                     return true;
                 }
 
@@ -2146,6 +1922,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                         selectedClipIndex_ = c;
                         inspectorTab_ = ArrangerInspectorTab::Clip; // Expose Clip properties!
                         inspectorOpen_ = true;
+                        if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 
                         // Check double click on clip body (not on resize handles)
                         bool onResizeHandle = (localX >= cx + cw - 22.0f);
@@ -2269,6 +2046,9 @@ bool ArrangerView::handleKey(int key, [[maybe_unused]] int scancode, int action,
     if (pluginDialog_.isOpen()) {
         return pluginDialog_.handleKey(key, scancode, action, mods);
     }
+    if (propertiesDrawer_.isPluginDialogOpen()) {
+        return propertiesDrawer_.handleKey(key, scancode, action, mods, ctx);
+    }
     if (circleOfFifthsDialog_.isOpen()) {
         return circleOfFifthsDialog_.handleKey(key, scancode, action, mods);
     }
@@ -2313,6 +2093,151 @@ bool ArrangerView::handleKey(int key, [[maybe_unused]] int scancode, int action,
     }
 
     return false;
+}
+
+bool ArrangerView::handleFileDrop(const std::vector<std::string>& filePaths, float x, float y, const ViewContext& ctx) {
+    if (filePaths.empty()) return false;
+
+    // Check if drop occurred within tracks list, timeline grid, or overall arranger bounds
+    if (bounds_.w > 0.0f && bounds_.h > 0.0f && !bounds_.contains(x, y)) {
+        return false;
+    }
+
+    bool handledAny = false;
+
+    for (const auto& path : filePaths) {
+        std::filesystem::path fsPath(path);
+        std::string filename = fsPath.filename().string();
+        std::string ext = fsPath.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        bool isAudio = (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac" || ext == ".aif" || ext == ".aiff");
+        bool isMidi = (ext == ".mid" || ext == ".midi");
+        bool isSf2 = (ext == ".sf2");
+
+        if (!isAudio && !isMidi && !isSf2) {
+            continue;
+        }
+
+        // Determine drop location in timeline grid
+        uint32_t targetBar = 1;
+        if (gridBounds_.w > 0.0f && x >= gridBounds_.x) {
+            float relX = x - gridBounds_.x + scrollX_;
+            targetBar = static_cast<uint32_t>(std::max(1.0f, std::floor(relX / barWidth_) + 1.0f));
+        }
+
+        // Determine target track from Y position
+        int targetTrackIdx = -1;
+        if (gridBounds_.h > 0.0f && y >= gridBounds_.y) {
+            float relY = y - gridBounds_.y + scrollY_;
+            int idx = static_cast<int>(relY / trackRowHeight_);
+            if (idx >= 0 && idx < static_cast<int>(tracks_.size())) {
+                targetTrackIdx = idx;
+            }
+        }
+
+        std::string stemName = fsPath.stem().string();
+
+        if (isAudio || isSf2) {
+            if (targetTrackIdx >= 0) {
+                // Add an audio clip to existing track at dropped bar
+                auto& track = tracks_[targetTrackIdx];
+                ArrangerTimelineClip clip;
+                clip.id = "clip_audio_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+                clip.name = stemName;
+                clip.trackIndex = static_cast<uint32_t>(targetTrackIdx);
+                clip.startBar = targetBar;
+                clip.lengthBars = 4;
+                clip.r = track.r; clip.g = track.g; clip.b = track.b;
+                clip.isAudio = true;
+                clip.isSelected = true;
+                track.clips.push_back(clip);
+                selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
+                activeTrackIndex_ = static_cast<uint32_t>(targetTrackIdx);
+            } else {
+                // Create a new Audio / Sampler Track
+                ArrangerTimelineTrack newTrack;
+                newTrack.name = stemName;
+                newTrack.instrument = isSf2 ? "SoundFont Sampler" : "Audio Sampler";
+                newTrack.instrumentEngine = isSf2 ? "soundfont" : "sampler";
+                newTrack.iconRef = isSf2 ? "preset:inst_keys" : "preset:inst_sampler";
+                int colorIdx = static_cast<int>(tracks_.size()) % 8;
+                newTrack.r = kQuickPalette[colorIdx][0];
+                newTrack.g = kQuickPalette[colorIdx][1];
+                newTrack.b = kQuickPalette[colorIdx][2];
+
+                ArrangerTimelineClip clip;
+                clip.id = "clip_audio_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+                clip.name = stemName;
+                clip.trackIndex = static_cast<uint32_t>(tracks_.size());
+                clip.startBar = targetBar;
+                clip.lengthBars = 4;
+                clip.r = newTrack.r; clip.g = newTrack.g; clip.b = newTrack.b;
+                clip.isAudio = true;
+                clip.isSelected = true;
+                newTrack.clips.push_back(clip);
+
+                tracks_.push_back(newTrack);
+                activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
+                selectedClipIndex_ = 0;
+            }
+            if (ctx.onShowNotification) {
+                ctx.onShowNotification("Imported " + filename + " at Bar " + std::to_string(targetBar));
+            }
+            handledAny = true;
+        } else if (isMidi) {
+            if (targetTrackIdx >= 0) {
+                auto& track = tracks_[targetTrackIdx];
+                ArrangerTimelineClip clip;
+                clip.id = "clip_midi_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+                clip.name = stemName;
+                clip.trackIndex = static_cast<uint32_t>(targetTrackIdx);
+                clip.startBar = targetBar;
+                clip.lengthBars = 4;
+                clip.r = track.r; clip.g = track.g; clip.b = track.b;
+                clip.isAudio = false;
+                clip.isSelected = true;
+                track.clips.push_back(clip);
+                selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
+                activeTrackIndex_ = static_cast<uint32_t>(targetTrackIdx);
+            } else {
+                ArrangerTimelineTrack newTrack;
+                newTrack.name = stemName;
+                newTrack.instrument = "Polyphonic Synth";
+                newTrack.instrumentEngine = "poly_synth";
+                newTrack.iconRef = "preset:inst_synth";
+                int colorIdx = static_cast<int>(tracks_.size()) % 8;
+                newTrack.r = kQuickPalette[colorIdx][0];
+                newTrack.g = kQuickPalette[colorIdx][1];
+                newTrack.b = kQuickPalette[colorIdx][2];
+
+                ArrangerTimelineClip clip;
+                clip.id = "clip_midi_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+                clip.name = stemName;
+                clip.trackIndex = static_cast<uint32_t>(tracks_.size());
+                clip.startBar = targetBar;
+                clip.lengthBars = 4;
+                clip.r = newTrack.r; clip.g = newTrack.g; clip.b = newTrack.b;
+                clip.isAudio = false;
+                clip.isSelected = true;
+                newTrack.clips.push_back(clip);
+
+                tracks_.push_back(newTrack);
+                activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
+                selectedClipIndex_ = 0;
+            }
+            if (ctx.onShowNotification) {
+                ctx.onShowNotification("Imported MIDI " + filename + " at Bar " + std::to_string(targetBar));
+            }
+            handledAny = true;
+        }
+    }
+
+    if (handledAny) {
+        if (onClipsChanged) onClipsChanged();
+    }
+
+    return handledAny;
 }
 
 } // namespace eatsbits::ui

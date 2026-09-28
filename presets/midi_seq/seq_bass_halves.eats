@@ -1,0 +1,13 @@
+# @id: seq_bass_halves
+# @name: Bass Halves
+# @category: midiSeq
+# @description: Two half-bar sustained bass notes (8 steps each).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

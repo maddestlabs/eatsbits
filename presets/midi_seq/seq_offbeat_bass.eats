@@ -1,0 +1,13 @@
+# @id: seq_offbeat_bass
+# @name: Offbeat Bass (Pump)
+# @category: midiSeq
+# @description: Pumping offbeat bass notes hitting between kick downbeats for EDM and house grooves.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

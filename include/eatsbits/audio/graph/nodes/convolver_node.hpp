@@ -6,12 +6,14 @@
 #include <memory>
 #include "../graph_node.hpp"
 #include "../../dsp/convolver_core.hpp"
+#include "../../procedural_ir_generator.hpp"
 
 namespace eatsbits::audio {
 
 /**
  * Modular Convolution Reverb Node for the AudioGraph.
- * Embeds the real-time ConvolverCore with built-in procedural physics simulation.
+ * Embeds the real-time ConvolverCore with built-in procedural physics simulation,
+ * dynamic room resizing, frequency-dependent damping, and gated reverb shaping.
  */
 class ConvolverNode : public GraphNode {
 public:
@@ -39,18 +41,36 @@ public:
     void setPreDelay(float ms) noexcept { convolver_.setPreDelay(ms); }
     [[nodiscard]] float getPreDelay() const noexcept { return convolver_.getPreDelay(); }
 
-    void setDecay(float decay) noexcept { convolver_.setDecay(decay); }
+    void setDecay(float decay) { convolver_.setDecay(decay); }
     [[nodiscard]] float getDecay() const noexcept { return convolver_.getDecay(); }
 
-    void setHighCut(float hz) noexcept { convolver_.setHighCut(hz); }
+    void setRoomSize(float scale) { convolver_.setRoomSize(scale); }
+    [[nodiscard]] float getRoomSize() const noexcept { return convolver_.getRoomSize(); }
+
+    void setDamping(float damping) { convolver_.setDamping(damping); }
+    [[nodiscard]] float getDamping() const noexcept { return convolver_.getDamping(); }
+
+    void setGated(bool gated, float holdMs = 180.0f, float releaseMs = 20.0f) {
+        convolver_.setGated(gated, holdMs, releaseMs);
+    }
+    [[nodiscard]] bool isGated() const noexcept { return convolver_.isGated(); }
+
+    void setHighCut(float hz) { convolver_.setHighCut(hz); }
     [[nodiscard]] float getHighCut() const noexcept { return convolver_.getHighCut(); }
 
-    void setLowCut(float hz) noexcept { convolver_.setLowCut(hz); }
+    void setLowCut(float hz) { convolver_.setLowCut(hz); }
     [[nodiscard]] float getLowCut() const noexcept { return convolver_.getLowCut(); }
 
     void loadPreset(const std::string& name) { convolver_.loadPreset(name); }
     void loadPresetIndex(size_t index) { convolver_.loadPresetIndex(index); }
-    [[nodiscard]] const std::string& getCurrentPresetName() const { return convolver_.getCurrentPresetName(); }
+    [[nodiscard]] const std::string& getCurrentPresetName() const noexcept { return convolver_.getCurrentPresetName(); }
+
+    void setAcousticSpace(const AcousticSpaceParams& params) { convolver_.setAcousticSpace(params); }
+    [[nodiscard]] const AcousticSpaceParams& getAcousticSpace() const noexcept { return convolver_.getCurrentSpaceParams(); }
+
+    StereoIRBuffer bakeCustomSpace(const AcousticSpaceParams& params) {
+        return convolver_.bakeCustomSpace(params);
+    }
 
     dsp::ConvolverCore& getCore() noexcept { return convolver_; }
     const dsp::ConvolverCore& getCore() const noexcept { return convolver_; }
@@ -63,7 +83,25 @@ public:
             case 3: setDecay(value); break;
             case 4: setHighCut(value); break;
             case 5: setLowCut(value); break;
+            case 6: setRoomSize(value); break;
+            case 7: setDamping(value); break;
+            case 8: setGated(value > 0.5f); break;
             default: break;
+        }
+    }
+
+    [[nodiscard]] float getParameter(uint32_t paramId) const noexcept {
+        switch (paramId) {
+            case 0: return getMix();
+            case 1: return 0.0f;
+            case 2: return getPreDelay();
+            case 3: return getDecay();
+            case 4: return getHighCut();
+            case 5: return getLowCut();
+            case 6: return getRoomSize();
+            case 7: return getDamping();
+            case 8: return isGated() ? 1.0f : 0.0f;
+            default: return 0.0f;
         }
     }
 

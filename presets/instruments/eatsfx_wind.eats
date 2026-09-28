@@ -1,0 +1,80 @@
+# @id: eatsfx_wind
+# @name: EatsFX Wind
+# @category: instrument
+# @description: Physical modeling of atmospheric wind, Aeolian tones, and architectural cavity whistling: fractional Brownian motion aerodynamic gust generator, Strouhal vortex shedding resonance, Harmon-derived window crack cavity notch, and chimney howl modal resonator.
+
+def init():
+    return {
+        "GustSpeed": eat.param("GustSpeed", 0.05, 3.0, 0.25),
+        "Turbulence": eat.param("Turbulence", 0.0, 1.0, 0.65),
+        "AeolianPitch": eat.param("AeolianPitch", 60.0, 2000.0, 440.0),
+        "HowlDepth": eat.param("HowlDepth", 0.0, 1.0, 0.70),
+        "Tone": eat.param("Tone", 400.0, 12000.0, 4800.0),
+        "Decay": eat.param("Decay", 0.2, 5.0, 2.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATSFX WIND",
+            "subtitle": "Aeolian Tempest & Cavity Howl Synthesizer",
+            "background": "minimal_white",
+            "cornerRadius": 8,
+            "backgroundSvg": "M 10 50 C 70 50, 120 20, 160 20 C 190 20, 210 35, 210 50 C 210 65, 190 80, 170 80 C 145 80, 135 60, 145 45 C 155 35, 175 40, 175 50 M 20 85 C 80 85, 130 65, 165 65 C 195 65, 220 80, 220 95 C 220 110, 200 120, 180 120 C 160 120, 150 105, 160 95 M 5 120 C 65 120, 110 105, 145 105 C 180 105, 200 115, 210 130",
+            "backgroundSvgOpacity": 0.1,
+            "accent": "#546E7A",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "AERODYNAMIC GUST & TURBULENCE",
+                    "accent": "#546E7A",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {
+                            "type": "row",
+                            "orientation": "vertical",
+                            "align": "space_around",
+                            "crossAlign": "center",
+                            "children": [
+                                {"type": "knob", "param": "GustSpeed", "label": "GUST SPEED", "unit": "Hz", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "Turbulence", "label": "TURBULENCE", "unit": "%", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "AeolianPitch", "label": "VORTEX PITCH", "unit": "Hz", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "HowlDepth", "label": "HOWL DEPTH", "unit": "%", "size": 36, "knobStyle": "snes", "showValue": False},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "ATMOSPHERIC AIR ABSORPTION & TONE",
+                    "accent": "#78909C",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {
+                            "type": "row",
+                            "orientation": "vertical",
+                            "align": "space_around",
+                            "crossAlign": "center",
+                            "children": [
+                                {"type": "knob", "param": "Tone", "label": "AIR LOWPASS", "unit": "Hz", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "Decay", "label": "GUST SUSTAIN", "unit": "s", "size": 36, "knobStyle": "snes", "showValue": False},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+def process(time, freq, note, params):
+    return 0.0

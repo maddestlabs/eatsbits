@@ -1,0 +1,49 @@
+# @id: chord_follower_midi_fx
+# @name: Harmonic Chord Follower FX
+# @category: midiFx
+# @description: Conforms incoming notes non-destructively to the active project Chord Track.
+
+def init():
+    return {
+        "Mode": eat.param("Mode", 0.0, 3.0, 0.0, options=["Chord Tones", "Bass Root", "Scale Steps", "Color Extensions"]),
+    }
+
+def transform_notes(notes, params, time_context):
+    return eat.chord_follow(notes, mode=params.get("Mode", 0.0))
+
+def gui():
+    return {
+        "panel": {
+            "title": "Harmonic Chord Follower FX",
+            "subtitle": "Project Chord Track Harmonizer",
+            "background": "dark",
+            "accent": "#FF8C00",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "listbox", "param": "Mode", "label": "HARMONIC MODE", "width": 140, "height": 70},
+                    ]
+                }
+            ]
+        }
+    }
+
+def rack():
+    return {
+        "rows": [
+            [
+                {"id": "midi_in", "title": "MIDI NOTE IN", "hp": 14, "row": 1, "category": "MOD"},
+                {"id": "chord_track", "title": "CHORD TRACK REF", "hp": 16, "row": 1, "category": "MOD"},
+            ],
+            [
+                {"id": "harmonizer", "title": "HARMONIZER ENGINE", "hp": 16, "row": 2, "category": "MOD"},
+                {"id": "midi_out", "title": "MIDI NOTE OUT", "hp": 14, "row": 2, "category": "MOD"},
+            ],
+        ],
+        "cables": [
+            {"from": "1:0:1", "to": "2:0:0", "color": "pitch"},
+            {"from": "1:1:1", "to": "2:0:1", "color": "modulation"},
+            {"from": "2:0:1", "to": "2:1:0", "color": "pitch"},
+        ]
+    }

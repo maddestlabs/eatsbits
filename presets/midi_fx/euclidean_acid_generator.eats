@@ -1,0 +1,56 @@
+# @id: euclidean_acid_gen
+# @name: Euclidean Acid Generator
+# @category: midiFx
+# @tags: euclidean, acid, generative, bassline, sequencer, algorithmic
+# @description: Generates algorithmic 16-step Euclidean bassline snapped to the song scale.
+
+def init():
+    return {
+        "hits": eat.param("hits", 1.0, 16.0, 7.0, step=1.0),
+        "steps": eat.param("steps", 4.0, 32.0, 16.0, step=1.0),
+        "root_pitch": eat.param("root_pitch", 24.0, 60.0, 36.0, step=1.0),
+    }
+
+def transform_notes(notes, params, time_ctx):
+    eat.clear_notes()
+    
+    hits = int(params.get("hits", 7))
+    steps = int(params.get("steps", 16))
+    base_pitch = int(params.get("root_pitch", 36))
+    
+    # 1. Generate Euclidean rhythm pattern
+    pattern = eat.euclidean(hits, steps)
+    
+    # 2. Pentatonic scale offsets
+    minor_pentatonic = [0, 3, 5, 7, 10, 12]
+    
+    step_duration = 0.25 # 16th note
+    for i in range(len(pattern)):
+        if pattern[i] == 1:
+            scale_degree = minor_pentatonic[i % len(minor_pentatonic)]
+            pitch = base_pitch + scale_degree
+            start_step = i * step_duration
+            vel = 0.95 if (i % 4 == 0) else 0.80
+            eat.add_note(pitch, start_step, step_duration * 0.85, vel)
+    
+    return eat.get_notes()
+
+def gui():
+    return {
+        "panel": {
+            "title": "EUCLIDEAN ACID GEN",
+            "subtitle": "Algorithmic Rhythm & Bassline Generator",
+            "background": "dark",
+            "accent": "#00FF7F",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "hits", "label": "HITS", "size": 52},
+                        {"type": "knob", "param": "steps", "label": "STEPS", "size": 52},
+                        {"type": "knob", "param": "root_pitch", "label": "ROOT", "size": 52}
+                    ]
+                }
+            ]
+        }
+    }

@@ -1,0 +1,120 @@
+# @id: felt_upright_piano
+# @name: Warm Felt Studio Upright
+# @category: instrument
+# @description: Physical modeling of a warm, felt-damped studio upright piano: thick wool felt compression layer, shortened upright string scale, intimate wooden action knock, compact soundboard resonance, and warm harmonic roll-off designed to sit beneath acoustic guitars.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "FeltThickness": eat.param("FeltThickness", 0.0, 1.0, 0.85, step=0.0),
+        "HammerHardness": eat.param("HammerHardness", 0.1, 1.5, 0.35, step=0.0),
+        "MechanicalThud": eat.param("MechanicalThud", 0.0, 1.0, 0.45, step=0.0),
+        "CabinetSize": eat.param("CabinetSize", 0.0, 1.0, 0.2, step=0.0),
+        "BodyReso": eat.param("BodyReso", 0.0, 1.0, 0.4, step=0.0),
+        "AirSheen": eat.param("AirSheen", 0.0, 1.0, 0.15, step=0.0),
+        "UnisonDetune": eat.param("UnisonDetune", 0.5, 6.0, 2.4, step=0.0),
+        "Sustain": eat.param("Sustain", 0.9, 0.998, 0.9945, step=0.0),
+        "Tone": eat.param("Tone", 800.0, 8000.0, 3800.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "WARM FELT STUDIO UPRIGHT",
+            "subtitle": "Muted Wool Felt Damper & Intimate Action Modeling",
+            "accent": "#C19A6B",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "WOOL FELT DAMPING & MECHANICAL ACTION",
+                    "accent": "#C19A6B",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "FeltThickness",
+                                    "label": "FELT THICK",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "HammerHardness",
+                                    "label": "HAMMER",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "MechanicalThud",
+                                    "label": "ACTION THUD",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "UnisonDetune",
+                                    "label": "DETUNE",
+                                    "unit": "cents",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "UPRIGHT CABINET & WARM TONE",
+                    "accent": "#A0522D",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "CabinetSize",
+                                    "label": "CABINET",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BodyReso",
+                                    "label": "WOOD RESO",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "FELT WARMTH",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Sustain",
+                                    "label": "SUSTAIN",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    strike = eat.node.hammer(hardness="FeltDamping", click=0.5)
+    strings = eat.node.waveguide(in_sig=strike, damping="Warmth", feedback=0.993)
+    body = eat.node.acoustic_body(in_sig=strings, profile=0.5, gain=0.6)
+    return body
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

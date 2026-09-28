@@ -1,0 +1,109 @@
+# @id: tts_voice_synth
+# @name: TTS Voice Synth
+# @category: instrument
+# @description: Tactile minimalist vocal formant synthesizer and speech engine with 3-column ceramic layout: glottal pulse oscillator, vocal tract F1/F2/F3 formant filters, breath air turbulence, prosody dynamics, and analog character saturation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "TTS VOICE SYNTH",
+            "subtitle": "Vocal Speech & Formant Synthesizer",
+            "background": "minimal_white",
+            "accent": "#D9603B",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "column",
+                            "children": [
+                                {
+                                    "type": "spectrum",
+                                    "width": 210,
+                                    "height": 96,
+                                },
+                                {
+                                    "type": "segmented_pill",
+                                    "param": "voice_mode",
+                                    "label": "VOICE PROFILE",
+                                    "options": [
+                                        "Natural",
+                                        "Robot",
+                                        "Whisper",
+                                    ],
+                                },
+                                {
+                                    "type": "segmented_pill",
+                                    "param": "speech_speed",
+                                    "label": "SPEED",
+                                    "options": [
+                                        "Slow",
+                                        "Normal",
+                                        "Fast",
+                                    ],
+                                },
+                                {
+                                    "type": "row",
+                                    "children": [
+                                        {
+                                            "type": "knob",
+                                            "param": "pitch",
+                                            "label": "PITCH",
+                                            "size": 48,
+                                            "knobStyle": "minimal_white",
+                                        },
+                                        {
+                                            "type": "knob",
+                                            "param": "tone",
+                                            "label": "TONE",
+                                            "size": 48,
+                                            "knobStyle": "minimal_white",
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        {
+                            "type": "column",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "volume",
+                                    "label": "LEVEL",
+                                    "size": 72,
+                                    "knobStyle": "minimal_white",
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "space",
+                                    "label": "SPACE",
+                                    "size": 52,
+                                    "knobStyle": "minimal_white",
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "air",
+                                    "label": "AIR",
+                                    "size": 46,
+                                    "knobStyle": "minimal_white",
+                                },
+                                {
+                                    "type": "switch",
+                                    "param": "adv",
+                                    "label": "ADV",
+                                    "orientation": "vertical",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }

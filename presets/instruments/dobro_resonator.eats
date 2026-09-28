@@ -1,0 +1,86 @@
+# @id: dobro_resonator
+# @name: Resonator Guitar (Dobro)
+# @category: instrument
+# @description: Physical modeling of a spun aluminum cone resonator/dobro guitar: spider & biscuit bridge modal formants (720Hz, 1450Hz, 2150Hz), steel slide glissando friction, and blues bark.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ConeType": eat.param("ConeType", 0.0, 1.0, 0.35, step=0.0, allow_variance=False),
+        "MetalBark": eat.param("MetalBark", 0.0, 2.0, 0.6, step=0.0),
+        "ThumbPick": eat.param("ThumbPick", 0.0, 1.0, 0.1, step=0.0),
+        "SlideFriction": eat.param("SlideFriction", 0.0, 1.0, 0.6, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.994, step=0.0),
+        "SlideTone": eat.param("SlideTone", -6.0, 8.0, 3.5, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "DOBRO / RESONATOR GUITAR",
+            "subtitle": "Spun Aluminum Spider Cone & Steel Slide Physical Model",
+            "accent": "#94A3B8",
+            "background": "matte_carbon",
+            "rackSides": "nickel",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "ConeType",
+                            "label": "CONE TYPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "MetalBark",
+                            "label": "ALUMINUM BARK",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SlideFriction",
+                            "label": "SLIDE FRICTION",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SlideTone",
+                            "label": "SLIDE TONE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "ConeType",
+                            "label": "RESONATOR CONE (0.0 SPIDER WARM <-> 1.0 BISCUIT GRITTY BLUES)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -1,0 +1,70 @@
+# @id: bitcrusher
+# @name: 8-Bit Crusher
+# @category: audioFx
+# @description: Hardware bit-depth and sample-rate reduction for authentic 8-bit crunch and lo-fi textures.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Bits": eat.param("Bits", 1.0, 16.0, 8.0, step=1.0, allow_variance=False),
+        "Downsample": eat.param("Downsample", 1.0, 32.0, 1.0, step=1.0, allow_variance=False),
+        "Drive": eat.param("Drive", 0.5, 4.0, 1.0, step=0.05),
+        "Mix": eat.param("Mix", 0.0, 1.0, 1.0, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "8-Bit Crusher",
+            "subtitle": "Hardware Bit-Depth & Sample-Rate Reduction",
+            "background": "snes",
+            "accent": "#FFD700",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Bits",
+                            "label": "BITS",
+                            "unit": "bit",
+                            "knobStyle": "snes",
+                            "size": 60,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Downsample",
+                            "label": "CRUSH",
+                            "unit": "x",
+                            "knobStyle": "snes",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Drive",
+                            "label": "DRIVE",
+                            "unit": "x",
+                            "knobStyle": "snes",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Mix",
+                            "label": "MIX",
+                            "knobStyle": "snes",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Insert Audio FX Graph Topology ---
+def graph():
+    audio_in = eat.node.input()
+    driven = eat.node.saturate(audio_in, drive="Drive")
+    crushed = eat.node.bitcrush(driven, bits="Bits", downsample="Downsample", mix="Mix")
+    return crushed
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

@@ -1,0 +1,54 @@
+# @id: retro_crt_teleprompter
+# @name: Retro CRT Teleprompter
+# @category: utility
+# @description: Cyberpunk green-phosphor CRT teleprompter with rolling line cues and syllable highlight.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Scanlines": eat.param("Scanlines", 0.0, 1.0, 0.8, step=0.1),
+        "PhosphorGlow": eat.param("PhosphorGlow", 0.0, 1.0, 0.9, step=0.1),
+        "CrtCurvature": eat.param("CrtCurvature", 0.0, 1.0, 0.3, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "CRT Teleprompter",
+            "subtitle": "Vocalist Cues & Lyric Roll",
+            "background": "arcade",
+            "accent": "#39FF14",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Scanlines",
+                            "label": "SCANLINES",
+                            "knobStyle": "arcade",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PhosphorGlow",
+                            "label": "PHOSPHOR",
+                            "knobStyle": "arcade",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "CrtCurvature",
+                            "label": "CURVE",
+                            "knobStyle": "arcade",
+                        },
+                    ],
+                },
+                {
+                    "type": "canvas",
+                    "canvasType": "vector",
+                    "height": 180,
+                    "label": "TERMINAL PROMPTER",
+                },
+            ],
+        },
+    }

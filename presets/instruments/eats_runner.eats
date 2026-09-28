@@ -1,0 +1,64 @@
+# @id: eats_runner
+# @name: Eats-Runner
+# @category: instrument
+# @description: 16-bit audiovisual side-scroller runner game with parallax skyline, starry horizon, jump physics, SNES Sfxr sound triggers, and timeline parameter automation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Jump": eat.param("Jump", 0.0, 1.0, 0.0, step=1.0, allow_variance=False),
+        "Speed": eat.param("Speed", 50.0, 250.0, 120.0, step=10.0, allow_variance=False),
+        "SFXType": eat.param("SFXType", 0.0, 4.0, 0.0, options=["Jump", "Coin", "Laser", "Explosion", "Powerup"], allow_variance=False),
+        "Seed": eat.param("Seed", 1.0, 9999.0, 543.0, step=1.0, allow_variance=False),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Eats-Runner",
+            "subtitle": "Audiovisual Platformer & Synced Visualizer",
+            "background": "snes",
+            "accent": "#00E5FF",
+            "knobStyle": "snes",
+            "layout": [
+                {
+                    "type": "canvas",
+                    "mode": "pixel",
+                    "width": 340,
+                    "height": 180,
+                    "showActionButtons": True,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "button",
+                            "param": "Jump",
+                            "label": "JUMP",
+                            "width": 80,
+                            "height": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Speed",
+                            "label": "SPEED",
+                            "unit": "px/s",
+                            "knobStyle": "snes",
+                        },
+                        {
+                            "type": "listbox",
+                            "param": "SFXType",
+                            "label": "SFX VOICE",
+                            "width": 120,
+                            "height": 70,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

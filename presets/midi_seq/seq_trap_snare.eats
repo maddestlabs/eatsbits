@@ -1,0 +1,13 @@
+# @id: seq_trap_snare
+# @name: Trap Snare (Half-Time)
+# @category: midiSeq
+# @description: Half-time hip-hop / trap snare pattern hitting firmly on beat 3.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

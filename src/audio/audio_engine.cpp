@@ -124,26 +124,65 @@ void AudioEngine::setupDefaultPolyGraph() {
 
 void AudioEngine::setupDefaultAcidBeatGraph() {
     graph_.clear();
+
+    // Track 1: TB-303 Acid
     auto tb = std::make_shared<Tb303Node>("Tb303");
-    auto tbStrip = std::make_shared<GainNode>("Track1_Gain");
-    auto drums = std::make_shared<DrumKitNode>("Drums");
-    auto drumStrip = std::make_shared<GainNode>("Track2_Gain");
     auto delay = std::make_shared<DelayNode>("AcidEcho");
-    auto masterGain = std::make_shared<GainNode>("MasterOut");
+    auto tbStrip = std::make_shared<GainNode>("Track1_Gain");
 
     delay->setDelayTimeMs(125.0f); // 16th note echo
     delay->setFeedback(0.35f);
     delay->setDryWet(0.30f);
-
     tbStrip->setVolume(0.80f);
-    drumStrip->setVolume(0.85f);
+
+    // Track 2: TR-808 Drums
+    auto drums808 = std::make_shared<DrumKitNode>("Drums808");
+    auto drum808Strip = std::make_shared<GainNode>("Track2_Gain");
+    drum808Strip->setVolume(0.85f);
+
+    // Track 3: TR-909 Drums
+    auto drums909 = std::make_shared<DrumKitNode>("Drums909");
+    auto drum909Strip = std::make_shared<GainNode>("Track3_Gain");
+    drum909Strip->setVolume(0.80f);
+
+    // Track 4: DX7 Rhodes (PolySynth configured with warm EP/Rhodes parameters)
+    auto dx7 = std::make_shared<PolySynthNode>("Dx7Rhodes");
+    dx7->setWaveform(dsp::Waveform::Triangle);
+    dx7->setFilterCutoff(3400.0f);
+    dx7->setFilterResonance(1.1f);
+    dx7->setAdsr(0.015f, 1.8f, 0.55f, 0.8f);
+    auto dx7Strip = std::make_shared<GainNode>("Track4_Gain");
+    dx7Strip->setVolume(0.75f);
+
+    // Track 5: Concert Grand (PolySynth with rich harmonic piano timbre)
+    auto piano = std::make_shared<PolySynthNode>("ConcertGrand");
+    piano->setWaveform(dsp::Waveform::Saw);
+    piano->setFilterCutoff(4200.0f);
+    piano->setFilterResonance(1.0f);
+    piano->setAdsr(0.008f, 2.4f, 0.35f, 1.0f);
+    auto pianoStrip = std::make_shared<GainNode>("Track5_Gain");
+    pianoStrip->setVolume(0.75f);
+
+    // Master Output
+    auto masterGain = std::make_shared<GainNode>("MasterOut");
     masterGain->setVolume(0.85f); // Bus headroom to prevent clipping when summing
 
     NodeId tbId = graph_.addNode(tb);
     NodeId delayId = graph_.addNode(delay);
     NodeId tbStripId = graph_.addNode(tbStrip);
-    NodeId drumsId = graph_.addNode(drums);
-    NodeId drumStripId = graph_.addNode(drumStrip);
+
+    NodeId drums808Id = graph_.addNode(drums808);
+    NodeId drum808StripId = graph_.addNode(drum808Strip);
+
+    NodeId drums909Id = graph_.addNode(drums909);
+    NodeId drum909StripId = graph_.addNode(drum909Strip);
+
+    NodeId dx7Id = graph_.addNode(dx7);
+    NodeId dx7StripId = graph_.addNode(dx7Strip);
+
+    NodeId pianoId = graph_.addNode(piano);
+    NodeId pianoStripId = graph_.addNode(pianoStrip);
+
     NodeId masterId = graph_.addNode(masterGain);
 
     // Route Track 1: Tb303 -> AcidEcho -> Track1_Gain -> MasterOut
@@ -151,9 +190,21 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
     graph_.connect(delayId, 0, tbStripId, 0);
     graph_.connect(tbStripId, 0, masterId, 0);
 
-    // Route Track 2: Drums -> Track2_Gain -> MasterOut
-    graph_.connect(drumsId, 0, drumStripId, 0);
-    graph_.connect(drumStripId, 0, masterId, 0);
+    // Route Track 2: Drums808 -> Track2_Gain -> MasterOut
+    graph_.connect(drums808Id, 0, drum808StripId, 0);
+    graph_.connect(drum808StripId, 0, masterId, 0);
+
+    // Route Track 3: Drums909 -> Track3_Gain -> MasterOut
+    graph_.connect(drums909Id, 0, drum909StripId, 0);
+    graph_.connect(drum909StripId, 0, masterId, 0);
+
+    // Route Track 4: Dx7Rhodes -> Track4_Gain -> MasterOut
+    graph_.connect(dx7Id, 0, dx7StripId, 0);
+    graph_.connect(dx7StripId, 0, masterId, 0);
+
+    // Route Track 5: ConcertGrand -> Track5_Gain -> MasterOut
+    graph_.connect(pianoId, 0, pianoStripId, 0);
+    graph_.connect(pianoStripId, 0, masterId, 0);
 
     graph_.setOutputNode(masterId, 0);
     engineMode_ = SynthEngineMode::ModularGraph;
@@ -461,18 +512,51 @@ void AudioEngine::setTrackPan(uint32_t trackIndex, float pan) noexcept {
     }
 }
 
+void AudioEngine::updateMuteSoloRouting() noexcept {
+    bool hasSolo = false;
+    uint32_t numTracks = sequencer_.getNumTracks();
+    for (uint32_t i = 0; i < numTracks; ++i) {
+        auto* tr = sequencer_.getTrack(i);
+        if (tr && tr->isSolo()) {
+            hasSolo = true;
+            break;
+        }
+    }
+
+    for (uint32_t i = 0; i < numTracks; ++i) {
+        auto* tr = sequencer_.getTrack(i);
+        if (!tr) continue;
+        bool isSilenced = tr->isMuted() || (hasSolo && !tr->isSolo());
+
+        std::string stripName = "Track" + std::to_string(i + 1) + "_Gain";
+        for (const auto& [id, node] : graph_.getNodes()) {
+            if (node && node->getName() == stripName) {
+                postNodeParameter(id, 2, isSilenced ? 1.0f : 0.0f);
+                break;
+            }
+        }
+        if (isSilenced && tr->getTargetNodeId() != 0) {
+            AudioEvent offEvent{};
+            offEvent.type = AudioEventType::AllNotesOff;
+            graph_.sendNodeEvent(tr->getTargetNodeId(), offEvent);
+        }
+    }
+}
+
 void AudioEngine::setTrackMute(uint32_t trackIndex, bool mute) noexcept {
     if (trackIndex < sequencer_.getNumTracks()) {
         auto* tr = sequencer_.getTrack(trackIndex);
         if (tr) tr->setMuted(mute);
     }
-    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
-    for (const auto& [id, node] : graph_.getNodes()) {
-        if (node && node->getName() == stripName) {
-            postNodeParameter(id, 2, mute ? 1.0f : 0.0f);
-            return;
-        }
+    updateMuteSoloRouting();
+}
+
+void AudioEngine::setTrackSolo(uint32_t trackIndex, bool solo) noexcept {
+    if (trackIndex < sequencer_.getNumTracks()) {
+        auto* tr = sequencer_.getTrack(trackIndex);
+        if (tr) tr->setSolo(solo);
     }
+    updateMuteSoloRouting();
 }
 
 void AudioEngine::attachPlugin(const EatsPluginDescriptor* desc, void* instance) noexcept {
@@ -560,10 +644,15 @@ void AudioEngine::renderOfflineBlock(float* outL, float* outR, uint32_t frameCou
     processEvents();
 
     if (engineMode_ == SynthEngineMode::ModularGraph) {
+        uint64_t startSample = sequencer_.getTransport().getTotalSamplesElapsed();
         if (sequencer_.isPlaying()) {
             sequencer_.processBlock(frameCount, graph_);
         }
         graph_.process(outL, outR, frameCount);
+
+        if (sequencer_.isPlaying()) {
+            sequencer_.mixFrozenTracks(outL, outR, frameCount, startSample);
+        }
     } else if (engineMode_ == SynthEngineMode::Tb303Acid) {
         for (uint32_t i = 0; i < frameCount; ++i) {
             const float s = tb303_.processSample();
@@ -668,6 +757,24 @@ std::vector<exporting::BounceStats> AudioEngine::bounceStems(const std::string& 
     cfg.format = format;
     cfg.enableDither = enableDither;
     return exporting::WavExporter::bounceStems(graph_, sequencer_, cfg, outputDir);
+}
+
+bool AudioEngine::freezeTrack(uint32_t trackIndex, const trackfreeze::FreezeOptions& options) {
+    return trackfreeze::TrackFreezeEngine::freezeTrack(*this, trackIndex, options);
+}
+
+bool AudioEngine::unfreezeTrack(uint32_t trackIndex, bool clearBuffers) {
+    return trackfreeze::TrackFreezeEngine::unfreezeTrack(*this, trackIndex, clearBuffers);
+}
+
+bool AudioEngine::toggleFreezeTrack(uint32_t trackIndex, const trackfreeze::FreezeOptions& options) {
+    return trackfreeze::TrackFreezeEngine::toggleFreezeTrack(*this, trackIndex, options);
+}
+
+bool AudioEngine::isTrackFrozen(uint32_t trackIndex) const noexcept {
+    if (trackIndex >= sequencer_.getNumTracks()) return false;
+    const auto* track = sequencer_.getTrack(trackIndex);
+    return track ? track->isFrozen() : false;
 }
 
 } // namespace eatsbits::audio

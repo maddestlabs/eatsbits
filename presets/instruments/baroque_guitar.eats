@@ -1,0 +1,117 @@
+# @id: baroque_guitar
+# @name: Baroque Guitar (5-Course)
+# @category: instrument
+# @description: Physical modeling of a 5-course re-entrant Baroque guitar: coupled double-course gut strings with high octave chime, rapid multi-finger rasgueado fan rakes, shallow body resonator with ornate parchment rose rosette damping, and bright gut bite.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "RasgueadoSpeed": eat.param("RasgueadoSpeed", 2.0, 35.0, 12.0, step=0.0),
+        "NailPluck": eat.param("NailPluck", 0.0, 1.0, 0.3, step=0.0),
+        "GutScrape": eat.param("GutScrape", 0.0, 1.0, 0.45, step=0.0),
+        "CourseDetune": eat.param("CourseDetune", 0.0, 12.0, 4.5, step=0.0),
+        "OctaveCourses": eat.param("OctaveCourses", 0.0, 1.0, 1.0, step=0.0, allow_variance=False),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.9935, step=0.0),
+        "StringDamp": eat.param("StringDamp", 0.05, 0.7, 0.18, step=0.0),
+        "RoseBite": eat.param("RoseBite", -6.0, 10.0, 3.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "BAROQUE GUITAR (5-COURSE)",
+            "subtitle": "Re-Entrant Gut & Parchment Rosette Physical Model",
+            "accent": "#CA8A04",
+            "background": "antique_parchment",
+            "rackSides": "walnut",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "RasgueadoSpeed",
+                            "label": "RASGUEADO",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NailPluck",
+                            "label": "NAIL SNAP",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "CourseDetune",
+                            "label": "DETUNE",
+                            "unit": "cents",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "OctaveCourses",
+                            "label": "OCTAVE CHIME",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "RasgueadoSpeed",
+                            "label": "MULTI-FINGER RASGUEADO STRUM FAN SPEED (2ms TIGHT <-> 35ms FLOURISH)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "RoseBite",
+                            "label": "PARCHMENT ROSE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StringDamp",
+                            "label": "STRING LOSS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "GutScrape",
+                            "label": "GUT FRICTION",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -1,0 +1,135 @@
+# @id: rhodes_epiano
+# @name: Rhodes Mark I E-Piano
+# @category: instrument
+# @description: Authentic physical simulation of the 1973 Rhodes Mark I Stage 73 E-Piano: neoprene hammer strike, tone bar inharmonic bell cluster, asymmetric magnetic pickup bark saturation, 2-band preamp EQ, and stereo optical tremolo.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "TineBell": eat.param("TineBell", 0.0, 2.0, 0.85, step=0.0),
+        "TineDecay": eat.param("TineDecay", 0.5, 6.0, 2.4, step=0.0),
+        "HammerHardness": eat.param("HammerHardness", 0.2, 3.0, 1.0, step=0.0),
+        "TineClick": eat.param("TineClick", 0.0, 2.0, 0.8, step=0.0),
+        "PickupDistance": eat.param("PickupDistance", 0.2, 2.5, 0.95, step=0.0),
+        "BarkSymmetry": eat.param("BarkSymmetry", 0.0, 1.0, 0.7, step=0.0),
+        "BassBoost": eat.param("BassBoost", -12.0, 12.0, 2.5, step=0.0),
+        "TrebleSparkle": eat.param("TrebleSparkle", -12.0, 12.0, 3.5, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.05, step=0.0),
+        "TremoloSpeed": eat.param("TremoloSpeed", 0.5, 12.0, 4.2, step=0.0),
+        "TremoloDepth": eat.param("TremoloDepth", 0.0, 1.0, 0.55, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "RHODES MARK I — STAGE 73",
+            "subtitle": "Physical Tine Modeling & Magnetic Reluctance Preamp",
+            "accent": "#E5A93C",
+            "background": "silver",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "TineBell",
+                            "label": "TINE BELL",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TineDecay",
+                            "label": "DECAY",
+                            "unit": "s",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "HammerHardness",
+                            "label": "HAMMER",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PickupDistance",
+                            "label": "PICKUP",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "BarkSymmetry",
+                            "label": "BARK",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "PickupDistance",
+                            "label": "MAGNETIC POLE DISTANCE (MELLOW <-> BARK)",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "BassBoost",
+                            "label": "BASS",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TrebleSparkle",
+                            "label": "TREBLE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Drive",
+                            "label": "DRIVE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TremoloSpeed",
+                            "label": "TREM SPEED",
+                            "unit": "Hz",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TremoloDepth",
+                            "label": "TREMOLO",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

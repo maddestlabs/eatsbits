@@ -18,7 +18,14 @@ namespace eatsbits::sequencer {
     class SequencerTrack;
 }
 
+namespace eatsbits::ui {
+    struct ArrangerTimelineClip;
+    struct ArrangerTimelineTrack;
+}
+
 #include "../score/score_layout_engine.hpp"
+#include "../widgets/circle_of_fifths_dialog.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 
 namespace eatsbits::ui {
 
@@ -111,8 +118,26 @@ public:
     void syncFromSequencer(const sequencer::StepSequencer& seq);
     void syncToSequencer(sequencer::StepSequencer& seq);
 
+    // Synchronize with Arranger Clips
+    [[nodiscard]] int getActiveClipIndex() const noexcept { return activeClipIndex_; }
+    void setActiveClipIndex(int idx) noexcept { activeClipIndex_ = idx; }
+    [[nodiscard]] const std::string& getActiveClipName() const noexcept { return activeClipName_; }
+    void setActiveClipName(std::string name) { activeClipName_ = std::move(name); }
+    void loadFromArrangerClip(const ArrangerTimelineClip& clip,
+                              const std::string& trackName,
+                              const Color& trackColor,
+                              const std::vector<ArrangerTimelineTrack>& allTracks);
+    void writeBackToArrangerClip(ArrangerTimelineClip& clip) const;
+
+    std::function<void(uint32_t trackIdx, int clipIdx)> onNotesChanged;
+
     // Auto-center viewport vertically on existing notes (Eatsbeats parity)
     void autoCenterOnNotesOrDefault() noexcept;
+
+    // Harmonic Analysis & Circle of Fifths Integration
+    void updateDetectedChords();
+    [[nodiscard]] const std::vector<theory::ChordEvent>& getDetectedChords() const noexcept { return detectedChords_; }
+    CircleOfFifthsDialog& getCircleOfFifthsDialog() noexcept { return circleOfFifthsDialog_; }
 
 private:
     // Render passes
@@ -140,7 +165,9 @@ private:
     int auditioningPitch_{-1};
 
     uint32_t activeTrackIndex_{0};
+    int activeClipIndex_{-1};
     std::string activeTrackName_{"TB-303 Acid"};
+    std::string activeClipName_{""};
     Color trackColor_{0.0f, 0.95f, 1.0f};
 
     ScoreClef scoreClef_{ScoreClef::Auto};
@@ -226,6 +253,17 @@ private:
     // Note collections
     std::vector<PianoRollNote> notes_;
     std::vector<PianoRollNote> ghostNotes_;
+
+    // Harmonic Analysis & Circle of Fifths
+    std::vector<theory::ChordEvent> detectedChords_;
+    CircleOfFifthsDialog circleOfFifthsDialog_;
+    Rect2D chordStripBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D chordHeaderBadgeBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    bool isSyncing_{false};
+    float lastMouseX_{0.0f};
+    float lastMouseY_{0.0f};
+    float sidebarScrollY_{0.0f};
 };
 
 } // namespace eatsbits::ui

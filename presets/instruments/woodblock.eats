@@ -1,0 +1,99 @@
+# @id: woodblock
+# @name: Woodblock
+# @category: instrument
+# @description: Physical modal modeling of an orchestral woodblock / temple block (GM 115 / 116): dense resonant hardwood block with deep undercut slit Helmholtz cavity, rapid internal wood damping (dry woody pop), cavity burst, and hardwood beater strike crack.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "WoodDecay": eat.param("WoodDecay", 0.02, 0.18, 0.045, step=0.0),
+        "CavityPop": eat.param("CavityPop", 0.0, 1.4, 0.7, step=0.0),
+        "WoodHardness": eat.param("WoodHardness", 0.2, 1.2, 0.75, step=0.0),
+        "SlitTuning": eat.param("SlitTuning", 0.7, 1.4, 1.0, step=0.0),
+        "WoodCrack": eat.param("WoodCrack", -3.0, 6.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 16000.0, 9500.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ORCHESTRAL WOODBLOCK",
+            "subtitle": "Hardwood Slit Helmholtz Cavity Modal Resonator",
+            "accent": "#D4A373",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "WOOD DYNAMICS & POP",
+                    "accent": "#D4A373",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "WoodDecay",
+                                    "label": "DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "CavityPop",
+                                    "label": "CAVITY POP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SlitTuning",
+                                    "label": "SLIT TUNE",
+                                    "unit": "x",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "BEATER IMPACT & TONE",
+                    "accent": "#A98467",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "WoodHardness",
+                                    "label": "BEATER",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "WoodCrack",
+                                    "label": "CRACK",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

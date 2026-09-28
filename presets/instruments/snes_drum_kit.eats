@@ -1,0 +1,62 @@
+# @id: snes_drum_kit
+# @name: SNES Drum Kit
+# @category: instrument
+# @description: 16-Bit S-DSP Console Drum Machine synthesizing authentic kicks, snares, toms, hats, cymbals, and percussion mapped to General MIDI drum notes (35-81).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "MasterTune": eat.param("MasterTune", -12.0, 12.0, 0.0, step=1.0),
+        "KickPunch": eat.param("KickPunch", 40.0, 220.0, 130.0, step=0.0),
+        "SnareNoise": eat.param("SnareNoise", 0.0, 1.0, 0.65, step=0.0),
+        "TomDecay": eat.param("TomDecay", 0.05, 1.0, 0.35, step=0.0),
+        "CymbalDecay": eat.param("CymbalDecay", 0.1, 2.5, 0.80, step=0.0),
+        "GaussianWarmth": eat.param("GaussianWarmth", 0.0, 1.0, 0.70, step=0.0),
+        "EchoDelay": eat.param("EchoDelay", 16.0, 480.0, 128.0, step=16.0, allow_variance=False),
+        "EchoFeedback": eat.param("EchoFeedback", 0.0, 0.95, 0.35, step=0.0),
+        "EchoVolume": eat.param("EchoVolume", 0.0, 1.0, 0.25, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "SNES Drum Kit",
+            "subtitle": "16-Bit S-DSP Console Drum Machine",
+            "background": "snes",
+            "accent": "#E52521",
+            "knobStyle": "snes",
+            "layout": [
+                {
+                    "type": "row",
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "nixie", "param": "MasterTune", "label": "TUNE (ST)", "width": 110},
+                        {"type": "knob", "param": "KickPunch", "label": "KICK PUNCH", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "SnareNoise", "label": "SNARE NOISE", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "TomDecay", "label": "TOM DECAY", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "CymbalDecay", "label": "CYMBAL DEC", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                    ],
+                },
+                {
+                    "type": "row",
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "knob", "param": "GaussianWarmth", "label": "WARMTH", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "EchoDelay", "label": "ECHO MS", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "EchoFeedback", "label": "ECHO FDBK", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                        {"type": "knob", "param": "EchoVolume", "label": "ECHO VOL", "size": 44, "knobStyle": "hardware", "style": "two_tone_stepped", "hardware": "two_tone_stepped", "showValue": False, "capColor": "#CCC3CF", "bodyColor": "#DCDFE5", "indicatorColor": "#90939A", "dialColor": "#777777", "capSize": 0.98, "bodySize": 1.0, "indicatorLength": 0.95, "indicatorWidth": 1.0, "scale": "clean_ticks"},
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    # Evaluated by SNESDrumKitEngine in EatDspSynthesizer
+    return 0.0

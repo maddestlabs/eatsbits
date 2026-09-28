@@ -32,6 +32,81 @@ MixerView::MixerView() {
 
     // Default standalone properties drawer is closed
     propertiesDrawer_.setExpanded(false);
+
+    // Shared TrackPropertiesDrawer callbacks across Arranger and Mixer
+    propertiesDrawer_.onVolumeChanged = [this](uint32_t trackIdx, float vol) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].fader = vol;
+        }
+    };
+    propertiesDrawer_.onPanChanged = [this](uint32_t trackIdx, float pan) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].pan = pan;
+        }
+    };
+    propertiesDrawer_.onMuteToggled = [this](uint32_t trackIdx, bool mute) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].mute = mute;
+        }
+    };
+    propertiesDrawer_.onSoloToggled = [this](uint32_t trackIdx, bool solo) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].solo = solo;
+        }
+    };
+    propertiesDrawer_.onParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+        if (trackIdx < channels_.size()) {
+            auto& ch = channels_[trackIdx];
+            if (paramName == "cutoff" || paramName == "tone" || paramName == "attack" || paramName == "param1") {
+                ch.knob1 = normVal;
+            } else if (paramName == "resonance" || paramName == "snappy" || paramName == "punch" || paramName == "decay" || paramName == "param2") {
+                ch.knob2 = normVal;
+            } else if (paramName == "decay" || paramName == "tune" || paramName == "bright" || paramName == "param3") {
+                ch.knob3 = normVal;
+            } else if (paramName == "accent" || paramName == "tuning" || paramName == "crack" || paramName == "detune" || paramName == "param4") {
+                ch.knob4 = normVal;
+            }
+        }
+    };
+    propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {
+        if (onChooseTrackIcon) {
+            onChooseTrackIcon(trackIdx);
+        }
+    };
+    propertiesDrawer_.onTrackRenameWithText = [this](uint32_t trackIdx, const std::string& newName) {
+        if (!newName.empty()) {
+            drawerData_.trackName = newName;
+            if (trackIdx < drawerData_.allTrackNames.size()) {
+                drawerData_.allTrackNames[trackIdx] = newName;
+            }
+            if (trackIdx < channels_.size()) {
+                channels_[trackIdx].name = newName;
+            }
+            if (onTrackRename) {
+                onTrackRename(trackIdx, newName);
+            }
+        }
+    };
+    propertiesDrawer_.getPanel().getPluginSearchDialog().onPluginSelected =
+        [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t targetIdx) {
+            if (mode == PluginDialogMode::AddInstrument) {
+                if (targetIdx < channels_.size()) {
+                    channels_[targetIdx].instrument = entry.name;
+                    channels_[targetIdx].r = entry.r;
+                    channels_[targetIdx].g = entry.g;
+                    channels_[targetIdx].b = entry.b;
+                }
+                drawerData_.instrument = entry.name;
+                drawerData_.instrumentEngine = entry.engineTag;
+                drawerData_.r = entry.r;
+                drawerData_.g = entry.g;
+                drawerData_.b = entry.b;
+            } else if (mode == PluginDialogMode::AddMidiFx) {
+                drawerData_.midiFx.push_back({entry.name, entry.engineTag, true});
+            } else if (mode == PluginDialogMode::AddAudioFx) {
+                drawerData_.audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+            }
+        };
 }
 
 void MixerView::setPreset(ModularMixerPreset preset) noexcept {
@@ -249,6 +324,13 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.eqHighGain = selCh.eqHighGain;
 
         drawerData_.instrument = selCh.instrument;
+        if (selCh.instrument.find("303") != std::string::npos) drawerData_.instrumentEngine = "tb303";
+        else if (selCh.instrument.find("808") != std::string::npos) drawerData_.instrumentEngine = "tr808";
+        else if (selCh.instrument.find("909") != std::string::npos) drawerData_.instrumentEngine = "tr909";
+        else if (selCh.instrument.find("DX7") != std::string::npos) drawerData_.instrumentEngine = "dx7";
+        else if (selCh.instrument.find("PIANO") != std::string::npos || selCh.instrument.find("Piano") != std::string::npos) drawerData_.instrumentEngine = "piano";
+        else drawerData_.instrumentEngine = "synth";
+
         drawerData_.knob1 = selCh.knob1;
         drawerData_.knob2 = selCh.knob2;
         drawerData_.knob3 = selCh.knob3;
@@ -260,9 +342,11 @@ void MixerView::render(const ViewContext& ctx) {
 
         drawerData_.midiFx = selCh.midiFx;
         drawerData_.audioFx = selCh.audioFx;
+
+        drawerData_.syncKnobsIfEmpty();
     }
 
-    propertiesDrawer_.render(r, theme, drawerData_);
+    propertiesDrawer_.render(r, theme, drawerData_, ctx.mouseX, ctx.mouseY);
 
     // 4. Floating tactile tooltip badge on top
     renderTooltip(r, theme);
@@ -702,6 +786,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             if (ev.action == PointerAction::Down) {
                 selectedChannel_ = static_cast<int>(i);
                 isMasterSelected_ = false;
+                if (onTrackSelected) onTrackSelected(static_cast<uint32_t>(i));
 
                 // Right-click manual value edit dialog
                 if (ev.button == PointerButton::Right) {
@@ -791,6 +876,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if ((ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by && ev.y <= by + 26.0f) ||
                     (ev.x >= cx + 12.0f && ev.x <= cx + 62.0f && ev.y >= 152.0f && ev.y <= 176.0f)) {
                     channels_[i].mute = !channels_[i].mute;
+                    if (onMuteToggled) onMuteToggled(static_cast<uint32_t>(i), channels_[i].mute);
                     if (ctx.audioEngine) ctx.audioEngine->setTrackMute(static_cast<uint32_t>(i), channels_[i].mute);
                     return true;
                 }
@@ -798,6 +884,8 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if ((ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by + 26.0f && ev.y <= by + 52.0f) ||
                     (ev.x >= cx + 68.0f && ev.x <= cx + 118.0f && ev.y >= 152.0f && ev.y <= 176.0f)) {
                     channels_[i].solo = !channels_[i].solo;
+                    if (onSoloToggled) onSoloToggled(static_cast<uint32_t>(i), channels_[i].solo);
+                    if (ctx.audioEngine) ctx.audioEngine->setTrackSolo(static_cast<uint32_t>(i), channels_[i].solo);
                     return true;
                 }
                 // Freeze button: [bx, by + 52, 26, 24] or [cx + 80, 321, 26, 20]
@@ -866,6 +954,9 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 }
 
 bool MixerView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+    if (propertiesDrawer_.isPluginDialogOpen()) {
+        return propertiesDrawer_.handleKey(key, scancode, action, mods, ctx);
+    }
     return false;
 }
 

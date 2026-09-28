@@ -1,0 +1,65 @@
+# @id: master_limiter
+# @name: Master Limiter
+# @category: audioFx
+# @engine: limiter
+# @tags: limiter, brickwall, mastering, output, protection, studio
+# @description: Brickwall peak limiter with lookahead ceiling protection and transparent release envelope.
+
+# --- Parameter Definitions ---
+def init():
+    eat.use_engine("limiter")
+    return {
+        "Threshold": eat.param("Threshold", -24.0, 0.0, -1.0, unit="dB"),
+        "Release": eat.param("Release", 0.01, 1.0, 0.05, unit="s"),
+        "Ceiling": eat.param("Ceiling", -6.0, 0.0, -0.1, unit="dB"),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MASTER LIMITER",
+            "subtitle": "Brickwall Peak Limiting & Output Protection",
+            "background": "silver",
+            "accent": "#FF3366",
+            "knobStyle": "chrome",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Threshold",
+                            "label": "THRESHOLD",
+                            "unit": "dB",
+                            "knobStyle": "chrome",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Release",
+                            "label": "RELEASE",
+                            "unit": "s",
+                            "knobStyle": "chrome",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Ceiling",
+                            "label": "CEILING",
+                            "unit": "dB",
+                            "knobStyle": "chrome",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    in_sig = eat.node.input()
+    lim = eat.node.limiter(in_sig, ceiling="Ceiling", release="Release")
+    return lim
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

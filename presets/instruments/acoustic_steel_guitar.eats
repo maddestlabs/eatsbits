@@ -1,0 +1,123 @@
+# @id: acoustic_steel_guitar
+# @name: Steel-String Acoustic Guitar
+# @category: instrument
+# @description: Physical modeling of a steel-string acoustic guitar: phosphor bronze string waveguide, flatpick vs fingerpick attack, and morphable body geometry (0.0 Parlor/000 <-> 0.5 Dreadnought <-> 1.0 Jumbo).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "PickStyle": eat.param("PickStyle", 0.0, 1.0, 0.3, step=0.0),
+        "WoundScrape": eat.param("WoundScrape", 0.0, 1.0, 0.4, step=0.0),
+        "StrumSpread": eat.param("StrumSpread", 1.0, 25.0, 5.0, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.9995, 0.996, step=0.0),
+        "Damping": eat.param("Damping", 0.05, 0.75, 0.22, step=0.0),
+        "BodyProfile": eat.param("BodyProfile", 0.0, 1.0, 0.5, step=0.0),
+        "BodyWood": eat.param("BodyWood", 0.0, 1.5, 0.5, step=0.0),
+        "BronzeSparkle": eat.param("BronzeSparkle", -6.0, 8.0, 2.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "STEEL-STRING ACOUSTIC",
+            "subtitle": "Morphable Body Geometry (Parlor <-> Dreadnought <-> Jumbo)",
+            "accent": "#D97706",
+            "background": "blonde_pine",
+            "rackSides": "rosewood",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "BodyProfile",
+                            "label": "BODY SHAPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PickStyle",
+                            "label": "PICK / FINGER",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StrumSpread",
+                            "label": "STRUM MS",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Damping",
+                            "label": "STRING LOSS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "BodyProfile",
+                            "label": "BODY PROFILE (0.0 PARLOR/000 <-> 0.5 DREADNOUGHT <-> 1.0 JUMBO)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "BronzeSparkle",
+                            "label": "BRONZE AIR",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "BodyWood",
+                            "label": "SOUNDBOARD GAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "WoundScrape",
+                            "label": "WOUND SCRAPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    strum = eat.node.pluck(spread=8.0, bite="PickAttack")
+    strings = eat.node.waveguide(in_sig=strum, damping="StringDamping", feedback=0.995)
+    body = eat.node.acoustic_body(in_sig=strings, profile=0.5, gain="BodyWood")
+    return body
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

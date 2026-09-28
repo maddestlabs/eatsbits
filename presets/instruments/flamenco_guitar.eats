@@ -1,0 +1,108 @@
+# @id: flamenco_guitar
+# @name: Flamenco Guitar (Blanca)
+# @category: instrument
+# @description: Physical modeling of a Spanish Flamenco Blanca guitar: razor-sharp nail transient bite, rapid multi-finger rasgueados, low string action buzz/snap, Spanish cypress shallow body resonator, and integrated soundboard Golpe wood-tap percussion.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "NailBite": eat.param("NailBite", 0.0, 1.0, 0.1, step=0.0),
+        "GolpeTap": eat.param("GolpeTap", 0.0, 1.5, 0.4, step=0.0),
+        "RasgueadoSpeed": eat.param("RasgueadoSpeed", 2.0, 35.0, 14.0, step=0.0),
+        "Scrape": eat.param("Scrape", 0.0, 1.0, 0.5, step=0.0),
+        "Sustain": eat.param("Sustain", 0.8, 0.998, 0.991, step=0.0),
+        "SnapDamp": eat.param("SnapDamp", 0.05, 0.85, 0.28, step=0.0),
+        "Bite": eat.param("Bite", -4.0, 10.0, 3.5, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "FLAMENCO GUITAR (BLANCA)",
+            "subtitle": "Spanish Cypress & Soundboard Golpe Physical Model",
+            "accent": "#EF4444",
+            "background": "blonde_pine",
+            "rackSides": "ebony",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "GolpeTap",
+                            "label": "GOLPE TAP",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NailBite",
+                            "label": "NAIL BITE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "RasgueadoSpeed",
+                            "label": "RASGUEADO",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SnapDamp",
+                            "label": "CYPRESS DAMP",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "GolpeTap",
+                            "label": "SOUNDBOARD GOLPE TAP PERCUSSION (0.0 OFF <-> 1.5 ACCENT THUMP)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Bite",
+                            "label": "3.8kHz BITE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Scrape",
+                            "label": "STRING SCRAPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

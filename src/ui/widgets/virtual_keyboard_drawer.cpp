@@ -24,51 +24,87 @@ void VirtualKeyboardDrawer::setBaseOctave(int oct) noexcept {
     keyboard_.setConfig(cfg);
 }
 
+void VirtualKeyboardDrawer::update(float dt) noexcept {
+    drumPadGrid_.update(dt);
+}
+
 void VirtualKeyboardDrawer::layout(float screenWidth, float bottomNavTopY) {
     float tabX = (screenWidth - kPullTabWidth) * 0.5f;
     float tabY = bottomNavTopY - kPullTabHeight;
 
+    float activeDrawerH = (mode_ == KeyboardDrawerMode::DrumPads) ? kDrumDrawerHeight : kPianoDrawerHeight;
+
     if (isExpanded_) {
-        float drawerY = bottomNavTopY - kDrawerHeight - kPullTabHeight;
-        drawerBounds_ = Rect2D(0.0f, drawerY, screenWidth, kDrawerHeight + kPullTabHeight);
+        float drawerY = bottomNavTopY - activeDrawerH - kPullTabHeight;
+        drawerBounds_ = Rect2D(0.0f, drawerY, screenWidth, activeDrawerH + kPullTabHeight);
         pullTabBounds_ = Rect2D(tabX, drawerY, kPullTabWidth, kPullTabHeight);
 
         // Control strip at top of drawer
         float ctrlY = drawerY + kPullTabHeight + 2.0f;
-        octDownBounds_ = Rect2D(12.0f, ctrlY, 54.0f, 20.0f);
-        octUpBounds_ = Rect2D(72.0f, ctrlY, 54.0f, 20.0f);
 
-        // Keys area
-        float keysY = ctrlY + 24.0f;
-        float keysH = kDrawerHeight - 28.0f;
-        keysBounds_ = Rect2D(10.0f, keysY, screenWidth - 20.0f, keysH);
+        // Mode switch buttons on left of control strip
+        modeKeysBtnBounds_ = Rect2D(10.0f, ctrlY, 52.0f, 20.0f);
+        modePadsBtnBounds_ = Rect2D(66.0f, ctrlY, 52.0f, 20.0f);
+
+        if (mode_ == KeyboardDrawerMode::Piano) {
+            // Octave controls
+            octDownBounds_ = Rect2D(128.0f, ctrlY, 54.0f, 20.0f);
+            octUpBounds_ = Rect2D(186.0f, ctrlY, 54.0f, 20.0f);
+
+            // Keys area
+            float keysY = ctrlY + 24.0f;
+            float keysH = activeDrawerH - 28.0f;
+            keysBounds_ = Rect2D(10.0f, keysY, screenWidth - 20.0f, keysH);
+        } else {
+            octDownBounds_ = Rect2D();
+            octUpBounds_ = Rect2D();
+            keysBounds_ = Rect2D();
+
+            // Drum Pad grid bounds
+            float padGridY = ctrlY + 2.0f;
+            float padGridH = activeDrawerH - 6.0f;
+            drumPadGrid_.layout(Rect2D(10.0f, padGridY, screenWidth - 20.0f, padGridH));
+        }
     } else {
         drawerBounds_ = Rect2D(tabX, tabY, kPullTabWidth, kPullTabHeight);
         pullTabBounds_ = Rect2D(tabX, tabY, kPullTabWidth, kPullTabHeight);
+        modeKeysBtnBounds_ = Rect2D();
+        modePadsBtnBounds_ = Rect2D();
         octDownBounds_ = Rect2D();
         octUpBounds_ = Rect2D();
         keysBounds_ = Rect2D();
+        drumPadGrid_.layout(Rect2D());
     }
 }
 
 void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme, audio::AudioEngine& engine) {
+    (void)engine;
+
     // 1. Draw Pull Tab
     drawRoundedRect(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
                     theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 0.95f);
     drawRoundedRectOutline(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
 
-    // Piano Icon & Label (No arrows!)
+    // Instrument Icon & Label
     float iconW = 16.0f;
     float iconH = 11.0f;
-    float iconX = pullTabBounds_.x + 12.0f;
+    float iconX = pullTabBounds_.x + 10.0f;
     float iconY = pullTabBounds_.y + (pullTabBounds_.h - iconH) * 0.5f;
-    drawPianoIcon(r, iconX, iconY, iconW, iconH, isExpanded_ ? theme.primaryAccent : theme.textSecondary);
 
-    std::string tabLabel = isExpanded_ ? "VIRTUAL PIANO" : ("VIRTUAL PIANO (C" + std::to_string(baseOctave_) + ")");
+    Color iconCol = isExpanded_ ? theme.primaryAccent : theme.textSecondary;
+    drawPianoIcon(r, iconX, iconY, iconW, iconH, iconCol);
+
+    std::string tabLabel;
+    if (mode_ == KeyboardDrawerMode::DrumPads) {
+        tabLabel = isExpanded_ ? "MPC DRUM PADS" : "DRUM PADS (16)";
+    } else {
+        tabLabel = isExpanded_ ? "VIRTUAL PIANO" : ("PIANO (C" + std::to_string(baseOctave_) + ")");
+    }
+
     float labelAreaW = pullTabBounds_.w - (iconX + iconW) - 24.0f;
     Color tabCol = isExpanded_ ? theme.primaryAccent : theme.textPrimary;
-    drawCenteredText(r, tabLabel, iconX + iconW + 4.0f, pullTabBounds_.y, labelAreaW, pullTabBounds_.h, 10.5f, tabCol);
+    drawCenteredText(r, tabLabel, iconX + iconW + 4.0f, pullTabBounds_.y, labelAreaW, pullTabBounds_.h, 10.0f, tabCol);
 
     // Active status mini-LED on right
     float ledX = pullTabBounds_.x + pullTabBounds_.w - 12.0f;
@@ -82,25 +118,45 @@ void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
     if (!isExpanded_) return;
 
     // 2. Draw Drawer Background Panel
-    drawRect(r, drawerBounds_.x, drawerBounds_.y + kPullTabHeight, drawerBounds_.w, kDrawerHeight,
+    float activeDrawerH = (mode_ == KeyboardDrawerMode::DrumPads) ? kDrumDrawerHeight : kPianoDrawerHeight;
+    drawRect(r, drawerBounds_.x, drawerBounds_.y + kPullTabHeight, drawerBounds_.w, activeDrawerH,
              theme.panelBackground.r * 0.85f, theme.panelBackground.g * 0.85f, theme.panelBackground.b * 0.85f, 0.98f);
     drawLine(r, drawerBounds_.x, drawerBounds_.y + kPullTabHeight, drawerBounds_.x + drawerBounds_.w, drawerBounds_.y + kPullTabHeight,
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.8f, 1.5f);
 
-    // 3. Octave Controls (Vertically centered button text)
+    // 3. Mode Toggle Buttons: [ KEYS ] and [ PADS ]
+    bool isPiano = (mode_ == KeyboardDrawerMode::Piano);
+    drawButton(r, modeKeysBtnBounds_, "KEYS",
+               isPiano ? theme.primaryAccent.withAlpha(0.25f) : theme.controlBackground,
+               isPiano ? theme.primaryAccent : theme.borderSubtle,
+               isPiano ? theme.primaryAccent : theme.textMuted,
+               9.0f, 3.0f, 1.0f);
+
+    drawButton(r, modePadsBtnBounds_, "PADS",
+               !isPiano ? theme.secondaryAccent.withAlpha(0.25f) : theme.controlBackground,
+               !isPiano ? theme.secondaryAccent : theme.borderSubtle,
+               !isPiano ? theme.secondaryAccent : theme.textMuted,
+               9.0f, 3.0f, 1.0f);
+
+    if (mode_ == KeyboardDrawerMode::DrumPads) {
+        // Delegate rendering to DrumPadGridWidget
+        drumPadGrid_.render(r, theme);
+        return;
+    }
+
+    // 4. Piano Mode: Octave Controls & Range Readout
     drawButton(r, octDownBounds_, "< OCT",
                theme.panelHeader, theme.borderSubtle, theme.textPrimary, 10.0f, 3.0f, 1.0f);
     drawButton(r, octUpBounds_, "OCT >",
                theme.panelHeader, theme.borderSubtle, theme.textPrimary, 10.0f, 3.0f, 1.0f);
 
-    // Range readout
     std::string rangeStr = "RANGE: C" + std::to_string(baseOctave_) + " - C" + std::to_string(baseOctave_ + 3) +
                            "  (TOUCH & DRAG GLISSANDO ACTIVE)";
     float rangeY = octUpBounds_.y + (octUpBounds_.h - 10.0f) * 0.5f;
     drawText(r, rangeStr, octUpBounds_.x + octUpBounds_.w + 16.0f, rangeY, 10.0f,
              theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
-    // 4. Draw Horizontal Piano Keys
+    // 5. Draw Horizontal Piano Keys
     int numWhiteKeys = 3 * 7 + 1; // 22 white keys across 3 octaves + high C
     float whiteKeyWidth = keysBounds_.w / static_cast<float>(numWhiteKeys);
     float whiteKeyHeight = keysBounds_.h;
@@ -120,20 +176,17 @@ void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
         float kw = whiteKeyWidth - 1.0f;
         float kh = whiteKeyHeight;
 
-        bool isActive = activePitches_.find(p) != activePitches_.end();
+        bool isDown = activePitches_.find(p) != activePitches_.end();
+        Color bgCol = isDown ? theme.primaryAccent : Color(0.92f, 0.93f, 0.95f, 1.0f);
 
-        if (isActive) {
-            drawRoundedRect(r, kx, ky, kw, kh, 2.0f,
-                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f);
-        } else {
-            drawRoundedRect(r, kx, ky, kw, kh, 2.0f, 0.92f, 0.92f, 0.90f, 1.0f);
-            drawRect(r, kx, ky + kh - 4.0f, kw, 4.0f, 0.78f, 0.78f, 0.76f, 1.0f);
-        }
+        drawRoundedRect(r, kx, ky, kw, kh, 3.0f, bgCol.r, bgCol.g, bgCol.b, bgCol.a);
+        drawRoundedRectOutline(r, kx, ky, kw, kh, 3.0f, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.8f, 1.0f);
 
-        // Draw C note labels on white key lips
+        // Note label at bottom of C keys
         if (p % 12 == 0) {
-            std::string cLabel = "C" + std::to_string(p / 12 - 1);
-            drawText(r, cLabel, kx + 3.0f, ky + kh - 14.0f, 9.0f, 0.15f, 0.15f, 0.15f, 0.8f);
+            std::string cLabel = "C" + std::to_string(p / 12);
+            drawCenteredText(r, cLabel, kx, ky + kh - 16.0f, kw, 14.0f, 9.0f,
+                             isDown ? Color(1.0f, 1.0f, 1.0f, 1.0f) : theme.textMuted);
         }
 
         curWhiteIdx++;
@@ -141,7 +194,7 @@ void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
 
     // Draw Black Keys on Top
     curWhiteIdx = 0;
-    for (int p = startPitch; p < endPitch; ++p) {
+    for (int p = startPitch; p <= endPitch; ++p) {
         if (!PianoKeyboard::isBlackKey(p)) {
             curWhiteIdx++;
             continue;
@@ -152,24 +205,22 @@ void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
         float kw = blackKeyWidth;
         float kh = blackKeyHeight;
 
-        bool isActive = activePitches_.find(p) != activePitches_.end();
+        bool isDown = activePitches_.find(p) != activePitches_.end();
+        Color bgCol = isDown ? theme.secondaryAccent : Color(0.12f, 0.13f, 0.15f, 1.0f);
 
-        if (isActive) {
-            drawRoundedRect(r, kx, ky, kw, kh, 2.0f,
-                            theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-        } else {
-            drawRoundedRect(r, kx, ky, kw, kh, 2.0f, 0.12f, 0.12f, 0.13f, 1.0f);
-            drawRect(r, kx + 1.0f, ky + 1.0f, kw - 2.0f, kh - 4.0f, 0.22f, 0.22f, 0.24f, 1.0f);
-        }
+        drawRoundedRect(r, kx, ky, kw, kh, 2.0f, bgCol.r, bgCol.g, bgCol.b, bgCol.a);
+        drawRoundedRectOutline(r, kx, ky, kw, kh, 2.0f, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.9f, 1.0f);
     }
 }
 
 bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEngine& engine) {
+    // 1. Pull Tab Hit Testing
     if (pullTabBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {
             toggleExpanded();
             if (!isExpanded_) {
                 releaseAllNotes(engine);
+                drumPadGrid_.releaseAllPads();
             }
             return true;
         }
@@ -177,48 +228,121 @@ bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEn
 
     if (!isExpanded_) return false;
 
-    if (octDownBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down) {
+    // 2. Control Strip: Mode Buttons [ KEYS | PADS ]
+    if (ev.action == PointerAction::Down) {
+        if (modeKeysBtnBounds_.contains(ev.x, ev.y)) {
             releaseAllNotes(engine);
-            setBaseOctave(baseOctave_ - 1);
+            drumPadGrid_.releaseAllPads();
+            setMode(KeyboardDrawerMode::Piano);
+            return true;
+        }
+        if (modePadsBtnBounds_.contains(ev.x, ev.y)) {
+            releaseAllNotes(engine);
+            drumPadGrid_.releaseAllPads();
+            setMode(KeyboardDrawerMode::DrumPads);
             return true;
         }
     }
 
-    if (octUpBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down) {
+    // 3. Drum Pad Mode Event Routing
+    if (mode_ == KeyboardDrawerMode::DrumPads) {
+        // Wire callbacks to audio engine
+        drumPadGrid_.onPadTrigger = [this, &engine](uint8_t note, float velocity) {
+            triggerNoteOn(static_cast<int>(note), velocity, engine);
+        };
+        drumPadGrid_.onPadRelease = [this, &engine](uint8_t note) {
+            triggerNoteOff(static_cast<int>(note), engine);
+        };
+
+        if (drumPadGrid_.handlePointer(ev)) {
+            return true;
+        }
+        if (drawerBounds_.contains(ev.x, ev.y)) {
+            return true;
+        }
+        return false;
+    }
+
+    // 4. Piano Mode: Octave Buttons
+    if (ev.action == PointerAction::Down) {
+        if (octDownBounds_.contains(ev.x, ev.y)) {
+            releaseAllNotes(engine);
+            setBaseOctave(baseOctave_ - 1);
+            return true;
+        }
+        if (octUpBounds_.contains(ev.x, ev.y)) {
             releaseAllNotes(engine);
             setBaseOctave(baseOctave_ + 1);
             return true;
         }
     }
 
+    // 5. Piano Keys Interaction & Multi-Touch Glissando
     if (keysBounds_.contains(ev.x, ev.y) || isDraggingKeys_) {
-        if (ev.action == PointerAction::Down) {
-            isDraggingKeys_ = true;
-            auto hit = keyboard_.hitTest(ev.x, ev.y, keysBounds_.x, keysBounds_.y, keysBounds_.w, keysBounds_.h, 0.0f);
-            if (hit.hit) {
-                lastGlissandoPitch_ = hit.pitch;
-                triggerNoteOn(hit.pitch, hit.velocity, engine);
-            }
-            return true;
-        } else if (ev.action == PointerAction::Move && isDraggingKeys_) {
-            auto hit = keyboard_.hitTest(ev.x, ev.y, keysBounds_.x, keysBounds_.y, keysBounds_.w, keysBounds_.h, 0.0f);
-            if (hit.hit && hit.pitch != lastGlissandoPitch_) {
-                if (lastGlissandoPitch_ >= 0) {
-                    triggerNoteOff(lastGlissandoPitch_, engine);
+        int numWhiteKeys = 3 * 7 + 1;
+        float whiteKeyWidth = keysBounds_.w / static_cast<float>(numWhiteKeys);
+        float blackKeyWidth = whiteKeyWidth * 0.62f;
+        float blackKeyHeight = keysBounds_.h * 0.60f;
+        int startPitch = baseOctave_ * 12;
+        int endPitch = startPitch + 36;
+
+        auto getPitchAt = [&](float px, float py) -> int {
+            if (!keysBounds_.contains(px, py)) return -1;
+
+            // Check black keys first (top region)
+            if (py < keysBounds_.y + blackKeyHeight) {
+                int curWhite = 0;
+                for (int p = startPitch; p <= endPitch; ++p) {
+                    if (!PianoKeyboard::isBlackKey(p)) {
+                        curWhite++;
+                        continue;
+                    }
+                    float bkx = keysBounds_.x + static_cast<float>(curWhite) * whiteKeyWidth - (blackKeyWidth * 0.5f);
+                    if (px >= bkx && px <= bkx + blackKeyWidth) {
+                        return p;
+                    }
                 }
-                lastGlissandoPitch_ = hit.pitch;
-                triggerNoteOn(hit.pitch, hit.velocity, engine);
             }
-            return true;
-        } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
-            if (isDraggingKeys_) {
-                isDraggingKeys_ = false;
-                releaseAllNotes(engine);
-                lastGlissandoPitch_ = -1;
+
+            // Fallback to white keys
+            int wIdx = static_cast<int>((px - keysBounds_.x) / whiteKeyWidth);
+            wIdx = std::clamp(wIdx, 0, numWhiteKeys - 1);
+
+            int whiteCounter = 0;
+            for (int p = startPitch; p <= endPitch; ++p) {
+                if (PianoKeyboard::isBlackKey(p)) continue;
+                if (whiteCounter == wIdx) return p;
+                whiteCounter++;
+            }
+            return -1;
+        };
+
+        if (ev.action == PointerAction::Down) {
+            int hitPitch = getPitchAt(ev.x, ev.y);
+            if (hitPitch != -1) {
+                isDraggingKeys_ = true;
+                lastGlissandoPitch_ = hitPitch;
+                triggerNoteOn(hitPitch, 0.85f, engine);
                 return true;
             }
+        } else if (ev.action == PointerAction::Move && isDraggingKeys_) {
+            int hitPitch = getPitchAt(ev.x, ev.y);
+            if (hitPitch != -1 && hitPitch != lastGlissandoPitch_) {
+                if (lastGlissandoPitch_ != -1) {
+                    triggerNoteOff(lastGlissandoPitch_, engine);
+                }
+                lastGlissandoPitch_ = hitPitch;
+                triggerNoteOn(hitPitch, 0.85f, engine);
+                return true;
+            }
+        } else if (ev.action == PointerAction::Up && isDraggingKeys_) {
+            isDraggingKeys_ = false;
+            if (lastGlissandoPitch_ != -1) {
+                triggerNoteOff(lastGlissandoPitch_, engine);
+                lastGlissandoPitch_ = -1;
+            }
+            releaseAllNotes(engine);
+            return true;
         }
     }
 

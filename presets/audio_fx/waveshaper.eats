@@ -1,0 +1,70 @@
+# @id: waveshaper
+# @name: WaveShaper
+# @category: audioFx
+# @description: Interactive multi-curve transfer function distortion, asymmetric tube saturation and wavefolder with DC offset filtering.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Shape": eat.param("Shape", 0.0, 4.0, 0.0, step=1.0, allow_variance=False),
+        "Tension": eat.param("Tension", -1.0, 1.0, 0.0, step=0.02),
+        "Pre": eat.param("Pre", 0.1, 4.0, 1.0, step=0.05),
+        "Post": eat.param("Post", 0.0, 4.0, 1.0, step=0.05),
+        "Mix": eat.param("Mix", 0.0, 1.0, 1.0, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "WaveShaper",
+            "subtitle": "Interactive Transfer Function & Wavefolder",
+            "background": "grunge",
+            "accent": "#21F4E8",
+            "layout": [
+                {
+                    "type": "waveshaper_canvas",
+                    "height": 150,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Pre",
+                            "label": "PRE / DRIVE",
+                            "unit": "x",
+                        },
+                        {
+                            "type": "switch",
+                            "param": "DCFilter",
+                            "label": "DC FILTER",
+                            "leftText": "OFF",
+                            "rightText": "ON",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Post",
+                            "label": "POST GAIN",
+                            "unit": "x",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Mix",
+                            "label": "MIX",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Audio FX Graph ---
+def graph():
+    in_sig = eat.node.input()
+    sat = eat.node.saturate(in_sig=in_sig, drive="Pre")
+    return sat
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

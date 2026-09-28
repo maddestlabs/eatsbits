@@ -1,0 +1,91 @@
+# @id: music_box
+# @name: Music Box
+# @category: instrument
+# @description: Physical modal modeling of an antique music box comb: clamped-free steel lamellae tines (1.0, 6.267, 17.55 modes), Heaviside step displacement pluck release, cylinder pin friction scrape tick, and wooden box/tabletop soundboard resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "TineDecay": eat.param("TineDecay", 0.3, 4.5, 2.0, step=0.0),
+        "PinScrape": eat.param("PinScrape", 0.0, 1.0, 0.45, step=0.0),
+        "BoxWarmth": eat.param("BoxWarmth", 0.0, 1.0, 0.5, step=0.0),
+        "HighTineRing": eat.param("HighTineRing", 0.0, 1.2, 0.5, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 18000.0, 12000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ANTIQUE MUSIC BOX",
+            "subtitle": "Plucked Steel Comb Lamellae & Cylinder Pin Physics",
+            "accent": "#C77DFF",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "PLUCKED STEEL COMB TINES",
+                    "accent": "#C77DFF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "TineDecay",
+                                    "label": "TINE DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "HighTineRing",
+                                    "label": "OVERTONE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PinScrape",
+                                    "label": "PIN SCRAPE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "SOUNDBOARD & WARMTH",
+                    "accent": "#FFAA00",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "BoxWarmth",
+                                    "label": "BOX WARMTH",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

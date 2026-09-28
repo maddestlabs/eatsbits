@@ -20,6 +20,9 @@ namespace eatsbits::ui {
 struct ValueEditRequest {
     std::string title{"EDIT VALUE"};
     std::string paramName{""};
+    bool isTextMode{false};
+    std::string initialText{""};
+    std::string currentIconRef{""};
     float currentValue{0.0f};
     float minValue{0.0f};
     float maxValue{1.0f};
@@ -29,6 +32,8 @@ struct ValueEditRequest {
     bool allowPercentage{true};
     std::string unit{""}; // e.g. "dB", "Hz", "%", "BPM"
     Color accentColor{0.0f, 0.90f, 1.0f, 1.0f}; // Default Cyan/Amber theme accent
+    std::string actionLinkLabel{""};
+    std::function<void()> onActionLink;
     std::function<void(float newValue)> onCommit;
     std::function<void(const std::string& newText)> onCommitText;
 };
@@ -47,6 +52,8 @@ public:
     void open(const ValueEditRequest& req);
     void close() noexcept { isOpen_ = false; }
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
+    void setIconRef(const std::string& iconRef) noexcept { req_.currentIconRef = iconRef; }
+    [[nodiscard]] const std::string& getIconRef() const noexcept { return req_.currentIconRef; }
 
     void layout(float screenW, float screenH);
     void render(BatchRenderer2D& r, const ThemeTokens& theme);
@@ -57,6 +64,7 @@ public:
     [[nodiscard]] const std::string& getInputText() const noexcept { return textModel_.getText(); }
     void setInputText(const std::string& txt, bool selectAll = true) { textModel_.setText(txt, selectAll); }
     [[nodiscard]] bool isPercentMode() const noexcept { return isPercentMode_; }
+    [[nodiscard]] bool isTextMode() const noexcept { return req_.isTextMode; }
     void setPercentMode(bool enabled);
     void togglePercentMode();
     void resetToDefault();
@@ -76,6 +84,7 @@ public:
     [[nodiscard]] TextFieldState& getTextFieldState() noexcept { return textModel_; }
 
     std::function<void(const std::string& text)> onCopyToClipboard;
+    std::function<std::string()> onPasteFromClipboard;
 
 private:
     void formatBufferFromValue(float val);
@@ -99,7 +108,10 @@ private:
     Rect2D closeBtnBounds_{};
     Rect2D cancelBtnBounds_{};
     Rect2D okBtnBounds_{};
+    Rect2D actionLinkBounds_{};
     std::vector<std::pair<Rect2D, float>> quickPercentPills_{};
+    float lastMouseX_{0.0f};
+    float lastMouseY_{0.0f};
 };
 
 } // namespace eatsbits::ui

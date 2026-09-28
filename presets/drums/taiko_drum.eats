@@ -1,0 +1,107 @@
+# @id: taiko_drum
+# @name: Taiko Drum
+# @category: instrument
+# @description: Physical modal modeling of a Japanese Taiko Drum / Surdo (GM 116 / 117): heavy carved wooden barrel shell, 2D circular clamped Bessel membrane modes, thick bachi stick slap, dynamic pitch sag, and deep barrel cavity boom.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "DrumDecay": eat.param("DrumDecay", 0.4, 3.5, 1.6, step=0.0),
+        "PitchSag": eat.param("PitchSag", 0.0, 1.0, 0.5, step=0.0),
+        "BachiImpact": eat.param("BachiImpact", 0.2, 1.2, 0.75, step=0.0),
+        "BarrelBoom": eat.param("BarrelBoom", 0.0, 1.2, 0.65, step=0.0),
+        "SubBoost": eat.param("SubBoost", -2.0, 8.0, 3.0, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 16000.0, 8000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "TAIKO DRUM / SURDO",
+            "subtitle": "Heavy Wooden Barrel & Thick Hide Membrane Modal Resonator",
+            "accent": "#E63946",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "MEMBRANE & BARREL",
+                    "accent": "#E63946",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "DrumDecay",
+                                    "label": "DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PitchSag",
+                                    "label": "PITCH SAG",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BarrelBoom",
+                                    "label": "BARREL BOOM",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "BACHI IMPACT & SUB",
+                    "accent": "#9D0208",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "BachiImpact",
+                                    "label": "BACHI SLAP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SubBoost",
+                                    "label": "SUB BASS",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Physical Modeling Graph Topology ---
+def graph():
+    bachi = eat.node.hammer(hardness="BachiImpact", click=0.9)
+    membrane = eat.node.modal_bank(bachi, structure="drum")
+    body = eat.node.acoustic_body(membrane, profile=0.8, gain="BarrelBoom")
+    sub = eat.node.svf(body, cutoff=100.0, gain=3.0, type="lowshelf")
+    return sub
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

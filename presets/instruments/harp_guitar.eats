@@ -1,0 +1,67 @@
+# @id: harp_guitar
+# @name: Acoustic Harp Guitar
+# @category: instrument
+# @description: Physical modeling of an acoustic harp guitar: 6-string fretted neck coupled with floating sub-bass diapason drones (C1-D2) and extra-large chamber sympathetic modal resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SubDroneGain": eat.param("SubDroneGain", -6.0, 10.0, 3.5, step=0.0),
+        "PickStyle": eat.param("PickStyle", 0.0, 1.0, 0.35, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.9965, step=0.0),
+        "Damping": eat.param("Damping", 0.05, 0.7, 0.2, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ACOUSTIC HARP GUITAR",
+            "subtitle": "Fretted 6-String Neck & Floating Sub-Bass Drones",
+            "accent": "#B45309",
+            "background": "blonde_pine",
+            "rackSides": "walnut",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "SubDroneGain",
+                            "label": "SUB DRONES",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PickStyle",
+                            "label": "PICK / FINGER",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Damping",
+                            "label": "STRING DAMP",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

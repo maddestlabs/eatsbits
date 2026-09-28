@@ -1,0 +1,13 @@
+# @id: seq_quarter_hats
+# @name: Quarter Hats
+# @category: midiSeq
+# @description: Hi-hat pattern hitting on every quarter beat (1, 2, 3, 4).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

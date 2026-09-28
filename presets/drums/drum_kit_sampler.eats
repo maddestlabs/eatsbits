@@ -1,0 +1,51 @@
+# @id: drum_kit_sampler
+# @name: Eats Multi-Slot Drum Sampler
+# @category: instrument
+# @description: Multi-slot drum sampler mapping notes (36=Kick, 38=Snare, 42=Hat, 39=Clap) to distinct audio sample slots.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "KickTune": eat.param("KickTune", -12.0, 12.0, 0.0, step=0.0),
+        "SnareTune": eat.param("SnareTune", -12.0, 12.0, 0.0, step=0.0),
+        "Drive": eat.param("Drive", 0.0, 1.0, 0.1, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MULTI-SLOT DRUM SAMPLER",
+            "subtitle": "4-Slot Velocity-Sensitive Trigger Rack",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "KickTune",
+                            "label": "KICK TUNE",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SnareTune",
+                            "label": "SNARE TUNE",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Drive",
+                            "label": "SAT DRIVE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -14,6 +14,7 @@
 #include "dsp/tb303_core.hpp"
 #include "../sequencer/step_sequencer.hpp"
 #include "export/wav_exporter.hpp"
+#include "track_freeze_engine.hpp"
 
 // Forward declaration of miniaudio struct
 struct ma_device;
@@ -83,6 +84,8 @@ public:
     void setTrackVolume(uint32_t trackIndex, float volume) noexcept;
     void setTrackPan(uint32_t trackIndex, float pan) noexcept;
     void setTrackMute(uint32_t trackIndex, bool mute) noexcept;
+    void setTrackSolo(uint32_t trackIndex, bool solo) noexcept;
+    void updateMuteSoloRouting() noexcept;
 
     // Attach native C-ABI plugin instance
     void attachPlugin(const EatsPluginDescriptor* desc, void* instance) noexcept;
@@ -112,6 +115,12 @@ public:
                                                    double durationSeconds = 8.0,
                                                    exporting::WavFormat format = exporting::WavFormat::Pcm24,
                                                    bool enableDither = true);
+
+    // Track Freeze & Dynamic Synth/FX Bypass
+    bool freezeTrack(uint32_t trackIndex, const trackfreeze::FreezeOptions& options = {});
+    bool unfreezeTrack(uint32_t trackIndex, bool clearBuffers = false);
+    bool toggleFreezeTrack(uint32_t trackIndex, const trackfreeze::FreezeOptions& options = {});
+    [[nodiscard]] bool isTrackFrozen(uint32_t trackIndex) const noexcept;
 
     // Headless offline processing test helper (renders N frames directly for testing)
     void renderOfflineBlock(float* outL, float* outR, uint32_t frameCount) noexcept;

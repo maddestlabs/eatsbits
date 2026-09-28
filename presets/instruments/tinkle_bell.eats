@@ -1,0 +1,99 @@
+# @id: tinkle_bell
+# @name: Tinkle Bell
+# @category: instrument
+# @description: Physical modal modeling of a suspended cylindrical chime / wind chime (GM 112 / 113): free-free beam overtones (1.0, 2.756, 5.404, 8.933), pristine high-Q singing sustain, micro-clapper strike click, breeze flutter tap, and glass air sheen.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ChimeDecay": eat.param("ChimeDecay", 0.8, 7.0, 3.8, step=0.0),
+        "BreezeFlutter": eat.param("BreezeFlutter", 0.0, 1.0, 0.45, step=0.0),
+        "GlassAir": eat.param("GlassAir", 0.0, 1.5, 0.7, step=0.0),
+        "ClapperHardness": eat.param("ClapperHardness", 0.1, 1.2, 0.65, step=0.0),
+        "AirSheen": eat.param("AirSheen", -4.0, 8.0, 2.5, step=0.0),
+        "Tone": eat.param("Tone", 2000.0, 18000.0, 14000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "TINKLE BELL / WIND CHIME",
+            "subtitle": "Suspended Free-Free Cylindrical Chime Modal Resonator",
+            "accent": "#70E0D0",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "CHIME MODES & SUSTAIN",
+                    "accent": "#70E0D0",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ChimeDecay",
+                                    "label": "SUSTAIN",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "GlassAir",
+                                    "label": "CRYSTAL",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BreezeFlutter",
+                                    "label": "FLUTTER",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "EXCITATION & SHEEN",
+                    "accent": "#A0E8AF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ClapperHardness",
+                                    "label": "CLAPPER",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "AirSheen",
+                                    "label": "AIR SHEEN",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

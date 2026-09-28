@@ -144,6 +144,12 @@ public:
     [[nodiscard]] float getMasterHighGain() const noexcept { return masterHighGain_; }
     void setMasterHighGain(float g) noexcept { masterHighGain_ = g; }
 
+    std::function<void(uint32_t channelIdx, bool mute)> onMuteToggled;
+    std::function<void(uint32_t channelIdx, bool solo)> onSoloToggled;
+    std::function<void(uint32_t channelIdx)> onTrackSelected;
+    std::function<void(uint32_t channelIdx, const std::string& newName)> onTrackRename;
+    std::function<void(uint32_t channelIdx)> onChooseTrackIcon;
+
     // Synchronization with DAW Window & Audio Engine
     void syncFromWindow(
         const std::vector<std::string>& trackNames,

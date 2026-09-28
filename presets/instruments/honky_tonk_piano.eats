@@ -1,0 +1,121 @@
+# @id: honky_tonk_piano
+# @name: Honky-Tonk / Tack Piano
+# @category: instrument
+# @description: Physical modeling of a vintage Honky-Tonk / Tack Saloon Piano: metallic thumb-tack hammer strike, pronounced trichord unison chorus detuning (5–10 cents), wooden action clack, and bright midrange bite suited for roots, bluegrass, and ragtime.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "TackBite": eat.param("TackBite", 0.0, 1.5, 0.85, step=0.0),
+        "ActionClack": eat.param("ActionClack", 0.0, 1.0, 0.5, step=0.0),
+        "DetuneCents": eat.param("DetuneCents", 2.0, 15.0, 7.5, step=0.0),
+        "SaloonReso": eat.param("SaloonReso", 0.0, 1.0, 0.35, step=0.0),
+        "MetalSheen": eat.param("MetalSheen", 0.0, 1.0, 0.6, step=0.0),
+        "Bite": eat.param("Bite", -3.0, 9.0, 3.5, step=0.0),
+        "Sustain": eat.param("Sustain", 0.9, 0.998, 0.996, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 16000.0, 9500.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "HONKY-TONK / TACK PIANO",
+            "subtitle": "Metallic Tack Strike & Detuned Saloon Unison Modeling",
+            "accent": "#E67E22",
+            "background": "vintage_tweed",
+            "rackSides": "dark_wood",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "BRASS TACK IMPACT & SALOON DETUNING",
+                    "accent": "#E67E22",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "TackBite",
+                                    "label": "TACK PING",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ActionClack",
+                                    "label": "ACTION CLACK",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "DetuneCents",
+                                    "label": "DETUNE",
+                                    "unit": "cents",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SaloonReso",
+                                    "label": "SALOON BOX",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PRESENCE BITE & SUSTAIN",
+                    "accent": "#F39C12",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "Bite",
+                                    "label": "MID BITE",
+                                    "unit": "dB",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "MetalSheen",
+                                    "label": "METAL SHEEN",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Sustain",
+                                    "label": "SUSTAIN",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -1,0 +1,74 @@
+# @id: analog_909_kick
+# @name: Analog 909 Kick
+# @category: instrument
+# @description: Authentic Eats-909 analog physical circuit model (André Michelle DSP): 274Hz to 53Hz exponential sweep, single-cycle analog oscillator wavetable, 60ms hold, and beater click attack transient.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", 0.007, 0.03, 0.018, step=0.0),
+        "Attack": eat.param("Attack", 0.0, 2.0, 1.0, step=0.0),
+        "Decay": eat.param("Decay", 0.012, 0.12, 0.05, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-909 ANALOG BASS DRUM",
+            "subtitle": "Physical Model: 274Hz -> 53Hz Wavetable & Attack Transient",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "TUNE PITCH",
+                            "unit": "s",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Attack",
+                            "label": "ATTACK CLICK",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "DECAY HOLD",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Attack",
+                            "label": "ATTACK",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    kick = eat.node.tr909_kick(tune="Tune", decay="Decay", attack="Attack")
+    out = eat.node.saturate(kick, drive=1.15)
+    return out

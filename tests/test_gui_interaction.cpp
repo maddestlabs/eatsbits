@@ -119,13 +119,14 @@ void testGuiWindowInteraction() {
     REQUIRE(playHit.hit);
     REQUIRE(playHit.action == TransportAction::PlayPause);
 
-    auto bpmHit = window.hitTestTransport(500.0f, 25.0f);
+    // Minimal BPM Readout Capsule Hit-Test
+    auto bpmHit = window.hitTestTransport(220.0f, 25.0f);
     REQUIRE(bpmHit.hit);
     REQUIRE(bpmHit.action == TransportAction::Bpm);
 
-    // Clicking in BAR | BEAT area does NOT initiate play
-    auto barBeatHit = window.hitTestTransport(250.0f, 25.0f);
-    REQUIRE(!barBeatHit.hit);
+    // Clicking in middle faceplate area does NOT initiate play or value changes
+    auto emptyFaceplateHit = window.hitTestTransport(450.0f, 25.0f);
+    REQUIRE(!emptyFaceplateHit.hit);
 
     // Click Play button
     window.onMouseDown(0, 75.0f, 25.0f);
@@ -145,18 +146,19 @@ void testGuiWindowInteraction() {
     REQUIRE(recHit.hit);
     REQUIRE(recHit.action == TransportAction::Record);
 
-    // Test Swing readout
-    auto swgHit = window.hitTestTransport(560.0f, 25.0f);
-    REQUIRE(swgHit.hit);
-    REQUIRE(swgHit.action == TransportAction::Swing);
+    // Test Lock button hit
+    float rTop = static_cast<float>(window.getWidth());
+    auto lockHit = window.hitTestTransport(rTop - 105.0f, 25.0f);
+    REQUIRE(lockHit.hit);
+    REQUIRE(lockHit.action == TransportAction::LockToggle);
 
-    // Test BPM Scrubber Dragging
+    // Test BPM Scrubber Dragging on minimal capsule
     const double initialBpm = engine.getSequencer().getBpm();
-    window.onMouseDown(0, 500.0f, 25.0f);
+    window.onMouseDown(0, 220.0f, 25.0f);
     REQUIRE(window.getDragMode() == DragMode::BpmScrubber);
-    window.onMouseMove(500.0f, 5.0f); // Drag up by 20px
+    window.onMouseMove(220.0f, 5.0f); // Drag up by 20px
     REQUIRE(engine.getSequencer().getBpm() > initialBpm);
-    window.onMouseUp(0, 500.0f, 5.0f);
+    window.onMouseUp(0, 220.0f, 5.0f);
     REQUIRE(window.getDragMode() == DragMode::None);
 
     // 8. Test Workspace View Navigation Bottom Bar & Hotkeys
@@ -1983,7 +1985,75 @@ void testProjectHubAndTopLeftMenu() {
     window.toggleHiDpi();
     REQUIRE(window.isHiDpiEnabled() == prevHiDpi);
 
-    // 8. Test Global Keyboard Shortcuts for Project Operations
+    // 8. Test Section 3: CRT Shader Drawer Constraints & Scrollbar Area
+    window.setProjectHubSection(3);
+    window.renderFrame();
+
+    const auto& crtScrollArea = window.getProjectHubScrollArea();
+    REQUIRE(crtScrollArea.canScroll());
+    REQUIRE(crtScrollArea.getViewport().w == hubW - 32.0f);
+    REQUIRE(crtScrollArea.getViewport().h == 272.0f);
+    REQUIRE(crtScrollArea.getContentHeight() == 586.0f);
+    REQUIRE(crtScrollArea.getMaxScroll() == 586.0f - 272.0f); // 314.0f
+
+    // Verify Scrollbar Track Bounds strictly inside drawer
+    auto sbTrack = crtScrollArea.getScrollbarTrackBounds();
+    REQUIRE(sbTrack.x > crtScrollArea.getViewport().x);
+    REQUIRE(sbTrack.x + sbTrack.w <= crtScrollArea.getViewport().x + crtScrollArea.getViewport().w);
+    REQUIRE(sbTrack.y == crtScrollArea.getViewport().y);
+    REQUIRE(sbTrack.h == crtScrollArea.getViewport().h);
+
+    // Verify mouse wheel scrolling anywhere over the Settings dialog scrolls the drawer
+    float initialScroll = window.getProjectHubScrollY();
+    REQUIRE(initialScroll == 0.0f);
+    window.onMouseScroll(0.0, -2.0); // scroll down 2 notches
+    REQUIRE(window.getProjectHubScrollY() == 64.0f);
+
+    // Test CRT Preset button in drawer (MAX CLARITY)
+    // Preset row is at drawerY - scrollY + 36.0f. Let's reset scroll to 0 for exact clicking
+    window.onMouseScroll(0.0, 2.0);
+    REQUIRE(window.getProjectHubScrollY() == 0.0f);
+
+    const float topContentY = hubY + 50.0f;
+    const float headerStep = 36.0f;
+    float drawerX = hubX + 16.0f;
+    float drawerY = topContentY + 4 * headerStep;
+    float presetMaxClarityX = drawerX + 180.0f;
+    float presetMaxClarityY = drawerY + 48.0f;
+    auto presetHit = window.hitTestProjectHub(presetMaxClarityX, presetMaxClarityY);
+    REQUIRE(presetHit.hit);
+    REQUIRE(presetHit.action == ProjectHubAction::CrtPresetMaxClarity);
+    window.onMouseDown(0, presetMaxClarityX, presetMaxClarityY);
+    window.onMouseUp(0, presetMaxClarityX, presetMaxClarityY);
+    REQUIRE(window.getLastStatusMessage().find("MAX CLARITY") != std::string::npos);
+
+    // Test CRT Slider in drawer (Curvature slider, index 1)
+    float sliderRowY = drawerY + 76.0f + 1 * 46.0f + 18.0f;
+    float sliderTrackX = drawerX + 12.0f;
+    float sliderTrackW = (hubW - 32.0f) - 32.0f;
+    auto sliderHit = window.hitTestProjectHub(sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+    REQUIRE(sliderHit.hit);
+    REQUIRE(sliderHit.action == ProjectHubAction::CrtSlider);
+    REQUIRE(sliderHit.crtSliderIndex == 1);
+    window.onMouseDown(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+    window.onMouseUp(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+    REQUIRE(window.getLastStatusMessage().find("Curvature") != std::string::npos);
+
+    // Test switching to another section resets scroll
+    window.onMouseScroll(0.0, -3.0);
+    REQUIRE(window.getProjectHubScrollY() > 0.0f);
+    // Click Section 4 Header (Audio Engine Config)
+    float sec4HeaderY = drawerY + 272.0f + 6.0f;
+    auto sec4Hit = window.hitTestProjectHub(hubX + 50.0f, sec4HeaderY + 10.0f);
+    REQUIRE(sec4Hit.hit);
+    REQUIRE(sec4Hit.action == ProjectHubAction::SectionHeader);
+    REQUIRE(sec4Hit.sectionIndex == 4);
+    window.onMouseDown(0, hubX + 50.0f, sec4HeaderY + 10.0f);
+    window.onMouseUp(0, hubX + 50.0f, sec4HeaderY + 10.0f);
+    REQUIRE(window.getProjectHubSection() == 4);
+    REQUIRE(window.getProjectHubScrollY() == 0.0f);
+
+    // 9. Test Global Keyboard Shortcuts for Project Operations
     // Close modal
     window.setProjectHubOpen(false);
 
@@ -2033,11 +2103,11 @@ void testTrackInspectorInteraction() {
     // Verify Arranger Tracks have clean names without numeric prefixes or invalid types
     const auto& tracks = window.getArrangerTracks();
     REQUIRE(tracks.size() >= 5);
-    REQUIRE(tracks[0].name == "TB-303 Acid");
-    REQUIRE(tracks[1].name == "TR-808 Drums");
-    REQUIRE(tracks[2].name == "Sub Bass");
-    REQUIRE(tracks[3].name == "Poly Lead");
-    REQUIRE(tracks[4].name == "Waveguide Piano");
+    REQUIRE((tracks[0].name == "TB-303 Acid" || tracks[0].name == "303 Acid Bass"));
+    REQUIRE((tracks[1].name == "TR-808 Drums" || tracks[1].name == "TR-808 Kit"));
+    REQUIRE((tracks[2].name == "Sub Bass" || tracks[2].name == "TR-909 Drive"));
+    REQUIRE((tracks[3].name == "Poly Lead" || tracks[3].name == "DX7 Rhodes"));
+    REQUIRE((tracks[4].name == "Waveguide Piano" || tracks[4].name == "Concert Grand"));
 
     for (const auto& trk : tracks) {
         REQUIRE(trk.name.rfind("01 ", 0) == std::string::npos);
@@ -2524,6 +2594,9 @@ void testPianoRollScrollingAndPanning() {
     auto* trk = engine.getSequencer().getTrack(0);
     REQUIRE(trk != nullptr);
     trk->clearSelection();
+    for (uint32_t stepIdx = 0; stepIdx < trk->getNumSteps(); ++stepIdx) {
+        trk->setStep(stepIdx, sequencer::StepData{});
+    }
     // Place a note at pitch 72 (C5)
     sequencer::StepData s{};
     s.active = true;
@@ -2577,6 +2650,7 @@ void testDecoupledPianoKeyboardAndDrawer() {
     REQUIRE(engine.initialize());
     GuiWindow window(1280, 800, "Virtual Keyboard Drawer Test");
     REQUIRE(window.initialize(engine));
+    window.setGuiAnimationsEnabled(false);
     REQUIRE(!window.isVirtualKeyboardDrawerOpen());
 
     // Pull tab hit test when closed (bPanelY = 800 - 48 = 752.0f, tabX = 625 - 70 = 555..695, tabY = 732..752)

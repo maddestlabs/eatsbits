@@ -114,6 +114,8 @@ private:
     // Presets tab scrolling
     float presetsScrollY_{0.0f};
     int selectedPresetIdx_{0};
+    float lastMouseX_{0.0f};
+    float lastMouseY_{0.0f};
 };
 
 } // namespace eatsbits::ui

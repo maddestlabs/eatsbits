@@ -1,0 +1,182 @@
+# @id: vintage_era_degrader
+# @name: Eats Vinyl
+# @category: audioFx
+# @description: Physical vinyl and vintage tape degradation engine: authentic wow & flutter pitch vibrato, era morphing EQ (1950s-1980s), procedural vinyl crackle & pop impulses, needle bumps & dropouts, and instant tape stop.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Era": eat.param("Era", 1950.0, 1989.0, 1974.0, step=1.0, allow_variance=False),
+        "Medium": eat.param("Medium", 0.0, 4.0, 2.0, options=["Tape 15 IPS", "Cassette Type I", "Vinyl 33 RPM", "Shellac 78 RPM", "Warped 45 RPM"], allow_variance=False),
+        "WowDepth": eat.param("WowDepth", 0.0, 100.0, 25.0, step=0.0),
+        "FlutterDepth": eat.param("FlutterDepth", 0.0, 100.0, 15.0, step=0.0),
+        "MotorJitter": eat.param("MotorJitter", 0.0, 100.0, 10.0, step=0.0),
+        "WarpSwell": eat.param("WarpSwell", 0.0, 100.0, 20.0, step=0.0),
+        "TapeDropouts": eat.param("TapeDropouts", 0.0, 100.0, 15.0, step=0.0),
+        "LevelDrift": eat.param("LevelDrift", 0.0, 100.0, 10.0, step=0.0),
+        "NeedleBumpFreq": eat.param("NeedleBumpFreq", 0.0, 100.0, 25.0, step=0.0),
+        "StutterDepth": eat.param("StutterDepth", 0.0, 100.0, 35.0, step=0.0),
+        "ThudLevel": eat.param("ThudLevel", 0.0, 100.0, 30.0, step=0.0),
+        "TapeWarmth": eat.param("TapeWarmth", 0.0, 100.0, 45.0, step=0.0),
+        "HeadBump": eat.param("HeadBump", 0.0, 12.0, 3.0, step=0.0),
+        "HissLevel": eat.param("HissLevel", 0.0, 100.0, 20.0, step=0.0),
+        "VinylCrackle": eat.param("VinylCrackle", 0.0, 100.0, 25.0, step=0.0),
+        "GrooveRumble": eat.param("GrooveRumble", 0.0, 100.0, 15.0, step=0.0),
+        "StopTime": eat.param("StopTime", 0.1, 3.0, 0.8, step=0.0),
+        "SpinUpTime": eat.param("SpinUpTime", 0.1, 2.0, 0.4, step=0.0),
+        "Mix": eat.param("Mix", 0.0, 1.0, 1.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS VINYL",
+            "subtitle": "Physical Wow, Flutter, Vinyl Crackle & Tape Engine",
+            "accent": "#E65100",
+            "background": "grunge",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "listbox",
+                            "param": "Medium",
+                            "label": "MEDIA FORMAT",
+                            "width": 170,
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Era",
+                            "label": "DECADE YEAR",
+                            "unit": "AD",
+                        },
+                        {
+                            "type": "button",
+                            "action": "trigger_tape_stop",
+                            "label": "TAPE STOP",
+                            "width": 130,
+                            "height": 44,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "Era",
+                            "label": "ERA BANDWIDTH MORPH (1950s - 1980s)",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "WowDepth",
+                            "label": "WOW",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FlutterDepth",
+                            "label": "FLUTTER",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "WarpSwell",
+                            "label": "WARP AM",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TapeDropouts",
+                            "label": "DROPOUTS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NeedleBumpFreq",
+                            "label": "BUMPS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StutterDepth",
+                            "label": "STUTTER",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "ThudLevel",
+                            "label": "SUB THUD",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 50,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TapeWarmth",
+                            "label": "DRIVE",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 50,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "HissLevel",
+                            "label": "HISS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 50,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "VinylCrackle",
+                            "label": "CRACKLE",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 50,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StopTime",
+                            "label": "STOP TIME",
+                            "unit": "s",
+                            "knobStyle": "vintage",
+                            "size": 50,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Mix",
+                            "label": "MIX",
+                            "unit": "%",
+                            "size": 54,
+                        },
+                    ],
+                },
+            ],
+        },
+    }

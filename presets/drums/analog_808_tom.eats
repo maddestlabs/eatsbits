@@ -1,0 +1,81 @@
+# @id: analog_808_tom
+# @name: Analog 808 Tom
+# @category: instrument
+# @description: Authentic Eats-808 analog resonant bridged-T tank circuit tom/conga with pitch envelope decay.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", 60.0, 220.0, 100.0, step=0.0),
+        "StartFreq": eat.param("StartFreq", 100.0, 300.0, 160.0, step=0.0),
+        "PitchDecay": eat.param("PitchDecay", 0.02, 0.2, 0.08, step=0.0),
+        "Decay": eat.param("Decay", 0.1, 1.2, 0.4, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 ANALOG TOM / CONGA",
+            "subtitle": "Resonant Bridged-T Tank Circuit",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "TOM TUNE",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StartFreq",
+                            "label": "START PITCH",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PitchDecay",
+                            "label": "PITCH DEC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    pitch_sweep = eat.node.pitch_sweep(start="StartFreq", end="Tune", decay="PitchDecay")
+    sine = eat.node.osc(wave="sine", pitch_cv=pitch_sweep)
+    decay_env = eat.node.decay(decay="Decay")
+    vca = eat.node.gain(sine, gain_cv=decay_env)
+    shell = eat.node.svf(vca, cutoff=120.0, reso=2.5, gain=3.0, type="peaking")
+    out = eat.node.saturate(shell, drive=1.1)
+    return out

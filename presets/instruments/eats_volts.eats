@@ -1,0 +1,245 @@
+# @id: eats_volts
+# @name: Eats Volts
+# @category: instrument
+# @description: Physical modeling of real-world electricity, singing plasma arcs, and high-voltage discharge: asymmetric thermal expansion pulse oscillator, cycle-to-cycle spark jitter, Poisson-distributed corona sizzle, 60Hz substation transformer magnetostriction hum, dielectric breakdown attack snap, spark gap acoustic cavity formants, 4-stage plasma vortex phaser, and ozone saturation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SynthTone": eat.param("SynthTone", 0.0, 1.0, 0.70, step=0.0),
+        "Voltage": eat.param("Voltage", 0.1, 3.0, 1.25, step=0.0),
+        "SparkGap": eat.param("SparkGap", 0.02, 0.5, 0.15, step=0.0),
+        "Jitter": eat.param("Jitter", 0.0, 1.0, 0.45, step=0.0),
+        "SubHarmonic": eat.param("SubHarmonic", 0.0, 1.0, 0.2, step=0.0),
+        "CrackleRate": eat.param("CrackleRate", 0.0, 1.0, 0.4, step=0.0),
+        "SnapAttack": eat.param("SnapAttack", 0.0, 2.5, 1.0, step=0.0),
+        "GridHum": eat.param("GridHum", 0.0, 1.0, 0.35, step=0.0),
+        "PhaserRate": eat.param("PhaserRate", 0.05, 8.0, 0.45, step=0.0),
+        "PhaserDepth": eat.param("PhaserDepth", 0.0, 1.0, 0.65, step=0.0),
+        "PhaserFeedback": eat.param("PhaserFeedback", 0.0, 1.0, 0.4, step=0.0),
+        "PhaserMix": eat.param("PhaserMix", 0.0, 1.0, 0.45, step=0.0),
+        "OzoneDrive": eat.param("OzoneDrive", 0.5, 5.0, 1.35, step=0.0),
+        "ToneHighpass": eat.param("ToneHighpass", 20.0, 2000.0, 30.0, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 16000.0, 8500.0, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 2.0, 0.45, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS VOLTS",
+            "subtitle": "High-Voltage Plasma Synthesizer",
+            "accent": "#00F0FF",
+            "background": "matte_metal",
+            "rackSides": "brushed_steel",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "PLASMA DISCHARGE & ARC CORE (CYAN)",
+                    "accent": "#00F0FF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "SynthTone",
+                                    "label": "SYNTH TONE",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Voltage",
+                                    "label": "VOLTAGE",
+                                    "unit": "kV",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SparkGap",
+                                    "label": "SPARK GAP",
+                                    "unit": "mm",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Jitter",
+                                    "label": "ARC JITTER",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SubHarmonic",
+                                    "label": "SUB-PLASMA",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "CORONA SIZZLE & DIELECTRIC SNAP (AMBER)",
+                    "accent": "#FFB300",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "CrackleRate",
+                                    "label": "CORONA SIZZLE",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SnapAttack",
+                                    "label": "SNAP STRIKE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "GridHum",
+                                    "label": "60Hz HUM",
+                                    "unit": "dB",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "Voltage",
+                                    "label": "HIGH-VOLTAGE RAIL POTENTIAL",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PLASMA VORTEX PHASER (PURPLE)",
+                    "accent": "#7C4DFF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserRate",
+                                    "label": "PHASER RATE",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserDepth",
+                                    "label": "SWEEP DEPTH",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserFeedback",
+                                    "label": "VORTEX RESO",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserMix",
+                                    "label": "PHASER MIX",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "OZONE SATURATION & GAS TONE (MAGENTA)",
+                    "accent": "#E040FB",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "OzoneDrive",
+                                    "label": "OZONE DRIVE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ToneHighpass",
+                                    "label": "LOW CUT",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "HIGH CUT",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Decay",
+                                    "label": "ARC DECAY",
+                                    "unit": "s",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    arc_core = eat.node.plasma_arc(spark_width="SparkGap", jitter="Jitter", sub_harmonic="SubHarmonic")
+    arc_vca = eat.node.gain(in_sig=arc_core, gain="SynthTone")
+    corona = eat.node.corona_crackle(density="CrackleRate", sizzle_bright=0.75)
+    hum = eat.node.mains_hum(mains_freq=60.0, hum_level="GridHum")
+    snap = eat.node.breakdown_snap(snap_level="SnapAttack")
+    sum1 = eat.node.mix(in_a=arc_vca, in_b=corona, gain_a=0.9, gain_b=0.5)
+    sum2 = eat.node.mix(in_a=hum, in_b=snap, gain_a=0.4, gain_b=0.75)
+    mixed_arc = eat.node.mix(in_a=sum1, in_b=sum2, gain_a=1.0, gain_b=1.0)
+    cavity = eat.node.modal_bank(in_sig=mixed_arc, structure="cavity", brightness=0.75)
+    ozone = eat.node.ozone_drive(in_sig=cavity, drive="OzoneDrive")
+    tone_lp = eat.node.svf(in_sig=ozone, cutoff="Tone", type="lowpass")
+    env = eat.node.adsr(attack=0.003, decay="Decay", sustain=0.88, release=0.06)
+    return tone_lp * env
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

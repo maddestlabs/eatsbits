@@ -1,0 +1,115 @@
+# @id: moog_synth_bass
+# @name: Model D Sub Synth Bass
+# @category: instrument
+# @description: Analog Sub Synth Bass: dual detuned Saw/Pulse oscillators with dedicated sub-octave square wave, 4-pole 24dB/oct transistor ladder lowpass filter with exponential contour punch, and warm transistor overdrive.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Cutoff": eat.param("Cutoff", 30.0, 8000.0, 350.0, step=0.0),
+        "Resonance": eat.param("Resonance", 0.0, 0.95, 0.65, step=0.0),
+        "FilterEnv": eat.param("FilterEnv", 0.0, 1.0, 0.65, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 3.0, 0.4, step=0.0),
+        "AmpDecay": eat.param("AmpDecay", 0.1, 4.0, 0.85, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.25, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MODEL D — SUB SYNTH BASS",
+            "subtitle": "4-Pole 24dB/oct Transistor Ladder & Sub-Oscillator",
+            "accent": "#00E5FF",
+            "background": "matte_metal",
+            "rackSides": "brushed_steel",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "TRANSISTOR LADDER VCF & CONTOUR",
+                    "accent": "#00E5FF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "Cutoff",
+                                    "label": "CUTOFF",
+                                    "unit": "Hz",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Resonance",
+                                    "label": "EMPHASIS",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FilterEnv",
+                                    "label": "CONTOUR",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Decay",
+                                    "label": "FILTER DECAY",
+                                    "unit": "s",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "AmpDecay",
+                                    "label": "AMP DECAY",
+                                    "unit": "s",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Drive",
+                                    "label": "OVERLOAD",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "Cutoff",
+                                    "label": "24dB/OCT LADDER FILTER CUTOFF SWEEP",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    vco1 = eat.node.osc(wave="saw")
+    vco2 = eat.node.osc(wave="saw", detune=4.0)
+    sub = eat.node.sub(octave=-1, level=0.6)
+    sum = eat.node.mix(in_a=vco1, in_b=vco2)
+    vcf = eat.node.moog(in_sig=sum, cutoff="Cutoff", reso="Resonance")
+    env = eat.node.adsr(attack=0.01, decay="Decay", sustain=0.4, release=0.2)
+    sat = eat.node.saturate(in_sig=vcf, drive="Drive")
+    return sat * env
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

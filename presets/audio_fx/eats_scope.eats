@@ -1,0 +1,59 @@
+# @id: eats_scope
+# @name: Eats-Scope
+# @category: audioFx
+# @description: Glowing neon vector oscilloscope and waveform monitor visualizer that reacts in real-time to audio playback and synthesizer modulations.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Timebase": eat.param("Timebase", 0.1, 2.0, 1.0, step=0.05),
+        "Gain": eat.param("Gain", 0.1, 3.0, 1.0, step=0.1),
+        "GlowColor": eat.param("GlowColor", 0.0, 4.0, 0.0, options=["Neon Mint", "Cyber Cyan", "Laser Red", "Gold Solar", "Purple Dream"], allow_variance=False),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Eats-Scope",
+            "subtitle": "Vector Waveform Oscilloscope Visualizer",
+            "background": "dark",
+            "accent": "#00FF9D",
+            "layout": [
+                {
+                    "type": "canvas",
+                    "mode": "vector",
+                    "width": 340,
+                    "height": 180,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Timebase",
+                            "label": "TIMEBASE",
+                            "unit": "x",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Gain",
+                            "label": "GAIN",
+                            "unit": "x",
+                        },
+                        {
+                            "type": "listbox",
+                            "param": "GlowColor",
+                            "label": "BEAM COLOR",
+                            "width": 120,
+                            "height": 70,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

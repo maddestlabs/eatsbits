@@ -1,0 +1,54 @@
+# @id: kinetic_lyric_visualizer
+# @name: Kinetic Lyric Video
+# @category: utility
+# @description: Audio-reactive kinetic typography visualizer with glowing beat-synced lyrics and spectrum bloom.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "GlowSize": eat.param("GlowSize", 0.0, 100.0, 40.0, step=1.0, allow_variance=False),
+        "TextScale": eat.param("TextScale", 0.5, 3.0, 1.4, step=0.1),
+        "KineticShake": eat.param("KineticShake", 0.0, 1.0, 0.5, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Kinetic Lyric Video",
+            "subtitle": "Audio-Reactive Time-Synced Visualizer",
+            "background": "cyberpunk",
+            "accent": "#00FFE0",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "TextScale",
+                            "label": "SCALE",
+                            "knobStyle": "cyber",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "GlowSize",
+                            "label": "GLOW",
+                            "knobStyle": "cyber",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "KineticShake",
+                            "label": "SHAKE",
+                            "knobStyle": "cyber",
+                        },
+                    ],
+                },
+                {
+                    "type": "canvas",
+                    "canvasType": "vector",
+                    "height": 200,
+                    "label": "LIVE LYRIC RENDERER",
+                },
+            ],
+        },
+    }

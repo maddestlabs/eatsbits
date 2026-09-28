@@ -1,0 +1,16 @@
+# @id: splitter_drum_demux
+# @name: Drum & Percussion Demuxer
+# @category: noteSplitter
+# @description: Separates standard General MIDI drum tracks into Kick, Snare/Clap, Hats/Cymbals, and Percussion tracks.
+
+# @author: Eatsbeats
+# @category: note_splitter
+# @description: Separates standard General MIDI drum tracks into Kick, Snare/Clap, Hats/Cymbals, and Percussion tracks.
+
+def split(notes, params):
+    return [
+        {"name": "Drums (Kick)", "color": 0xFFFF3333},
+        {"name": "Drums (Snare & Clap)", "color": 0xFFFF8C00},
+        {"name": "Drums (Hi-Hats & Cymbals)", "color": 0xFFFFE600},
+        {"name": "Drums (Toms & Perc)", "color": 0xFFBD00FF},
+    ]

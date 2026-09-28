@@ -2,6 +2,7 @@
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
+#include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/ui/gui_window.hpp"
 
 #if defined(_WIN32)
@@ -81,64 +82,166 @@ int main(int /*argc*/, char** /*argv*/) {
     // Locate node IDs
     const auto& nodes = engine.getGraph().getNodes();
     audio::NodeId tbId = 0;
-    audio::NodeId drumsId = 0;
+    audio::NodeId drums808Id = 0;
+    audio::NodeId drums909Id = 0;
+    audio::NodeId dx7Id = 0;
+    audio::NodeId grandId = 0;
     for (const auto& [id, n] : nodes) {
-        if (dynamic_cast<audio::Tb303Node*>(n.get())) tbId = id;
-        else if (dynamic_cast<audio::DrumKitNode*>(n.get())) drumsId = id;
+        if (!n) continue;
+        if (n->getName() == "Tb303") tbId = id;
+        else if (n->getName() == "Drums808") drums808Id = id;
+        else if (n->getName() == "Drums909") drums909Id = id;
+        else if (n->getName() == "Dx7Rhodes") dx7Id = id;
+        else if (n->getName() == "ConcertGrand") grandId = id;
+        else if (drums808Id == 0 && dynamic_cast<audio::DrumKitNode*>(n.get())) drums808Id = id;
+        else if (dx7Id == 0 && dynamic_cast<audio::PolySynthNode*>(n.get())) dx7Id = id;
     }
 
     // Track 1: TB-303 Acid Bass
     if (tbId != 0) {
-        size_t t1 = seq.addTrack("303 Bass", tbId, 16);
+        size_t t1 = seq.addTrack("303 Acid Bass", tbId, 64);
         auto* tr1 = seq.getTrack(t1);
         const uint8_t bassNotes[16] = {36, 36, 48, 36, 39, 41, 36, 46, 48, 36, 39, 43, 36, 41, 39, 36};
-        for (uint32_t s = 0; s < 16; ++s) {
+        for (uint32_t s = 0; s < 64; ++s) {
+            uint32_t patIdx = s % 16;
             sequencer::StepData st{};
             st.active = true;
-            st.note = bassNotes[s];
-            st.velocity = (s % 4 == 0) ? 1.0f : 0.78f;
+            st.note = bassNotes[patIdx];
+            st.velocity = (patIdx % 4 == 0) ? 1.0f : 0.78f;
             st.gateLength = 0.65f;
-            st.slide = (s == 5 || s == 13);
-            st.accent = (s == 0 || s == 7);
+            st.slide = (patIdx == 5 || patIdx == 13);
+            st.accent = (patIdx == 0 || patIdx == 7);
             tr1->setStep(s, st);
         }
     }
 
-    // Track 2: TR-808 Drums
-    if (drumsId != 0) {
-        size_t t2 = seq.addTrack("808 Drums", drumsId, 16);
+    // Track 2: TR-808 Kit
+    if (drums808Id != 0) {
+        size_t t2 = seq.addTrack("TR-808 Kit", drums808Id, 64);
         auto* tr2 = seq.getTrack(t2);
-        for (uint32_t s = 0; s < 16; ++s) {
+        for (uint32_t s = 0; s < 64; ++s) {
+            uint32_t patIdx = s % 16;
             sequencer::StepData st{};
-            if (s == 0 || s == 8) {
-                // 808 Kick downbeats (note 35)
+            if (patIdx == 0 || patIdx == 8) {
                 st.active = true;
-                st.note = 35;
+                st.note = 36; // 808 Kick
                 st.velocity = 0.95f;
                 st.gateLength = 0.8f;
-                st.accent = (s == 0);
-            } else if (s == 10) {
-                // Syncopated 808 Kick (note 35)
+                st.accent = (patIdx == 0);
+                st.extraNotes = {42}; // Kick + Hat
+            } else if (patIdx == 7 || patIdx == 10) {
                 st.active = true;
-                st.note = 35;
+                st.note = 36; // Syncopated kick
                 st.velocity = 0.85f;
                 st.gateLength = 0.7f;
-            } else if (s == 4 || s == 12) {
-                // 808 Snare on beats 2 & 4 (note 38)
+            } else if (patIdx == 4 || patIdx == 12) {
                 st.active = true;
-                st.note = 38;
+                st.note = 38; // 808 Snare
                 st.velocity = 0.90f;
                 st.gateLength = 0.6f;
-            } else if (s % 2 == 1) {
-                // 808 Closed Hi-Hat on off-beats (note 42)
+                st.extraNotes = {42}; // Snare + Hat
+            } else if (patIdx == 15) {
                 st.active = true;
-                st.note = 42;
-                st.velocity = 0.65f;
+                st.note = 46; // Open Hat
+                st.velocity = 0.75f;
+                st.gateLength = 0.8f;
+            } else if (patIdx % 2 == 1 || patIdx % 2 == 0) {
+                st.active = true;
+                st.note = 42; // Closed Hat
+                st.velocity = 0.60f;
                 st.gateLength = 0.3f;
             }
             if (st.active) {
                 tr2->setStep(s, st);
             }
+        }
+    }
+
+    // Track 3: TR-909 Drive
+    if (drums909Id != 0) {
+        size_t t3 = seq.addTrack("TR-909 Drive", drums909Id, 64);
+        auto* tr3 = seq.getTrack(t3);
+        for (uint32_t s = 0; s < 64; ++s) {
+            uint32_t patIdx = s % 16;
+            sequencer::StepData st{};
+            if (patIdx % 4 == 0) { // 909 four-on-the-floor
+                st.active = true;
+                st.note = 36;
+                st.velocity = 1.0f;
+                st.gateLength = 0.8f;
+            } else if (patIdx == 4 || patIdx == 12) {
+                st.active = true;
+                st.note = 38; // 909 Snare
+                st.velocity = 0.95f;
+                st.gateLength = 0.7f;
+            } else if (patIdx % 2 == 1) {
+                st.active = true;
+                st.note = 42; // 909 Hat
+                st.velocity = 0.70f;
+                st.gateLength = 0.35f;
+            }
+            if (st.active) tr3->setStep(s, st);
+        }
+    }
+
+    // Track 4: DX7 Rhodes (Polyphonic 4-Chord Progression: Cm7, Bbmaj7, Abmaj7, Bb7)
+    if (dx7Id != 0) {
+        size_t t4 = seq.addTrack("DX7 Rhodes", dx7Id, 128);
+        auto* tr4 = seq.getTrack(t4);
+        // Bar 1..2 (steps 0..31): Cm7 {60, 63, 67, 70}
+        sequencer::StepData c0{};
+        c0.active = true;
+        c0.note = 60;
+        c0.extraNotes = {63, 67, 70};
+        c0.velocity = 0.75f;
+        c0.gateLength = 0.95f;
+        tr4->setStep(0, c0);
+
+        // Bar 3..4 (steps 32..63): Bbmaj7 {58, 62, 65, 69}
+        sequencer::StepData c1{};
+        c1.active = true;
+        c1.note = 58;
+        c1.extraNotes = {62, 65, 69};
+        c1.velocity = 0.75f;
+        c1.gateLength = 0.95f;
+        tr4->setStep(32, c1);
+
+        // Bar 5..6 (steps 64..95): Abmaj7 {56, 60, 63, 67}
+        sequencer::StepData c2{};
+        c2.active = true;
+        c2.note = 56;
+        c2.extraNotes = {60, 63, 67};
+        c2.velocity = 0.75f;
+        c2.gateLength = 0.95f;
+        tr4->setStep(64, c2);
+
+        // Bar 7..8 (steps 96..127): Bb7 {58, 62, 65, 68}
+        sequencer::StepData c3{};
+        c3.active = true;
+        c3.note = 58;
+        c3.extraNotes = {62, 65, 68};
+        c3.velocity = 0.80f;
+        c3.gateLength = 0.95f;
+        tr4->setStep(96, c3);
+    }
+
+    // Track 5: Concert Grand (Melodic Piano Solo)
+    if (grandId != 0) {
+        size_t t5 = seq.addTrack("Concert Grand", grandId, 128);
+        auto* tr5 = seq.getTrack(t5);
+        // Bar 5..8 melodic solo
+        const struct { uint32_t s; uint8_t n; float v; } grandNotes[] = {
+            {64, 60, 0.85f}, {72, 64, 0.75f}, {80, 67, 0.90f},
+            {88, 65, 0.70f}, {96, 64, 0.65f}, {104, 62, 0.80f},
+            {112, 67, 0.95f}, {120, 71, 0.85f}
+        };
+        for (const auto& gn : grandNotes) {
+            sequencer::StepData st{};
+            st.active = true;
+            st.note = gn.n;
+            st.velocity = gn.v;
+            st.gateLength = 0.85f;
+            tr5->setStep(gn.s, st);
         }
     }
 

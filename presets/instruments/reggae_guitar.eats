@@ -1,0 +1,144 @@
+# @id: reggae_guitar
+# @name: Dub Guitar
+# @category: instrument
+# @description: Physical modeling of a clean single-coil/P90 electric guitar for reggae and dub music: multi-string plectrum strum rake, Karplus-Strong waveguide with palm mute damping, 130Hz sub-bass cut, 3.2kHz pick bite, and vintage tube preamp. Best paired with Cab Designer FX (2x12 Open-Back cab)!
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "StrumSpread": eat.param("StrumSpread", 2.0, 30.0, 8.5, step=0.0),
+        "PickBite": eat.param("PickBite", 0.2, 3.0, 1.25, step=0.0),
+        "PalmDamp": eat.param("PalmDamp", 0.05, 0.9, 0.42, step=0.0),
+        "ChopDecay": eat.param("ChopDecay", 0.04, 0.6, 0.18, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.994, step=0.0),
+        "BiteGain": eat.param("BiteGain", -6.0, 12.0, 4.5, step=0.0),
+        "ToneCutoff": eat.param("ToneCutoff", 2000.0, 12000.0, 6800.0, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.15, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "DUB GUITAR",
+            "subtitle": "Sound System Physical Waveguide & Preamp",
+            "accent": "#00E676",
+            "background": "matte_metal",
+            "rackSides": "brushed_steel",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "STRUM & PLECTRUM ATTACK (RED)",
+                    "accent": "#FF2A2A",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "StrumSpread",
+                                    "label": "STRUM MS",
+                                    "unit": "ms",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PickBite",
+                                    "label": "PICK BITE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PALM MUTE & CHOP TIMING (GOLD)",
+                    "accent": "#FFB300",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PalmDamp",
+                                    "label": "PALM MUTE",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ChopDecay",
+                                    "label": "CHOP DECAY",
+                                    "unit": "s",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Sustain",
+                                    "label": "SUSTAIN",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "PalmDamp",
+                                    "label": "PALM MUTE DAMPING (PERCUSSIVE CHICK <-> OPEN RING)",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PREAMP & 3.2kHz TONE BARK (GREEN)",
+                    "accent": "#00E676",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "BiteGain",
+                                    "label": "3.2kHz BITE",
+                                    "unit": "dB",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ToneCutoff",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Drive",
+                                    "label": "PREAMP DRIVE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

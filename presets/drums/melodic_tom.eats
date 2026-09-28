@@ -1,0 +1,106 @@
+# @id: melodic_tom
+# @name: Melodic Tom
+# @category: instrument
+# @description: Physical modal modeling of an acoustic Melodic Tom / Concert Tom (GM 117 / 118): cylindrical wooden shell, circular Bessel membrane modes, stick contact impulse, dual-head resonant air coupling, and chromatic pitch tracking.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "TomDecay": eat.param("TomDecay", 0.2, 2.2, 0.85, step=0.0),
+        "HeadCoupling": eat.param("HeadCoupling", 0.0, 1.0, 0.55, step=0.0),
+        "PitchBend": eat.param("PitchBend", 0.0, 1.0, 0.4, step=0.0),
+        "StickCrack": eat.param("StickCrack", 0.0, 1.2, 0.6, step=0.0),
+        "TomPunch": eat.param("TomPunch", -2.0, 6.0, 2.5, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 16000.0, 9500.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MELODIC TOM",
+            "subtitle": "Acoustic Cylindrical Shell & Dual-Head Membrane Resonator",
+            "accent": "#3A86FF",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "MEMBRANE & COUPLING",
+                    "accent": "#3A86FF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "TomDecay",
+                                    "label": "DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "HeadCoupling",
+                                    "label": "BOTTOM HEAD",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PitchBend",
+                                    "label": "PITCH DROP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "STICK CONTACT & PUNCH",
+                    "accent": "#0077B6",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "StickCrack",
+                                    "label": "STICK TIP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "TomPunch",
+                                    "label": "PUNCH",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    tom = eat.node.melodic_tom(decay="TomDecay", coupling="HeadCoupling", pitch_bend="PitchBend", stick="StickCrack")
+    filtered = eat.node.svf(tom, cutoff="Tone", type="lowpass")
+    out = eat.node.saturate(filtered, drive=1.1)
+    return out
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

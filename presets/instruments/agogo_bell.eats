@@ -1,0 +1,99 @@
+# @id: agogo_bell
+# @name: Agogô Bell
+# @category: instrument
+# @description: Physical modal modeling of an Agogô / Cowbell (GM 113 / 114): welded sheet metal double bell with coupled plate modes (1.0, 1.54), hardwood stick strike crack, and dynamic pitch deflection on hard hits.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "BellDecay": eat.param("BellDecay", 0.2, 2.2, 0.75, step=0.0),
+        "ClangRatio": eat.param("ClangRatio", 0.0, 1.5, 0.65, step=0.0),
+        "StickHardness": eat.param("StickHardness", 0.2, 1.2, 0.7, step=0.0),
+        "PitchBend": eat.param("PitchBend", 0.0, 1.0, 0.4, step=0.0),
+        "MetalSnap": eat.param("MetalSnap", -3.0, 6.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 2000.0, 18000.0, 13000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "AGOGÔ / COWBELL",
+            "subtitle": "Welded Sheet Steel Double Bell Modal Resonator",
+            "accent": "#F4A261",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "BELL MODES & RING",
+                    "accent": "#F4A261",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "BellDecay",
+                                    "label": "DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ClangRatio",
+                                    "label": "CLANG",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PitchBend",
+                                    "label": "PITCH DIVE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "HARDWOOD STRIKE",
+                    "accent": "#E76F51",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "StickHardness",
+                                    "label": "STICK",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "MetalSnap",
+                                    "label": "SNAP",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

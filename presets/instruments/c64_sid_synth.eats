@@ -1,0 +1,187 @@
+# @id: c64_sid_synth
+# @name: Commodore 64 SID Synth
+# @category: instrument
+# @description: Authentic MOS 6581 / 8580 Commodore 64 Sound Interface Device: 12-bit Pulse Width Modulation (PWM), 23-bit Galois LFSR noise, hardware ADSR, 50Hz/60Hz chiptune arpeggiator, glissando, and 12dB/oct multimode resonant filter with non-linear FET saturation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Waveform": eat.param("Waveform", 0.0, 5.0, 0.0, step=0.0, allow_variance=False),
+        "PulseWidth": eat.param("PulseWidth", 100.0, 4000.0, 2048.0, step=0.0),
+        "PwmRate": eat.param("PwmRate", 0.1, 10.0, 1.6, step=0.0),
+        "PwmDepth": eat.param("PwmDepth", 0.0, 1.0, 0.45, step=0.0),
+        "ArpMode": eat.param("ArpMode", 0.0, 5.0, 0.0, step=0.0, allow_variance=False),
+        "GlideSpeed": eat.param("GlideSpeed", 0.0, 0.5, 0.0, step=0.0),
+        "ChipModel": eat.param("ChipModel", 0.0, 1.0, 0.0, step=0.0, allow_variance=False),
+        "FilterMode": eat.param("FilterMode", 0.0, 4.0, 0.0, step=0.0, allow_variance=False),
+        "Cutoff": eat.param("Cutoff", 100.0, 2047.0, 1350.0, step=0.0),
+        "Resonance": eat.param("Resonance", 0.0, 15.0, 9.0, step=0.0),
+        "Overdrive": eat.param("Overdrive", 1.0, 3.0, 1.2, step=0.0),
+        "Attack": eat.param("Attack", 0.0, 15.0, 1.0, step=0.0),
+        "Decay": eat.param("Decay", 0.0, 15.0, 6.0, step=0.0),
+        "Sustain": eat.param("Sustain", 0.0, 15.0, 12.0, step=0.0),
+        "Release": eat.param("Release", 0.0, 15.0, 5.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "COMMODORE 64 — SID SOUND SYNTHESIZER",
+            "subtitle": "MOS 6581 / 8580 3-Voice Chiptune Instrument",
+            "accent": "#6C5EB5",
+            "background": "c64_breadbin",
+            "rackSides": "none",
+            "cornerRadius": 4,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "OSCILLATOR & HARDWARE PWM",
+                    "accent": "#6C5EB5",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "Waveform",
+                                    "label": "WAVEFORM",
+                                    "unit": "WAV",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PulseWidth",
+                                    "label": "PULSE WIDTH",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PwmRate",
+                                    "label": "PWM RATE",
+                                    "unit": "Hz",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PwmDepth",
+                                    "label": "PWM DEPTH",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "CHIPTUNE ARPEGGIATOR & GLIDE",
+                    "accent": "#A0864B",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ArpMode",
+                                    "label": "ARP (50/60Hz)",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "GlideSpeed",
+                                    "label": "GLIDE",
+                                    "unit": "s",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Attack",
+                                    "label": "ATTACK",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Decay",
+                                    "label": "DECAY",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Sustain",
+                                    "label": "SUSTAIN",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Release",
+                                    "label": "RELEASE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "12dB/OCT RESONANT MULTIMODE FILTER (6581 / 8580)",
+                    "accent": "#3E9B48",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ChipModel",
+                                    "label": "MODEL (6581/8580)",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FilterMode",
+                                    "label": "MODE (LP/BP/HP)",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Cutoff",
+                                    "label": "CUTOFF",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Resonance",
+                                    "label": "RESONANCE",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Overdrive",
+                                    "label": "FET DRIVE",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

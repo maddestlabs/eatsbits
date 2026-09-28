@@ -17,9 +17,15 @@
 #include "eatsbits/ui/widgets/plugin_search_dialog.hpp"
 #include "eatsbits/ui/widgets/text_field_state.hpp"
 #include "eatsbits/ui/widgets/value_edit_dialog.hpp"
+#include "eatsbits/ui/widgets/command_palette_dialog.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "eatsbits/ui/gui_window.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
+#include "eatsbits/audio/graph/nodes/tb303_node.hpp"
+#include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
+#include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/project/project_file.hpp"
+#include <filesystem>
 
 using namespace eatsbits;
 using namespace eatsbits::ui;
@@ -436,10 +442,11 @@ void testDesignView() {
 }
 
 void testVirtualKeyboardDrawer() {
-    std::cout << "[Test 7/11] VirtualKeyboardDrawer..." << std::endl;
+    std::cout << "[Test 7/13] VirtualKeyboardDrawer & Dual-Mode Instrument Auditioning..." << std::endl;
 
     VirtualKeyboardDrawer drawer;
     assert(!drawer.isExpanded());
+    assert(drawer.getMode() == KeyboardDrawerMode::Piano);
 
     drawer.layout(1280.0f, 752.0f);
     float collapsedH = drawer.getDrawerHeight();
@@ -453,11 +460,103 @@ void testVirtualKeyboardDrawer() {
     drawer.setBaseOctave(4);
     assert(drawer.getBaseOctave() == 4);
 
+    // Test Dual-Mode switching: Piano vs. DrumPads
+    drawer.setMode(KeyboardDrawerMode::DrumPads);
+    assert(drawer.getMode() == KeyboardDrawerMode::DrumPads);
+
+    drawer.layout(1280.0f, 752.0f);
+    float drumExpandedH = drawer.getDrawerHeight();
+    assert(drumExpandedH > expandedH); // 16-pad drum matrix allocates comfortable height
+
+    drawer.update(0.016f);
+    assert(drawer.getDrumPadGrid().getActivePads().size() == 16);
+
     std::cout << "  [PASS] VirtualKeyboardDrawer validated." << std::endl;
 }
 
+void testDrumPadGridWidget() {
+    std::cout << "[Test 8/13] DrumPadGridWidget (16-Pad MPC Matrix, Banks, Velocity & Triggers)..." << std::endl;
+
+    DrumPadGridWidget grid;
+    assert(grid.getBank() == DrumKitBank::CoreKit);
+    assert(grid.getProfile() == DrumKitProfile::StandardGm);
+
+    // 1. Verify Core Kit 16 pads
+    const auto& corePads = grid.getActivePads();
+    assert(corePads.size() == 16);
+    assert(corePads[0].note == 49);  // CRASH 1
+    assert(corePads[8].note == 42);  // CLOSED HAT
+    assert(corePads[12].note == 36); // KICK 1
+    assert(corePads[13].note == 38); // AC. SNARE
+    assert(corePads[15].note == 39); // HAND CLAP
+
+    // 2. Layout 4x4 Grid
+    grid.layout(Rect2D{10.0f, 600.0f, 800.0f, 150.0f});
+    for (const auto& pad : grid.getActivePads()) {
+        assert(pad.bounds.w > 0.0f);
+        assert(pad.bounds.h > 0.0f);
+        assert(pad.bounds.x >= 10.0f);
+        assert(pad.bounds.y >= 600.0f);
+    }
+
+    // 3. Test Bank Switching to Percussion
+    grid.setBank(DrumKitBank::Percussion);
+    assert(grid.getBank() == DrumKitBank::Percussion);
+    const auto& percPads = grid.getActivePads();
+    assert(percPads.size() == 16);
+    assert(percPads[0].note == 57);  // CRASH 2
+    assert(percPads[2].note == 56);  // COWBELL
+    assert(percPads[4].note == 60);  // HI BONGO
+    assert(percPads[8].note == 62);  // MUTE CONGA
+    assert(percPads[12].note == 75); // CLAVES
+    assert(percPads[15].note == 81); // TRIANGLE
+
+    // 4. Test Kit Profiles (808 / 909)
+    grid.setProfile(DrumKitProfile::Eats808);
+    assert(grid.getProfile() == DrumKitProfile::Eats808);
+    grid.setProfile(DrumKitProfile::Eats909);
+    assert(grid.getProfile() == DrumKitProfile::Eats909);
+
+    // 5. Test Pad Trigger Callback & Velocity Sensitivity
+    grid.setBank(DrumKitBank::CoreKit);
+    uint8_t triggeredNote = 0;
+    float triggeredVel = 0.0f;
+    uint8_t releasedNote = 0;
+
+    grid.onPadTrigger = [&](uint8_t note, float vel) {
+        triggeredNote = note;
+        triggeredVel = vel;
+    };
+    grid.onPadRelease = [&](uint8_t note) {
+        releasedNote = note;
+    };
+
+    // Click on Kick 1 pad (index 12, Note 36)
+    const auto& kickPad = grid.getActivePads()[12];
+    assert(kickPad.note == 36);
+
+    PointerEvent downEv = makePointer(kickPad.bounds.x + 10.0f, kickPad.bounds.y + 5.0f, PointerAction::Down);
+    bool handledDown = grid.handlePointer(downEv);
+    assert(handledDown);
+    assert(triggeredNote == 36);
+    assert(triggeredVel > 0.80f); // Top of pad gives high velocity
+    assert(grid.getActivePads()[12].isTriggered);
+
+    // Update timers
+    grid.update(0.20f); // Timer should expire
+    assert(!grid.getActivePads()[12].isTriggered);
+
+    // Release pad
+    PointerEvent upEv = makePointer(kickPad.bounds.x + 10.0f, kickPad.bounds.y + 5.0f, PointerAction::Up);
+    bool handledUp = grid.handlePointer(upEv);
+    assert(handledUp);
+    assert(releasedNote == 36);
+
+    std::cout << "  [PASS] DrumPadGridWidget validated with 16-pad MPC matrix." << std::endl;
+}
+
 void testProjectBrowserDrawer() {
-    std::cout << "[Test 8/11] ProjectBrowserDrawer..." << std::endl;
+    std::cout << "[Test 8/11] ProjectBrowserDrawer (6 Workstation Tabs, Presets, Projects, History)..." << std::endl;
 
     ProjectBrowserDrawer browser;
     assert(!browser.isOpen());
@@ -465,25 +564,58 @@ void testProjectBrowserDrawer() {
     browser.open();
     assert(browser.isOpen());
 
-    browser.setTab(BrowserDrawerTab::Macros);
-    assert(browser.getTab() == BrowserDrawerTab::Macros);
+    // Test all 6 tabs
+    browser.setTab(BrowserDrawerTab::Assets);
+    assert(browser.getTab() == BrowserDrawerTab::Assets);
 
-    browser.setTab(BrowserDrawerTab::History);
-    assert(browser.getTab() == BrowserDrawerTab::History);
+    browser.setTab(BrowserDrawerTab::Scripts);
+    assert(browser.getTab() == BrowserDrawerTab::Scripts);
 
     browser.setTab(BrowserDrawerTab::Presets);
     assert(browser.getTab() == BrowserDrawerTab::Presets);
 
-    bool callbackTriggered = false;
+    browser.setTab(BrowserDrawerTab::Packs);
+    assert(browser.getTab() == BrowserDrawerTab::Packs);
+
+    browser.setTab(BrowserDrawerTab::Projects);
+    assert(browser.getTab() == BrowserDrawerTab::Projects);
+
+    browser.setTab(BrowserDrawerTab::History);
+    assert(browser.getTab() == BrowserDrawerTab::History);
+
+    // Layout
+    browser.layout(1280.0f, 800.0f, 56.0f, 48.0f);
+    assert(browser.getDrawerBounds().w == ProjectBrowserDrawer::getDrawerWidth());
+
+    // Callbacks
+    bool presetTriggered = false;
     browser.onSelectPreset = [&](const std::string& id) {
-        callbackTriggered = true;
+        presetTriggered = true;
         assert(!id.empty());
     };
-
     if (browser.onSelectPreset) {
-        browser.onSelectPreset("303_acid_lead");
+        browser.onSelectPreset("acid_303");
     }
-    assert(callbackTriggered);
+    assert(presetTriggered);
+
+    bool projectTriggered = false;
+    browser.onLoadProject = [&](const std::string& path) {
+        projectTriggered = true;
+        assert(!path.empty());
+    };
+    if (browser.onLoadProject) {
+        browser.onLoadProject("./Projects/demo.eats");
+    }
+    assert(projectTriggered);
+
+    bool undoTriggered = false;
+    browser.onUndo = [&]() {
+        undoTriggered = true;
+    };
+    if (browser.onUndo) {
+        browser.onUndo();
+    }
+    assert(undoTriggered);
 
     std::cout << "  [PASS] ProjectBrowserDrawer validated." << std::endl;
 }
@@ -559,19 +691,81 @@ void testGuiWindowIntegration() {
         assert(tr.name != "Master Bus");
     }
 
-    // Navigation state verification
-    window.setActiveView(WorkspaceView::Mixer);
-    assert(window.getActiveView() == WorkspaceView::Mixer);
+    // Mute/Solo routing and cross-view synchronization verification
+    // 1. Verify track mute state
+    window.setTrackMuteState(0, true);
+    assert(window.getModularArrangerView()->getTracks()[0].mute == true);
+    assert(engine.getSequencer().getTrack(0)->isMuted() == true);
 
-    window.setActiveView(WorkspaceView::Edit);
-    assert(window.getActiveView() == WorkspaceView::Edit);
-    window.setEditSubView(EditSubView::PianoRoll);
-    assert(window.getEditSubView() == EditSubView::PianoRoll);
+    // 2. Verify track solo state isolation
+    window.setTrackSoloState(3, true);
+    assert(window.getModularArrangerView()->getTracks()[3].solo == true);
+    assert(engine.getSequencer().getTrack(3)->isSolo() == true);
+    // Unsolo
+    window.setTrackSoloState(3, false);
+    assert(window.getModularArrangerView()->getTracks()[3].solo == false);
+    assert(engine.getSequencer().getTrack(3)->isSolo() == false);
+    // Unmute
+    window.setTrackMuteState(0, false);
+    assert(window.getModularArrangerView()->getTracks()[0].mute == false);
 
-    window.setActiveView(WorkspaceView::Design);
-    assert(window.getActiveView() == WorkspaceView::Design);
-    window.setDesignSubView(DesignSubView::ModularRack);
-    assert(window.getDesignSubView() == DesignSubView::ModularRack);
+    // Clip synchronization to EditView verification (DX7 Rhodes Track 3)
+    window.syncActiveClipToEditView(3, 0);
+    assert(window.getModularEditView()->getActiveTrackIndex() == 3);
+    assert(window.getModularEditView()->getActiveClipName() == "Chords A");
+    assert(window.getModularEditView()->getNotes().size() == 16);
+    assert(window.getModularEditView()->getDetectedChords().size() == 4);
+
+    // Verify Sequencer track received polyphonic chord extra notes
+    auto* seqTrk3 = engine.getSequencer().getTrack(3);
+    assert(seqTrk3 != nullptr);
+    assert(seqTrk3->getStep(0).active);
+    assert(seqTrk3->getStep(0).note == 60);
+    assert(seqTrk3->getStep(0).extraNotes.size() == 3); // 63, 67, 70
+
+    // 3. Verify Timeline Arranger-to-Sequencer synchronization:
+    // Track 2 (TR-909 Drive): default clip starts at Bar 5 (step 64). Bar 1..4 (step 0..63) MUST be silent!
+    auto* seqTrk2 = engine.getSequencer().getTrack(2);
+    assert(seqTrk2 != nullptr);
+    for (uint32_t s = 0; s < 64; ++s) {
+        assert(!seqTrk2->getStep(s).active); // Silence before Bar 5!
+    }
+    // Bar 5 (step 64) has four-on-the-floor kick!
+    assert(seqTrk2->getStep(64).active);
+    assert(seqTrk2->getStep(64).note == 36);
+
+    // Track 4 (Concert Grand): default clip starts at Bar 9 (step 128). Steps 0..127 MUST be silent!
+    auto* seqTrk4 = engine.getSequencer().getTrack(4);
+    assert(seqTrk4 != nullptr);
+    for (uint32_t s = 0; s < 128; ++s) {
+        assert(!seqTrk4->getStep(s).active); // Silence before Bar 9!
+    }
+    assert(seqTrk4->getStep(128).active);
+
+    // Track 1 (TR-808 Kit): Verify 132 BPM tempo rhythm (snare at step 4 and step 12)
+    auto* seqTrk1 = engine.getSequencer().getTrack(1);
+    assert(seqTrk1 != nullptr);
+    assert(seqTrk1->getStep(0).active); // Kick on step 0
+    assert(seqTrk1->getStep(0).note == 36);
+    assert(seqTrk1->getStep(4).active); // Snare on step 4
+    assert(seqTrk1->getStep(4).note == 38);
+    assert(seqTrk1->getStep(8).active); // Kick on step 8
+    assert(seqTrk1->getStep(8).note == 36);
+    assert(seqTrk1->getStep(12).active); // Snare on step 12
+    assert(seqTrk1->getStep(12).note == 38);
+
+    // Test moving clip in Arranger:
+    // Move TR-909 clip from Bar 5 to Bar 1
+    window.getModularArrangerView()->getTracks()[2].clips[0].startBar = 1;
+    window.syncArrangerToSequencer();
+    // Now Bar 1 (step 0) MUST have kick, and Bar 5 (step 64..79) MUST be silent!
+    assert(seqTrk2->getStep(0).active);
+    assert(seqTrk2->getStep(0).note == 36);
+    assert(!seqTrk2->getStep(64).active); // Bar 5 is now silent!
+
+    // Restore TR-909 back to Bar 5
+    window.getModularArrangerView()->getTracks()[2].clips[0].startBar = 5;
+    window.syncArrangerToSequencer();
 
     std::cout << "  [PASS] GuiWindow Modular Integration validated." << std::endl;
 }
@@ -734,6 +928,73 @@ void testValueEditDialogAndBackdropBlur() {
     assert(dialog.getSelectedText() == "1.00");
     dialog.close();
 
+    // 1b. Text Mode ValueEditDialog (Track Renaming & Icon Link)
+    std::string committedText = "";
+    bool actionLinkClicked = false;
+    ValueEditRequest textReq;
+    textReq.title = "EDIT TRACK PROPERTIES";
+    textReq.paramName = "Track Name";
+    textReq.isTextMode = true;
+    textReq.initialText = "Audio 1";
+    textReq.accentColor = Color(0.2f, 0.8f, 0.9f);
+    textReq.actionLinkLabel = "🎨 Choose Track Icon...";
+    textReq.onActionLink = [&]() {
+        actionLinkClicked = true;
+    };
+    textReq.onCommitText = [&](const std::string& t) {
+        committedText = t;
+    };
+
+    dialog.open(textReq);
+    assert(dialog.isOpen());
+    assert(dialog.isTextMode());
+    assert(dialog.getInputText() == "Audio 1");
+    assert(dialog.hasSelection()); // Selected by default
+
+    // Immediate typing replaces text
+    dialog.handleKey(83 /* 'S' */, 0, 1, 1 /* Shift */); // 'S'
+    assert(dialog.getInputText() == "S");
+    dialog.handleKey(89 /* 'Y' */, 0, 1, 0); // 'y'
+    dialog.handleKey(78 /* 'N' */, 0, 1, 0); // 'n'
+    dialog.handleKey(84 /* 'T' */, 0, 1, 0); // 't'
+    dialog.handleKey(72 /* 'H' */, 0, 1, 0); // 'h'
+    dialog.handleKey(32 /* ' ' */, 0, 1, 0); // ' '
+    dialog.handleKey(49 /* '1' */, 0, 1, 0); // '1'
+    assert(dialog.getInputText() == "Synth 1");
+
+    // Layout
+    dialog.layout(1280.0f, 800.0f);
+    Rect2D tBounds = dialog.getDialogBounds();
+    assert(tBounds.w == 400.0f);
+    assert(tBounds.h >= 200.0f);
+
+    // Commit via Enter
+    dialog.handleKey(257 /* ENTER */, 0, 1, 0);
+    assert(!dialog.isOpen());
+    assert(committedText == "Synth 1");
+
+    // Reopen and test action link click
+    dialog.open(textReq);
+    assert(dialog.isOpen());
+    actionLinkClicked = false;
+    PointerEvent peActionLink = makePointer(tBounds.x + 50.0f, tBounds.y + 120.0f, PointerAction::Down);
+    dialog.handlePointer(peActionLink);
+    assert(dialog.isOpen()); // Kept open so user can pick an icon and continue editing title!
+    assert(actionLinkClicked);
+    assert(committedText == "Audio 1"); // Preserved text before transitioning
+    dialog.setIconRef("preset:inst_drums");
+    assert(dialog.getIconRef() == "preset:inst_drums");
+    dialog.close();
+    assert(!dialog.isOpen());
+
+    // Color lerp validation
+    Color cA(0.0f, 0.0f, 0.0f, 1.0f);
+    Color cB(1.0f, 1.0f, 1.0f, 1.0f);
+    Color cMid = Color::lerp(cA, cB, 0.5f);
+    assertNear(cMid.r, 0.5f, 0.01f);
+    assertNear(cMid.g, 0.5f, 0.01f);
+    assertNear(cMid.b, 0.5f, 0.01f);
+
     // 2. MixerView Right-Click & LCD Integration
     MixerView mixer;
     ViewContext ctx;
@@ -833,7 +1094,341 @@ void testValueEditDialogAndBackdropBlur() {
     renderer.applyBackdropBlur(4.0f, 0.48f);
     renderer.flush();
 
+    // 6. TrackPropertiesPanel Header Card Redesign: 'M', 'S', Edit, single-line title
+    {
+        TrackPropertiesPanel panel;
+        ViewContext pCtx;
+        pCtx.logicalWidth = 1280.0f;
+        pCtx.logicalHeight = 800.0f;
+        panel.layout(Rect2D(0.0f, 0.0f, 320.0f, 600.0f), pCtx);
+        Rect2D headerBounds = panel.getHeaderCardBounds();
+        assert(headerBounds.h == 38.0f); // Reclaimed vertical space
+
+        TrackPropertiesDrawerData drawerData;
+        drawerData.trackName = "TR-808 Kit";
+        drawerData.iconRef = "preset:inst_drums";
+        drawerData.mute = false;
+        drawerData.solo = false;
+
+        float btnY = headerBounds.y + (38.0f - 24.0f) * 0.5f;
+        // Solo button: right-most button
+        auto hitSolo = panel.hitTest(headerBounds.x + headerBounds.w - 15.0f, btnY + 12.0f, drawerData);
+        assert(hitSolo.hit);
+        assert(hitSolo.area == TrackPropertiesHitArea::SoloButton);
+
+        // Mute button: just to the left of Solo
+        auto hitMute = panel.hitTest(headerBounds.x + headerBounds.w - 42.0f, btnY + 12.0f, drawerData);
+        assert(hitMute.hit);
+        assert(hitMute.area == TrackPropertiesHitArea::MuteButton);
+
+        // Edit button: just to the left of Mute
+        auto hitEdit = panel.hitTest(headerBounds.x + headerBounds.w - 70.0f, btnY + 12.0f, drawerData);
+        assert(hitEdit.hit);
+        assert(hitEdit.area == TrackPropertiesHitArea::RenameButton);
+
+        // Header background click / right-click
+        auto hitHeader = panel.hitTest(headerBounds.x + 50.0f, btnY + 12.0f, drawerData);
+        assert(hitHeader.hit);
+        assert(hitHeader.area == TrackPropertiesHitArea::RenameButton);
+    }
+
+    // 7. ArrangerView Track Header Right-Click & Icon Click Unified Dialog
+    {
+        ArrangerView arranger;
+        ViewContext aCtx;
+        aCtx.logicalWidth = 1280.0f;
+        aCtx.logicalHeight = 800.0f;
+        ValueEditRequest aReq;
+        bool aEditOpened = false;
+        aCtx.onOpenValueEdit = [&](const ValueEditRequest& r) {
+            aEditOpened = true;
+            aReq = r;
+        };
+
+        arranger.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), aCtx);
+        assert(!arranger.getTracks().empty());
+
+        // Right-click track 0 header (tracksList starts at y=56 + 28 = 84, row 0 height 64)
+        PointerEvent peHeaderRight = makePointer(80.0f, 100.0f, PointerAction::Down, PointerType::Mouse, 0.0, PointerButton::Right);
+        aEditOpened = false;
+        arranger.handlePointer(peHeaderRight, aCtx);
+        assert(aEditOpened);
+        assert(aReq.isTextMode);
+        assert(aReq.paramName == "Track Name");
+        assert(!aReq.actionLinkLabel.empty());
+
+        // Click track 0 icon glyph (iconBox at x = tracksList.x + 10 = 10, y = 84 + 7.5 = 91.5)
+        PointerEvent peIconClick = makePointer(12.0f, 92.0f, PointerAction::Down);
+        aEditOpened = false;
+        arranger.handlePointer(peIconClick, aCtx);
+        assert(aEditOpened);
+        assert(aReq.isTextMode);
+    }
+
     std::cout << "  [PASS] ValueEditDialog, Right-Click Editing & Backdrop Blur validated." << std::endl;
+}
+
+void testCommandPaletteDialog() {
+    std::cout << "[Test 14/14] Universal Quick Command Palette (Spotlight Runner)..." << std::endl;
+
+    CommandPaletteDialog palette;
+    assert(!palette.isOpen());
+    assert(palette.getFilteredCount() == 0);
+
+    // 1. Open / Toggle / Close State
+    palette.open();
+    assert(palette.isOpen());
+    palette.toggle();
+    assert(!palette.isOpen());
+    palette.toggle();
+    assert(palette.isOpen());
+
+    // 2. Command Registration
+    bool action1Triggered = false;
+    bool action2Triggered = false;
+    bool presetTriggered = false;
+    bool viewTriggered = false;
+
+    palette.registerCommand({
+        "action.play", "Play / Pause", "Toggle transport playback",
+        CommandCategory::Action, "Space", [&]() { action1Triggered = true; }
+    });
+    palette.registerCommand({
+        "action.panic", "Panic / All Stop", "Kill all audio voices immediately",
+        CommandCategory::Action, "Esc", [&]() { action2Triggered = true; }
+    });
+    palette.registerCommand({
+        "view.arranger", "Arranger View", "Full timeline and arrangement clips",
+        CommandCategory::View, "1", [&]() { viewTriggered = true; }
+    });
+    palette.registerCommand({
+        "preset.tb303", "TB-303 Acid Bass", "Resonant acid squelch synth preset",
+        CommandCategory::Preset, "", [&]() { presetTriggered = true; }
+    });
+
+    assert(palette.getFilteredCount() == 4);
+
+    // 3. Category Filtering
+    palette.setSelectedCategory(CommandCategory::Action);
+    assert(palette.getSelectedCategory() == CommandCategory::Action);
+    assert(palette.getFilteredCount() == 2);
+
+    palette.setSelectedCategory(CommandCategory::View);
+    assert(palette.getFilteredCount() == 1);
+
+    palette.setSelectedCategory(CommandCategory::All);
+    assert(palette.getFilteredCount() == 4);
+
+    // 4. Search Query Filtering
+    palette.setQuery("acid");
+    assert(palette.getFilteredCount() == 1);
+    assert(palette.getSelectedIndex() == 0);
+
+    palette.setQuery("ALL"); // Should match "Panic / All Stop"
+    assert(palette.getFilteredCount() == 1);
+
+    palette.setQuery("nonexistent_command_xyz");
+    assert(palette.getFilteredCount() == 0);
+
+    palette.setQuery("");
+    assert(palette.getFilteredCount() == 4);
+
+    // 5. Keyboard Navigation & Execution
+    // Down Arrow (264)
+    palette.handleKey(264, 0, 1, 0); // Down
+    assert(palette.getSelectedIndex() == 1);
+    palette.handleKey(264, 0, 1, 0); // Down
+    assert(palette.getSelectedIndex() == 2);
+    palette.handleKey(265, 0, 1, 0); // Up
+    assert(palette.getSelectedIndex() == 1);
+
+    // Enter Key (257) executes selected command (action2: Panic)
+    palette.handleKey(257, 0, 1, 0);
+    assert(action2Triggered);
+    assert(!palette.isOpen()); // Should close on execute
+
+    // 6. Typographic Input (handleChar & Backspace)
+    palette.open();
+    palette.handleChar('p');
+    palette.handleChar('l');
+    palette.handleChar('a');
+    palette.handleChar('y');
+    assert(palette.getQuery() == "play");
+    assert(palette.getFilteredCount() == 1);
+
+    palette.handleKey(259, 0, 1, 0); // Backspace
+    assert(palette.getQuery() == "pla");
+
+    // Escape (256) closes
+    palette.handleKey(256, 0, 1, 0);
+    assert(!palette.isOpen());
+
+    // 7. Layout & Batch Rendering validation
+    palette.open();
+    palette.layout(1280.0f, 800.0f);
+    palette.update(0.016f);
+
+    BatchRenderer2D renderer;
+    palette.render(renderer, Theme::current());
+    renderer.flush();
+
+    // 8. Integration with GuiWindow
+    audio::AudioEngine engine;
+    engine.initialize();
+    GuiWindow window(1280, 800, "Test Window");
+    bool ok = window.initialize(engine);
+    assert(ok);
+
+    assert(!window.isCommandPaletteOpen());
+    window.toggleCommandPalette();
+    assert(window.isCommandPaletteOpen());
+    assert(window.getCommandPaletteDialog().getFilteredCount() > 10); // Standard commands loaded
+
+    // Test Ctrl+P shortcut through window.onKeyDown
+    window.onKeyDown(80, 2); // 'P' with GLFW_MOD_CONTROL (2) -> toggles closed
+    assert(!window.isCommandPaletteOpen());
+    window.onKeyDown(75, 2); // 'K' with GLFW_MOD_CONTROL (2) -> toggles open
+    assert(window.isCommandPaletteOpen());
+
+    std::cout << "  [PASS] CommandPaletteDialog & Spotlight Runner validated." << std::endl;
+}
+
+void testFileDragAndDrop() {
+    std::cout << "[Test 15/15] Cross-Platform File Drag and Drop Subsystem..." << std::endl;
+
+    ArrangerView arranger;
+    ViewContext ctx;
+    ctx.screenWidth = 1280.0f;
+    ctx.screenHeight = 800.0f;
+    std::string notifiedMsg;
+    ctx.onShowNotification = [&](const std::string& msg) { notifiedMsg = msg; };
+
+    arranger.layout(Rect2D{0.0f, 60.0f, 1280.0f, 740.0f}, ctx);
+    size_t initialTracks = arranger.getTracks().size();
+    assert(initialTracks >= 5);
+
+    // 1. Drop WAV file onto Track 0 at Bar 3 (grid starts at x: 190, y: 60 + 28 + 16 = 104)
+    size_t trk0InitialClips = arranger.getTracks()[0].clips.size();
+    bool handledAudio = arranger.handleFileDrop({"C:/audio/samples/drum_break.wav"}, 190.0f + 2.0f * 64.0f + 10.0f, 120.0f, ctx);
+    assert(handledAudio);
+    assert(arranger.getTracks()[0].clips.size() == trk0InitialClips + 1);
+    const auto& newClip = arranger.getTracks()[0].clips.back();
+    assert(newClip.name == "drum_break");
+    assert(newClip.startBar == 3);
+    assert(newClip.isAudio == true);
+    assert(notifiedMsg.find("drum_break.wav") != std::string::npos);
+
+    // 2. Drop MIDI file onto Track 1 at Bar 5
+    size_t trk1InitialClips = arranger.getTracks()[1].clips.size();
+    bool handledMidi = arranger.handleFileDrop({"C:/midi/melodies/lead_riff.mid"}, 190.0f + 4.0f * 64.0f + 10.0f, 120.0f + 64.0f, ctx);
+    assert(handledMidi);
+    assert(arranger.getTracks()[1].clips.size() == trk1InitialClips + 1);
+    const auto& midiClip = arranger.getTracks()[1].clips.back();
+    assert(midiClip.name == "lead_riff");
+    assert(midiClip.startBar == 5);
+    assert(midiClip.isAudio == false);
+
+    // 3. Drop WAV file into empty arranger space below tracks -> Creates New Sampler Track
+    float belowTracksY = 120.0f + static_cast<float>(arranger.getTracks().size()) * 64.0f + 30.0f;
+    bool handledNewTrack = arranger.handleFileDrop({"C:/audio/stems/synth_pad.flac"}, 190.0f + 1.0f * 64.0f + 10.0f, belowTracksY, ctx);
+    assert(handledNewTrack);
+    assert(arranger.getTracks().size() == initialTracks + 1);
+    const auto& createdTrack = arranger.getTracks().back();
+    assert(createdTrack.name == "synth_pad");
+    assert(createdTrack.instrumentEngine == "sampler");
+    assert(!createdTrack.clips.empty());
+    assert(createdTrack.clips[0].startBar == 2);
+    assert(createdTrack.clips[0].isAudio == true);
+
+    // 4. GuiWindow Integration with Drop Callback
+    audio::AudioEngine engine;
+    engine.initialize();
+    GuiWindow window(1280, 800, "Drop Test Window");
+    bool ok = window.initialize(engine);
+    assert(ok);
+
+    bool externalHookFired = false;
+    window.onExternalFilesDropped = [&](const std::vector<std::string>& files, float /*x*/, float /*y*/) {
+        externalHookFired = true;
+        assert(!files.empty());
+        assert(files[0] == "test_drop.wav");
+    };
+
+    window.onFilesDropped({"test_drop.wav"}, 400.0f, 300.0f);
+    assert(externalHookFired);
+
+    // 5. Audio-to-MIDI Dialog routing when open
+    window.getAudioToMidiDialog().open();
+    assert(window.getAudioToMidiDialog().isOpen());
+    window.onFilesDropped({"vocal_recording.wav"}, 500.0f, 400.0f);
+    assert(window.getLastStatusMessage().find("Audio-to-MIDI") != std::string::npos ||
+           window.getStatusToastText().find("Audio-to-MIDI") != std::string::npos);
+    window.getAudioToMidiDialog().close();
+
+    // 6. Test dropping .eats song file into GuiWindow: loads graph, tracks, clips, and produces sound!
+    audio::AudioGraph testGraph;
+    testGraph.prepare(48000.0, 128);
+    auto tbNode = std::make_shared<audio::Tb303Node>("Tb303");
+    auto d9Node = std::make_shared<audio::DrumKitNode>("Drums909");
+    auto mGain = std::make_shared<audio::GainNode>("MasterOut");
+    mGain->setVolume(0.85f);
+    audio::NodeId tbId = testGraph.addNode(tbNode);
+    audio::NodeId d9Id = testGraph.addNode(d9Node);
+    audio::NodeId mgId = testGraph.addNode(mGain);
+    testGraph.connect(tbId, 0, mgId, 0);
+    testGraph.connect(d9Id, 0, mgId, 0);
+    testGraph.setOutputNode(mgId, 0);
+    testGraph.compile();
+
+    sequencer::StepSequencer testSeq;
+    testSeq.setBpm(142.0);
+    testSeq.setSwing(0.58);
+    size_t trk0 = testSeq.addTrack("Acid Synth", tbId, 16);
+    size_t trk1 = testSeq.addTrack("Techno 909", d9Id, 16);
+    testSeq.getTrack(trk0)->setStep(0, {true, 36, 0.9f, 0.8f, false, true});
+    testSeq.getTrack(trk1)->setStep(0, {true, 36, 1.0f, 0.5f, false, false});
+
+    const std::string dropEatsPath = "dropped_project.eats";
+    bool saved = project::ProjectFile::saveToFile(dropEatsPath, testGraph, testSeq, "Cyber Acid Rave", 142.0, 0.58);
+    assert(saved);
+
+    // Drop into window
+    window.onFilesDropped({dropEatsPath}, 200.0f, 200.0f);
+    assert(window.getLastStatusMessage().find("LOADED PROJECT") != std::string::npos ||
+           window.getLastStatusMessage().find("Loaded project") != std::string::npos);
+
+    // Verify modular arranger tracks updated from loaded song
+    assert(window.getModularArrangerView() != nullptr);
+    const auto& arrTracks = window.getModularArrangerView()->getTracks();
+    assert(arrTracks.size() == 2);
+    assert(arrTracks[0].name == "Acid Synth");
+    assert(arrTracks[1].name == "Techno 909");
+    assert(!arrTracks[0].clips.empty());
+    assert(arrTracks[0].clips[0].notes.size() >= 1);
+    assert(arrTracks[0].clips[0].notes[0].pitch == 36);
+
+    // Verify audio engine state
+    assert(engine.getSequencer().getBpm() == 142.0);
+    assert(engine.getSequencer().getSwing() == 0.58);
+
+    // Test audio playback produces sound!
+    engine.getSequencer().start();
+    float testPeak = 0.0f;
+    alignas(64) float pL[128]{};
+    alignas(64) float pR[128]{};
+    for (int b = 0; b < 10; ++b) {
+        engine.getSequencer().processBlock(128, engine.getGraph());
+        engine.getGraph().process(pL, pR, 128);
+        for (int i = 0; i < 128; ++i) {
+            testPeak = std::max(testPeak, std::abs(pL[i]));
+            testPeak = std::max(testPeak, std::abs(pR[i]));
+        }
+    }
+    assert(testPeak > 0.01f); // Sound is alive and kicking!
+
+    std::filesystem::remove(dropEatsPath);
+
+    std::cout << "  [PASS] Cross-Platform File Drag and Drop Subsystem validated." << std::endl;
 }
 
 int main() {
@@ -848,12 +1443,15 @@ int main() {
     testMixerView();
     testDesignView();
     testVirtualKeyboardDrawer();
+    testDrumPadGridWidget();
     testProjectBrowserDrawer();
     testTransportHeader();
     testBottomNavBar();
     testGuiWindowIntegration();
     testValueEditDialogAndBackdropBlur();
+    testCommandPaletteDialog();
+    testFileDragAndDrop();
 
-    std::cout << "\n>>> ALL 12 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 15 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }

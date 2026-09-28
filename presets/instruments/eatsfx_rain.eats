@@ -1,0 +1,85 @@
+# @id: eatsfx_rain
+# @name: EatsFX Rain
+# @category: instrument
+# @description: Physical modeling of real-world precipitation, rainfall, and surface impacts: stochastic Poisson droplet micro-noise blips, continuous atmospheric pink rain wash hiss, multi-surface modal cavity resonators (puddle, tin roof, foliage), and gutter drip dynamics.
+
+def init():
+    return {
+        "RainIntensity": eat.param("RainIntensity", 0.0, 1.0, 0.55),
+        "DropletForce": eat.param("DropletForce", 0.1, 1.5, 0.80),
+        "DropletPitch": eat.param("DropletPitch", 0.5, 2.5, 1.0),
+        "RainHiss": eat.param("RainHiss", 0.0, 1.0, 0.40),
+        "SurfaceType": eat.param("SurfaceType", 0.0, 2.0, 0.0),
+        "SurfaceReso": eat.param("SurfaceReso", 0.1, 0.95, 0.60),
+        "Brightness": eat.param("Brightness", 0.2, 2.0, 1.0),
+        "Tone": eat.param("Tone", 1000.0, 18000.0, 11000.0),
+        "Decay": eat.param("Decay", 0.1, 4.0, 1.2),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATSFX RAIN",
+            "subtitle": "Granular Precipitation & Surface Acoustic Matrix",
+            "background": "minimal_white",
+            "cornerRadius": 8,
+            "backgroundSvg": "M 60 90 C 45 90, 30 75, 30 60 C 30 45, 42 35, 55 35 C 60 20, 80 10, 105 10 C 130 10, 150 25, 155 45 C 165 45, 175 55, 175 65 C 175 80, 160 90, 145 90 Z M 50 115 L 40 145 M 85 115 L 75 145 M 120 115 L 110 145 M 155 115 L 145 145 M 65 155 L 55 185 M 100 155 L 90 185 M 135 155 L 125 185",
+            "backgroundSvgOpacity": 0.1,
+            "accent": "#0091EA",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "PRECIPITATION & DROPLETS",
+                    "accent": "#0091EA",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {
+                            "type": "row",
+                            "orientation": "vertical",
+                            "align": "space_around",
+                            "crossAlign": "center",
+                            "children": [
+                                {"type": "knob", "param": "RainIntensity", "label": "DOWNPOUR", "unit": "%", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "DropletForce", "label": "DROP IMPACT", "unit": "J", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "DropletPitch", "label": "DROP SIZE", "unit": "mm", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "RainHiss", "label": "RAIN WASH", "unit": "dB", "size": 36, "knobStyle": "snes", "showValue": False},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "SURFACE CAVITY & ACOUSTIC IMPACT",
+                    "accent": "#0277BD",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {
+                            "type": "row",
+                            "orientation": "vertical",
+                            "align": "space_around",
+                            "crossAlign": "center",
+                            "children": [
+                                {"type": "knob", "param": "SurfaceType", "label": "SURFACE", "unit": "idx", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "SurfaceReso", "label": "CAVITY RESO", "unit": "%", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "Brightness", "label": "SPLASH BITE", "unit": "%", "size": 36, "knobStyle": "snes", "showValue": False},
+                                {"type": "knob", "param": "Tone", "label": "HIGH CUT", "unit": "Hz", "size": 36, "knobStyle": "snes", "showValue": False},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+def process(time, freq, note, params):
+    return 0.0

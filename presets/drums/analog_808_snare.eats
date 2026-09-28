@@ -1,0 +1,85 @@
+# @id: analog_808_snare
+# @name: Analog 808 Snare
+# @category: instrument
+# @description: Authentic Eats-808 analog dual bridged-T resonant body (180Hz & 330Hz) and snappy high-pass noise wires.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ToneDecay": eat.param("ToneDecay", 0.04, 0.3, 0.12, step=0.0),
+        "Snappy": eat.param("Snappy", 0.0, 1.0, 0.7, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 0.6, 0.2, step=0.0),
+        "Tune": eat.param("Tune", 0.7, 1.4, 1.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 ANALOG SNARE DRUM",
+            "subtitle": "Dual Bridged-T Body with Snappy Noise Wires",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Snappy",
+                            "label": "SNAPPY WIRE",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "WIRE DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Snappy",
+                            "label": "SNAPPY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ToneDecay",
+                            "label": "TONE DEC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    body1 = eat.node.osc(wave="sine", freq=180.0)
+    body2 = eat.node.osc(wave="sine", freq=330.0)
+    body_mix = eat.node.mix(body1, body2)
+    body_env = eat.node.decay(decay="ToneDecay")
+    body_vca = eat.node.gain(body_mix, gain_cv=body_env)
+    noise = eat.node.noise()
+    noise_hp = eat.node.svf(noise, cutoff=2000.0, type="highpass")
+    wire_env = eat.node.decay(decay="Decay")
+    wire_vca = eat.node.gain(noise_hp, gain_cv=wire_env, gain="Snappy")
+    mix = eat.node.mix(body_vca, wire_vca)
+    out = eat.node.saturate(mix, drive=1.15)
+    return out

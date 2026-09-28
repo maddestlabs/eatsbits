@@ -1,0 +1,100 @@
+# @id: fm_acoustic_tom
+# @name: FM Acoustic Tom
+# @category: instrument
+# @description: Physical acoustic tom with dual-membrane resonance, noise-FM stick strike excitation, shell tuning, and room reflections.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ToneFreq": eat.param("ToneFreq", 60.0, 220.0, 90.0, step=0.0),
+        "TomPitchStart": eat.param("TomPitchStart", 80.0, 300.0, 160.0, step=0.0),
+        "PitchDecay": eat.param("PitchDecay", 0.02, 0.3, 0.12, step=0.0),
+        "Decay": eat.param("Decay", 0.1, 1.2, 0.45, step=0.0),
+        "StickFmDepth": eat.param("StickFmDepth", 0.0, 800.0, 350.0, step=0.0),
+        "StickDecay": eat.param("StickDecay", 0.002, 0.05, 0.012, step=0.0),
+        "ShellFreq": eat.param("ShellFreq", 80.0, 260.0, 140.0, step=0.0),
+        "RoomDelaySec": eat.param("RoomDelaySec", 0.002, 0.03, 0.01, step=0.0),
+        "Variance": eat.param("Variance", 0.0, 1.0, 0.2, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "DUAL-MIC FM ACOUSTIC TOM",
+            "subtitle": "Dual-Membrane Physical Shell & Stick Modulator",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "ToneFreq",
+                            "label": "TOM TONE",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "TomPitchStart",
+                            "label": "IMPACT PITCH",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "StickFmDepth",
+                            "label": "STICK FM",
+                            "unit": "Hz",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "ToneFreq",
+                            "label": "FUNDAMENTAL",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "TomPitchStart",
+                            "label": "START PITCH",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PitchDecay",
+                            "label": "PITCH DEC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "RING DECAY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StickFmDepth",
+                            "label": "STICK FM",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ShellFreq",
+                            "label": "SHELL RESO",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Variance",
+                            "label": "VARIANCE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }

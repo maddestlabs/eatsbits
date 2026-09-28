@@ -1,0 +1,31 @@
+# @id: action_stmn_procedural_piano
+# @name: STMN Procedural Piano
+# @category: projectAction
+# @description: Procedurally generates a complete classical/blues piano piece with rubato timing, figured bass, and melody leading using the Concert Grand Piano.
+# @tags: PIANO, PROCGEN, CLASSICAL, BLUES
+
+# @author: STMN / Eatsbeats
+# @category: project_action
+# @description: Procedurally generates a complete classical/blues piano piece with rubato timing, figured bass, and melody leading using the Concert Grand Piano.
+
+def init():
+    return {
+        "Style": eat.param("Style", 0, 15, 0, options=["Nocturne", "Prelude", "Ballade", "Sonatina", "March", "Chorale", "Elegy", "Etude", "Waltz", "Minuet", "Mazurka", "Polonaise", "Barcarolle", "Lullaby", "Blues", "Tarantella"]),
+        "Root": eat.param("Root", 0, 11, 0, options=["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
+        "Mode": eat.param("Mode", 0, 1, 0, options=["Major", "Minor"]),
+        "Seed": eat.param("Seed", 1, 999999, 42, step=1),
+        "TrackLayout": eat.param("TrackLayout", 0, 1, 0, options=["Two Tracks (Right/Left Hand)", "Single Unified Track"]),
+        "Rubato": eat.param("Rubato", 0.0, 1.0, 0.70, step=0.05),
+        "LeftArticulation": eat.param("LeftArticulation", 0.4, 1.5, 1.0, step=0.05),
+    }
+
+def run(project, params):
+    return {
+        "style": params.get("Style", 0),
+        "root": params.get("Root", 0),
+        "mode": params.get("Mode", 0),
+        "seed": params.get("Seed", 42),
+        "track_layout": params.get("TrackLayout", 0),
+        "rubato": params.get("Rubato", 0.70),
+        "left_articulation": params.get("LeftArticulation", 1.0),
+    }

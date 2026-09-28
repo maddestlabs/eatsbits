@@ -1,0 +1,73 @@
+# @id: analog_808_hihat
+# @name: Analog 808 Hi-Hat
+# @category: instrument
+# @description: Authentic Eats-808 analog 6-Schmitt-trigger square oscillator metallic cluster with 7.5kHz resonant bandpass filter.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Cutoff": eat.param("Cutoff", 4000.0, 11000.0, 7500.0, step=0.0),
+        "Decay": eat.param("Decay", 0.02, 0.6, 0.08, step=0.0),
+        "Tune": eat.param("Tune", 0.5, 2.0, 1.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 ANALOG HI-HAT",
+            "subtitle": "6-Osc Inharmonic Schmitt-Trigger Cluster",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Cutoff",
+                            "label": "BPF CUTOFF",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Cutoff",
+                            "label": "BPF CUTOFF",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "CLUSTER TUNE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    cluster = eat.node.metallic_cluster(tune="Tune")
+    decay_env = eat.node.decay(decay="Decay")
+    vca = eat.node.gain(cluster, gain_cv=decay_env)
+    bpf = eat.node.svf(vca, cutoff="Cutoff", reso=3.2, type="bandpass")
+    out = eat.node.saturate(bpf, drive=1.1)
+    return out

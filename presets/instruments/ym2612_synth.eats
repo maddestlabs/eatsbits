@@ -1,0 +1,66 @@
+# @id: ym2612_synth
+# @name: YM2612 Genesis 4-Op FM
+# @category: instrument
+# @description: Authentic YM2612 / OPN2 4-operator FM sound chip emulation (16-bit arcade & console sound) with 8 selectable routing algorithms, operator feedback, Total Level brightness, and direct register poke access.
+
+def init():
+    return {
+        "Algorithm": eat.param("Algorithm", 0.0, 7.0, 4.0),
+        "Feedback": eat.param("Feedback", 0.0, 7.0, 5.0),
+        "Op1_Mult": eat.param("Op1_Mult", 0.5, 12.0, 1.0),
+        "Op1_TL": eat.param("Op1_TL", 0.0, 127.0, 8.0),
+        "Op2_Mult": eat.param("Op2_Mult", 0.5, 12.0, 2.0),
+        "Op2_TL": eat.param("Op2_TL", 0.0, 127.0, 0.0),
+        "Op3_Mult": eat.param("Op3_Mult", 0.5, 12.0, 3.0),
+        "Op3_TL": eat.param("Op3_TL", 0.0, 127.0, 16.0),
+        "Op4_Mult": eat.param("Op4_Mult", 0.5, 12.0, 1.0),
+        "Op4_TL": eat.param("Op4_TL", 0.0, 127.0, 0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "YM2612 FM SOUND PROCESSOR",
+            "subtitle": "16-Bit 4-Operator FM Hardware Synthesis",
+            "background": "#111111",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "background": "#222222",
+                    "opacity": 0.55,
+                    "borderWidth": 0.25,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "nixie", "param": "Algorithm", "label": "ALGORITHM", "width": 110},
+                        {"type": "nixie", "param": "Feedback", "label": "FEEDBACK", "width": 110},
+                    ],
+                },
+                {
+                    "type": "row",
+                    "background": "#222222",
+                    "opacity": 1.0,
+                    "borderWidth": 0.25,
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "knob", "param": "Op1_Mult", "label": "OP1 MULT", "size": 48},
+                        {"type": "knob", "param": "Op1_TL", "label": "OP1 TL", "size": 48},
+                        {"type": "knob", "param": "Op2_Mult", "label": "OP2 MULT", "size": 48},
+                        {"type": "knob", "param": "Op2_TL", "label": "OP2 TL", "size": 48},
+                        {"type": "knob", "param": "Op3_Mult", "label": "OP3 MULT", "size": 48},
+                        {"type": "knob", "param": "Op3_TL", "label": "OP3 TL", "size": 48},
+                        {"type": "knob", "param": "Op4_Mult", "label": "OP4 MULT", "size": 48},
+                        {"type": "knob", "param": "Op4_TL", "label": "OP4 TL", "size": 48},
+                    ],
+                },
+            ],
+        },
+    }
+
+def process(time, freq, note, params):
+    return 0.0

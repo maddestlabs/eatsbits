@@ -34,6 +34,8 @@ struct ViewContext {
     float dpiScale{1.0f};
     float dt{0.0166f};
     bool isMobile{false};
+    float mouseX{-1.0f};
+    float mouseY{-1.0f};
 
     // Global navigation callbacks matching Eatsbeats
     std::function<void(WorkspaceView)> onNavigateTab;
@@ -64,6 +66,12 @@ public:
     }
 
     virtual bool handleKey([[maybe_unused]] int key, [[maybe_unused]] int scancode, [[maybe_unused]] int action, [[maybe_unused]] int mods, [[maybe_unused]] const ViewContext& ctx) {
+        return false;
+    }
+
+    virtual bool handleFileDrop([[maybe_unused]] const std::vector<std::string>& filePaths,
+                                [[maybe_unused]] float x, [[maybe_unused]] float y,
+                                [[maybe_unused]] const ViewContext& ctx) {
         return false;
     }
 

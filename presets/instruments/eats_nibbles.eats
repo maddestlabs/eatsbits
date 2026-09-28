@@ -1,0 +1,63 @@
+# @id: eats_nibbles
+# @name: Eats-Nibbles
+# @category: instrument
+# @description: Authentic FastTracker II Nibbles throwback arcade game and procedural sound engine with SNES Sfxr integration, score tracking, on-screen D-Pad, and beat-synced rhythm turning.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Speed": eat.param("Speed", 4.0, 30.0, 14.0, step=1.0, allow_variance=False),
+        "SFXType": eat.param("SFXType", 0.0, 5.0, 0.0, options=["Coin", "Laser", "Explosion", "Powerup", "Jump", "Button"], allow_variance=False),
+        "BeatSync": eat.param("BeatSync", 0.0, 1.0, 0.0, step=1.0, allow_variance=False),
+        "Seed": eat.param("Seed", 1.0, 9999.0, 1337.0, step=1.0, allow_variance=False),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Eats-Nibbles",
+            "subtitle": "FastTracker II Classic Arcade Easter Egg",
+            "background": "dark",
+            "accent": "#00FF9D",
+            "layout": [
+                {
+                    "type": "canvas",
+                    "mode": "grid",
+                    "cols": 32,
+                    "rows": 22,
+                    "width": 340,
+                    "height": 190,
+                    "showDpad": True,
+                    "showActionButtons": True,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Speed",
+                            "label": "SPEED",
+                            "unit": "fps",
+                        },
+                        {
+                            "type": "switch",
+                            "param": "BeatSync",
+                            "label": "BEAT SYNC",
+                        },
+                        {
+                            "type": "listbox",
+                            "param": "SFXType",
+                            "label": "SFX TONE",
+                            "width": 110,
+                            "height": 70,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

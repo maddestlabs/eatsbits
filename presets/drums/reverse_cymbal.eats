@@ -1,0 +1,105 @@
+# @id: reverse_cymbal
+# @name: Reverse Cymbal
+# @category: instrument
+# @description: Physical modeling of a Reverse Cymbal (GM 119 / 120): high-density inharmonic bronze plate modal cluster driven with a time-inverted power-law crescendo envelope, culminating in an abrupt choke cutoff and ring-off.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SwellDuration": eat.param("SwellDuration", 0.5, 3.0, 1.5, step=0.0),
+        "CrescendoCurve": eat.param("CrescendoCurve", 1.2, 3.5, 2.2, step=0.0),
+        "ShimmerAir": eat.param("ShimmerAir", 0.2, 1.4, 0.75, step=0.0),
+        "ChokeSnap": eat.param("ChokeSnap", 0.0, 1.0, 0.6, step=0.0),
+        "AirSheen": eat.param("AirSheen", -2.0, 6.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 3000.0, 18000.0, 15000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "REVERSE CYMBAL",
+            "subtitle": "Time-Inverted Bronze Alloy Modal Plate Crescendo & Choke",
+            "accent": "#FFBE0B",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "CRESCENDO & SWELL",
+                    "accent": "#FFBE0B",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "SwellDuration",
+                                    "label": "BUILD TIME",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "CrescendoCurve",
+                                    "label": "CURVE",
+                                    "unit": "x",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ChokeSnap",
+                                    "label": "CHOKE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "BRONZE AIR & SHIMMER",
+                    "accent": "#FB5607",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ShimmerAir",
+                                    "label": "SHIMMER",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "AirSheen",
+                                    "label": "AIR",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    cymbal = eat.node.reverse_cymbal(duration="SwellDuration", curve="CrescendoCurve", shimmer="ShimmerAir", choke="ChokeSnap")
+    filtered = eat.node.svf(cymbal, cutoff="Tone", type="lowpass")
+    return filtered
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

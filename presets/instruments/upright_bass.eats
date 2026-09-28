@@ -1,0 +1,111 @@
+# @id: upright_bass
+# @name: Upright Double Bass
+# @category: instrument
+# @description: Physical model of an acoustic 3/4 Upright Double Bass: heavy gut string side-finger pull (Hunt-Crossley elastodynamics), 4-point Hermite cubic waveguide with inharmonic dispersion, non-linear ebony fingerboard collision (fretless growl & slap), and 3/4 carved spruce body modal cavity resonator.
+
+# --- Acoustic 3/4 Upright Double Bass (Eatscript Physical Model) ---
+# Governing physics:
+# 1. Elastodynamic side-finger flesh contact & release (Hunt-Crossley)
+# 2. Digital waveguide with 1st-order allpass dispersion for inharmonicity (B)
+# 3. Non-linear ebony fingerboard collision solver ("growl" & fretless slap)
+# 4. 3/4 Carved spruce & maple modal body cavity (58Hz air / 98Hz wood)
+
+import math
+
+def init():
+    # Pluck & Flesh Contact Dynamics
+    eat.param("FingerFlesh", min=0.1, max=1.0, default=0.70)
+    eat.param("FingerMass", min=0.5, max=4.0, default=2.2)
+    eat.param("SlapClick", min=0.0, max=2.0, default=0.35)
+
+    # String Waveguide & Inharmonicity
+    eat.param("Sustain", min=0.85, max=0.9998, default=0.995)
+    eat.param("StringDamp", min=0.05, max=0.85, default=0.28)
+    eat.param("Dispersion", min=0.0, max=0.85, default=0.22)
+    eat.param("ActionHeight", min=1.0, max=8.0, default=3.2)
+
+    # Cavity & Spruce Resonance
+    eat.param("SubWarmth", min=0.0, max=12.0, default=2.0)
+    eat.param("BodyPunch", min=-3.0, max=9.0, default=3.0)
+    eat.param("BodyWarmth", min=0.1, max=2.0, default=0.75)
+    eat.param("WoodTone", min=-9.0, max=6.0, default=-3.5)
+
+def process(time, freq, note, params):
+    # GraphEvaluator.buildUprightBass() runs the full real-time physical waveguide.
+    # Fallback analytical formula if evaluated in pure procedural mode:
+    flesh = params.get("FingerFlesh", 0.70)
+    mass = params.get("FingerMass", 2.2)
+    sustain = params.get("Sustain", 0.995)
+    slap = params.get("SlapClick", 0.35)
+    disp = params.get("Dispersion", 0.22)
+    sub = params.get("SubWarmth", 2.0)
+
+    t = time
+    decay = math.exp(-t * (1.8 / max(0.1, sustain)))
+    
+    # Inharmonic partial spreading
+    b_fac = 0.0004 * (1.0 + disp * 2.0)
+    f0 = freq
+    f1 = 2.0 * f0 * math.sqrt(1.0 + b_fac * 4.0)
+    f2 = 3.0 * f0 * math.sqrt(1.0 + b_fac * 9.0)
+
+    # Tactile flesh strike transient
+    fleshPulse = math.exp(-t * (45.0 + (1.0 - flesh) * 80.0)) * mass * 0.4
+    # Fingerboard collision growl
+    slapTransient = 0.0
+    if slap > 0.05 and t < 0.025:
+        slapTransient = (math.sin(t * 3200.0) * 0.6) * math.exp(-t * 220.0) * slap * 0.5
+
+    fund = math.sin(2.0 * math.pi * f0 * t) * (1.0 + sub * 0.05)
+    harmonics = 0.42 * math.sin(2.0 * math.pi * f1 * t) + 0.22 * math.sin(2.0 * math.pi * f2 * t)
+
+    raw = (fund + harmonics) * decay + fleshPulse + slapTransient
+    return math.tanh(raw * 1.15) * 0.95
+
+def gui():
+    return {
+        "panel": {
+            "title": "UPRIGHT DOUBLE BASS",
+            "subtitle": "3/4 Carved Spruce Cavity, Gut Waveguide & Ebony Slap",
+            "accent": "#C49A45",
+            "background": "walnut",
+            "rackSides": "rosewood",
+            "cornerRadius": 6,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "FLESH PLUCK & HUNT-CROSSLEY ELASTODYNAMICS",
+                    "accent": "#C49A45",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {"type": "knob", "param": "FingerFlesh", "label": "FLESH RATIO", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "FingerMass", "label": "PULL MASS", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "SlapClick", "label": "EBONY SLAP", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "ActionHeight", "label": "ACTION (MM)", "knobStyle": "vintage", "size": 52},
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "group",
+                    "label": "GUT/STEEL WAVEGUIDE & INHARMONIC DISPERSION",
+                    "accent": "#C49A45",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {"type": "knob", "param": "Dispersion", "label": "DISPERSION", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "StringDamp", "label": "GUT DAMP", "unit": "%", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "Sustain", "label": "SUSTAIN", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "SubWarmth", "label": "SUB (65Hz)", "unit": "dB", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "BodyPunch", "label": "160Hz PUNCH", "unit": "dB", "knobStyle": "vintage", "size": 52},
+                                {"type": "knob", "param": "WoodTone", "label": "WOOD TONE", "unit": "dB", "knobStyle": "vintage", "size": 52},
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }

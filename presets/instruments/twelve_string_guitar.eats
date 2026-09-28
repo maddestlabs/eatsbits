@@ -1,0 +1,78 @@
+# @id: twelve_string_guitar
+# @name: 12-String Acoustic Guitar
+# @category: instrument
+# @description: Physical modeling of a 12-string acoustic folk-rock guitar: paired octave & unison coupled waveguides, 4.2-cent inter-string micro-chorus beating, large dreadnought modal cavity, and shimmering chime.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ChorusDetune": eat.param("ChorusDetune", 0.0, 10.0, 4.2, step=0.0),
+        "OctavePairing": eat.param("OctavePairing", 0.0, 1.0, 1.0, step=0.0, allow_variance=False),
+        "StrumSpread": eat.param("StrumSpread", 2.0, 35.0, 14.0, step=0.0),
+        "PickBite": eat.param("PickBite", 0.0, 1.0, 0.15, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.995, step=0.0),
+        "Damping": eat.param("Damping", 0.05, 0.7, 0.2, step=0.0),
+        "Chime": eat.param("Chime", -6.0, 8.0, 3.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "12-STRING ACOUSTIC GUITAR",
+            "subtitle": "Double-Course Octave Pairing & Folk Chime Physical Model",
+            "accent": "#F59E0B",
+            "background": "blonde_pine",
+            "rackSides": "tortoise",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "ChorusDetune",
+                            "label": "CHORUS DETUNE",
+                            "unit": "cents",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "OctavePairing",
+                            "label": "OCTAVE PAIRS",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StrumSpread",
+                            "label": "STRUM FAN",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Chime",
+                            "label": "CHIME AIR",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

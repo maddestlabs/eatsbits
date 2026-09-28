@@ -1,0 +1,55 @@
+# @id: astral_shimmer_pad
+# @name: Astral Shimmer Pad
+# @category: instrument
+# @engine: ambient_pad
+# @tags: pad, ambient, synth, shimmer, atmosphere, lush
+# @description: 7-unison detuned analog ambient pad with wide stereo spread, slow sweeping resonant filter, and lush ADSR envelope.
+
+# --- Parameter Definitions ---
+def init():
+    eat.use_engine("ambient_pad")
+    return {
+        "Cutoff": eat.param("Cutoff", 100.0, 16000.0, 2400.0, unit="Hz"),
+        "Resonance": eat.param("Resonance", 0.1, 5.0, 0.55, unit=""),
+        "Detune": eat.param("Detune", 1.0, 35.0, 14.0, unit="cents"),
+        "Warmth": eat.param("Warmth", 0.0, 1.0, 0.65, unit=""),
+        "Attack": eat.param("Attack", 0.05, 4.0, 0.85, unit="s"),
+        "Decay": eat.param("Decay", 0.1, 6.0, 1.5, unit="s"),
+        "Sustain": eat.param("Sustain", 0.0, 1.0, 0.85, unit=""),
+        "Release": eat.param("Release", 0.1, 8.0, 2.5, unit="s"),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ASTRAL SHIMMER PAD",
+            "subtitle": "7-Unison Detuned Analog Ambient Synthesizer",
+            "background": "carbon",
+            "accent": "#00E5FF",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Cutoff", "label": "CUTOFF", "unit": "Hz", "knobStyle": "vintage"},
+                        {"type": "knob", "param": "Resonance", "label": "RESO", "knobStyle": "vintage"},
+                        {"type": "knob", "param": "Detune", "label": "DETUNE", "unit": "ct", "knobStyle": "vintage"},
+                        {"type": "knob", "param": "Warmth", "label": "WARMTH", "knobStyle": "vintage"}
+                    ]
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Attack", "label": "ATTACK", "unit": "s"},
+                        {"type": "knob", "param": "Decay", "label": "DECAY", "unit": "s"},
+                        {"type": "knob", "param": "Sustain", "label": "SUSTAIN"},
+                        {"type": "knob", "param": "Release", "label": "RELEASE", "unit": "s"}
+                    ]
+                }
+            ]
+        }
+    }
+
+# --- Instrument Synthesis Hook ---
+def process(time, freq, note, params):
+    return eat.synth(note, time, params)

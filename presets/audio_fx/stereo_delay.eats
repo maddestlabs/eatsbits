@@ -1,0 +1,57 @@
+# @id: stereo_delay
+# @name: Stereo Delay
+# @category: audioFx
+# @description: Stereo feedback echo delay unit with ping-pong spatial modulation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "TimeMs": eat.param("TimeMs", 20.0, 1000.0, 250.0, step=10.0, allow_variance=False),
+        "Feedback": eat.param("Feedback", 0.0, 0.95, 0.4, step=0.05),
+        "Mix": eat.param("Mix", 0.0, 1.0, 0.35, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Stereo Delay",
+            "subtitle": "Dual-Channel Echo & Feedback Unit",
+            "background": "dark",
+            "accent": "#FFD700",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "TimeMs",
+                            "label": "TIME",
+                            "unit": "ms",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Feedback",
+                            "label": "FEEDBACK",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Mix",
+                            "label": "DRY/WET",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Audio FX Graph ---
+def graph():
+    in_sig = eat.node.input()
+    echo = eat.node.delay(in_sig=in_sig, time="TimeMs", feedback="Feedback")
+    fx = eat.node.mix(in_sig, echo)
+    return fx
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

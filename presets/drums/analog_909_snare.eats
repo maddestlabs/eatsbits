@@ -1,0 +1,73 @@
+# @id: analog_909_snare
+# @name: Analog 909 Snare
+# @category: instrument
+# @description: Authentic Eats-909 analog dual-layer physical model (André Michelle DSP): tuned analog resonant tonal body (snare-tone) and snappy noise wires (snare-noise).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", -0.5, 0.5, 0.0, step=0.0),
+        "Snappy": eat.param("Snappy", 0.0, 2.0, 1.0, step=0.0),
+        "ToneDecay": eat.param("ToneDecay", 0.04, 0.25, 0.12, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-909 ANALOG SNARE DRUM",
+            "subtitle": "Dual Layer: Resonant Tonal Body & Snappy Noise Wires",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "TONE PITCH",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Snappy",
+                            "label": "SNAPPY WIRE",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "ToneDecay",
+                            "label": "TONE DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Snappy",
+                            "label": "SNAPPY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ToneDecay",
+                            "label": "TONE DEC",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    snare = eat.node.tr909_snare(tune="Tune", snappy="Snappy", tone="ToneDecay")
+    out = eat.node.saturate(snare, drive=1.1)
+    return out

@@ -541,7 +541,8 @@ bool ChordTheory::detectChordFromPitches(
     for (int p : midiPitches) {
         activePcs.insert((p % 12 + 12) % 12);
     }
-    if (activePcs.empty()) return false;
+    // Monophonic content (fewer than 2 distinct pitch classes) is never a chord
+    if (activePcs.size() < 2) return false;
 
     int bestRoot = bassPc;
     ChordQuality bestQuality = ChordQuality::Major;
@@ -591,6 +592,9 @@ bool ChordTheory::detectChordFromPitches(
         }
     }
 
+    // Require sufficient harmonic match confidence
+    if (bestScore < 0.85f) return false;
+
     outRoot = bestRoot;
     outQuality = bestQuality;
     outBass = (bassPc != bestRoot) ? bassPc : -1;
@@ -622,38 +626,62 @@ std::vector<ChordEvent> ChordTheory::extractChordsFromNotes(
         float barStart = static_cast<float>(bar * stepsPerBar);
         float barEnd = static_cast<float>((bar + 1) * stepsPerBar);
 
-        std::vector<int> barPitches;
+        std::vector<TheoryNote> barNotes;
         for (const auto& n : notes) {
             float noteEnd = n.startStep + n.durationSteps;
             if (n.startStep < barEnd && noteEnd > barStart) {
-                barPitches.push_back(n.pitch);
+                barNotes.push_back(n);
             }
         }
 
-        if (!barPitches.empty()) {
-            int detectedRoot = 0;
-            ChordQuality detectedQuality = ChordQuality::Major;
-            int detectedBass = -1;
+        if (barNotes.empty()) continue;
 
-            if (detectChordFromPitches(barPitches, detectedRoot, detectedQuality, detectedBass)) {
-                ChordEvent chord;
-                chord.id = "chord_extracted_" + std::to_string(startBar + bar);
-                chord.startBar = startBar + bar;
-                chord.barLength = 1.0f;
-                chord.rootPitchClass = detectedRoot;
-                chord.quality = detectedQuality;
-                chord.bassPitchClass = detectedBass;
+        // Check for polyphonic content: find simultaneous sounding pitches
+        std::vector<int> polyPitches;
+        size_t maxSimultaneous = 0;
 
-                // Merge with previous chord if identical and consecutive
-                if (!extracted.empty() &&
-                    extracted.back().rootPitchClass == chord.rootPitchClass &&
-                    extracted.back().quality == chord.quality &&
-                    extracted.back().bassPitchClass == chord.bassPitchClass &&
-                    static_cast<uint32_t>(extracted.back().startBar + extracted.back().barLength) == chord.startBar) {
-                    extracted.back().barLength += 1.0f;
-                } else {
-                    extracted.push_back(chord);
+        for (const auto& n1 : barNotes) {
+            float t = std::clamp(n1.startStep + 0.05f, barStart, barEnd - 0.01f);
+            std::set<int> activePcsAtT;
+            std::vector<int> pitchesAtT;
+            for (const auto& n2 : barNotes) {
+                float n2End = n2.startStep + n2.durationSteps;
+                if (t >= n2.startStep && t < n2End) {
+                    activePcsAtT.insert((n2.pitch % 12 + 12) % 12);
+                    pitchesAtT.push_back(n2.pitch);
                 }
+            }
+            if (activePcsAtT.size() > maxSimultaneous) {
+                maxSimultaneous = activePcsAtT.size();
+                polyPitches = pitchesAtT;
+            }
+        }
+
+        // True chord events require polyphonic content (at least 2 simultaneous distinct pitch classes)
+        if (maxSimultaneous < 2) continue;
+
+        int detectedRoot = 0;
+        ChordQuality detectedQuality = ChordQuality::Major;
+        int detectedBass = -1;
+
+        if (detectChordFromPitches(polyPitches, detectedRoot, detectedQuality, detectedBass)) {
+            ChordEvent chord;
+            chord.id = "chord_extracted_" + std::to_string(startBar + bar);
+            chord.startBar = startBar + bar;
+            chord.barLength = 1.0f;
+            chord.rootPitchClass = detectedRoot;
+            chord.quality = detectedQuality;
+            chord.bassPitchClass = detectedBass;
+
+            // Merge with previous chord if identical and consecutive
+            if (!extracted.empty() &&
+                extracted.back().rootPitchClass == chord.rootPitchClass &&
+                extracted.back().quality == chord.quality &&
+                extracted.back().bassPitchClass == chord.bassPitchClass &&
+                static_cast<uint32_t>(extracted.back().startBar + extracted.back().barLength) == chord.startBar) {
+                extracted.back().barLength += 1.0f;
+            } else {
+                extracted.push_back(chord);
             }
         }
     }

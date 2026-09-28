@@ -1,0 +1,68 @@
+# @id: analog_808_cowbell
+# @name: Analog 808 Cowbell
+# @category: instrument
+# @description: Authentic Eats-808 analog dual detuned square wave oscillator (540Hz & 800Hz) with 800Hz bandpass filter.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", 500.0, 1200.0, 800.0, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 0.8, 0.32, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 ANALOG COWBELL",
+            "subtitle": "Dual Square-Wave 540Hz/800Hz Bandpass Circuit",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "BPF TUNE",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "BPF TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    osc1 = eat.node.osc(wave="square", freq=540.0)
+    osc2 = eat.node.osc(wave="square", freq=800.0)
+    osc_mix = eat.node.mix(osc1, osc2)
+    decay_env = eat.node.decay(decay="Decay")
+    vca = eat.node.gain(osc_mix, gain_cv=decay_env)
+    bpf = eat.node.svf(vca, cutoff="Tune", reso=2.2, type="bandpass")
+    out = eat.node.saturate(bpf, drive=1.2)
+    return out

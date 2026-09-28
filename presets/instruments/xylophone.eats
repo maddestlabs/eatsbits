@@ -1,0 +1,99 @@
+# @id: xylophone
+# @name: Xylophone
+# @category: instrument
+# @description: Physical modal modeling of an orchestral rosewood xylophone: undercut arched Honduras rosewood bar with Mode 2 tuned to the triple octave (3.0 * f0), high internal wood damping (dry staccato pop), tuned quarter-wave air resonator tube burst, and hard mallet impact.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "WoodDecay": eat.param("WoodDecay", 0.08, 1.0, 0.32, step=0.0),
+        "ResonatorPop": eat.param("ResonatorPop", 0.0, 1.2, 0.65, step=0.0),
+        "MalletHardness": eat.param("MalletHardness", 0.1, 1.0, 0.7, step=0.0),
+        "TripleOctave": eat.param("TripleOctave", 0.0, 1.0, 0.55, step=0.0, allow_variance=False),
+        "WoodCrack": eat.param("WoodCrack", -3.0, 6.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 1500.0, 20000.0, 15000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ORCHESTRAL XYLOPHONE",
+            "subtitle": "Arched Rosewood Bar Triple-Octave Physics & Tube Resonator",
+            "accent": "#E76F51",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "ROSEWOOD MODAL ARCH",
+                    "accent": "#E76F51",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "WoodDecay",
+                                    "label": "WOOD DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "TripleOctave",
+                                    "label": "3X OVERTONE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ResonatorPop",
+                                    "label": "TUBE POP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "MALLET & PRESENCE",
+                    "accent": "#F4A261",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "MalletHardness",
+                                    "label": "MALLET",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "WoodCrack",
+                                    "label": "WOOD BITE",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

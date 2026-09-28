@@ -1,0 +1,86 @@
+# @id: opl3_retro
+# @name: OPL3 Retro Chiptune
+# @category: instrument
+# @description: YMF262 / OPL3 2-Op & 4-Op FM synthesis modelled after classic 16-bit retro DOS sound cards.
+
+def init():
+    return {
+        "Algorithm": eat.param("Algorithm", 0.0, 7.0, 4.0),
+        "Feedback": eat.param("Feedback", 0.0, 7.0, 4.0),
+        "Op1_Mult": eat.param("Op1_Mult", 0.5, 15.0, 1.0),
+        "Op1_TL": eat.param("Op1_TL", 0.0, 127.0, 12.0),
+        "Op2_Mult": eat.param("Op2_Mult", 0.5, 15.0, 2.0),
+        "Op2_TL": eat.param("Op2_TL", 0.0, 127.0, 0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "YMF262 / OPL3 FM SYNTH",
+            "subtitle": "OPL3 Core v.Furnace | MAME Emulated",
+            "background": "pcb_green",
+            "cornerRadius": 8,
+            "accent": "#39FF14",
+            "backgroundGradient": {
+                "type": "radial",
+                "colors": ["#25633A", "#154222", "#0A2010"],
+                "radius": 1.25,
+                "stops": [0.0, 0.65, 1.0],
+            },
+            "backgroundSvgLayers": [
+                {
+                    "path": "M 25 35 L 45 35 L 55 45 L 55 105 L 65 115 L 75 115 M 25 50 L 40 50 L 50 60 L 50 110 L 60 120 L 70 120 M 25 65 L 35 65 L 45 75 L 45 125 L 65 125 M 25 80 L 35 80 L 40 85 L 40 145 L 55 160 L 70 160 M 25 95 L 30 95 L 35 100 L 35 165 L 50 180 L 70 180 M 125 45 L 145 45 L 155 35 L 175 35 M 125 60 L 140 60 L 150 70 L 175 70 M 225 35 L 245 35 L 255 45 L 275 45 M 225 70 L 250 70 L 260 60 L 275 60 M 95 160 L 110 160 L 125 145 L 145 145 M 100 175 L 115 175 L 130 160 L 145 160 M 175 160 L 190 160 L 205 145 L 225 145 M 180 175 L 195 175 L 210 160 L 225 160 M 255 160 L 270 160 L 285 145 L 305 145 M 260 175 L 275 175 L 290 160 L 305 160 M 335 160 L 350 160 L 365 145 L 385 145 M 340 175 L 355 175 L 370 160 L 385 160 M 15 200 L 70 200 L 85 185 L 120 185 M 220 190 L 250 190 L 265 205 L 385 205 M 15 15 L 385 15 M 15 15 L 15 205 M 385 15 L 385 205 M 15 205 L 385 205",
+                    "color": "#338A4A",
+                    "strokeWidth": 1.4,
+                    "style": "stroke",
+                    "opacity": 0.65,
+                },
+                {
+                    "path": "M 175 25 L 195 25 L 195 45 L 175 45 Z M 205 25 L 225 25 L 225 45 L 205 45 Z M 175 55 L 195 55 L 195 75 L 175 75 Z M 205 55 L 225 55 L 225 75 L 205 75 Z M 185 45 L 185 55 M 195 35 L 205 35 M 215 45 L 215 55 M 72 180 L 88 180 L 88 192 L 72 192 Z M 152 180 L 168 180 L 168 192 L 152 192 Z M 232 180 L 248 180 L 248 192 L 232 192 Z M 312 180 L 328 180 L 328 192 L 312 192 Z M 45 20 L 140 20 L 140 75 L 45 75 Z M 260 20 L 355 20 L 355 75 L 260 75 Z M 20 28 L 30 28 L 30 128 L 20 128 Z",
+                    "color": "#E8F5E9",
+                    "strokeWidth": 0.9,
+                    "style": "stroke",
+                    "opacity": 0.35,
+                },
+                {
+                    "path": "M 45 35 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 75 115 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 70 120 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 65 125 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 145 45 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 255 45 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 145 145 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 225 145 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 305 145 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 385 145 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0 Z M 12 12 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z M 388 12 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z M 12 208 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z M 388 208 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z M 200 12 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z M 200 208 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 Z",
+                    "color": "#D4AF37",
+                    "style": "fill",
+                    "opacity": 0.70,
+                },
+            ],
+            "layout": [
+                {
+                    "type": "row",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "accent": "#FF2020",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "nixie", "param": "Algorithm", "label": "ALGORITHM", "width": 115, "accent": "#FF2020"},
+                        {"type": "nixie", "param": "Feedback", "label": "FEEDBACK", "width": 115, "accent": "#FF2020"},
+                    ],
+                },
+                {
+                    "type": "row",
+                    "opacity": 0.0,
+                    "borderWidth": 0.0,
+                    "accent": "#39FF14",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "knob", "param": "Op1_Mult", "label": "OP1 MULT", "unit": "x", "size": 44, "knobStyle": "standard", "accent": "#39FF14"},
+                        {"type": "knob", "param": "Op1_TL", "label": "OP1 TL", "unit": "", "size": 44, "knobStyle": "standard", "accent": "#39FF14"},
+                        {"type": "knob", "param": "Op2_Mult", "label": "OP2 MULT", "unit": "x", "size": 44, "knobStyle": "standard", "accent": "#39FF14"},
+                        {"type": "knob", "param": "Op2_TL", "label": "OP2 TL", "unit": "", "size": 44, "knobStyle": "standard", "accent": "#39FF14"},
+                    ],
+
+                },
+            ],
+        },
+    }
+
+def process(time, freq, note, params):
+    return 0.0

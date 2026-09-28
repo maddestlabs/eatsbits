@@ -1,5 +1,8 @@
 #include "eatsbits/eatscript/macro_runtime.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
+#include "eatsbits/procgen/procedural_acid_engine.hpp"
+#include "eatsbits/procgen/procedural_drum_engine.hpp"
+#include "eatsbits/procgen/procedural_song_engine.hpp"
 #include <random>
 #include <sstream>
 #include <regex>
@@ -54,6 +57,17 @@ eat.daw.log("Humanization applied.")
 eat.daw.log("Arpeggiating active track...")
 eat.daw.arpeggiate(rate=1.0, octaves=2, pattern="updown")
 eat.daw.log("Arpeggiation complete.")
+)"
+        },
+        {
+            "macro_song_gen",
+            "Generate Full Procedural Song",
+            "Generative",
+            "Synthesizes a complete multi-track song arrangement across Drums, Bass, Chords, and Lead melody.",
+            R"(# Procedural Song Architect
+eat.daw.log("Generating full procedural song arrangement...")
+eat.daw.generate_song(style="Lo-Fi Hip Hop", bars=16, seed=42)
+eat.daw.log("Procedural song generated successfully.")
 )"
         }
     };
@@ -131,7 +145,19 @@ MacroResult MacroRuntime::execute(const std::string& macroScript,
     eval.registerMemberFunction("eat.daw", "generate_drums", drumsFn);
     eval.registerMemberFunction("project", "generate_drums", drumsFn);
 
-    // 6. humanize
+    // 6. generate_song
+    auto songFn = [&res, &sequencer](const std::vector<Value>& args, const auto& kwargs) -> Value {
+        std::string style = resolveArg(args, kwargs, 0, "style", Value("Lo-Fi Hip Hop")).asString();
+        uint32_t bars = static_cast<uint32_t>(resolveArg(args, kwargs, 1, "bars", Value(16)).asInt(16));
+        uint32_t seed = static_cast<uint32_t>(resolveArg(args, kwargs, 2, "seed", Value(42)).asInt(42));
+        auto r = generateProceduralSong(sequencer, style, bars, seed);
+        res.logs.push_back(r.message);
+        return Value(r.success);
+    };
+    eval.registerMemberFunction("eat.daw", "generate_song", songFn);
+    eval.registerMemberFunction("project", "generate_song", songFn);
+
+    // 7. humanize
     auto humanizeFn = [&res, &sequencer](const std::vector<Value>& args, const auto& kwargs) -> Value {
         float timing = resolveArg(args, kwargs, 0, "timing", Value(0.03)).asFloat(0.03f);
         float vel = resolveArg(args, kwargs, 1, "velocity", Value(0.12)).asFloat(0.12f);
@@ -143,7 +169,7 @@ MacroResult MacroRuntime::execute(const std::string& macroScript,
     eval.registerMemberFunction("eat.daw", "humanize", humanizeFn);
     eval.registerMemberFunction("project", "humanize", humanizeFn);
 
-    // 7. arpeggiate
+    // 8. arpeggiate
     auto arpFn = [&res, &sequencer](const std::vector<Value>& args, const auto& kwargs) -> Value {
         double rate = resolveArg(args, kwargs, 0, "rate", Value(1.0)).asNumber(1.0);
         int octaves = resolveArg(args, kwargs, 1, "octaves", Value(2)).asInt(2);
@@ -174,37 +200,15 @@ MacroResult MacroRuntime::generateAcidBassline(sequencer::SequencerTrack& track,
                                               uint32_t numSteps,
                                               uint32_t seed) {
     MacroResult res;
-    track.clear();
-    track.setNumSteps(numSteps);
-
-    std::mt19937 randGen(seed);
-    static const int minorScale[] = {0, 3, 5, 7, 10, 12};
-    std::uniform_int_distribution<size_t> noteDist(0, 5);
-    std::uniform_real_distribution<float> probDist(0.0f, 1.0f);
-
-    for (uint32_t s = 0; s < numSteps; ++s) {
-        // Density approx 65% active steps
-        if (probDist(randGen) < 0.35f && (s % 4 != 0)) continue;
-
-        sequencer::StepData step;
-        step.active = true;
-        int interval = minorScale[noteDist(randGen)];
-        int octShift = (probDist(randGen) > 0.75f) ? 12 : 0;
-        step.note = static_cast<uint8_t>(std::clamp(rootPitch + interval + octShift, 24, 84));
-
-        step.velocity = (s % 4 == 0) ? 0.95f : 0.80f;
-        step.gateLength = 0.75f;
-
-        // Slide logic: more likely after accented notes or 16th runs
-        step.slide = (probDist(randGen) < 0.25f);
-        // Accent on downbeats or syncopated hits
-        step.accent = (probDist(randGen) < 0.30f) || (s == 0);
-
-        track.setStep(s, step);
-    }
+    procgen::AcidPatternParams params;
+    params.baseMidiOctave = (rootPitch / 12) * 12;
+    params.rootPitchClass = rootPitch % 12;
+    params.bars = static_cast<int>(std::max(1u, numSteps / 16));
+    params.seed = seed;
+    procgen::ProceduralAcidEngine::populateSequencerTrack(track, params);
 
     res.success = true;
-    res.message = "Acid bassline generated.";
+    res.message = "Authentic TB-303 Acid bassline generated.";
     return res;
 }
 
@@ -212,63 +216,54 @@ MacroResult MacroRuntime::generateDrumPattern(sequencer::StepSequencer& sequence
                                              const std::string& style,
                                              uint32_t seed) {
     MacroResult res;
-    size_t numTracks = sequencer.getNumTracks();
-    if (numTracks == 0) {
+    if (sequencer.getNumTracks() == 0) {
         res.success = false;
         res.message = "No tracks available in sequencer.";
         return res;
     }
 
-    // Track 0: Kick, Track 1: Snare / Clap, Track 2: Hi-Hat (if present)
-    auto* kickTrack = sequencer.getTrack(0);
-    if (kickTrack) {
-        kickTrack->clear();
-        for (uint32_t s = 0; s < 16; s += 4) {
-            sequencer::StepData step;
-            step.active = true;
-            step.note = 36; // C1 Kick
-            step.velocity = 0.95f;
-            step.gateLength = 0.8f;
-            step.accent = (s == 0);
-            kickTrack->setStep(s, step);
-        }
+    auto* track = sequencer.getTrack(0);
+    if (!track) {
+        res.success = false;
+        res.message = "Failed to access sequencer track.";
+        return res;
     }
 
-    if (numTracks > 1) {
-        auto* snareTrack = sequencer.getTrack(1);
-        if (snareTrack) {
-            snareTrack->clear();
-            // Snare on 4 and 12 (0-indexed: steps 4 and 12)
-            for (uint32_t s : {4u, 12u}) {
-                sequencer::StepData step;
-                step.active = true;
-                step.note = 38; // D1 Snare
-                step.velocity = 0.90f;
-                step.gateLength = 0.7f;
-                step.accent = true;
-                snareTrack->setStep(s, step);
-            }
-        }
+    procgen::DrumPatternParams params;
+    params.bars = 1;
+    params.seed = seed;
+    std::string s = style;
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    if (s.find("boom") != std::string::npos || s.find("hip") != std::string::npos) {
+        params.style = "Hip-Hop / Boom-Bap";
+    } else if (s.find("funk") != std::string::npos) {
+        params.style = "Funk / Breakbeat";
+    } else if (s.find("trap") != std::string::npos) {
+        params.style = "Trap / Halftime";
+    } else {
+        params.style = "House / Disco (4-on-Floor)";
     }
 
-    if (numTracks > 2) {
-        auto* hatTrack = sequencer.getTrack(2);
-        if (hatTrack) {
-            hatTrack->clear();
-            // Running 16th hats with dynamic velocity
-            for (uint32_t s = 0; s < 16; ++s) {
-                sequencer::StepData step;
-                step.active = true;
-                step.note = 42; // F#1 Closed Hat
-                step.velocity = (s % 2 == 1) ? 0.85f : 0.60f; // Accent off-beats
-                step.gateLength = 0.4f;
-                hatTrack->setStep(s, step);
-            }
-        }
-    }
+    procgen::ProceduralDrumEngine::populateSequencerTrack(*track, params);
 
     res.success = true;
-    res.message = "Drum pattern generated.";
+    res.message = "Procedural drum pattern generated.";
+    return res;
+}
+
+MacroResult MacroRuntime::generateProceduralSong(sequencer::StepSequencer& sequencer,
+                                                 const std::string& style,
+                                                 uint32_t bars,
+                                                 uint32_t seed) {
+    MacroResult res;
+    procgen::SongGenerationParams params;
+    params.style = style;
+    params.bars = static_cast<int>(bars);
+    params.seed = seed;
+
+    auto genRes = procgen::ProceduralSongEngine::generateToSequencer(sequencer, params);
+    res.success = genRes.success;
+    res.message = genRes.message;
     return res;
 }
 

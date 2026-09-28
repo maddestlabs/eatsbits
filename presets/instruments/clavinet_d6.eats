@@ -1,0 +1,127 @@
+# @id: clavinet_d6
+# @name: Hohner Clavinet D6
+# @category: instrument
+# @description: Authentic physical model of the 1971 Hohner Clavinet D6: rubber-tipped hammer-on-metal anvil strike, taut steel string digital waveguide, key-off yarn damper thump, dual single-coil pickups with out-of-phase funk quack (A-B), 4-rocker EQ filter bank (Brilliant, Treble, Medium, Soft), and tube preamp bite.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "PickupSelect": eat.param("PickupSelect", 0.0, 1.0, 0.5, step=0.0),
+        "PhaseInvert": eat.param("PhaseInvert", 0.0, 1.0, 0.0, step=0.0),
+        "Brilliant": eat.param("Brilliant", 0.0, 1.0, 1.0, step=0.0),
+        "Treble": eat.param("Treble", 0.0, 1.0, 0.8, step=0.0),
+        "Medium": eat.param("Medium", 0.0, 1.0, 0.5, step=0.0),
+        "Soft": eat.param("Soft", 0.0, 1.0, 0.0, step=0.0),
+        "HammerHardness": eat.param("HammerHardness", 0.2, 3.0, 1.4, step=0.0),
+        "HammerSnap": eat.param("HammerSnap", 0.0, 2.0, 0.9, step=0.0),
+        "Sustain": eat.param("Sustain", 0.8, 0.999, 0.993, step=0.0),
+        "DamperThump": eat.param("DamperThump", 0.0, 1.0, 0.45, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.08, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "HOHNER CLAVINET D6",
+            "subtitle": "Electromechanical Steel String Keyboard",
+            "accent": "#FF8C00",
+            "background": "walnut",
+            "rackSides": "walnut",
+            "cornerRadius": 6,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "4-ROCKER TONE FILTER MATRIX",
+                    "accent": "#FF8C00",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "switch",
+                                    "param": "Brilliant",
+                                    "label": "BRILLIANT",
+                                },
+                                {
+                                    "type": "switch",
+                                    "param": "Treble",
+                                    "label": "TREBLE",
+                                },
+                                {
+                                    "type": "switch",
+                                    "param": "Medium",
+                                    "label": "MEDIUM",
+                                },
+                                {
+                                    "type": "switch",
+                                    "param": "Soft",
+                                    "label": "SOFT",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PICKUPS & DAMPING DYNAMICS",
+                    "accent": "#E5A93C",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PickupSelect",
+                                    "label": "PICKUP A/B",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "switch",
+                                    "param": "PhaseInvert",
+                                    "label": "PHASE (A-B)",
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "HammerHardness",
+                                    "label": "HAMMER",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "DamperThump",
+                                    "label": "DAMPER",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Drive",
+                                    "label": "DRIVE",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "Sustain",
+                                    "label": "STRING SUSTAIN & YARN DAMPING",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

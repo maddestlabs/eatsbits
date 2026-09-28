@@ -153,6 +153,7 @@ void AudioGraph::clear() {
     nodes_.clear();
     outputNodeId_ = INVALID_NODE_ID;
     outputNodePort_ = 0;
+    nextNodeId_ = 1;
     compile();
 }
 
@@ -327,6 +328,18 @@ void AudioGraph::process(float* masterOutL, float* masterOutR, uint32_t numFrame
             for (uint32_t i = 0; i < numFrames; ++i) {
                 sum.dst[i] += sum.src[i];
             }
+        }
+
+        if (!step.node->isEnabled()) {
+            for (uint32_t p = 0; p < step.node->numOutputPorts(); ++p) {
+                for (uint32_t c = 0; c < 2; ++c) {
+                    float* outBuf = step.node->getOutputBuffer(p, c);
+                    if (outBuf) {
+                        std::fill_n(outBuf, numFrames, 0.0f);
+                    }
+                }
+            }
+            continue;
         }
 
         step.node->processBlock(numFrames);

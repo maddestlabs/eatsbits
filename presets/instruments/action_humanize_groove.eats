@@ -1,0 +1,20 @@
+# @id: action_humanize_groove
+# @name: Groove & Velocity Humanizer
+# @category: projectAction
+# @description: Applies organic micro-timing variations and velocity dynamics across all tracks in the song.
+
+# @author: Eatsbeats
+# @category: project_action
+# @description: Applies organic micro-timing variations and velocity dynamics across all tracks in the song.
+
+def init():
+    return {
+        "TimingJitter": eat.param("TimingJitter", 0.0, 0.15, 0.04, step=0.01),
+        "VelocityJitter": eat.param("VelocityJitter", 0.0, 0.30, 0.12, step=0.02),
+    }
+
+def run(project, params):
+    return {
+        "timing_jitter": params.get("TimingJitter", 0.04),
+        "velocity_jitter": params.get("VelocityJitter", 0.12),
+    }

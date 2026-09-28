@@ -61,6 +61,10 @@ void drawPianoIcon(BatchRenderer2D& r, float x, float y, float w, float h, const
 
 void drawPropertiesIcon(BatchRenderer2D& r, float x, float y, float w, float h, const Color& accentCol);
 
+void drawScrewCloseButton(BatchRenderer2D& r, float cx, float cy, float radius, bool hovered, const Color& highlightColor);
+
+void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color& c);
+
 void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
                   float red, float green, float blue, float alpha = 1.0f);
 

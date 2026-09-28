@@ -115,6 +115,26 @@ void testEatsbitsLogoLayers() {
     std::cout << " -> Eatsbits logo verified: 3 layers, " << solidCount << " solid pixels in 48x48 render.\n";
 }
 
+void testPlainLogoLayers() {
+    std::cout << "[Test] Verifying unboxed plain faceplate logo layers...\n";
+    auto plainLayers = SvgLogo::getPlainLayers();
+    assert(plainLayers.size() == 1);
+
+    SvgPath plainLogo = SvgPath::parse(plainLayers[0].path);
+    std::cout << "Plain logo bounds: [" << plainLogo.getBounds().minX << ", " << plainLogo.getBounds().minY
+              << " to " << plainLogo.getBounds().maxX << ", " << plainLogo.getBounds().maxY << "], contours="
+              << plainLogo.getContours().size() << "\n";
+    assert(plainLogo.getContours().size() == 4); // Head, Eye cutout, Bit 1, Bit 2
+
+    auto plainRgba = SvgTextureCache::rasterizeLayersToRgba(plainLayers, 48, 48);
+    int solidCount = 0;
+    for (size_t i = 3; i < plainRgba.size(); i += 4) {
+        if (plainRgba[i] > 50) solidCount++;
+    }
+    std::cout << " -> Plain logo verified: " << solidCount << " solid pixels in 48x48 render.\n";
+    assert(solidCount > 100);
+}
+
 int main() {
     std::cout << "=== Running Eatsbits SvgPath Test Suite ===\n";
     testBasicPathParsing();
@@ -122,6 +142,7 @@ int main() {
     testTriangulation();
     testSoftwareRasterization();
     testEatsbitsLogoLayers();
+    testPlainLogoLayers();
     std::cout << "=== All SvgPath Tests Passed Successfully! ===\n";
     return 0;
 }

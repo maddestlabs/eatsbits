@@ -1,0 +1,32 @@
+# @id: action_ensemble_arranger
+# @name: Procedural Ensemble & Dynamic Arranger
+# @category: projectAction
+# @description: Composes multi-track dynamic arrangements across variable-N ensembles (duets, 3-voice trackers, 5-track evolving battle themes, ambient dungeon soundscapes) with instrument dropouts, energy curves, and universal functional roles.
+# @tags: PROCGEN, ENSEMBLE, ARRANGER, RPG, ORCHESTRATION, WALTZ, CHIPTUNE
+
+# @author: Eatsbeats
+# @category: project_action
+# @description: Composes multi-track dynamic arrangements across variable-N ensembles (duets, 3-voice trackers, 5-track evolving battle themes, ambient dungeon soundscapes) with instrument dropouts, energy curves, and universal functional roles.
+
+def init():
+    return {
+        "Template": eat.param("Template", 0, 5, 0, options=[
+            "RPG Fireside Tavern (Lute & Flute Duet, 3/4 Waltz)",
+            "Evolving Action Theme (Calm Intro to Full Drop)",
+            "Ambient Ethereal Dungeon (Harp, Pad, Ocarina)",
+            "C64 3-Voice Tracker (Bass, Lead, Noise Drum)",
+            "Neo-Soul / Jazz Trio (Upright, Rhodes, Vibraphone)",
+            "Orchestral Battle March (Timpani, Cellos, Strings, Brass)"
+        ]),
+        "Seed": eat.param("Seed", 1, 999999, 42, step=1),
+        "Swing": eat.param("Swing", 0.0, 1.0, 0.15, step=0.05),
+        "Humanize": eat.param("Humanize", 0.0, 1.0, 0.20, step=0.05),
+    }
+
+def run(project, params):
+    return {
+        "template": params.get("Template", 0),
+        "seed": params.get("Seed", 42),
+        "swing": params.get("Swing", 0.15),
+        "humanize": params.get("Humanize", 0.20),
+    }

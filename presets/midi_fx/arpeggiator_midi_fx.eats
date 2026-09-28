@@ -1,0 +1,45 @@
+# @id: arpeggiator_midi_fx
+# @name: Arpeggiator FX
+# @category: midiFx
+# @description: Advanced MIDI arpeggiator with multi-octave cycling, rate dividers, gate, swing, and 8 pattern modes.
+
+def init():
+    return {
+        "Rate": eat.param("Rate", 0.25, 4.0, 1.0, step=0.25),
+        "Octaves": eat.param("Octaves", 1.0, 4.0, 2.0, step=1.0),
+        "Pattern": eat.param("Pattern", 0.0, 8.0, 0.0, options=["Up", "Down", "UpDown", "DownUp", "Converge", "Diverge", "Random", "Chord", "AsPlayed"]),
+        "Gate": eat.param("Gate", 0.1, 2.0, 0.85, step=0.05),
+        "Swing": eat.param("Swing", 0.0, 0.5, 0.0, step=0.05),
+    }
+
+def transform_notes(notes, params, time_context):
+    return eat.arpeggiate(
+        notes,
+        rate=params.get("Rate", 1.0),
+        octaves=params.get("Octaves", 2.0),
+        pattern=params.get("Pattern", "Up"),
+        gate=params.get("Gate", 0.85),
+        swing=params.get("Swing", 0.0),
+    )
+
+def gui():
+    return {
+        "panel": {
+            "title": "Arpeggiator FX",
+            "subtitle": "Melodic Note Arpeggiator & Gate Modulator",
+            "background": "dark",
+            "accent": "#FFD700",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Rate", "label": "RATE", "unit": "x", "size": 52},
+                        {"type": "knob", "param": "Octaves", "label": "OCTAVES", "size": 52},
+                        {"type": "listbox", "param": "Pattern", "label": "PATTERN", "width": 110, "height": 70},
+                        {"type": "knob", "param": "Gate", "label": "GATE", "size": 52},
+                        {"type": "knob", "param": "Swing", "label": "SWING", "size": 52},
+                    ]
+                }
+            ]
+        }
+    }

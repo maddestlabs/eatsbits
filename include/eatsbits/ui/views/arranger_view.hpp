@@ -4,6 +4,7 @@
 #include "../widgets/plugin_search_dialog.hpp"
 #include "../widgets/circle_of_fifths_dialog.hpp"
 #include "../widgets/icon_search_dialog.hpp"
+#include "../widgets/track_properties_drawer.hpp"
 #include "../icon_registry.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include <vector>
@@ -56,11 +57,13 @@ struct ArrangerTimelineClip {
     float volumeScale{1.0f};
     bool mute{false};
     std::vector<ArrangerClipNote> notes;
+    std::vector<theory::ChordEvent> detectedChords;
 };
 
 struct ArrangerTimelineTrack {
     std::string name;
     std::string instrument;
+    std::string instrumentEngine{"tb303"};
     std::string iconRef{"preset:inst_synth"};
     float r{1.0f}, g{0.55f}, b{0.0f};
     float volume{0.8f};
@@ -69,6 +72,8 @@ struct ArrangerTimelineTrack {
     bool solo{false};
     bool freeze{false};
     theory::ChordFollowMode chordFollowMode{theory::ChordFollowMode::Off};
+    int chordLeaderTrackIndex{-1}; // -1 = Independent / Self, >= 0 = Track to follow
+    bool isChordLeader{false};     // Flag indicating track serves as a harmonic chord reference
     std::vector<ArrangerTimelineClip> clips;
     std::vector<ArrangerMidiFxCard> midiFx;
     std::vector<ArrangerAudioFxCard> audioFx;
@@ -105,6 +110,7 @@ public:
     void render(const ViewContext& ctx) override;
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
+    bool handleFileDrop(const std::vector<std::string>& filePaths, float x, float y, const ViewContext& ctx) override;
 
     [[nodiscard]] bool isFollowPlayback() const noexcept { return followPlayback_; }
     void setFollowPlayback(bool follow) noexcept { followPlayback_ = follow; }
@@ -121,13 +127,21 @@ public:
     [[nodiscard]] const std::vector<ArrangerTimelineTrack>& getTracks() const noexcept { return tracks_; }
     std::vector<ArrangerTimelineTrack>& getTracks() noexcept { return tracks_; }
 
-    // Inspector Properties Drawer Controls
-    [[nodiscard]] bool isInspectorOpen() const noexcept { return inspectorOpen_; }
-    void setInspectorOpen(bool open) noexcept { inspectorOpen_ = open; }
-    void toggleInspector() noexcept { inspectorOpen_ = !inspectorOpen_; }
+    // Inspector Properties Drawer Controls (Decoupled & Shared TrackPropertiesDrawer)
+    [[nodiscard]] bool isInspectorOpen() const noexcept { return propertiesDrawer_.isExpanded(); }
+    void setInspectorOpen(bool open) noexcept { inspectorOpen_ = open; propertiesDrawer_.setExpanded(open); }
+    void toggleInspector() noexcept { inspectorOpen_ = !inspectorOpen_; propertiesDrawer_.toggle(); }
+    [[nodiscard]] float getInspectorWidth() const noexcept { return propertiesDrawer_.getWidth(); }
+    void setInspectorWidth(float w) noexcept { inspectorWidth_ = w; propertiesDrawer_.setWidth(w); }
 
     [[nodiscard]] ArrangerInspectorTab getInspectorTab() const noexcept { return inspectorTab_; }
-    void setInspectorTab(ArrangerInspectorTab tab) noexcept { inspectorTab_ = tab; }
+    void setInspectorTab(ArrangerInspectorTab tab) noexcept {
+        inspectorTab_ = tab;
+        drawerData_.tab = (tab == ArrangerInspectorTab::Clip) ? TrackPropertiesTab::Clip : TrackPropertiesTab::Track;
+    }
+
+    TrackPropertiesDrawer& getPropertiesDrawer() noexcept { return propertiesDrawer_; }
+    const TrackPropertiesDrawer& getPropertiesDrawer() const noexcept { return propertiesDrawer_; }
 
     // Track addition / modification API
     void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b);
@@ -159,11 +173,33 @@ public:
     uint32_t extractChordsFromClip(uint32_t trackIdx, uint32_t clipIdx);
     void bakeChordsToTrack(uint32_t trackIdx);
 
+    // Dynamic Clip Chords & Track-to-Track Harmonic Sync
+    void updateClipDetectedChords(ArrangerTimelineClip& clip);
+    void refreshAllClipChords();
+    [[nodiscard]] const theory::ChordEvent* getActiveChordForTrackAtBar(uint32_t trackIdx, float bar) const noexcept;
+
+    struct OverviewChordInfo {
+        theory::ChordEvent chord;
+        int sourceTrackIdx{-1};
+        std::string sourceTrackName;
+        int sourceClipIdx{-1};
+        float startBar{0.0f};
+        float barLength{1.0f};
+    };
+    [[nodiscard]] std::vector<OverviewChordInfo> getHarmonicOverviewChords() const;
+
     std::function<void(uint32_t trackIdx, float volume)> onVolumeChanged;
     std::function<void(uint32_t trackIdx, float pan)> onPanChanged;
+    std::function<void(uint32_t trackIdx, bool mute)> onMuteToggled;
+    std::function<void(uint32_t trackIdx, bool solo)> onSoloToggled;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(const theory::ChordEvent& chord)> onAuditionChord;
     std::function<void(uint32_t trackIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
+    std::function<void()> onClipsChanged;
+    std::function<void(uint32_t trackIdx)> onTrackSelected;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onEditClipInPianoRoll;
+    std::function<void(uint32_t trackIdx, const std::string& newName)> onTrackRename;
+    std::function<void(uint32_t trackIdx, const std::string& iconRef)> onTrackIconChanged;
 
 private:
     void renderGrid(const ViewContext& ctx);
@@ -172,8 +208,6 @@ private:
     void renderTrackHeaders(const ViewContext& ctx);
     void renderRulerAndMinimap(const ViewContext& ctx);
     void renderPropertiesDrawer(const ViewContext& ctx);
-    void renderTrackProperties(const ViewContext& ctx, ArrangerTimelineTrack& track);
-    void renderClipProperties(const ViewContext& ctx, ArrangerTimelineTrack& track, ArrangerTimelineClip& clip);
 
     float trackHeaderWidth_{190.0f};
     float trackRowHeight_{64.0f};
@@ -192,6 +226,8 @@ private:
     std::chrono::steady_clock::time_point lastClipClickTime_{};
     int lastClickedClipIdx_{-1};
     int lastClickedClipTrack_{-1};
+    std::chrono::steady_clock::time_point lastOverviewClickTime_{};
+    int lastClickedOverviewChordIdx_{-1};
 
     // Properties Drawer State
     bool inspectorOpen_{true};
@@ -249,6 +285,10 @@ private:
     std::vector<theory::ChordEvent> chordTrack_;
     int songKeyRoot_{0}; // C
     bool isSongKeyMinor_{false};
+
+    // Shared Decoupled Track Properties Drawer
+    TrackPropertiesDrawer propertiesDrawer_;
+    TrackPropertiesDrawerData drawerData_;
 
     // Contextual Dialogs
     PluginSearchDialog pluginDialog_;

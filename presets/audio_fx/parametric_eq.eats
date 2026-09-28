@@ -1,0 +1,71 @@
+# @id: parametric_eq
+# @name: Parametric EQ 5-Band
+# @category: audioFx
+# @engine: parametric_eq
+# @tags: eq, equalizer, mastering, mixing, filter, studio
+# @description: 5-band studio parametric equalizer with highpass, low shelf, dual parametric peaking bells, and high shelf filters.
+
+# --- Parameter Definitions ---
+def init():
+    eat.use_engine("parametric_eq")
+    return {
+        "HPFFreq": eat.param("HPFFreq", 10.0, 500.0, 30.0, unit="Hz"),
+        "LowFreq": eat.param("LowFreq", 30.0, 800.0, 100.0, unit="Hz"),
+        "LowGain": eat.param("LowGain", -18.0, 18.0, 0.0, unit="dB"),
+        "Mid1Freq": eat.param("Mid1Freq", 100.0, 4000.0, 650.0, unit="Hz"),
+        "Mid1Gain": eat.param("Mid1Gain", -18.0, 18.0, 0.0, unit="dB"),
+        "Mid1Q": eat.param("Mid1Q", 0.1, 10.0, 1.0, unit="Q"),
+        "Mid2Freq": eat.param("Mid2Freq", 500.0, 12000.0, 2800.0, unit="Hz"),
+        "Mid2Gain": eat.param("Mid2Gain", -18.0, 18.0, 0.0, unit="dB"),
+        "Mid2Q": eat.param("Mid2Q", 0.1, 10.0, 1.0, unit="Q"),
+        "HighFreq": eat.param("HighFreq", 2000.0, 20000.0, 10000.0, unit="Hz"),
+        "HighGain": eat.param("HighGain", -18.0, 18.0, 0.0, unit="dB"),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "PARAMETRIC EQ",
+            "subtitle": "5-Band Precision Mastering Equalizer",
+            "background": "dark",
+            "accent": "#00E5FF",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "HPFFreq", "label": "HPF", "unit": "Hz"},
+                        {"type": "knob", "param": "LowFreq", "label": "LOW FREQ", "unit": "Hz"},
+                        {"type": "knob", "param": "LowGain", "label": "LOW GAIN", "unit": "dB"},
+                        {"type": "knob", "param": "Mid1Freq", "label": "MID1 FREQ", "unit": "Hz"},
+                        {"type": "knob", "param": "Mid1Gain", "label": "MID1 GAIN", "unit": "dB"},
+                        {"type": "knob", "param": "Mid1Q", "label": "MID1 Q"}
+                    ]
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Mid2Freq", "label": "MID2 FREQ", "unit": "Hz"},
+                        {"type": "knob", "param": "Mid2Gain", "label": "MID2 GAIN", "unit": "dB"},
+                        {"type": "knob", "param": "Mid2Q", "label": "MID2 Q"},
+                        {"type": "knob", "param": "HighFreq", "label": "HIGH FREQ", "unit": "Hz"},
+                        {"type": "knob", "param": "HighGain", "label": "HIGH GAIN", "unit": "dB"}
+                    ]
+                }
+            ]
+        }
+    }
+
+# --- Modular Insert Audio FX Graph Topology ---
+def graph():
+    audio_in = eat.node.input()
+    hpf = eat.node.svf(audio_in, cutoff="HPFFreq", type="highpass")
+    low_shelf = eat.node.svf(hpf, cutoff="LowFreq", gain="LowGain", type="lowshelf")
+    mid1 = eat.node.svf(low_shelf, cutoff="Mid1Freq", reso="Mid1Q", gain="Mid1Gain", type="peaking")
+    mid2 = eat.node.svf(mid1, cutoff="Mid2Freq", reso="Mid2Q", gain="Mid2Gain", type="peaking")
+    high_shelf = eat.node.svf(mid2, cutoff="HighFreq", gain="HighGain", type="highshelf")
+    return high_shelf
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

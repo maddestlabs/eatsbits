@@ -1,0 +1,22 @@
+# @id: splitter_3way_voice
+# @name: 3-Way Voice Splitter (Bass, Chords, Lead)
+# @category: noteSplitter
+# @description: Separates polyphonic MIDI into dedicated Bass, Middle Harmony Chords, and Skyline Lead tracks.
+
+# @author: Eatsbeats
+# @category: note_splitter
+# @description: Separates polyphonic MIDI into dedicated Bass, Middle Harmony Chords, and Skyline Lead tracks.
+
+def init():
+    return {
+        "bass_split": eat.param("bass_split", 24, 60, 48, step=1),
+        "lead_split": eat.param("lead_split", 48, 84, 64, step=1),
+    }
+
+def split(notes, params):
+    # Evaluated by NoteSplitterEngine
+    return [
+        {"name": "Bassline", "color": 0xFF00FF66},
+        {"name": "Harmony & Chords", "color": 0xFF21F4E8},
+        {"name": "Lead Melody", "color": 0xFFFF007A},
+    ]

@@ -1,0 +1,115 @@
+# @id: toy_piano
+# @name: Toy Piano
+# @category: instrument
+# @description: Physical modal modeling of an authentic Toy Piano / Metallophone: clamped cantilever steel bar overtones (1.0, 2.756, 5.404, 8.933 modal ratios), hammer micro-bounce flam ("double-hit"), keybed bottoming clack, gravity release drop thump, chime air, and miniature wooden soundbox resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ClangRatio": eat.param("ClangRatio", 0.0, 1.5, 0.7, step=0.0),
+        "TineDecay": eat.param("TineDecay", 0.2, 3.5, 1.25, step=0.0),
+        "HammerClack": eat.param("HammerClack", 0.0, 1.0, 0.55, step=0.0),
+        "HammerBounce": eat.param("HammerBounce", 0.0, 1.0, 0.45, step=0.0),
+        "ReleaseDrop": eat.param("ReleaseDrop", 0.0, 1.0, 0.4, step=0.0),
+        "BoxResonance": eat.param("BoxResonance", 0.0, 1.0, 0.45, step=0.0),
+        "ChimeAir": eat.param("ChimeAir", -4.0, 8.0, 2.0, step=0.0),
+        "Tone": eat.param("Tone", 1000.0, 18000.0, 11000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "TOY PIANO / METALLOPHONE",
+            "subtitle": "Cantilever Steel Bar Modal Physics & Mechanical Action",
+            "accent": "#FF3366",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "CANTILEVER STEEL ROD RESONANCE",
+                    "accent": "#FF3366",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ClangRatio",
+                                    "label": "CLANG OVERTONE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "TineDecay",
+                                    "label": "CHIME DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ChimeAir",
+                                    "label": "CHIME AIR",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE CUT",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "ACOUSTIC MECHANICS & SOUNDBOX",
+                    "accent": "#00B4D8",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "HammerClack",
+                                    "label": "STRIKE CLACK",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "HammerBounce",
+                                    "label": "HAMMER BOUNCE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ReleaseDrop",
+                                    "label": "RELEASE DROP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BoxResonance",
+                                    "label": "TOY BOX BOOM",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

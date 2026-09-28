@@ -1,0 +1,13 @@
+# @id: seq_chord_stabs
+# @name: Chord Stabs (Chord Track Follow)
+# @category: midiSeq
+# @description: Dynamic polyphonic chord stabs automatically voiced to the active project Chord Track progression.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

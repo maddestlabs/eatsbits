@@ -183,6 +183,18 @@ struct SvgLogo {
     static constexpr const char* kMonsterEyePath =
         "M 228 160 A 32 32 0 1 0 292 160 A 32 32 0 1 0 228 160 Z";
 
+    // 4. Authentic Unboxed Silk-Screened Faceplate Logo (Existing SVG inner logo without outer square)
+    static constexpr const char* kPlainLogoPath =
+        "M 100 100 L 380 100 L 380 220 L 220 220 L 220 340 L 380 340 L 380 410 L 100 410 Z "
+        "M 228 160 A 32 32 0 1 0 292 160 A 32 32 0 1 0 228 160 Z "
+        "M 408 230 L 440 230 A 8 8 0 0 1 448 238 L 448 270 A 8 8 0 0 1 440 278 L 408 278 A 8 8 0 0 1 400 270 L 400 238 A 8 8 0 0 1 408 230 Z "
+        "M 406 320 L 430 320 A 6 6 0 0 1 436 326 L 436 350 A 6 6 0 0 1 430 356 L 406 356 A 6 6 0 0 1 400 350 L 400 326 A 6 6 0 0 1 406 320 Z";
+
+    // 5. Two Eating Bits
+    static constexpr const char* kMonsterBitsPath =
+        "M 408 230 L 440 230 A 8 8 0 0 1 448 238 L 448 270 A 8 8 0 0 1 440 278 L 408 278 A 8 8 0 0 1 400 270 L 400 238 A 8 8 0 0 1 408 230 Z "
+        "M 406 320 L 430 320 A 6 6 0 0 1 436 326 L 436 350 A 6 6 0 0 1 430 356 L 406 356 A 6 6 0 0 1 400 350 L 400 326 A 6 6 0 0 1 406 320 Z";
+
     /**
      * Color definitions:
      * Warm Amber: #FF8C00 (R=255, G=140, B=0, A=255)
@@ -200,6 +212,16 @@ struct SvgLogo {
      * Returns the inverted vector stack for hover state.
      */
     static std::vector<SvgLayerDef> getInvertedLayers();
+
+    /**
+     * Returns the unboxed plain vector stack matching the vintage hardware faceplate silk-screen.
+     */
+    static std::vector<SvgLayerDef> getPlainLayers(uint32_t color = kColorAmber);
+
+    /**
+     * Returns the inverted unboxed plain vector stack for hover state.
+     */
+    static std::vector<SvgLayerDef> getPlainInvertedLayers(uint32_t accentColor = kColorAmber, uint32_t darkColor = kColorDark);
 };
 
 } // namespace eatsbits::ui

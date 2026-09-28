@@ -1,0 +1,51 @@
+# @id: multimode_filter
+# @name: Multi-Mode Studio Filter
+# @category: audioFx
+# @engine: multimode_filter
+# @tags: filter, lowpass, highpass, bandpass, notch, studio, vcf
+# @description: 8-mode analog modeled studio filter featuring Direct Form II Transposed topology with lowpass, highpass, bandpass, notch, and peaking modes.
+
+# --- Parameter Definitions ---
+def init():
+    eat.use_engine("multimode_filter")
+    return {
+        "Cutoff": eat.param("Cutoff", 20.0, 20000.0, 2000.0, unit="Hz"),
+        "Resonance": eat.param("Resonance", 0.1, 15.0, 1.2, unit="Q"),
+        "Drive": eat.param("Drive", 0.0, 1.0, 0.15, unit=""),
+        "Gain": eat.param("Gain", -24.0, 24.0, 0.0, unit="dB"),
+        "Mode": eat.param("Mode", 0.0, 7.0, 0.0, step=1.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MULTI-MODE FILTER",
+            "subtitle": "Direct Form II Transposed Studio VCF",
+            "background": "carbon",
+            "accent": "#FF007A",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Cutoff", "label": "CUTOFF", "unit": "Hz", "size": 64},
+                        {"type": "knob", "param": "Resonance", "label": "RESONANCE", "unit": "Q"},
+                        {"type": "knob", "param": "Drive", "label": "DRIVE"},
+                        {"type": "knob", "param": "Gain", "label": "GAIN", "unit": "dB"},
+                        {"type": "knob", "param": "Mode", "label": "MODE"}
+                    ]
+                }
+            ]
+        }
+    }
+
+# --- Modular Insert Audio FX Graph Topology ---
+def graph():
+    audio_in = eat.node.input()
+    driven = eat.node.saturate(audio_in, drive="Drive")
+    filtered = eat.node.svf(driven, cutoff="Cutoff", reso="Resonance")
+    return filtered
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

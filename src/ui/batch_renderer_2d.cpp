@@ -81,6 +81,7 @@ public:
     void beginPass(float width, float height) override {
         viewportWidth_ = static_cast<uint32_t>(width);
         viewportHeight_ = static_cast<uint32_t>(height);
+        blendMode_ = BlendMode::Normal;
         size_t totalPixels = static_cast<size_t>(viewportWidth_) * viewportHeight_;
         if (framebuffer_.size() != totalPixels) {
             framebuffer_.assign(totalPixels, 0xFF14171E);
@@ -240,6 +241,7 @@ public:
     const uint32_t* getFramebuffer() const noexcept override { return framebuffer_.data(); }
     void setDirectPresent(bool enable) noexcept override { directPresent_ = enable; }
     void setAntiAliasingMode(int mode) override { antiAliasingMode_ = std::clamp(mode, 0, 2); }
+    void setBlendMode(BlendMode mode) override { blendMode_ = mode; }
     size_t getTotalVerticesRendered() const noexcept { return totalVerticesRendered_; }
 
     void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
@@ -509,16 +511,7 @@ private:
 
                 // Quick interior check: strictly inside horizontal span by > 0.75px
                 if (px >= rowMinX + 0.75f && px <= rowMaxX - 0.75f) {
-                    if (ua >= 255) {
-                        *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
-                    } else {
-                        uint32_t dst = *rowDst;
-                        uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                        uint32_t invA = 255 - ua;
-                        *rowDst = (0xFF << 24) | (((ur * ua + dr * invA) / 255) << 16)
-                                               | (((ug * ua + dg * invA) / 255) << 8)
-                                               | ((ub * ua + db * invA) / 255);
-                    }
+                    *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
                     continue;
                 }
 
@@ -558,16 +551,7 @@ private:
 
                 if (mask > 0) {
                     uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? ua : ((ua * mask + (numSamples / 2)) / numSamples);
-                    if (effA >= 255) {
-                        *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
-                    } else if (effA > 0) {
-                        uint32_t dst = *rowDst;
-                        uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                        uint32_t invA = 255 - effA;
-                        *rowDst = (0xFF << 24) | (((ur * effA + dr * invA) / 255) << 16)
-                                               | (((ug * effA + dg * invA) / 255) << 8)
-                                               | ((ub * effA + db * invA) / 255);
-                    }
+                    *rowDst = blendPixel(*rowDst, ur, ug, ub, effA);
                 }
             }
         }
@@ -598,13 +582,13 @@ private:
 
             if (rMinX <= rMaxX && rMinY <= rMaxY) {
                 if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
-                    // Solid Axis-Aligned Rectangle: Direct high-speed fill with ZERO diagonal line!
+                    // Solid Axis-Aligned Rectangle
                     uint32_t a = (q0.color >> 24) & 0xFF;
                     uint32_t c_r = q0.color & 0xFF;
                     uint32_t c_g = (q0.color >> 8) & 0xFF;
                     uint32_t c_b = (q0.color >> 16) & 0xFF;
 
-                    if (a >= 255) {
+                    if (blendMode_ == BlendMode::Normal && a >= 255) {
                         uint32_t col = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
                         int count = rMaxX - rMinX + 1;
                         for (int y = rMinY; y <= rMaxY; ++y) {
@@ -612,18 +596,10 @@ private:
                         }
                         return;
                     } else if (a > 0) {
-                        uint32_t invA = 255 - a;
                         for (int y = rMinY; y <= rMaxY; ++y) {
                             uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
                             for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t outR = (c_r * a + dr * invA) / 255;
-                                uint32_t outG = (c_g * a + dg * invA) / 255;
-                                uint32_t outB = (c_b * a + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                                *rowDst = blendPixel(*rowDst, c_r, c_g, c_b, a);
                             }
                         }
                         return;
@@ -654,21 +630,13 @@ private:
                         uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
                         uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
 
-                        if (ua >= 255) {
+                        if (blendMode_ == BlendMode::Normal && ua >= 255) {
                             uint32_t col = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
                             std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
                         } else if (ua > 0) {
-                            uint32_t invA = 255 - ua;
                             uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
                             for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t outR = (ur * ua + dr * invA) / 255;
-                                uint32_t outG = (ug * ua + dg * invA) / 255;
-                                uint32_t outB = (ub * ua + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                                *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
                             }
                         }
                     }
@@ -700,18 +668,8 @@ private:
                             uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
                             uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
 
-                            if (ua >= 255) {
-                                *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
-                            } else if (ua > 0) {
-                                uint32_t invA = 255 - ua;
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t outR = (ur * ua + dr * invA) / 255;
-                                uint32_t outG = (ug * ua + dg * invA) / 255;
-                                uint32_t outB = (ub * ua + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                            if (ua > 0) {
+                                *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
                             }
                         }
                     }
@@ -762,16 +720,7 @@ private:
                 uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
                 for (int x = minX; x <= maxX; ++x, ++rowDst) {
                     if (e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f && e3 >= 0.0f) {
-                        if (c0_a >= 255) {
-                            *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
-                        } else if (c0_a > 0) {
-                            uint32_t dst = *rowDst;
-                            uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                            uint32_t invA = 255 - c0_a;
-                            *rowDst = (0xFF << 24) | (((c0_r * c0_a + dr * invA) / 255) << 16)
-                                                   | (((c0_g * c0_a + dg * invA) / 255) << 8)
-                                                   | ((c0_b * c0_a + db * invA) / 255);
-                        }
+                        *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, c0_a);
                     }
                     e0 += stepX0; e1 += stepX1; e2 += stepX2; e3 += stepX3;
                 }
@@ -826,16 +775,7 @@ private:
 
                     if (mask > 0) {
                         uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
-                        if (effA >= 255) {
-                            *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
-                        } else if (effA > 0) {
-                            uint32_t dst = *rowDst;
-                            uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                            uint32_t invA = 255 - effA;
-                            *rowDst = (0xFF << 24) | (((c0_r * effA + dr * invA) / 255) << 16)
-                                                   | (((c0_g * effA + dg * invA) / 255) << 8)
-                                                   | ((c0_b * effA + db * invA) / 255);
-                        }
+                        *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, effA);
                     }
                 }
                 e0 += stepX0; e1 += stepX1; e2 += stepX2; e3 += stepX3;
@@ -911,16 +851,7 @@ private:
                 for (int x = minX; x <= maxX; ++x, ++rowDst) {
                     if (e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f) {
                         if (isSolid) {
-                            if (c0_a >= 255) {
-                                *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
-                            } else if (c0_a > 0) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                                uint32_t invA = 255 - c0_a;
-                                *rowDst = (0xFF << 24) | (((c0_r * c0_a + dr * invA) / 255) << 16)
-                                                       | (((c0_g * c0_a + dg * invA) / 255) << 8)
-                                                       | ((c0_b * c0_a + db * invA) / 255);
-                            }
+                            *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, c0_a);
                         } else if (isText) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
@@ -940,28 +871,14 @@ private:
                             uint32_t fontAlpha = static_cast<uint32_t>(fontAlphaF + 0.5f);
                             if (fontAlpha > 0) {
                                 uint32_t a = (c0_a * fontAlpha) / 255;
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                                uint32_t invA = 255 - a;
-                                *rowDst = (0xFF << 24) | (((c0_r * a + dr * invA) / 255) << 16)
-                                                       | (((c0_g * a + dg * invA) / 255) << 8)
-                                                       | ((c0_b * a + db * invA) / 255);
+                                *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
                             }
                         } else {
                             uint32_t r = static_cast<uint32_t>((e1 * c0_r + e2 * c1_r + e0 * c2_r) * invArea);
                             uint32_t g = static_cast<uint32_t>((e1 * c0_g + e2 * c1_g + e0 * c2_g) * invArea);
                             uint32_t b = static_cast<uint32_t>((e1 * c0_b + e2 * c1_b + e0 * c2_b) * invArea);
                             uint32_t a = static_cast<uint32_t>((e1 * c0_a + e2 * c1_a + e0 * c2_a) * invArea);
-                            if (a >= 255) {
-                                *rowDst = (0xFF << 24) | (r << 16) | (g << 8) | b;
-                            } else if (a > 0) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
-                                uint32_t invA = 255 - a;
-                                *rowDst = (0xFF << 24) | (((r * a + dr * invA) / 255) << 16)
-                                                       | (((g * a + dg * invA) / 255) << 8)
-                                                       | ((b * a + db * invA) / 255);
-                            }
+                            *rowDst = blendPixel(*rowDst, r, g, b, a);
                         }
                     }
                     e0 += stepX0; e1 += stepX1; e2 += stepX2;
@@ -1017,19 +934,7 @@ private:
                     if (mask > 0) {
                         if (isSolid) {
                             uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
-                            if (effA >= 255) {
-                                *rowDst = (0xFF << 24) | (c0_r << 16) | (c0_g << 8) | c0_b;
-                            } else if (effA > 0) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t invA = 255 - effA;
-                                uint32_t outR = (c0_r * effA + dr * invA) / 255;
-                                uint32_t outG = (c0_g * effA + dg * invA) / 255;
-                                uint32_t outB = (c0_b * effA + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
-                            }
+                            *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, effA);
                         } else if (isText) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
@@ -1055,15 +960,7 @@ private:
                             if (fontAlpha > 0) {
                                 uint32_t a = (c0_a * fontAlpha) / 255;
                                 if (mask < static_cast<uint32_t>(numSamples)) a = (a * mask + (numSamples / 2)) / numSamples;
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t invA = 255 - a;
-                                uint32_t outR = (c0_r * a + dr * invA) / 255;
-                                uint32_t outG = (c0_g * a + dg * invA) / 255;
-                                uint32_t outB = (c0_b * a + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+                                *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
                             }
                         } else {
                             // Smooth color gradient
@@ -1072,20 +969,7 @@ private:
                             uint32_t b = static_cast<uint32_t>((e1 * c0_b + e2 * c1_b + e0 * c2_b) * invArea);
                             uint32_t a = static_cast<uint32_t>((e1 * c0_a + e2 * c1_a + e0 * c2_a) * invArea);
                             uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? a : ((a * mask + (numSamples / 2)) / numSamples);
-
-                            if (effA >= 255) {
-                                *rowDst = (0xFF << 24) | (r << 16) | (g << 8) | b;
-                            } else if (effA > 0) {
-                                uint32_t dst = *rowDst;
-                                uint32_t dr = (dst >> 16) & 0xFF;
-                                uint32_t dg = (dst >> 8) & 0xFF;
-                                uint32_t db = dst & 0xFF;
-                                uint32_t invA = 255 - effA;
-                                uint32_t outR = (r * effA + dr * invA) / 255;
-                                uint32_t outG = (g * effA + dg * invA) / 255;
-                                uint32_t outB = (b * effA + db * invA) / 255;
-                                *rowDst = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
-                            }
+                            *rowDst = blendPixel(*rowDst, r, g, b, effA);
                         }
                     }
                 }
@@ -1105,9 +989,72 @@ private:
     uint32_t viewportHeight_{800};
     bool directPresent_{true};
     int antiAliasingMode_{2};
+    BlendMode blendMode_{BlendMode::Normal};
 #if defined(_WIN32)
     HWND hwnd_{nullptr};
 #endif
+
+    inline uint32_t blendPixel(uint32_t dst, uint32_t srcR, uint32_t srcG, uint32_t srcB, uint32_t a) const noexcept {
+        if (a == 0) return dst;
+        uint32_t dr = (dst >> 16) & 0xFF;
+        uint32_t dg = (dst >> 8) & 0xFF;
+        uint32_t db = dst & 0xFF;
+
+        if (blendMode_ == BlendMode::Normal) {
+            if (a >= 255) return (0xFF << 24) | (srcR << 16) | (srcG << 8) | srcB;
+            uint32_t invA = 255 - a;
+            return (0xFF << 24) | (((srcR * a + dr * invA) / 255) << 16)
+                                | (((srcG * a + dg * invA) / 255) << 8)
+                                | ((srcB * a + db * invA) / 255);
+        } else if (blendMode_ == BlendMode::Multiply) {
+            uint32_t mulR = (srcR * dr) / 255;
+            uint32_t mulG = (srcG * dg) / 255;
+            uint32_t mulB = (srcB * db) / 255;
+            uint32_t invA = 255 - a;
+            return (0xFF << 24) | (((mulR * a + dr * invA) / 255) << 16)
+                                | (((mulG * a + dg * invA) / 255) << 8)
+                                | ((mulB * a + db * invA) / 255);
+        } else if (blendMode_ == BlendMode::Screen) {
+            uint32_t scrR = 255 - (((255 - srcR) * (255 - dr)) / 255);
+            uint32_t scrG = 255 - (((255 - srcG) * (255 - dg)) / 255);
+            uint32_t scrB = 255 - (((255 - srcB) * (255 - db)) / 255);
+            uint32_t invA = 255 - a;
+            return (0xFF << 24) | (((scrR * a + dr * invA) / 255) << 16)
+                                | (((scrG * a + dg * invA) / 255) << 8)
+                                | ((scrB * a + db * invA) / 255);
+        } else if (blendMode_ == BlendMode::Add) {
+            uint32_t outR = std::min(255u, dr + (srcR * a) / 255);
+            uint32_t outG = std::min(255u, dg + (srcG * a) / 255);
+            uint32_t outB = std::min(255u, db + (srcB * a) / 255);
+            return (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
+        } else if (blendMode_ == BlendMode::Overlay) {
+            auto overlayChan = [](uint32_t s, uint32_t d) -> uint32_t {
+                return (d < 128) ? ((2 * s * d) / 255) : (255 - (2 * (255 - s) * (255 - d)) / 255);
+            };
+            uint32_t ovR = overlayChan(srcR, dr);
+            uint32_t ovG = overlayChan(srcG, dg);
+            uint32_t ovB = overlayChan(srcB, db);
+            uint32_t invA = 255 - a;
+            return (0xFF << 24) | (((ovR * a + dr * invA) / 255) << 16)
+                                | (((ovG * a + dg * invA) / 255) << 8)
+                                | ((ovB * a + db * invA) / 255);
+        } else if (blendMode_ == BlendMode::SoftLight) {
+            auto softLightChan = [](uint32_t s, uint32_t d) -> uint32_t {
+                float sf = static_cast<float>(s) / 255.0f;
+                float df = static_cast<float>(d) / 255.0f;
+                float r = (1.0f - 2.0f * sf) * df * df + 2.0f * sf * df;
+                return static_cast<uint32_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
+            };
+            uint32_t slR = softLightChan(srcR, dr);
+            uint32_t slG = softLightChan(srcG, dg);
+            uint32_t slB = softLightChan(srcB, db);
+            uint32_t invA = 255 - a;
+            return (0xFF << 24) | (((slR * a + dr * invA) / 255) << 16)
+                                | (((slG * a + dg * invA) / 255) << 8)
+                                | ((slB * a + db * invA) / 255);
+        }
+        return dst;
+    }
 };
 
 // ============================================================================
@@ -1175,10 +1122,11 @@ public:
     }
 
     void shutdown() override {
-        if (currentBackBufferView_) {
+        if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
-            currentBackBufferView_ = nullptr;
         }
+        currentBackBufferView_ = nullptr;
+        customTargetView_ = nullptr;
         if (currentSurfaceTexture_.texture) {
             wgpuTextureRelease(currentSurfaceTexture_.texture);
             currentSurfaceTexture_.texture = nullptr;
@@ -1237,7 +1185,9 @@ public:
         width_ = width;
         height_ = height;
         if (currentBackBufferView_) {
-            wgpuTextureViewRelease(currentBackBufferView_);
+            if (!customTargetView_) {
+                wgpuTextureViewRelease(currentBackBufferView_);
+            }
             currentBackBufferView_ = nullptr;
         }
         if (currentSurfaceTexture_.texture) {
@@ -1264,10 +1214,10 @@ public:
             float vp[4] = { width, height, 0.0f, 0.0f };
             wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, vp, sizeof(vp));
         }
-        if (currentBackBufferView_) {
+        if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
-            currentBackBufferView_ = nullptr;
         }
+        currentBackBufferView_ = nullptr;
         if (currentSurfaceTexture_.texture) {
             wgpuTextureRelease(currentSurfaceTexture_.texture);
             currentSurfaceTexture_.texture = nullptr;
@@ -1296,9 +1246,12 @@ public:
     }
 
     void renderBatch(const std::vector<Vertex2D>& vertices) override {
-        if (vertices.empty() || !surface_ || !device_ || !pipeline_) return;
+        if (vertices.empty() || !device_ || !pipeline_) return;
+        if (!customTargetView_ && !surface_) return;
 
-        if (!currentBackBufferView_) {
+        if (customTargetView_) {
+            currentBackBufferView_ = customTargetView_;
+        } else if (!currentBackBufferView_) {
             wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
             if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
@@ -1404,10 +1357,10 @@ public:
     }
 
     void endPass() override {
-        if (currentBackBufferView_) {
+        if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
-            currentBackBufferView_ = nullptr;
         }
+        currentBackBufferView_ = nullptr;
         if (currentSurfaceTexture_.texture) {
             wgpuTextureRelease(currentSurfaceTexture_.texture);
             currentSurfaceTexture_.texture = nullptr;
@@ -1416,6 +1369,18 @@ public:
 
     RenderBackendType getBackendType() const noexcept override {
         return RenderBackendType::WebGPU;
+    }
+
+    void* getNativeDevice() const noexcept override {
+        return static_cast<void*>(device_);
+    }
+
+    void* getNativeSurface() const noexcept override {
+        return static_cast<void*>(surface_);
+    }
+
+    void setCustomRenderTargetView(void* view) override {
+        customTargetView_ = static_cast<WGPUTextureView>(view);
     }
 
 private:
@@ -1639,6 +1604,7 @@ private:
     WGPUBindGroup bindGroup_{nullptr};
     WGPUSurfaceTexture currentSurfaceTexture_{};
     WGPUTextureView currentBackBufferView_{nullptr};
+    WGPUTextureView customTargetView_{nullptr};
     bool isFirstBatchOfFrame_{true};
     uint32_t width_{1280};
     uint32_t height_{800};
@@ -1704,6 +1670,7 @@ void BatchRenderer2D::beginFrame(float width, float height) {
     currentHeight_ = height;
     vertices_.clear();
     inFrame_ = true;
+    blendMode_ = BlendMode::Normal;
     resetRotation();
 
     if (backend_) {
@@ -1754,6 +1721,15 @@ void BatchRenderer2D::endFrame() {
             vertices_.clear();
         }
         backend_->endPass();
+    }
+}
+
+void BatchRenderer2D::setBlendMode(BlendMode mode) {
+    if (blendMode_ == mode) return;
+    flush();
+    blendMode_ = mode;
+    if (backend_) {
+        backend_->setBlendMode(mode);
     }
 }
 

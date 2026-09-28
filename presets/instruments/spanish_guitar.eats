@@ -1,0 +1,109 @@
+# @id: spanish_guitar
+# @name: Spanish Classical Guitar
+# @category: instrument
+# @description: Physical modeling of a Spanish concert classical guitar: nylon trebles & silver-wound bass waveguides, fingertip flesh vs fingernail ramp attack, Spanish Torres fan-braced acoustic body resonator (98Hz Helmholtz air cavity & 196Hz soundboard plate), and cedar/spruce tone balance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "FleshNail": eat.param("FleshNail", 0.0, 1.0, 0.4, step=0.0),
+        "Scrape": eat.param("Scrape", 0.0, 1.0, 0.35, step=0.0),
+        "StrumSpread": eat.param("StrumSpread", 1.0, 25.0, 4.0, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.9995, 0.9955, step=0.0),
+        "BodyDamp": eat.param("BodyDamp", 0.05, 0.8, 0.24, step=0.0),
+        "AirResonance": eat.param("AirResonance", -6.0, 8.0, 2.0, step=0.0),
+        "WoodTone": eat.param("WoodTone", -6.0, 8.0, 1.5, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "SPANISH CLASSICAL GUITAR",
+            "subtitle": "Spanish Fan-Bracing & Nylon Waveguide Physical Model",
+            "accent": "#D97706",
+            "background": "blonde_pine",
+            "rackSides": "rosewood",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "FleshNail",
+                            "label": "FLESH / NAIL",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Scrape",
+                            "label": "WOUND SCRAPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StrumSpread",
+                            "label": "MICRO STRUM",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "BodyDamp",
+                            "label": "STRING LOSS",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "FleshNail",
+                            "label": "PLUCK ARTICULATION (0.0 APYONADO NAIL <-> 1.0 TIRANDO FLESH)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "AirResonance",
+                            "label": "98Hz AIR",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "WoodTone",
+                            "label": "CEDAR / SPRUCE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

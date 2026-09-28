@@ -1,0 +1,65 @@
+# @id: action_procedural_acid_303
+# @name: Procedural Acid 303 Pattern Generator
+# @category: projectAction
+# @description: Procedurally composes authentic TB-303 acid patterns with 6 classic subgenres, realistic 16th staccato gate timing, 60ms constant-rate portamento slides, syncopated off-beat accents, and optional companion 909 beats.
+# @tags: PROCGEN, ACID, 303, TB303, BASS, TECHNO, MACRO
+
+def init():
+    return {
+        "Style": eat.param("Style", 0, 5, 0, options=[
+            "Classic Chicago Acid (1987)",
+            "90s Acid Trance / Goa",
+            "Hard Acid Techno (Warehouse)",
+            "Wonky IDM / Brain-Dance",
+            "Electro Acid Funk",
+            "Minimalist Hypnotic Acid"
+        ]),
+        "Root": eat.param("Root", 0, 12, 0, options=[
+            "Auto (From Song Key)",
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+        ]),
+        "Scale": eat.param("Scale", 0, 5, 0, options=[
+            "Minor Pentatonic",
+            "Phrygian (Dark)",
+            "Dorian (Groovy)",
+            "Natural Minor",
+            "Acid Blues (Flatted 5th)",
+            "Whole Tone (Trippy)"
+        ]),
+        "Bars": eat.param("Bars", 1, 8, 2, step=1),
+        "Density": eat.param("Density", 0.30, 1.0, 0.75, step=0.05),
+        "TieProbability": eat.param("TieProbability", 0.0, 0.80, 0.30, step=0.05),
+        "SlideProbability": eat.param("SlideProbability", 0.0, 1.0, 0.40, step=0.05),
+        "AccentProbability": eat.param("AccentProbability", 0.0, 1.0, 0.35, step=0.05),
+        "OctaveJumpRange": eat.param("OctaveJumpRange", 0, 2, 1, options=[
+            "1 Octave (Tight Bass)",
+            "2 Octaves (Classic 303 Leaps)",
+            "3 Octaves (Wide Goa Arps)"
+        ]),
+        "Waveform": eat.param("Waveform", 0, 2, 0, options=[
+            "Sawtooth (Buzzy / Classic)",
+            "Square (Hollow / Aggressive)",
+            "Keep Existing / Random"
+        ]),
+        "Companion909": eat.param("Companion909", 0, 1, 0, options=[
+            "None (Acid Bassline Only)",
+            "4-on-Floor 909 Groove (Kick + Open Hat + Clap)"
+        ]),
+        "Seed": eat.param("Seed", 1, 999999, 303, step=1),
+    }
+
+def run(project, params):
+    return {
+        "style": params.get("Style", 0),
+        "root": params.get("Root", 0),
+        "scale": params.get("Scale", 0),
+        "bars": params.get("Bars", 2),
+        "density": params.get("Density", 0.75),
+        "tie_probability": params.get("TieProbability", 0.30),
+        "slide_probability": params.get("SlideProbability", 0.40),
+        "accent_probability": params.get("AccentProbability", 0.35),
+        "octave_jump_range": params.get("OctaveJumpRange", 1),
+        "waveform": params.get("Waveform", 0),
+        "companion_909": params.get("Companion909", 0),
+        "seed": params.get("Seed", 303),
+    }

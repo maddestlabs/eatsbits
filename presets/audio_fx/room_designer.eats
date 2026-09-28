@@ -1,0 +1,158 @@
+# @id: room_designer
+# @name: Room Designer
+# @category: audioFx
+# @description: Interactive 3D Room Acoustic Synthesizer with Image Source & Velvet Noise physics.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Width": eat.param("Width", 1.0, 30.0, 15.0, step=0.5),
+        "Length": eat.param("Length", 1.0, 40.0, 25.0, step=0.5),
+        "Height": eat.param("Height", 1.0, 18.0, 10.0, step=0.5),
+        "Material": eat.param("Material", 0.0, 7.0, 0.0, options=["Wood Paneling", "Pine Wood", "Acoustic Foam", "Hard Concrete", "Birch Plywood", "Velvet Drapes", "Sheet Metal", "Carpet"], allow_variance=False),
+        "RT60": eat.param("RT60", 0.1, 5.0, 2.2, step=0.05),
+        "Damping": eat.param("Damping", 0.0, 1.0, 0.25, step=0.05),
+        "SourceX": eat.param("SourceX", 0.05, 0.95, 0.5, step=0.01),
+        "SourceY": eat.param("SourceY", 0.05, 0.95, 0.5, step=0.01),
+        "SourceZ": eat.param("SourceZ", 0.05, 0.95, 0.5, step=0.01),
+        "ListenerX": eat.param("ListenerX", 0.05, 0.95, 0.5, step=0.01),
+        "ListenerY": eat.param("ListenerY", 0.05, 0.95, 0.8, step=0.01),
+        "ListenerZ": eat.param("ListenerZ", 0.05, 0.95, 0.5, step=0.01),
+        "StereoWidth": eat.param("StereoWidth", 0.05, 1.0, 0.2, step=0.01),
+        "DryLevel": eat.param("DryLevel", 0.0, 1.5, 1.0, step=0.05),
+        "WetLevel": eat.param("WetLevel", 0.0, 1.5, 0.5, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Room Designer",
+            "subtitle": "3D Image Source & Velvet Noise Acoustic Engine",
+            "background": "grunge",
+            "accent": "#21F4E8",
+            "layout": [
+                {
+                    "type": "space_visualizer",
+                    "height": 135,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "listbox",
+                            "param": "Material",
+                            "label": "MATERIAL",
+                            "width": 130,
+                            "height": 70,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Width",
+                            "label": "WIDTH",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Length",
+                            "label": "LENGTH",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Height",
+                            "label": "HEIGHT",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "RT60",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Damping",
+                            "label": "DAMP",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "SourceX",
+                            "label": "SRC X",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SourceY",
+                            "label": "SRC Y",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SourceZ",
+                            "label": "SRC Z",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerX",
+                            "label": "MIC X",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerY",
+                            "label": "MIC Y",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerZ",
+                            "label": "MIC Z",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StereoWidth",
+                            "label": "SPREAD",
+                            "unit": "m",
+                            "size": 36,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "DryLevel",
+                            "label": "DRY LEVEL",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "WetLevel",
+                            "label": "WET LEVEL",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

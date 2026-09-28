@@ -1,0 +1,29 @@
+# @id: action_procedural_drum_groover
+# @name: Procedural Drum Groover
+# @category: projectAction
+# @description: Procedurally generates dynamic, humanized drum grooves with swing, ghost notes, and fills mapped to the GM Standard Drum Kit.
+# @tags: DRUMS, PROCGEN, GROOVE, SWING, FILLS
+
+def init():
+    return {
+        "Style": eat.param("Style", 0, 6, 0, options=["Funk / Breakbeat", "Rock / Pop", "Hip-Hop / Boom-Bap", "Jazz / Swing", "Latin / Afro-Cuban", "House / Disco (4-on-Floor)", "Trap / Halftime"]),
+        "Bars": eat.param("Bars", 1, 16, 4, step=1),
+        "Density": eat.param("Density", 0.1, 1.0, 0.75, step=0.05),
+        "Swing": eat.param("Swing", 0.0, 1.0, 0.20, step=0.05),
+        "GhostProbability": eat.param("GhostProbability", 0.0, 1.0, 0.25, step=0.05),
+        "FillDensity": eat.param("FillDensity", 0.0, 1.0, 0.35, step=0.05),
+        "Humanize": eat.param("Humanize", 0.0, 1.0, 0.25, step=0.05),
+        "Seed": eat.param("Seed", 1, 999999, 42, step=1),
+    }
+
+def run(project, params):
+    return {
+        "style": params.get("Style", 0),
+        "bars": params.get("Bars", 4),
+        "density": params.get("Density", 0.75),
+        "swing": params.get("Swing", 0.20),
+        "ghost_prob": params.get("GhostProbability", 0.25),
+        "fill_density": params.get("FillDensity", 0.35),
+        "humanize": params.get("Humanize", 0.25),
+        "seed": params.get("Seed", 42),
+    }

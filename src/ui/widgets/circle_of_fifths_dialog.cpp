@@ -119,9 +119,12 @@ void CircleOfFifthsDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) 
     drawText(r, barStr, barBadgeX + 8.0f, dialogBounds_.y + 15.0f, 9.5f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
-    // Close button (X)
-    drawText(r, "X", closeBtnBounds_.x + 6.0f, closeBtnBounds_.y + 4.0f, 12.0f,
-             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+    // Close button (metallic screw icon)
+    float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
+    float clCenterY = closeBtnBounds_.y + closeBtnBounds_.h * 0.5f;
+    bool closeHov = closeBtnBounds_.contains(lastMouseX_, lastMouseY_) ||
+                    (std::hypot(lastMouseX_ - clCenterX, lastMouseY_ - clCenterY) <= 13.0f);
+    drawScrewCloseButton(r, clCenterX, clCenterY, 9.0f, closeHov, theme.primaryAccent);
 
     // 4. Modal Navigation Tabs
     float tabY = dialogBounds_.y + hdrH + 8.0f;
@@ -585,6 +588,8 @@ void CircleOfFifthsDialog::handleWheelClick(float localX, float localY) {
 
 bool CircleOfFifthsDialog::handlePointer(const PointerEvent& ev) {
     if (!isOpen_) return false;
+    lastMouseX_ = ev.x;
+    lastMouseY_ = ev.y;
 
     // Block events from penetrating underlying DAW views
     if (ev.action == PointerAction::Scroll) {

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 
 #include "eatsbits/sequencer/transport.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
@@ -394,6 +395,203 @@ void testSequencerBenchmark() {
     std::cout << "[Benchmark] Sequencer benchmark PASSED.\n" << std::endl;
 }
 
+void testEatsFileLoadingAndAudioPlayback() {
+    std::cout << "[Test] Running testEatsFileLoadingAndAudioPlayback (verifying audio plays after .eats load)..." << std::endl;
+
+    // 1. Create a project and save to .eats
+    audio::AudioGraph saveGraph;
+    saveGraph.prepare(48000.0, 128);
+    auto tb = std::make_shared<audio::Tb303Node>("AcidLead");
+    auto mg = std::make_shared<audio::GainNode>("MasterOut");
+    mg->setVolume(0.85f);
+    audio::NodeId tbId = saveGraph.addNode(tb);
+    audio::NodeId mgId = saveGraph.addNode(mg);
+    saveGraph.connect(tbId, 0, mgId, 0);
+    saveGraph.setOutputNode(mgId, 0);
+    saveGraph.compile();
+
+    sequencer::StepSequencer saveSeq;
+    saveSeq.setBpm(130.0);
+    saveSeq.setSwing(0.50);
+    size_t tIdx = saveSeq.addTrack("303 Acid", tbId, 16);
+    auto* trk = saveSeq.getTrack(tIdx);
+    REQUIRE(trk != nullptr);
+    for (uint32_t s = 0; s < 16; ++s) {
+        sequencer::StepData sd{};
+        sd.active = true;
+        sd.note = 36 + (s % 12);
+        sd.velocity = 0.90f;
+        sd.gateLength = 0.8f;
+        trk->setStep(s, sd);
+    }
+
+    const std::string filePath = "test_audio_playback.eats";
+    REQUIRE(project::ProjectFile::saveToFile(filePath, saveGraph, saveSeq, "Acid Sound Test", 130.0, 0.50));
+
+    // 2. Simulate an existing DAW audio graph that already had nodes allocated
+    audio::AudioGraph activeDawGraph;
+    activeDawGraph.prepare(48000.0, 128);
+    for (int i = 0; i < 15; ++i) {
+        activeDawGraph.addNode(std::make_shared<audio::GainNode>("DummyNode_" + std::to_string(i)));
+    }
+    REQUIRE(activeDawGraph.getNodeCount() == 15);
+
+    // 3. Load the .eats file into the populated graph
+    sequencer::StepSequencer activeDawSeq;
+    std::string title;
+    double bpm = 0.0, swing = 0.0;
+    REQUIRE(project::ProjectFile::loadFromFile(filePath, activeDawGraph, activeDawSeq, title, bpm, swing));
+
+    REQUIRE(title == "Acid Sound Test");
+    REQUIRE(activeDawGraph.getNodeCount() >= 2);
+    REQUIRE(activeDawGraph.getOutputNodeId() != audio::INVALID_NODE_ID);
+
+    // 4. Verify targetNodeId is properly bound to a living node in the active graph
+    auto* loadedTrack = activeDawSeq.getTrack(0);
+    REQUIRE(loadedTrack != nullptr);
+    audio::NodeId targetId = loadedTrack->getTargetNodeId();
+    REQUIRE(targetId != 0);
+    REQUIRE(activeDawGraph.getNode(targetId) != nullptr);
+
+    // 5. Start playback and render blocks
+    activeDawSeq.start();
+    float maxPeak = 0.0f;
+    alignas(64) float bufL[128]{};
+    alignas(64) float bufR[128]{};
+
+    for (int block = 0; block < 10; ++block) {
+        activeDawSeq.processBlock(128, activeDawGraph);
+        activeDawGraph.process(bufL, bufR, 128);
+        for (int i = 0; i < 128; ++i) {
+            maxPeak = std::max(maxPeak, std::abs(bufL[i]));
+            maxPeak = std::max(maxPeak, std::abs(bufR[i]));
+        }
+    }
+
+    std::cout << "  Rendered audio blocks after loading .eats file. Peak amplitude: " << maxPeak << std::endl;
+    REQUIRE(maxPeak > 0.01f); // Sound MUST be produced, NOT SILENT!
+
+    std::filesystem::remove(filePath);
+    std::cout << "[Test] testEatsFileLoadingAndAudioPlayback PASSED.\n" << std::endl;
+}
+
+void testDemoFilesLoadingAndPlayback() {
+    std::cout << "[Test] Running testDemoFilesLoadingAndPlayback (Confusion.eats and Eats Lofi.eats)..." << std::endl;
+
+    auto resolveDemoPath = [](const std::string& rel) -> std::string {
+        if (std::filesystem::exists(rel)) return rel;
+        if (std::filesystem::exists("../" + rel)) return "../" + rel;
+        if (std::filesystem::exists("../../" + rel)) return "../../" + rel;
+        return rel;
+    };
+
+    // --- 1. Test Confusion.eats ---
+    {
+        const std::string confusionPath = resolveDemoPath("demos/Confusion.eats");
+        audio::AudioGraph graph;
+        graph.prepare(48000.0, 128);
+        sequencer::StepSequencer seq;
+        std::string title;
+        double bpm = 0.0, swing = 0.0;
+
+        REQUIRE(project::ProjectFile::loadFromFile(confusionPath, graph, seq, title, bpm, swing));
+        std::cout << "  Loaded " << confusionPath << ": title='" << title << "', bpm=" << bpm << ", tracks=" << seq.getNumTracks() << std::endl;
+
+        REQUIRE(title == "Confusion");
+        REQUIRE(bpm == 125.0);
+        REQUIRE(seq.getNumTracks() == 2);
+
+        const auto* kickTrk = seq.getTrack(0);
+        const auto* bassTrk = seq.getTrack(1);
+        REQUIRE(kickTrk != nullptr);
+        REQUIRE(bassTrk != nullptr);
+
+        std::cout << "    Track 0: " << kickTrk->getName() << ", steps=" << kickTrk->getNumSteps() << std::endl;
+        std::cout << "    Track 1: " << bassTrk->getName() << ", steps=" << bassTrk->getNumSteps() << std::endl;
+
+        // Check active steps
+        uint32_t kickActive = 0, bassActive = 0;
+        for (uint32_t s = 0; s < kickTrk->getNumSteps(); ++s) {
+            if (kickTrk->getStep(s).active) kickActive++;
+        }
+        for (uint32_t s = 0; s < bassTrk->getNumSteps(); ++s) {
+            if (bassTrk->getStep(s).active) bassActive++;
+        }
+        REQUIRE(kickActive >= 4);
+        REQUIRE(bassActive >= 5);
+
+        // Verify target nodes in graph
+        REQUIRE(graph.getNode(kickTrk->getTargetNodeId()) != nullptr);
+        REQUIRE(graph.getNode(bassTrk->getTargetNodeId()) != nullptr);
+
+        // Render audio
+        seq.start();
+        float maxPeak = 0.0f;
+        alignas(64) float bufL[128]{};
+        alignas(64) float bufR[128]{};
+        for (int block = 0; block < 20; ++block) {
+            seq.processBlock(128, graph);
+            graph.process(bufL, bufR, 128);
+            for (int i = 0; i < 128; ++i) {
+                maxPeak = std::max(maxPeak, std::abs(bufL[i]));
+                maxPeak = std::max(maxPeak, std::abs(bufR[i]));
+            }
+        }
+        std::cout << "    Confusion.eats audio peak amplitude: " << maxPeak << std::endl;
+        REQUIRE(maxPeak > 0.01f);
+    }
+
+    // --- 2. Test Eats Lofi.eats ---
+    {
+        const std::string lofiPath = resolveDemoPath("demos/Eats Lofi.eats");
+        audio::AudioGraph graph;
+        graph.prepare(48000.0, 128);
+        sequencer::StepSequencer seq;
+        std::string title;
+        double bpm = 0.0, swing = 0.0;
+
+        REQUIRE(project::ProjectFile::loadFromFile(lofiPath, graph, seq, title, bpm, swing));
+        std::cout << "  Loaded " << lofiPath << ": title='" << title << "', bpm=" << bpm << ", tracks=" << seq.getNumTracks() << std::endl;
+
+        REQUIRE(title == "Eats Lofi");
+        REQUIRE(bpm == 125.0);
+        REQUIRE(seq.getNumTracks() == 6);
+
+        // Check active steps across all tracks
+        uint32_t totalActive = 0;
+        for (size_t t = 0; t < seq.getNumTracks(); ++t) {
+            const auto* trk = seq.getTrack(t);
+            REQUIRE(trk != nullptr);
+            REQUIRE(graph.getNode(trk->getTargetNodeId()) != nullptr);
+            uint32_t active = 0;
+            for (uint32_t s = 0; s < trk->getNumSteps(); ++s) {
+                if (trk->getStep(s).active) active++;
+            }
+            std::cout << "    Track " << t << ": " << trk->getName() << ", steps=" << trk->getNumSteps() << ", active=" << active << std::endl;
+            totalActive += active;
+        }
+        REQUIRE(totalActive >= 10);
+
+        // Render audio
+        seq.start();
+        float maxPeak = 0.0f;
+        alignas(64) float bufL[128]{};
+        alignas(64) float bufR[128]{};
+        for (int block = 0; block < 20; ++block) {
+            seq.processBlock(128, graph);
+            graph.process(bufL, bufR, 128);
+            for (int i = 0; i < 128; ++i) {
+                maxPeak = std::max(maxPeak, std::abs(bufL[i]));
+                maxPeak = std::max(maxPeak, std::abs(bufR[i]));
+            }
+        }
+        std::cout << "    Eats Lofi.eats audio peak amplitude: " << maxPeak << std::endl;
+        REQUIRE(maxPeak > 0.01f);
+    }
+
+    std::cout << "[Test] testDemoFilesLoadingAndPlayback PASSED.\n" << std::endl;
+}
+
 int main() {
     std::cout << "=================================================" << std::endl;
     std::cout << " Eatsbits Sequencer, EatscriptNode & Project I/O" << std::endl;
@@ -403,6 +601,8 @@ int main() {
     testEatscriptNode();
     testStepSequencerAudioGeneration();
     testProjectSerializationRoundTrip();
+    testEatsFileLoadingAndAudioPlayback();
+    testDemoFilesLoadingAndPlayback();
     testSequencerBenchmark();
 
     std::cout << ">>> ALL SEQUENCER & PROJECT TESTS PASSED SUCCESSFULLY! <<<" << std::endl;

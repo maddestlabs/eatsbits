@@ -219,6 +219,17 @@ void testChordDetection() {
     assert(extracted[0].rootPitchClass == 0 && extracted[0].quality == ChordQuality::Major);
     assert(extracted[1].rootPitchClass == 9 && extracted[1].quality == ChordQuality::Minor);
 
+    // Monophonic Content Exclusion: Single notes, octaves, and random collisions must NOT detect chords
+    assert(!ChordTheory::detectChordFromPitches({60}, root, quality, bass));
+    assert(!ChordTheory::detectChordFromPitches({36, 48, 60, 72}, root, quality, bass));
+    assert(!ChordTheory::detectChordFromPitches({60, 61}, root, quality, bass)); // Semitone clash without harmony
+
+    std::vector<TheoryNote> monoNotes = {
+        {36, 0.0f, 4.0f, 0.8f} // Single bass note
+    };
+    auto monoExtracted = ChordTheory::extractChordsFromNotes(monoNotes, 0, 1, 16);
+    assert(monoExtracted.empty());
+
     std::cout << "  -> Passed." << std::endl;
 }
 
@@ -264,6 +275,7 @@ void testArrangerChordTrack() {
 
     // Initial progression: 8 chords
     const auto& chords = arranger.getChordTrack();
+    (void)chords;
     assert(chords.size() == 8);
     assert(chords[0].rootPitchClass == 0); // C Major
     assert(chords[1].rootPitchClass == 7); // G Major
@@ -272,15 +284,18 @@ void testArrangerChordTrack() {
 
     // Active chord lookup at bar
     const auto* c0 = arranger.getActiveChordAtBar(0.5f);
+    (void)c0;
     assert(c0 != nullptr && c0->rootPitchClass == 0);
 
     const auto* c2 = arranger.getActiveChordAtBar(2.5f);
+    (void)c2;
     assert(c2 != nullptr && c2->rootPitchClass == 7);
 
     // Add or Update Chord
     ChordEvent customChord{"custom_1", 20, 2.0f, 2, ChordQuality::Minor7, -1}; // Dm7 at bar 20
     arranger.addOrUpdateChord(customChord);
     const auto* cCustom = arranger.getActiveChordAtBar(20.5f);
+    (void)cCustom;
     assert(cCustom != nullptr && cCustom->rootPitchClass == 2);
 
     // Remove Chord
@@ -349,6 +364,7 @@ void testCircleOfFifthsDialog() {
     bool auditioned = false;
     dialog.onAuditionChord = [&](const ChordEvent& chord) {
         auditioned = true;
+        (void)chord;
         assert(chord.rootPitchClass == 0);
         assert(chord.quality == ChordQuality::Major7);
     };
@@ -359,6 +375,7 @@ void testCircleOfFifthsDialog() {
     bool applied = false;
     dialog.onChordApplied = [&](const ChordEvent& chord) {
         applied = true;
+        (void)chord;
         assert(chord.rootPitchClass == 0);
         assert(chord.startBar == 0);
     };
@@ -411,6 +428,7 @@ void testProjectSerializationRoundtrip() {
         jsonStr, loadedGraph, loadedSeq, loadedTitle, loadedBpm, loadedSwing,
         loadedKeyRoot, loadedIsMinor, loadedChords);
 
+    (void)ok;
     assert(ok);
     assert(loadedTitle == "Chords Anthem");
     assert(std::abs(loadedBpm - 128.0) < 0.01);
@@ -423,6 +441,109 @@ void testProjectSerializationRoundtrip() {
     assert(loadedChords[3].rootPitchClass == 5 && loadedChords[3].quality == ChordQuality::Major);
 
     std::cout << "  -> Passed (Complete lossless chord track serialization)." << std::endl;
+}
+
+// -------------------------------------------------------------------------
+// 10. Test Clip-Level Chord Detection & Track-to-Track Harmonic Sync
+// -------------------------------------------------------------------------
+void testClipChordsAndTrackSync() {
+    std::cout << "[Test 10/10] Clip-Level Chord Detection & Track Harmonic Sync..." << std::endl;
+
+    ArrangerView arranger;
+    const auto& tracks = arranger.getTracks();
+
+    // 1. Verify default tracks chord leader configuration
+    assert(tracks.size() >= 5);
+    const auto& rhodesTrack = tracks[3]; // DX7 Rhodes
+    assert(rhodesTrack.isChordLeader);
+    assert(!rhodesTrack.clips.empty());
+    assert(!rhodesTrack.clips[0].detectedChords.empty());
+
+    // DX7 Rhodes clip 0 has:
+    // Bar 0..2: C, Eb, G, Bb -> Cm7 (root 0, quality Minor7)
+    // Bar 2..4: Bb, D, F, A  -> Bbmaj7 (root 10, quality Major7)
+    // Bar 4..6: Ab, C, Eb, G -> Abmaj7 (root 8, quality Major7)
+    // Bar 6..8: Bb, D, F, Ab -> Bb7 (root 10, quality Dominant7)
+    const auto& rhodesChords = rhodesTrack.clips[0].detectedChords;
+    (void)rhodesChords;
+    assert(rhodesChords.size() >= 4);
+    assert(rhodesChords[0].rootPitchClass == 0);
+    assert(rhodesChords[0].quality == ChordQuality::Minor7);
+    assert(rhodesChords[1].rootPitchClass == 10);
+    assert(rhodesChords[1].quality == ChordQuality::Major7);
+
+    // Verify other default tracks (Acid, 808, 909, Piano Solo) do NOT detect chords
+    // because only DX7 Rhodes contains polyphonic chord content
+    assert(tracks[0].clips[0].detectedChords.empty()); // TB-303 Acid Lead (monophonic)
+    assert(tracks[1].clips[0].detectedChords.empty()); // TR-808 Kit (drums)
+    assert(tracks[2].clips[0].detectedChords.empty()); // TR-909 Drive (drums)
+    assert(tracks[4].clips[0].detectedChords.empty()); // Concert Grand (monophonic solo)
+
+    // 2. Verify Track 1 (Sub Bass) syncs to DX7 Rhodes
+    const auto& bassTrack = tracks[1]; // Sub Bass
+    (void)bassTrack;
+    assert(bassTrack.chordLeaderTrackIndex == 3);
+    assert(bassTrack.chordFollowMode == ChordFollowMode::Bass);
+
+    // Query active chord for Sub Bass at bar 0.5 (within Bar 0..2)
+    const auto* chordAtBar0 = arranger.getActiveChordForTrackAtBar(1, 0.5f);
+    (void)chordAtBar0;
+    assert(chordAtBar0 != nullptr);
+    assert(chordAtBar0->rootPitchClass == 0); // Cm7
+
+    // Query active chord for Sub Bass at bar 2.5 (within Bar 2..4)
+    const auto* chordAtBar2 = arranger.getActiveChordForTrackAtBar(1, 2.5f);
+    (void)chordAtBar2;
+    assert(chordAtBar2 != nullptr);
+    assert(chordAtBar2->rootPitchClass == 10); // Bbmaj7
+
+    // 3. Test Looping Clip Chord Continuity
+    ArrangerTimelineClip loopClip;
+    loopClip.id = "loop_prog";
+    loopClip.startBar = 1;
+    loopClip.lengthBars = 8;
+    loopClip.isLooped = true;
+    loopClip.loopLengthBars = 2; // 2-bar progression looped 4 times
+    // Bar 0: F Major {53, 57, 60}, Bar 1: G Major {55, 59, 62}
+    loopClip.notes = {
+        {53, 0.0f, 3.8f, 0.8f}, {57, 0.0f, 3.8f, 0.8f}, {60, 0.0f, 3.8f, 0.8f},
+        {55, 4.0f, 3.8f, 0.8f}, {59, 4.0f, 3.8f, 0.8f}, {62, 4.0f, 3.8f, 0.8f}
+    };
+    arranger.updateClipDetectedChords(loopClip);
+    assert(loopClip.detectedChords.size() == 2);
+    assert(loopClip.detectedChords[0].rootPitchClass == 5); // F Major
+    assert(loopClip.detectedChords[1].rootPitchClass == 7); // G Major
+
+    // 4. Test Harmonic Overview Aggregation
+    auto overview = arranger.getHarmonicOverviewChords();
+    assert(!overview.empty());
+    // First overview chord should originate from the designated leader track (DX7 Rhodes)
+    assert(overview[0].sourceTrackIdx == 3);
+    assert(overview[0].sourceTrackName == "DX7 Rhodes");
+    assert(overview[0].chord.rootPitchClass == 0);
+
+    // 5. Test Track-to-Track Baking
+    // Create follower track with notes and bake to MIDI
+    arranger.addTrack("Pad Follower", "PolySynth", 0.3f, 0.7f, 0.9f);
+    uint32_t padTrackIdx = static_cast<uint32_t>(arranger.getTracks().size() - 1);
+    auto& padTrack = arranger.getTracks()[padTrackIdx];
+    padTrack.chordLeaderTrackIndex = 3; // Follow DX7 Rhodes
+    padTrack.chordFollowMode = ChordFollowMode::Chord;
+
+    ArrangerTimelineClip padClip;
+    padClip.id = "pad_clip";
+    padClip.startBar = 1;
+    padClip.lengthBars = 4;
+    // Note E4 (64) which is not in Cm7
+    padClip.notes.push_back({64, 0.0f, 2.0f, 0.8f});
+    padTrack.clips.push_back(padClip);
+
+    arranger.bakeChordsToTrack(padTrackIdx);
+    assert(arranger.getTracks()[padTrackIdx].chordFollowMode == ChordFollowMode::Off);
+    // E4 (64) must be remapped to chord tones of Cm7 (e.g. Eb4 = 63)
+    assert(arranger.getTracks()[padTrackIdx].clips[0].notes[0].pitch != 64);
+
+    std::cout << "  -> Passed (Clip chords, track-to-track sync & overview aggregation)." << std::endl;
 }
 
 int main() {
@@ -439,9 +560,10 @@ int main() {
     testArrangerChordTrack();
     testCircleOfFifthsDialog();
     testProjectSerializationRoundtrip();
+    testClipChordsAndTrackSync();
 
     std::cout << "=================================================" << std::endl;
-    std::cout << "  ALL 9 CHORD TRACK TEST SUITES PASSED (100%)    " << std::endl;
+    std::cout << "  ALL 10 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
     std::cout << "=================================================" << std::endl;
     return 0;
 }

@@ -1,0 +1,13 @@
+# @id: seq_offbeat_hats
+# @name: Offbeat Open Hats
+# @category: midiSeq
+# @description: Classic house and garage offbeat open hi-hat groove hitting on the upbeat of every beat.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

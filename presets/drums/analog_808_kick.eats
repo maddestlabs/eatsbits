@@ -1,0 +1,112 @@
+# @id: analog_808_kick
+# @name: Analog 808 Kick
+# @category: instrument
+# @description: Authentic Eats-808 analog Bridged-T analog bass drum circuit with exponential pitch sweep, adjustable tone, click transient, and extended sub decay.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", 35.0, 75.0, 46.0, step=0.0),
+        "StartFreq": eat.param("StartFreq", 80.0, 220.0, 140.0, step=0.0),
+        "PitchDecay": eat.param("PitchDecay", 0.01, 0.15, 0.045, step=0.0),
+        "Decay": eat.param("Decay", 0.1, 4.0, 0.85, step=0.0),
+        "Tone": eat.param("Tone", 100.0, 800.0, 220.0, step=0.0),
+        "Click": eat.param("Click", 0.0, 1.0, 0.15, step=0.0),
+        "Overdrive": eat.param("Overdrive", 0.8, 3.0, 1.25, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 ANALOG BASS DRUM",
+            "subtitle": "Authentic Bridged-T Resonant Sine Circuit",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "SUB TUNE",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Tone",
+                            "label": "LPF TONE",
+                            "unit": "Hz",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "StartFreq",
+                            "label": "PUNCH",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PitchDecay",
+                            "label": "SWEEP",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Tone",
+                            "label": "TONE",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Click",
+                            "label": "CLICK",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Overdrive",
+                            "label": "DRIVE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    pitch_sweep = eat.node.pitch_sweep(start="StartFreq", end="Tune", decay="PitchDecay")
+    sine = eat.node.osc(wave="sine", pitch_cv=pitch_sweep)
+    amp_env = eat.node.decay(decay="Decay")
+    body = eat.node.gain(sine, gain_cv=amp_env)
+    tone_filtered = eat.node.svf(body, cutoff="Tone", type="lowpass")
+    noise = eat.node.noise()
+    click_env = eat.node.decay(decay=0.004)
+    click = eat.node.gain(noise, gain_cv=click_env, gain="Click")
+    mix = eat.node.mix(tone_filtered, click)
+    out = eat.node.saturate(mix, drive="Overdrive")
+    return out

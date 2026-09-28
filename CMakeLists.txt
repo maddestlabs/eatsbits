@@ -50,13 +50,30 @@ add_library(eatsbits_core STATIC
     src/theory/chord_model.cpp
     src/plugins/builtin_303.cpp
     src/audio/export/wav_exporter.cpp
+    src/audio/audio_to_midi_engine.cpp
+    src/audio/procedural_ir_generator.cpp
+    src/audio/soundfont/soundfont_decoder.cpp
+    src/audio/graph/nodes/soundfont_node.cpp
+    src/procgen/song_archetypes.cpp
+    src/procgen/procedural_acid_engine.cpp
+    src/procgen/procedural_drum_engine.cpp
+    src/procgen/procedural_piano_engine.cpp
+    src/procgen/procedural_ensemble_engine.cpp
+    src/procgen/procedural_song_engine.cpp
+    src/audio/track_freeze_engine.cpp
+    src/sequencer/note_splitter_engine.cpp
+    src/ai/gemini_client.cpp
+    src/ai/ai_mixing_engine.cpp
+    src/lyrics/lyric_track.cpp
+    src/audio/graph/nodes/tts_synth_node.cpp
+    src/project/eats_builtin_presets.cpp
 )
 
 # Core Platform Libraries (Audio Only)
 if(EMSCRIPTEN)
     target_link_libraries(eatsbits_core PUBLIC)
 elseif(WIN32)
-    target_link_libraries(eatsbits_core PUBLIC ole32 winmm)
+    target_link_libraries(eatsbits_core PUBLIC ole32 winmm winhttp)
 elseif(APPLE)
     target_link_libraries(eatsbits_core PUBLIC "-framework CoreAudio" "-framework AudioToolbox")
 elseif(UNIX)
@@ -93,14 +110,23 @@ add_library(eatsbits_gui_core STATIC
     src/ui/gui_window.cpp
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
+    src/ui/widgets/drum_pad_grid_widget.cpp
     src/ui/widgets/project_browser_drawer.cpp
     src/ui/widgets/transport_header.cpp
     src/ui/widgets/bottom_nav_bar.cpp
     src/ui/widgets/plugin_search_dialog.cpp
     src/ui/widgets/circle_of_fifths_dialog.cpp
+    src/ui/widgets/track_properties_panel.cpp
     src/ui/widgets/track_properties_drawer.cpp
     src/ui/widgets/value_edit_dialog.cpp
     src/ui/widgets/icon_search_dialog.cpp
+    src/ui/widgets/command_palette_dialog.cpp
+    src/ui/widgets/audio_to_midi_dialog.cpp
+    src/ui/widgets/waveshaper_dialog.cpp
+    src/ui/widgets/note_splitter_dialog.cpp
+    src/ui/widgets/color_picker_dialog.cpp
+    src/ui/widgets/space_visualizer_widget.cpp
+    src/ui/widgets/ai_assistant_dialog.cpp
     src/ui/views/arranger_view.cpp
     src/ui/views/edit_view.cpp
     src/ui/views/track_inspector_view.cpp
@@ -298,6 +324,10 @@ add_executable(test_convolver tests/test_convolver.cpp)
 target_link_libraries(test_convolver PRIVATE eatsbits_core)
 add_test(NAME ConvolverTest COMMAND test_convolver)
 
+add_executable(test_soundfont tests/test_soundfont.cpp)
+target_link_libraries(test_soundfont PRIVATE eatsbits_core)
+add_test(NAME SoundFontTest COMMAND test_soundfont)
+
 add_executable(test_physical_modeling tests/test_physical_modeling.cpp)
 target_link_libraries(test_physical_modeling PRIVATE eatsbits_core)
 add_test(NAME PhysicalModelingTest COMMAND test_physical_modeling)
@@ -350,5 +380,32 @@ add_executable(test_icon_system tests/test_icon_system.cpp)
 target_link_libraries(test_icon_system PRIVATE eatsbits_gui_core)
 add_test(NAME IconSystemTest COMMAND test_icon_system)
 
+add_executable(test_audio_to_midi tests/test_audio_to_midi.cpp)
+target_link_libraries(test_audio_to_midi PRIVATE eatsbits_gui_core)
+add_test(NAME AudioToMidiTest COMMAND test_audio_to_midi)
+
+add_executable(test_procgen tests/test_procgen.cpp)
+target_link_libraries(test_procgen PRIVATE eatsbits_gui_core)
+add_test(NAME ProcGenTest COMMAND test_procgen)
+
+add_executable(test_track_freeze tests/test_track_freeze.cpp)
+target_link_libraries(test_track_freeze PRIVATE eatsbits_gui_core)
+add_test(NAME TrackFreezeTest COMMAND test_track_freeze)
+
+add_executable(test_creative_dialogs tests/test_creative_dialogs.cpp)
+target_link_libraries(test_creative_dialogs PRIVATE eatsbits_gui_core)
+add_test(NAME CreativeDialogsTest COMMAND test_creative_dialogs)
+
+add_executable(test_ai_assistant tests/test_ai_assistant.cpp)
+target_link_libraries(test_ai_assistant PRIVATE eatsbits_gui_core)
+add_test(NAME AiAssistantTest COMMAND test_ai_assistant)
+
+add_executable(test_lyric_track tests/test_lyric_track.cpp)
+target_link_libraries(test_lyric_track PRIVATE eatsbits_core)
+add_test(NAME LyricTrackTest COMMAND test_lyric_track)
+
+add_executable(test_builtin_presets tests/test_builtin_presets.cpp)
+target_link_libraries(test_builtin_presets PRIVATE eatsbits_core)
+add_test(NAME BuiltinPresetsTest COMMAND test_builtin_presets)
 
 endif() # BUILD_TESTING

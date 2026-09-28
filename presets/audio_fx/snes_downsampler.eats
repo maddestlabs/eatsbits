@@ -1,0 +1,54 @@
+# @id: snes_downsampler
+# @name: SNES Downsampler
+# @category: audioFx
+# @description: Authentic 16-Bit S-DSP Console Resampler simulating SPC700 sample rate limits (8kHz-32kHz), 4-bit BRR block quantization, and 4-point Gaussian filtering.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SampleRate": eat.param("SampleRate", 0.0, 4.0, 2.0, options=["32 kHz (Native)", "22.05 kHz (Hi-Fi)", "16 kHz (Standard)", "11.025 kHz (Budget)", "8 kHz (Lo-Fi)"], allow_variance=False),
+        "BRRBits": eat.param("BRRBits", 2.0, 8.0, 4.0, step=1.0, allow_variance=False),
+        "GaussianFilter": eat.param("GaussianFilter", 0.0, 1.0, 0.85, step=0.05),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.0, step=0.05),
+        "Mix": eat.param("Mix", 0.0, 1.0, 1.0, step=0.05),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "SNES Downsampler",
+            "subtitle": "16-Bit S-DSP Console BRR Degrader & Gaussian Filter",
+            "background": "snes",
+            "accent": "#E52521",
+            "layout": [
+                {
+                    "type": "row",
+                    "orientation": "vertical",
+                    "align": "space_around",
+                    "crossAlign": "center",
+                    "children": [
+                        {"type": "listbox", "param": "SampleRate", "label": "SAMPLE RATE", "width": 190, "height": 90},
+                        {"type": "knob", "param": "BRRBits", "label": "BRR BITS", "size": 48, "knobStyle": "snes", "unit": "bit"},
+                        {"type": "knob", "param": "GaussianFilter", "label": "WARMTH", "size": 48, "knobStyle": "snes"},
+                        {"type": "knob", "param": "Drive", "label": "DRIVE", "size": 48, "knobStyle": "snes", "unit": "x"},
+                        {"type": "knob", "param": "Mix", "label": "MIX", "size": 48, "knobStyle": "snes"},
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    in_sig = eat.node.input()
+    crushed = eat.node.bitcrush(in_sig, bits="BRRBits", downsample=2.0)
+    filtered = eat.node.svf(crushed, cutoff=8000.0, reso=0.707, type="lowpass")
+    saturated = eat.node.saturate(filtered, drive="Drive")
+    out = eat.node.mix(in_sig, saturated, mix="Mix")
+    return out
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    # Evaluated by SNESDownsamplerEngine in EatDspSynthesizer
+    return [input_l, input_r]

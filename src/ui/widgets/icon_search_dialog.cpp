@@ -109,10 +109,12 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawText(r, headerTitle, dialogBounds_.x + 20.0f, dialogBounds_.y + 16.0f, 13.0f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
-    // Close button [✕]
-    drawRoundedRect(r, closeBtnBounds_.x, closeBtnBounds_.y, closeBtnBounds_.w, closeBtnBounds_.h, 4.0f,
-                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.8f);
-    drawCenteredText(r, "✕", closeBtnBounds_, 11.0f, theme.textMuted);
+    // Close button (metallic screw icon)
+    float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
+    float clCenterY = closeBtnBounds_.y + closeBtnBounds_.h * 0.5f;
+    bool closeHov = closeBtnBounds_.contains(lastMouseX_, lastMouseY_) ||
+                    (std::hypot(lastMouseX_ - clCenterX, lastMouseY_ - clCenterY) <= 13.0f);
+    drawScrewCloseButton(r, clCenterX, clCenterY, 9.0f, closeHov, theme.primaryAccent);
 
     // 3. Category Filter Chips
     float chipX = dialogBounds_.x + 20.0f;
@@ -259,6 +261,13 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
 
 bool IconSearchDialog::handlePointer(const PointerEvent& ev) {
     if (!isOpen_) return false;
+    lastMouseX_ = ev.x;
+    lastMouseY_ = ev.y;
+
+    if (ev.action == PointerAction::Scroll) {
+        return handleScroll(ev.scrollY);
+    }
+
     if (ev.action != PointerAction::Down) return true; // Consume events behind modal
 
     // Click outside to close
@@ -269,7 +278,9 @@ bool IconSearchDialog::handlePointer(const PointerEvent& ev) {
     }
 
     // Close button
-    if (closeBtnBounds_.contains(ev.x, ev.y)) {
+    float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
+    float clCenterY = closeBtnBounds_.y + closeBtnBounds_.h * 0.5f;
+    if (closeBtnBounds_.contains(ev.x, ev.y) || std::hypot(ev.x - clCenterX, ev.y - clCenterY) <= 13.0f) {
         close();
         if (onClose) onClose();
         return true;

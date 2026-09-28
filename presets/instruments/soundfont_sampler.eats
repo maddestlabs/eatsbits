@@ -1,0 +1,89 @@
+# @id: soundfont_sampler
+# @name: SoundFont 2 Player
+# @category: instrument
+# @description: Multi-sampled SoundFont 2 (.sf2) bank player with key-zone mapping, bank selection, and transient envelope control.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SoundFontBank": eat.param("SoundFontBank", 0.0, 1.0, 0.0, options=["Super Small Font", "GeneralUser GS"], allow_variance=False),
+        "Preset": eat.param("Preset", 0.0, 4.0, 0.0, options=["000: Acoustic Grand Piano", "024: Acoustic Guitar", "040: Violin", "056: Trumpet", "073: Flute"], allow_variance=False),
+        "PresetNum": eat.param("PresetNum", 0.0, 127.0, 0.0, step=1.0, allow_variance=False),
+        "BankNum": eat.param("BankNum", 0.0, 128.0, 0.0, step=1.0, allow_variance=False),
+        "AttackSec": eat.param("AttackSec", 0.0, 1.0, 0.0, step=0.0),
+        "DecaySec": eat.param("DecaySec", 0.01, 2.0, 0.3, step=0.0),
+        "Sustain": eat.param("Sustain", 0.0, 1.0, 0.8, step=0.0),
+        "ReleaseSec": eat.param("ReleaseSec", 0.01, 2.0, 0.4, step=0.0),
+        "Gain": eat.param("Gain", 0.0, 2.0, 1.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "SoundFont 2 Player",
+            "subtitle": "Multi-Sample SF2 Bank & Instrument Engine",
+            "background": "snes",
+            "knobStyle": "snes",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "listbox",
+                            "param": "SoundFontBank",
+                            "label": "SoundFont Bank",
+                            "width": 160,
+                            "height": 90,
+                        },
+                        {
+                            "type": "listbox",
+                            "param": "Preset",
+                            "label": "Program Preset",
+                            "width": 200,
+                            "height": 90,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "AttackSec",
+                            "label": "ATTACK",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "DecaySec",
+                            "label": "DECAY",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ReleaseSec",
+                            "label": "RELEASE",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Gain",
+                            "label": "GAIN",
+                            "size": 48,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -4,6 +4,7 @@
 #include "eatsbits/ui/widgets/skeuomorphic_switch.hpp"
 #include "eatsbits/ui/widgets/glowing_nixie.hpp"
 #include "eatsbits/ui/widgets/vu_meter.hpp"
+#include "eatsbits/ui/widgets/scrollable_area.hpp"
 
 #include <iostream>
 #include <cassert>
@@ -260,6 +261,79 @@ void testContextualLightingAndTb303() {
     std::cout << "  [PASS] Contextual LightSource2D and TB-303 tests passed." << std::endl;
 }
 
+void testScrollableArea() {
+    std::cout << "[Test] ScrollableArea viewport and scrollbar math..." << std::endl;
+
+    ScrollableArea area;
+    area.setViewport(10.0f, 50.0f, 400.0f, 300.0f);
+    area.setContentHeight(600.0f);
+
+    assert(area.canScroll());
+    assertNear(area.getMaxScroll(), 300.0f, 0.01f, "Max scroll should be 600 - 300 = 300");
+    assertNear(area.getScrollY(), 0.0f, 0.01f, "Initial scroll should be 0");
+
+    // Scroll operations
+    area.scrollBy(100.0f);
+    assertNear(area.getScrollY(), 100.0f, 0.01f, "ScrollBy 100");
+    assertNear(area.getScrollRatio(), 1.0f / 3.0f, 0.01f, "Scroll ratio 100/300");
+
+    // Coordinate conversions
+    float screenY = area.contentToScreenY(150.0f);
+    assertNear(screenY, 100.0f, 0.01f, "50 (vp.y) + 150 - 100 = 100");
+    float contentY = area.screenToContentY(100.0f);
+    assertNear(contentY, 150.0f, 0.01f, "100 - 50 + 100 = 150");
+
+    // Visibility test
+    assert(area.isVisible(60.0f, 20.0f));
+    assert(area.isVisible(340.0f, 20.0f));
+    assert(!area.isVisible(400.0f, 20.0f)); // below 50 + 300 = 350
+    assert(!area.isVisible(10.0f, 20.0f));  // above 50
+
+    // Geometry of track and thumb
+    Rect2D track = area.getScrollbarTrackBounds();
+    assertNear(track.w, 5.0f, 0.01f, "Track width");
+    assertNear(track.h, 300.0f, 0.01f, "Track height matches viewport height");
+
+    Rect2D thumb = area.getScrollbarThumbBounds();
+    assertNear(thumb.h, 150.0f, 0.01f, "Thumb height should be 300/600 * 300 = 150");
+    assertNear(thumb.y, 50.0f + (1.0f / 3.0f) * (300.0f - 150.0f), 0.5f, "Thumb position");
+
+    // Pointer events
+    PointerEvent scrollEv;
+    scrollEv.action = PointerAction::Scroll;
+    scrollEv.x = 200.0f;
+    scrollEv.y = 100.0f;
+    scrollEv.scrollY = 1.0f;
+    bool scrollHandled = area.handlePointer(scrollEv);
+    assert(scrollHandled);
+    assertNear(area.getScrollY(), 68.0f, 0.01f, "Scrolled up by 32 from 100");
+
+    // Thumb dragging
+    PointerEvent downEv;
+    downEv.action = PointerAction::Down;
+    downEv.button = PointerButton::Left;
+    downEv.x = thumb.x + 2.0f;
+    downEv.y = thumb.y + 10.0f;
+    bool downHandled = area.handlePointer(downEv);
+    assert(downHandled);
+    assert(area.isDragging());
+
+    PointerEvent moveEv;
+    moveEv.action = PointerAction::Move;
+    moveEv.x = thumb.x + 2.0f;
+    moveEv.y = downEv.y + 30.0f;
+    bool moveHandled = area.handlePointer(moveEv);
+    assert(moveHandled);
+
+    PointerEvent upEv;
+    upEv.action = PointerAction::Up;
+    bool upHandled = area.handlePointer(upEv);
+    assert(upHandled);
+    assert(!area.isDragging());
+
+    std::cout << "  [PASS] ScrollableArea tests passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits UI Geometry & Widgets Tests ===" << std::endl;
     testRectGeometry();
@@ -268,6 +342,7 @@ int main() {
     testSkeuomorphicSwitch();
     testNixieAndVuMeter();
     testContextualLightingAndTb303();
+    testScrollableArea();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }

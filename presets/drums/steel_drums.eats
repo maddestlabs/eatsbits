@@ -1,0 +1,107 @@
+# @id: steel_drums
+# @name: Steel Drums
+# @category: instrument
+# @description: Physical modal modeling of Trinidadian Steel Drums / Steelpan (GM 114 / 115): dished steel oil drum head with tuned octave & fifth quadrants, rubber-tipped mallet impact, and adjacent note sympathetic bowl shimmer.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "PanDecay": eat.param("PanDecay", 0.6, 4.0, 1.8, step=0.0),
+        "OctaveHarmonic": eat.param("OctaveHarmonic", 0.0, 1.2, 0.6, step=0.0, allow_variance=False),
+        "BowlSympathy": eat.param("BowlSympathy", 0.0, 1.0, 0.45, step=0.0),
+        "MalletSoftness": eat.param("MalletSoftness", 0.0, 1.0, 0.55, step=0.0),
+        "AirPresence": eat.param("AirPresence", -3.0, 6.0, 1.5, step=0.0),
+        "Tone": eat.param("Tone", 2000.0, 18000.0, 12000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "STEEL DRUMS / STEELPAN",
+            "subtitle": "Dished Oil Drum Head Tuned Harmonic Modal Resonator",
+            "accent": "#2A9D8F",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "DISH HARMONICS & WASH",
+                    "accent": "#2A9D8F",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PanDecay",
+                                    "label": "SUSTAIN",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "OctaveHarmonic",
+                                    "label": "OCTAVES",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BowlSympathy",
+                                    "label": "BOWL WASH",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "RUBBER MALLET & AIR",
+                    "accent": "#264653",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "MalletSoftness",
+                                    "label": "RUBBER",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "AirPresence",
+                                    "label": "AIR",
+                                    "unit": "dB",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Physical Modeling Graph Topology ---
+def graph():
+    mallet = eat.node.hammer(hardness="MalletSoftness", click=0.8)
+    pan_resonator = eat.node.modal_bank(mallet, structure="steelpan")
+    body = eat.node.acoustic_body(pan_resonator, profile=0.3, gain="BowlSympathy")
+    presence = eat.node.svf(body, cutoff=6000.0, gain="AirPresence", type="highshelf")
+    return presence
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

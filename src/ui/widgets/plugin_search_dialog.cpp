@@ -113,13 +113,15 @@ std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
 void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     if (!isOpen_) return;
 
-    // 1. Dimmed Modal Backdrop
-    drawRect(r, 0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.70f);
+    // 1. Semi-transparent full-screen darkening backdrop (consistent with core modal dialogs)
+    drawRect(r, 0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.55f);
 
-    // 2. Dialog Window Container with subtle gold/accent outline
-    drawRoundedRect(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 10.0f,
+    // 2. Dialog Window Chassis with soft drop shadow & subtle gold/accent outline
+    drawRoundedRect(r, dialogBounds_.x - 3.0f, dialogBounds_.y - 3.0f, dialogBounds_.w + 6.0f, dialogBounds_.h + 6.0f, 13.0f,
+                    0.0f, 0.0f, 0.0f, 0.45f);
+    drawRoundedRect(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 12.0f,
                     theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 0.98f);
-    drawRoundedRectOutline(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 10.0f,
+    drawRoundedRectOutline(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 12.0f,
                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.85f, 1.5f);
 
     // 3. Header Strip
@@ -137,8 +139,12 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawText(r, title, dialogBounds_.x + 36.0f, dialogBounds_.y + 20.0f, 13.0f,
              theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
-    // Close button
-    drawButton(r, closeBtnBounds_, "X", theme.controlBackground, theme.borderSubtle, theme.textMuted, 11.0f, 4.0f, 1.0f);
+    // Close button (metallic screw icon)
+    float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
+    float clCenterY = closeBtnBounds_.y + closeBtnBounds_.h * 0.5f;
+    bool closeHov = closeBtnBounds_.contains(lastMouseX_, lastMouseY_) ||
+                    (std::hypot(lastMouseX_ - clCenterX, lastMouseY_ - clCenterY) <= 13.0f);
+    drawScrewCloseButton(r, clCenterX, clCenterY, 9.0f, closeHov, theme.primaryAccent);
 
     drawLine(r, dialogBounds_.x, dialogBounds_.y + 48.0f, dialogBounds_.x + dialogBounds_.w, dialogBounds_.y + 48.0f,
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
@@ -187,17 +193,22 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                      theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
     }
 
-    // 6. Plugin Cards List
+    // 6. Plugin Cards List with ScrollableArea
     float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
     float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
     float cardW = dialogBounds_.w - 40.0f;
     float cardH = 54.0f;
 
     auto entries = getFilteredEntries();
+    float totalContentH = static_cast<float>(entries.size()) * (cardH + 8.0f);
+    scrollArea_.setViewport(dialogBounds_.x + 20.0f, listY, cardW, listH);
+    scrollArea_.setContentHeight(totalContentH);
+    scrollArea_.setScrollY(scrollY_);
+    scrollY_ = scrollArea_.getScrollY();
 
     for (size_t i = 0; i < entries.size(); ++i) {
         float cy = listY + static_cast<float>(i) * (cardH + 8.0f) - scrollY_;
-        if (cy + cardH < listY || cy > listY + listH) continue;
+        if (!scrollArea_.isVisible(cy, cardH)) continue;
 
         const auto& entry = entries[i];
 
@@ -235,11 +246,51 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         Color addBorder{theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.85f};
         drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, "+ ADD", addBg, addBorder, theme.primaryAccent, 10.0f, 4.0f, 1.0f);
     }
+
+    // Scrollbar rendering
+    if (scrollArea_.canScroll()) {
+        scrollArea_.renderScrollbar(r, theme);
+    }
 }
 
 bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     if (!isOpen_) return false;
+    lastMouseX_ = ev.x;
+    lastMouseY_ = ev.y;
+
+    auto entries = getFilteredEntries();
+    float maxScroll = std::max(0.0f, static_cast<float>(entries.size()) * 62.0f - (dialogBounds_.h - 180.0f));
+
+    if (scrollArea_.handlePointer(ev)) {
+        scrollY_ = scrollArea_.getScrollY();
+        return true;
+    }
+
+    if (ev.action == PointerAction::Scroll) {
+        if (scrollArea_.handleScroll(ev.scrollY, ev.x, ev.y)) {
+            scrollY_ = scrollArea_.getScrollY();
+            return true;
+        }
+        scrollY_ = std::clamp(scrollY_ - ev.scrollY * 28.0f, 0.0f, maxScroll);
+        return true;
+    }
+
+    if (ev.action == PointerAction::Move && isDraggingScroll_) {
+        float dy = ev.y - dragStartY_;
+        scrollY_ = std::clamp(dragStartScrollY_ - dy, 0.0f, maxScroll);
+        scrollArea_.setScrollY(scrollY_);
+        return true;
+    }
+
+    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        isDraggingScroll_ = false;
+    }
+
     if (ev.action != PointerAction::Down) return true; // Absorb events behind modal
+
+    isDraggingScroll_ = true;
+    dragStartY_ = ev.y;
+    dragStartScrollY_ = scrollY_;
 
     // Click outside dialog to close
     if (!dialogBounds_.contains(ev.x, ev.y)) {
@@ -276,7 +327,6 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
     float cardW = dialogBounds_.w - 40.0f;
     float cardH = 54.0f;
-    auto entries = getFilteredEntries();
 
     for (size_t i = 0; i < entries.size(); ++i) {
         float cy = listY + static_cast<float>(i) * (cardH + 8.0f) - scrollY_;

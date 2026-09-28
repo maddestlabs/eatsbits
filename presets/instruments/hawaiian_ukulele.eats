@@ -1,0 +1,110 @@
+# @id: hawaiian_ukulele
+# @name: Hawaiian Ukulele
+# @category: instrument
+# @description: Physical modeling of a traditional Hawaiian acoustic concert ukulele: nylon/fluorocarbon 4-string strum brush, Karplus-Strong waveguide with acoustic loss damping, Hawaiian Koa wood soundboard and air cavity modal resonance (330Hz, 590Hz, 1150Hz), 180Hz sub cut, and 2.8kHz island brightness.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "StrumSpread": eat.param("StrumSpread", 2.0, 25.0, 6.5, step=0.0),
+        "PluckSnap": eat.param("PluckSnap", 0.2, 3.0, 1.1, step=0.0),
+        "Damping": eat.param("Damping", 0.05, 0.85, 0.32, step=0.0),
+        "Decay": eat.param("Decay", 0.08, 1.2, 0.35, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.99, step=0.0),
+        "Brightness": eat.param("Brightness", -6.0, 10.0, 3.5, step=0.0),
+        "Tone": eat.param("Tone", 2500.0, 14000.0, 7200.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "HAWAIIAN UKULELE",
+            "subtitle": "Acoustic Koa Wood Soundboard & Nylon Strings",
+            "accent": "#FFB300",
+            "background": "blonde_pine",
+            "rackSides": "walnut",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "StrumSpread",
+                            "label": "STRUM MS",
+                            "unit": "ms",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PluckSnap",
+                            "label": "PLUCK SNAP",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Damping",
+                            "label": "DAMPING",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "Damping",
+                            "label": "ACOUSTIC STRING DAMPING (MUTED <-> OPEN RING)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Brightness",
+                            "label": "2.8kHz AIR",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Tone",
+                            "label": "KOA TONE",
+                            "unit": "Hz",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

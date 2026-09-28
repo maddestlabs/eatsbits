@@ -1,0 +1,246 @@
+# @id: eats_furnace
+# @name: Eats Furnace
+# @category: instrument
+# @description: Physical modeling of real-world thermoacoustic combustion and blast furnaces: Kastner Rijke singing flame oscillator, convective temperature drift, turbulent combustion roar, supercritical wood sap pocket explosions, flying ember sizzles, deflagration flashover whoosh, thermal convection phaser, and tuned glass/brass draft cylinder resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "SynthTone": eat.param("SynthTone", 0.0, 1.0, 0.70, step=0.0),
+        "FuelPressure": eat.param("FuelPressure", 0.1, 3.0, 1.25, step=0.0),
+        "FlameCusp": eat.param("FlameCusp", 0.0, 1.0, 0.45, step=0.0),
+        "TubeResonance": eat.param("TubeResonance", 0.0, 1.0, 0.5, step=0.0),
+        "IgnitionSnap": eat.param("IgnitionSnap", 0.0, 2.5, 0.85, step=0.0),
+        "CombustionRoar": eat.param("CombustionRoar", 0.0, 1.0, 0.35, step=0.0),
+        "OxygenDraft": eat.param("OxygenDraft", 0.0, 1.0, 0.4, step=0.0),
+        "SapCrackle": eat.param("SapCrackle", 0.0, 1.0, 0.4, step=0.0),
+        "EmberSizzle": eat.param("EmberSizzle", 0.0, 1.0, 0.35, step=0.0),
+        "PhaserRate": eat.param("PhaserRate", 0.05, 8.0, 0.35, step=0.0),
+        "PhaserDepth": eat.param("PhaserDepth", 0.0, 1.0, 0.55, step=0.0),
+        "PhaserFeedback": eat.param("PhaserFeedback", 0.0, 1.0, 0.35, step=0.0),
+        "PhaserMix": eat.param("PhaserMix", 0.0, 1.0, 0.4, step=0.0),
+        "ToneHighpass": eat.param("ToneHighpass", 20.0, 2000.0, 25.0, step=0.0),
+        "Tone": eat.param("Tone", 800.0, 16000.0, 7500.0, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 2.5, 0.5, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS FURNACE",
+            "subtitle": "Thermoacoustic Blast Furnace & Singing Pipe",
+            "accent": "#FF5722",
+            "background": "matte_metal",
+            "rackSides": "brushed_steel",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "SINGING FLAME & RIJKE TUBE (ORANGE)",
+                    "accent": "#FF5722",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "SynthTone",
+                                    "label": "SYNTH TONE",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FuelPressure",
+                                    "label": "FUEL FLOW",
+                                    "unit": "bar",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FlameCusp",
+                                    "label": "FLAME CUSP",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "TubeResonance",
+                                    "label": "TUBE RESO",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "IgnitionSnap",
+                                    "label": "IGNITION",
+                                    "unit": "kJ",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "COMBUSTION ROAR & SAP EXPLOSIONS (AMBER)",
+                    "accent": "#FFB300",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "CombustionRoar",
+                                    "label": "FLAME ROAR",
+                                    "unit": "dB",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "OxygenDraft",
+                                    "label": "DRAFT VENT",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SapCrackle",
+                                    "label": "SAP POP",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "EmberSizzle",
+                                    "label": "EMBER HISS",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "FuelPressure",
+                                    "label": "PRESSURIZED GAS INJECTION RATE",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "CONVECTION TURBULENCE PHASER (PURPLE)",
+                    "accent": "#7C4DFF",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserRate",
+                                    "label": "DRAFT SWIRL",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserDepth",
+                                    "label": "SWEEP DEPTH",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserFeedback",
+                                    "label": "FLUE RESO",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "PhaserMix",
+                                    "label": "PHASER MIX",
+                                    "unit": "%",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "CHIMNEY DRAFT & MASTER TONE (RED)",
+                    "accent": "#FF1744",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ToneHighpass",
+                                    "label": "LOW CUT",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Tone",
+                                    "label": "HIGH CUT",
+                                    "unit": "Hz",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Decay",
+                                    "label": "FLAME DECAY",
+                                    "unit": "s",
+                                    "knobStyle": "vintage",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    flame_core = eat.node.singing_flame(flame_cusp="FlameCusp", resonance="TubeResonance")
+    flame_vca = eat.node.gain(in_sig=flame_core, gain="SynthTone")
+    roar = eat.node.combustion_roar(roar_level="CombustionRoar", draft_flutter="OxygenDraft")
+    sap = eat.node.sap_crackle(sap_density="SapCrackle", ember_sizzle="EmberSizzle")
+    snap = eat.node.ignition_snap(snap_level="IgnitionSnap")
+    sum1 = eat.node.mix(in_a=flame_vca, in_b=roar, gain_a=0.85, gain_b=0.6)
+    sum2 = eat.node.mix(in_a=sap, in_b=snap, gain_a=0.5, gain_b=0.7)
+    mixed_flame = eat.node.mix(in_a=sum1, in_b=sum2, gain_a=1.0, gain_b=1.0)
+    draft_tube = eat.node.modal_bank(in_sig=mixed_flame, structure="pipe", brightness=0.6)
+    tone_lp = eat.node.svf(in_sig=draft_tube, cutoff="Tone", type="lowpass")
+    env = eat.node.adsr(attack=0.006, decay="Decay", sustain=0.85, release=0.10)
+    return tone_lp * env
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

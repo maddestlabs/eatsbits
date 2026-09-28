@@ -1,0 +1,22 @@
+# @id: action_global_transpose
+# @name: Global Chord-Aware Song Transpose
+# @category: projectAction
+# @description: Transposes all tracks, clips, and chord track events across the entire project with scale/chord adherence.
+
+# @author: Eatsbeats
+# @category: project_action
+# @description: Transposes all tracks, clips, and chord track events across the entire project with scale/chord adherence.
+
+def init():
+    return {
+        "Semitones": eat.param("Semitones", -12, 12, 2, step=1),
+        "HarmonicMode": eat.param("HarmonicMode", 0, 2, 0, options=["Strict Chromatic", "Snap to Scale", "Smart Chord Shift"]),
+        "UpdateKey": eat.param("UpdateKey", 0, 1, 1, options=["No (Keep Key)", "Yes (Shift Song Key)"]),
+    }
+
+def run(project, params):
+    return {
+        "semitones": params.get("Semitones", 2),
+        "harmonic_mode": params.get("HarmonicMode", 0),
+        "update_key": params.get("UpdateKey", 1),
+    }

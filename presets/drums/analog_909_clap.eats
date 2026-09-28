@@ -1,0 +1,65 @@
+# @id: analog_909_clap
+# @name: Analog 909 Handclap
+# @category: instrument
+# @description: Authentic Eats-909 analog handclap (clap.raw) with multi-trigger impulse playback, diffuse reverberation, and pitch tuning.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", -0.5, 0.5, 0.0, step=0.0),
+        "Decay": eat.param("Decay", 0.08, 0.6, 0.28, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-909 HANDCLAP",
+            "subtitle": "Multi-Trigger Triggered ROM & Reverb Tail",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "SAMPLE TUNE",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "REVERB DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    noise = eat.node.noise()
+    bpf = eat.node.svf(noise, cutoff=1200.0, reso=2.0, type="bandpass")
+    burst = eat.node.multi_burst(bursts=4, spread=0.011, decay="Decay")
+    vca = eat.node.gain(bpf, gain_cv=burst)
+    out = eat.node.saturate(vca, drive=1.2)
+    return out

@@ -1,0 +1,105 @@
+# @id: fretless_bass
+# @name: Fretless J-Bass
+# @category: instrument
+# @description: Physical model of a vintage fretless electric Jazz Bass: non-linear fingerboard boundary damping with blooming "Mwah" harmonic buzz, dual single-coil magnetic pickups with 1.6kHz bridge bark, and active 2-band tone stack.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "MwahAmount": eat.param("MwahAmount", 0.0, 1.0, 0.75, step=0.0),
+        "Growl": eat.param("Growl", 0.0, 1.0, 0.6, step=0.0),
+        "FingerDamping": eat.param("FingerDamping", 0.05, 0.6, 0.22, step=0.0),
+        "BridgePickup": eat.param("BridgePickup", 0.0, 1.0, 0.9, step=0.0),
+        "MidBark": eat.param("MidBark", -6.0, 12.0, 3.5, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.996, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.1, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "FRETLESS J-BASS",
+            "subtitle": "Epoxy Fingerboard 'Mwah' & Bridge Pickup Bark",
+            "accent": "#FF6D00",
+            "background": "rosewood",
+            "rackSides": "brushed_steel",
+            "cornerRadius": 6,
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "FINGERBOARD 'MWAH' & GROWL DYNAMICS",
+                    "accent": "#FF6D00",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "MwahAmount",
+                                    "label": "MWAH BLOOM",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Growl",
+                                    "label": "GROWL",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FingerDamping",
+                                    "label": "DAMPING",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "BridgePickup",
+                                    "label": "BRIDGE PU",
+                                    "unit": "%",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "MidBark",
+                                    "label": "1.6k BARK",
+                                    "unit": "dB",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "Drive",
+                                    "label": "TUBE DRIVE",
+                                    "knobStyle": "chrome",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "hslider",
+                                    "param": "MwahAmount",
+                                    "label": "FRETLESS MWAH INTENSITY (FLAT <-> BLOOMING BUZZ)",
+                                    "style": "capsule",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

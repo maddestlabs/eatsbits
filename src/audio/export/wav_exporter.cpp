@@ -190,8 +190,10 @@ BounceStats WavExporter::bounceMaster(audio::AudioGraph& graph,
         const uint32_t curFrames = std::min(CHUNK_SIZE, totalFrames - framesRendered);
 
         // Sequence and evaluate graph
+        uint64_t startSample = seq.getTransport().getTotalSamplesElapsed();
         seq.processBlock(curFrames, graph);
         graph.process(chunkL, chunkR, curFrames);
+        seq.mixFrozenTracks(chunkL, chunkR, curFrames, startSample);
 
         for (uint32_t i = 0; i < curFrames; ++i) {
             const float sL = chunkL[i];

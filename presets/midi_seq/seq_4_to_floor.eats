@@ -1,0 +1,13 @@
+# @id: seq_4_to_floor
+# @name: 4-to-Floor Kick
+# @category: midiSeq
+# @description: Classic four-on-the-floor kick drum pattern hitting on every downbeat (1, 2, 3, 4).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

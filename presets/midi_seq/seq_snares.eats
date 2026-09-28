@@ -1,0 +1,13 @@
+# @id: seq_snares
+# @name: Snares (Backbeat)
+# @category: midiSeq
+# @description: Standard backbeat snare pattern hitting on beats 2 and 4.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

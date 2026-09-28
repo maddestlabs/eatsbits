@@ -10,10 +10,11 @@
 #include "transport.hpp"
 #include "../audio/graph/audio_graph.hpp"
 #include "../audio/graph/graph_node.hpp"
+#include "eatsbits/lyrics/lyric_track.hpp"
 
 namespace eatsbits::sequencer {
 
-static constexpr size_t MAX_STEPS_PER_TRACK = 64;
+static constexpr size_t MAX_STEPS_PER_TRACK = 512;
 static constexpr size_t MAX_ACTIVE_VOICES = 64;
 
 struct StepData {
@@ -26,6 +27,8 @@ struct StepData {
     float probability{1.0f};    // Trigger probability (0.0 - 1.0)
     uint32_t paramLockId{0};    // 0 = none, or Node Parameter ID
     float paramLockValue{0.0f}; // Value for parameter lock
+    std::vector<uint8_t> extraNotes{}; // Additional polyphonic pitches for chords
+    std::string lyric{};        // Synchronized lyric syllable / word
 };
 
 class SequencerTrack {
@@ -77,6 +80,30 @@ public:
 
     [[nodiscard]] const std::string& getEatscriptCode() const noexcept { return eatscriptCode_; }
     void setEatscriptCode(std::string code) { eatscriptCode_ = std::move(code); }
+
+    // --- Track Freeze ---
+    [[nodiscard]] bool isFrozen() const noexcept { return isFrozen_; }
+    void setFrozen(bool frozen) noexcept { isFrozen_ = frozen; }
+    [[nodiscard]] const std::vector<float>& getFrozenBufferL() const noexcept { return frozenBufferL_; }
+    [[nodiscard]] const std::vector<float>& getFrozenBufferR() const noexcept { return frozenBufferR_; }
+    [[nodiscard]] const std::string& getFrozenContentHash() const noexcept { return frozenContentHash_; }
+    void setFrozenContentHash(std::string hash) { frozenContentHash_ = std::move(hash); }
+    [[nodiscard]] uint32_t getFrozenSampleRate() const noexcept { return frozenSampleRate_; }
+
+    void setFrozenBuffers(std::vector<float> left, std::vector<float> right, uint32_t sampleRate = 48000, std::string contentHash = "") {
+        frozenBufferL_ = std::move(left);
+        frozenBufferR_ = std::move(right);
+        frozenSampleRate_ = sampleRate;
+        frozenContentHash_ = std::move(contentHash);
+        isFrozen_ = !frozenBufferL_.empty();
+    }
+
+    void clearFrozenBuffers() noexcept {
+        frozenBufferL_.clear();
+        frozenBufferR_.clear();
+        frozenContentHash_.clear();
+        isFrozen_ = false;
+    }
 
     void clear() noexcept {
         steps_.fill(StepData{});
@@ -155,6 +182,14 @@ public:
     void setSelectedNotesSlide(bool slide) noexcept;
     void setSelectedNotesAccent(bool accent) noexcept;
 
+    // --- Synchronized Lyrics & Speech Vocalizer ---
+    [[nodiscard]] const std::vector<lyrics::LyricCue>& getLyrics() const noexcept { return lyrics_; }
+    [[nodiscard]] std::vector<lyrics::LyricCue>& getLyrics() noexcept { return lyrics_; }
+    void setLyrics(std::vector<lyrics::LyricCue> lyrics) { lyrics_ = std::move(lyrics); }
+    [[nodiscard]] bool hasLyrics() const noexcept { return !lyrics_.empty(); }
+    void addLyricCue(lyrics::LyricCue cue) { lyrics_.push_back(std::move(cue)); }
+    void clearLyrics() noexcept { lyrics_.clear(); }
+
 private:
     std::string name_;
     std::string iconRef_{"preset:inst_synth"};
@@ -168,6 +203,16 @@ private:
     std::array<StepData, MAX_STEPS_PER_TRACK> steps_{};
     std::string eatscriptCode_{""};
     std::set<uint32_t> selectedSteps_{};
+
+    // Synchronized Lyric Cues
+    std::vector<lyrics::LyricCue> lyrics_{};
+
+    // Track Freeze state & baked audio buffers
+    bool isFrozen_{false};
+    std::string frozenContentHash_{""};
+    std::vector<float> frozenBufferL_{};
+    std::vector<float> frozenBufferR_{};
+    uint32_t frozenSampleRate_{48000};
 };
 
 struct Pattern {
@@ -223,6 +268,9 @@ public:
 
     // Real-Time Audio Callback Processing (strictly zero-allocation)
     void processBlock(uint32_t numFrames, audio::AudioGraph& graph) noexcept;
+
+    // Mix pre-rendered frozen audio buffers directly to master audio streams (zero-allocation)
+    void mixFrozenTracks(float* outL, float* outR, uint32_t numFrames, uint64_t startSample) noexcept;
 
     // Reset all notes
     void panic(audio::AudioGraph& graph) noexcept;

@@ -1,0 +1,59 @@
+# @id: eats_spectrum
+# @name: Eats-Spectrum
+# @category: audioFx
+# @description: Multi-band graphic spectrum analyzer visualizer with peak hold caps, multi-gradient color LED meters, and audio-reactive energy tracking.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Gain": eat.param("Gain", 0.2, 4.0, 1.0, step=0.1),
+        "Decay": eat.param("Decay", 0.1, 2.0, 0.6, step=0.05),
+        "Mode": eat.param("Mode", 0.0, 3.0, 0.0, options=["16-Band Bar", "8-Band Chunky", "Peak Hold", "Smooth Curve"], allow_variance=False),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Eats-Spectrum",
+            "subtitle": "16-Band Real-Time Spectrum Analyzer",
+            "background": "dark",
+            "accent": "#00E5FF",
+            "layout": [
+                {
+                    "type": "canvas",
+                    "mode": "spectrum",
+                    "width": 340,
+                    "height": 180,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Gain",
+                            "label": "GAIN",
+                            "unit": "x",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "unit": "s",
+                        },
+                        {
+                            "type": "listbox",
+                            "param": "Mode",
+                            "label": "METER MODE",
+                            "width": 120,
+                            "height": 70,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

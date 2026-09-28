@@ -1,0 +1,47 @@
+# @id: stereo_chorus
+# @name: Stereo Studio Chorus
+# @category: audioFx
+# @engine: chorus
+# @tags: chorus, modulation, flanger, spatial, width, stereo
+# @description: Dual quadrature LFO stereo chorus and flanger with adjustable rate, depth, feedback, and mix.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Rate": eat.param("Rate", 0.05, 8.0, 0.8, unit="Hz"),
+        "Depth": eat.param("Depth", 0.0, 1.0, 0.65, unit=""),
+        "Feedback": eat.param("Feedback", 0.0, 0.85, 0.2, unit=""),
+        "Mix": eat.param("Mix", 0.0, 1.0, 0.5, unit=""),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "STEREO CHORUS",
+            "subtitle": "Dual Quadrature LFO Modulation",
+            "background": "dark",
+            "accent": "#9C27B0",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Rate", "label": "RATE", "unit": "Hz"},
+                        {"type": "knob", "param": "Depth", "label": "DEPTH"},
+                        {"type": "knob", "param": "Feedback", "label": "FEEDBACK"},
+                        {"type": "knob", "param": "Mix", "label": "MIX"}
+                    ]
+                }
+            ]
+        }
+    }
+
+# --- Modular Insert Audio FX Graph Topology ---
+def graph():
+    audio_in = eat.node.input()
+    chorus = eat.node.chorus(audio_in, rate="Rate", depth="Depth", feedback="Feedback", mix="Mix")
+    return chorus
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

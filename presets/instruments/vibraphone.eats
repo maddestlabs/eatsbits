@@ -1,0 +1,106 @@
+# @id: vibraphone
+# @name: Vibraphone
+# @category: instrument
+# @description: Physical modal modeling of an orchestral vibraphone: undercut arched aluminum alloy bar with Mode 2 tuned to the double octave (4.0 * f0), singing sustain, wound yarn mallet attack, and motor-driven rotating butterfly valve resonator tube tremolo/phase modulation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "BarDecay": eat.param("BarDecay", 1.0, 8.0, 4.5, step=0.0),
+        "MotorSpeed": eat.param("MotorSpeed", 0.5, 9.0, 4.2, step=0.0),
+        "TremoloDepth": eat.param("TremoloDepth", 0.0, 1.0, 0.6, step=0.0),
+        "DoubleOctave": eat.param("DoubleOctave", 0.0, 1.0, 0.4, step=0.0, allow_variance=False),
+        "YarnSoftness": eat.param("YarnSoftness", 0.0, 1.0, 0.5, step=0.0),
+        "ToneCut": eat.param("ToneCut", 2000.0, 16000.0, 9500.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ORCHESTRAL VIBRAPHONE",
+            "subtitle": "Arched Aluminum Bar Double-Octave & Motor Tremolo Resonator",
+            "accent": "#4CC9F0",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "ALUMINUM BAR & MALLET",
+                    "accent": "#4CC9F0",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "BarDecay",
+                                    "label": "SUSTAIN",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "DoubleOctave",
+                                    "label": "4X OVERTONE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "YarnSoftness",
+                                    "label": "YARN MALLET",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "MOTOR TREMOLO & RESONATOR TUBE",
+                    "accent": "#7209B7",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "MotorSpeed",
+                                    "label": "MOTOR RATE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "TremoloDepth",
+                                    "label": "TREMOLO",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ToneCut",
+                                    "label": "TUBE TONE",
+                                    "unit": "Hz",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    strike = eat.node.hammer(hardness="MalletHardness", click=1.0)
+    bars = eat.node.modal_bank(in_sig=strike, structure="vibraphone")
+    tube = eat.node.acoustic_body(in_sig=bars, profile=0.6, gain="MotorTremolo")
+    return tube
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

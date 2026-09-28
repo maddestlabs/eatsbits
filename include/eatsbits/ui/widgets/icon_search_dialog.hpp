@@ -73,6 +73,8 @@ private:
     bool pasteHasError_{false};
 
     std::function<std::string()> clipboardProvider_;
+    float lastMouseX_{0.0f};
+    float lastMouseY_{0.0f};
 };
 
 } // namespace eatsbits::ui

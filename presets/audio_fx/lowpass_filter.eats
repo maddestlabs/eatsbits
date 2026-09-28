@@ -1,0 +1,54 @@
+# @id: lowpass_filter
+# @name: Lowpass Filter
+# @category: audioFx
+# @description: Analog-modeled 24dB resonant state-variable lowpass filter with drive saturation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Cutoff": eat.param("Cutoff", 20.0, 20000.0, 3500.0, step=50.0, allow_variance=False),
+        "Resonance": eat.param("Resonance", 0.1, 15.0, 1.5, step=0.1),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Lowpass Filter",
+            "subtitle": "Analog-Modeled 24dB Resonant Filter",
+            "background": "snes",
+            "accent": "#E040FB",
+            "knobStyle": "snes",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Cutoff",
+                            "label": "CUTOFF",
+                            "unit": "Hz",
+                            "knobStyle": "snes",
+                            "size": 64,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Resonance",
+                            "label": "RESONANCE",
+                            "knobStyle": "snes",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Audio FX Graph ---
+def graph():
+    in_sig = eat.node.input()
+    vcf = eat.node.moog(in_sig=in_sig, cutoff="Cutoff", reso="Resonance")
+    return vcf
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

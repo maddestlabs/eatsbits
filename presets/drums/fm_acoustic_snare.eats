@@ -1,0 +1,91 @@
+# @id: fm_acoustic_snare
+# @name: FM Acoustic Snare
+# @category: instrument
+# @description: Physical acoustic snare with dual-body swept oscillator, noise-modulated snare wires, and acoustic room reflections.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "ToneFreq": eat.param("ToneFreq", 100.0, 320.0, 185.0, step=0.0),
+        "ToneDecay": eat.param("ToneDecay", 0.05, 0.5, 0.16, step=0.0),
+        "Snappy": eat.param("Snappy", 0.0, 1.0, 0.65, step=0.0),
+        "Decay": eat.param("Decay", 0.05, 0.8, 0.22, step=0.0),
+        "WireCutoff": eat.param("WireCutoff", 1000.0, 6000.0, 1800.0, step=0.0),
+        "Variation": eat.param("Variation", 0.0, 1.0, 0.0, step=0.0),
+        "Variance": eat.param("Variance", 0.0, 1.0, 0.2, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "DUAL-MIC FM ACOUSTIC SNARE",
+            "subtitle": "Physical Shell Resonance & Snare Wire Modulator",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "ToneFreq",
+                            "label": "BODY FREQ",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Snappy",
+                            "label": "WIRE SNAPPY",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "WireCutoff",
+                            "label": "WIRE HPF",
+                            "unit": "Hz",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "ToneFreq",
+                            "label": "BODY TONE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ToneDecay",
+                            "label": "BODY DEC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Snappy",
+                            "label": "SNAPPY",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "WIRE DEC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "WireCutoff",
+                            "label": "WIRE HPF",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Variance",
+                            "label": "VARIANCE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }

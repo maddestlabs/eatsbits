@@ -1,0 +1,16 @@
+# @id: splitter_4voice_polyphony
+# @name: 4-Voice Polyphony Distribute (SATB)
+# @category: noteSplitter
+# @description: Distributes polyphonic chord voices into Soprano, Alto, Tenor, and Bass monophonic tracks.
+
+# @author: Eatsbeats
+# @category: note_splitter
+# @description: Distributes polyphonic chord voices into Soprano, Alto, Tenor, and Bass monophonic tracks.
+
+def split(notes, params):
+    return [
+        {"name": "Voice 1 (Soprano / Top)", "color": 0xFFFF007A},
+        {"name": "Voice 2 (Alto / High-Mid)", "color": 0xFFFF8C00},
+        {"name": "Voice 3 (Tenor / Low-Mid)", "color": 0xFF21F4E8},
+        {"name": "Voice 4 (Bass / Root)", "color": 0xFF00FF66},
+    ]

@@ -24,6 +24,15 @@ struct alignas(16) Vertex2D {
     float pad[2]{0.0f, 0.0f};  // 32-byte uniform alignment
 };
 
+enum class BlendMode : uint8_t {
+    Normal = 0,
+    Multiply,
+    Screen,
+    Add,
+    Overlay,
+    SoftLight
+};
+
 enum class RenderBackendType {
     Filament,
     WebGPU,
@@ -44,8 +53,12 @@ public:
     virtual const uint32_t* getFramebuffer() const noexcept { return nullptr; }
     virtual void setDirectPresent(bool /*enable*/) noexcept {}
     virtual void setAntiAliasingMode(int /*mode*/) {}
+    virtual void setBlendMode(BlendMode /*mode*/) {}
     virtual void renderRgba(float /*x*/, float /*y*/, float /*w*/, float /*h*/, const uint8_t* /*rgba*/, int /*imgW*/, int /*imgH*/, float /*opacity*/) {}
     virtual void applyBackdropBlur(float /*radius*/ = 3.0f, float /*dimFactor*/ = 0.50f) {}
+    virtual void* getNativeDevice() const noexcept { return nullptr; }
+    virtual void* getNativeSurface() const noexcept { return nullptr; }
+    virtual void setCustomRenderTargetView(void* /*view*/) {}
 };
 
 /**
@@ -66,6 +79,10 @@ public:
     void endFrame();
     void flush();
     void applyBackdropBlur(float radius = 3.0f, float dimFactor = 0.50f);
+
+    // --- Blend Modes ---
+    void setBlendMode(BlendMode mode);
+    [[nodiscard]] BlendMode getBlendMode() const noexcept { return blendMode_; }
 
     // --- Vector Primitives ---
     void drawTriangle(float x0, float y0, float x1, float y1, float x2, float y2, float r, float g, float b, float a = 1.0f);
@@ -116,6 +133,9 @@ public:
         if (backend_) backend_->setAntiAliasingMode(mode);
     }
     [[nodiscard]] int getAntiAliasingMode() const noexcept { return antiAliasingMode_; }
+    [[nodiscard]] void* getNativeDevice() const noexcept { return backend_ ? backend_->getNativeDevice() : nullptr; }
+    [[nodiscard]] void* getNativeSurface() const noexcept { return backend_ ? backend_->getNativeSurface() : nullptr; }
+    void setCustomRenderTargetView(void* view) noexcept { if (backend_) backend_->setCustomRenderTargetView(view); }
 
     // Helper for packing RGBA floats into uint32_t (ABGR/RGBA order matching shader layout)
     static inline uint32_t packColor(float r, float g, float b, float a) noexcept {
@@ -134,6 +154,7 @@ private:
     float renderScaleX_{1.0f};
     float renderScaleY_{1.0f};
     int antiAliasingMode_{2};
+    BlendMode blendMode_{BlendMode::Normal};
     bool inFrame_{false};
 
     // 2D Rotation Transform State

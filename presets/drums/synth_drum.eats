@@ -1,0 +1,99 @@
+# @id: synth_drum
+# @name: Simmons Synth Drum
+# @category: instrument
+# @description: Physical analog circuit simulation of the classic 1980s Simmons SDS-V Electronic Drum (GM 118 / 119): polycarbonate pad stick click generator, downward exponential pitch sweep VCO, resonant 4-pole lowpass VCF sweep, and filtered white noise snap.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "PitchDrop": eat.param("PitchDrop", 0.1, 1.0, 0.7, step=0.0),
+        "SweepTime": eat.param("SweepTime", 0.04, 0.35, 0.14, step=0.0),
+        "ClickLevel": eat.param("ClickLevel", 0.0, 1.2, 0.65, step=0.0),
+        "NoiseSnap": eat.param("NoiseSnap", 0.0, 1.0, 0.45, step=0.0),
+        "ToneDecay": eat.param("ToneDecay", 0.2, 2.2, 0.8, step=0.0),
+        "FilterReso": eat.param("FilterReso", 0.0, 0.9, 0.5, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "SIMMONS SYNTH DRUM",
+            "subtitle": "1980s Discrete Analog Drum Module & SSM VCF Model",
+            "accent": "#FF006E",
+            "background": "minimal_white",
+            "knobStyle": "minimal_white",
+            "layout": [
+                {
+                    "type": "group",
+                    "label": "VCO PITCH SWEEP",
+                    "accent": "#FF006E",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "PitchDrop",
+                                    "label": "PITCH DIVE",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "SweepTime",
+                                    "label": "SWEEP TIME",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "ToneDecay",
+                                    "label": "VCO DECAY",
+                                    "unit": "s",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "group",
+                    "label": "PAD CLICK & NOISE",
+                    "accent": "#8338EC",
+                    "children": [
+                        {
+                            "type": "row",
+                            "children": [
+                                {
+                                    "type": "knob",
+                                    "param": "ClickLevel",
+                                    "label": "PAD CLICK",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "NoiseSnap",
+                                    "label": "NOISE SNAP",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                                {
+                                    "type": "knob",
+                                    "param": "FilterReso",
+                                    "label": "VCF RESO",
+                                    "unit": "%",
+                                    "size": 52,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

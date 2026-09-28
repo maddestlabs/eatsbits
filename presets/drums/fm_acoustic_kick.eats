@@ -1,0 +1,142 @@
+# @id: fm_acoustic_kick
+# @name: FM Acoustic Kick
+# @category: instrument
+# @description: Physical dual-mic acoustic kick with noise FM excitation, sub-resonance boost, mid-scoop, beater click shelf, and farfield room mic delay.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "NearPitchStart": eat.param("NearPitchStart", 100.0, 300.0, 180.0, step=0.0),
+        "NearPitchEnd": eat.param("NearPitchEnd", 30.0, 80.0, 52.0, step=0.0),
+        "NearPitchDecay": eat.param("NearPitchDecay", 0.01, 0.2, 0.07, step=0.0),
+        "NearFmDepth": eat.param("NearFmDepth", 0.0, 1200.0, 600.0, step=0.0),
+        "NearFmDecay": eat.param("NearFmDecay", 0.002, 0.03, 0.008, step=0.0),
+        "NearAmpDecay": eat.param("NearAmpDecay", 0.05, 0.8, 0.28, step=0.0),
+        "SubResoGain": eat.param("SubResoGain", 0.0, 12.0, 4.0, step=0.0),
+        "FarPitchStart": eat.param("FarPitchStart", 80.0, 200.0, 130.0, step=0.0),
+        "FarPitchEnd": eat.param("FarPitchEnd", 60.0, 120.0, 95.0, step=0.0),
+        "FarPitchDecay": eat.param("FarPitchDecay", 0.05, 0.3, 0.15, step=0.0),
+        "FarFmDepth": eat.param("FarFmDepth", 0.0, 600.0, 250.0, step=0.0),
+        "FarFmDecay": eat.param("FarFmDecay", 0.01, 0.1, 0.045, step=0.0),
+        "FarAmpDecay": eat.param("FarAmpDecay", 0.05, 0.6, 0.22, step=0.0),
+        "FarLevel": eat.param("FarLevel", 0.0, 1.0, 0.35, step=0.0),
+        "RoomDelaySec": eat.param("RoomDelaySec", 0.002, 0.02, 0.008, step=0.0),
+        "Variance": eat.param("Variance", 0.0, 1.0, 0.2, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "DUAL-MIC FM ACOUSTIC KICK",
+            "subtitle": "Physical Nearfield/Farfield Excitation Processor",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "NearPitchStart",
+                            "label": "PUNCH FREQ",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "NearPitchEnd",
+                            "label": "SUB FREQ",
+                            "unit": "Hz",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "NearFmDepth",
+                            "label": "FM NOISE",
+                            "unit": "Hz",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "NearPitchStart",
+                            "label": "PUNCH",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NearPitchEnd",
+                            "label": "SUB",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NearPitchDecay",
+                            "label": "SWEEP",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NearFmDepth",
+                            "label": "FM DEPTH",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NearFmDecay",
+                            "label": "FM DECAY",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "NearAmpDecay",
+                            "label": "DECAY",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SubResoGain",
+                            "label": "SUB GAIN",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "FarLevel",
+                            "label": "ROOM MIC",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "RoomDelaySec",
+                            "label": "DISTANCE",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FarFmDepth",
+                            "label": "ROOM FM",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FarAmpDecay",
+                            "label": "ROOM AIR",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Variance",
+                            "label": "VARIANCE",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }

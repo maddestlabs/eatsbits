@@ -106,4 +106,80 @@ float getMonoCharAdvance(float size) {
     return fontSize * 0.588f;
 }
 
+void drawScrewCloseButton(BatchRenderer2D& r, float cx, float cy, float radius, bool hovered, const Color& highlightColor) {
+    // 1. Recessed outer countersink well shadow
+    drawCircle(r, cx, cy, radius + 1.2f, Color(0.04f, 0.03f, 0.04f, 0.95f));
+    drawCircle(r, cx, cy, radius + 0.4f, Color(0.08f, 0.08f, 0.09f, 0.85f));
+
+    if (hovered) {
+        // Outer aura and halo ring in active theme highlight color
+        drawCircle(r, cx, cy, radius + 2.2f, Color(highlightColor.r, highlightColor.g, highlightColor.b, 0.22f));
+        drawCircleOutline(r, cx, cy, radius + 1.5f, highlightColor.withAlpha(0.70f), 1.0f);
+    }
+
+    // 2. Metallic screw head body with highlight tint on hover
+    Color screwBody = hovered
+        ? Color::lerp(Color(0.28f, 0.30f, 0.36f), highlightColor, 0.22f)
+        : Color(0.18f, 0.20f, 0.23f);
+    drawCircle(r, cx, cy, radius, screwBody);
+
+    // 3. Chamfer highlight on top-left edge
+    drawCircle(r, cx - 0.5f, cy - 0.5f, radius * 0.85f, Color(1.0f, 1.0f, 1.0f, hovered ? 0.35f : 0.15f));
+    drawCircle(r, cx + 0.2f, cy + 0.2f, radius * 0.85f, screwBody);
+
+    // 4. Inset Phillips cross slot ("X")
+    float arm = radius * 0.55f;
+    Color slotColor = hovered ? highlightColor : Color(0.06f, 0.06f, 0.08f);
+    float strokeW = std::max(1.3f, radius * (hovered ? 0.32f : 0.28f));
+
+    drawLine(r, cx - arm, cy - arm, cx + arm, cy + arm, slotColor, 1.0f, strokeW);
+    drawLine(r, cx - arm, cy + arm, cx + arm, cy - arm, slotColor, 1.0f, strokeW);
+
+    if (hovered) {
+        drawCircle(r, cx, cy, std::max(1.5f, radius * 0.25f), highlightColor);
+    }
+}
+
+void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color& c) {
+    float s = size;
+
+    // 1. Stylus Silhouette (45-deg chisel stylus pointing down to baseline)
+    float p0x = x + 0.93f * s, p0y = y + 0.27f * s; // top right
+    float p1x = x + 0.74f * s, p1y = y + 0.08f * s; // top left (cap)
+    float p2x = x + 0.30f * s, p2y = y + 0.48f * s; // shaft left
+    float p3x = x + 0.30f * s, p3y = y + 0.70f * s; // chisel tip bottom-left
+    float p4x = x + 0.52f * s, p4y = y + 0.70f * s; // chisel tip bottom-right
+
+    // Convex decomposition of 5-gon stylus
+    drawTriangle(r, p0x, p0y, p1x, p1y, p2x, p2y, c);
+    drawTriangle(r, p0x, p0y, p2x, p2y, p4x, p4y, c);
+    drawTriangle(r, p2x, p2y, p3x, p3y, p4x, p4y, c);
+
+    // 2. Diamond cutout near cap
+    if (s >= 8.0f) {
+        float cx = x + 0.75f * s;
+        float cy = y + 0.25f * s;
+        float d = std::max(1.0f, 0.065f * s);
+        Color bg(0.08f, 0.09f, 0.11f, c.a);
+        drawTriangle(r, cx, cy - d, cx + d, cy, cx, cy + d, bg);
+        drawTriangle(r, cx, cy - d, cx - d, cy, cx, cy + d, bg);
+    }
+
+    // 3. Baseline underline bar
+    float barH = std::max(1.5f, 0.14f * s);
+    float barY = y + 0.78f * s;
+    float barX = x + 0.06f * s;
+    float barW = 0.88f * s;
+
+    float filledW = barW * 0.68f;
+    drawRect(r, barX, barY, filledW, barH, c.r, c.g, c.b, c.a);
+
+    float emptyX = barX + filledW;
+    float emptyW = barW - filledW;
+    float strokeW = std::max(1.0f, 0.06f * s);
+    drawLine(r, emptyX, barY + strokeW * 0.5f, emptyX + emptyW, barY + strokeW * 0.5f, c, 1.0f, strokeW);
+    drawLine(r, emptyX, barY + barH - strokeW * 0.5f, emptyX + emptyW, barY + barH - strokeW * 0.5f, c, 1.0f, strokeW);
+    drawLine(r, emptyX + emptyW - strokeW * 0.5f, barY, emptyX + emptyW - strokeW * 0.5f, barY + barH, c, 1.0f, strokeW);
+}
+
 } // namespace eatsbits::ui

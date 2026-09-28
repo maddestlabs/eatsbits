@@ -1,174 +1,41 @@
 #pragma once
 
-#include "../geometry.hpp"
-#include "../views/view_base.hpp"
-#include <string>
-#include <vector>
-#include <functional>
-#include <algorithm>
-#include <cmath>
+#include "track_properties_panel.hpp"
 
 namespace eatsbits::ui {
 
-enum class TrackPropertiesTab {
-    Track,
-    Clip,
-    Master
-};
-
-struct TrackMidiFxItem {
-    std::string name{"Scale Snap"};
-    std::string type{"SCALE_SNAP"};
-    int rootKey{0};
-    int scaleMode{0}; // 0 = Major, 1 = Natural Minor, etc.
-    bool enabled{true};
-};
-
-struct TrackAudioFxItem {
-    std::string name{"Tube Distortion"};
-    std::string type{"TUBE_DISTORTION"};
-    float drive{0.5f};
-    float mix{0.8f};
-    bool enabled{true};
-};
-
-struct TrackPropertiesDrawerData {
-    // Mode
-    TrackPropertiesTab tab{TrackPropertiesTab::Track};
-    bool isMixerMode{false};
-    bool isMasterSelected{false};
-
-    // Track Identity
-    uint32_t trackIndex{0};
-    uint32_t totalTracks{1};
-    std::string trackName{"Track"};
-    std::string trackType{"SYNTH"};
-    float r{0.0f}, g{0.90f}, b{1.0f};
-
-    // Mix Parameters
-    float volume{0.8f};
-    float pan{0.0f};
-    bool mute{false};
-    bool solo{false};
-    bool freeze{false};
-
-    // 3-Band Parametric Channel EQ (Eatsbeats parity)
-    bool eqEnabled{true};
-    float eqHpf{20.0f};        // 20..500 Hz
-    float eqLowGain{0.0f};     // -18..+18 dB
-    float eqMidFreq{1000.0f};  // 200..8000 Hz
-    float eqMidGain{0.0f};     // -18..+18 dB
-    float eqMidQ{1.0f};        // 0.3..10.0
-    float eqHighGain{0.0f};    // -18..+18 dB
-
-    // Instrument Card Parameters
-    std::string instrument{"303 ACID BASS"};
-    float knob1{0.55f};
-    float knob2{0.75f};
-    float knob3{0.45f};
-    float knob4{0.80f};
-    std::string knob1Name{"TONE"};
-    std::string knob2Name{"SNAPPY"};
-    std::string knob3Name{"DECAY"};
-    std::string knob4Name{"VAR"};
-
-    // MIDI & Audio FX Racks
-    std::vector<TrackMidiFxItem> midiFx;
-    std::vector<TrackAudioFxItem> audioFx;
-
-    // Master Bus Parameters
-    bool masterEqEnabled{true};
-    float masterSubCut{25.0f};    // 20..45 Hz
-    float masterLowGain{0.0f};   // -12..+12 dB
-    float masterMidGain{0.0f};   // -12..+12 dB
-    float masterHighGain{0.0f};  // -12..+12 dB
-
-    bool masterLimiterEnabled{true};
-    float masterCeilingDbfs{-0.3f}; // -2.0..0.0 dB
-    float masterLimiterDrive{0.0f}; // 0..12 dB
-    float masterTargetLufs{-14.0f}; // -24..-6 LUFS
-
-    std::vector<TrackAudioFxItem> masterAudioFx{
-        {"Convolver Reverb", "CONVOLVER", 0.35f, 0.40f, true},
-        {"Dynamic Limiter", "BRICKWALL_LIMITER", 0.80f, 1.00f, true}
-    };
-
-    // Clip Parameters (Arranger Mode)
-    int selectedClipIndex{-1};
-    std::string clipName{"Clip 1"};
-    uint32_t clipStartBar{1};
-    uint32_t clipLengthBars{4};
-    bool clipLooped{false};
-    uint32_t clipLoopLengthBars{4};
-    int clipTranspose{0};
-};
-
-enum class TrackPropertiesHitArea {
-    None,
-    PullTab,
-    CloseButton,
-    TabTrack,
-    TabClip,
-    MuteButton,
-    SoloButton,
-    FreezeButton,
-    CodeButton,
-    ColorSwatch,
-    EqToggle,
-    EqReset,
-    EqHpf,
-    EqLowGain,
-    EqHighGain,
-    EqMidFreq,
-    EqMidGain,
-    EqMidQ,
-    InstrumentKnob1,
-    InstrumentKnob2,
-    InstrumentKnob3,
-    InstrumentKnob4,
-    ChangeInstrument,
-    AddMidiFx,
-    AddAudioFx,
-    RemoveMidiFx,
-    RemoveAudioFx,
-    ReorderLeft,
-    ReorderRight,
-    MasterEqSubCut,
-    MasterEqLow,
-    MasterEqMid,
-    MasterEqHigh,
-    MasterLimiterToggle,
-    MasterCeiling,
-    MasterDrive,
-    MasterLufs,
-    AutoMasterButton,
-    ClipLoopToggle,
-    ClipTransposeUp,
-    ClipTransposeDown,
-    ClipEditInPianoRoll,
-    ClipDuplicate
-};
-
-struct TrackPropertiesHitResult {
-    bool hit{false};
-    TrackPropertiesHitArea area{TrackPropertiesHitArea::None};
-    int index{0};
-    float normVal{0.0f};
-};
-
+/**
+ * TrackPropertiesDrawer: Collapsible sliding drawer widget hosting the unified TrackPropertiesPanel
+ * for sidebar usage in Arranger and Mixer tabs.
+ *
+ * Provides:
+ * - Vertical pull-tab strip with icon and rotation title
+ * - Drag-resize handle on left edge
+ * - Close button and tab switcher
+ * - Hosts and delegates content to TrackPropertiesPanel
+ */
 class TrackPropertiesDrawer {
 public:
     TrackPropertiesDrawer();
     ~TrackPropertiesDrawer() = default;
 
     void layout(const Rect2D& containerBounds, float browserOffset = 0.0f);
+    void update(float dt) noexcept;
     void render(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float mouseX = -1.0f, float mouseY = -1.0f);
     [[nodiscard]] TrackPropertiesHitResult hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept;
     bool handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data, const ViewContext& ctx);
+    bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+        return panel_.handleKey(key, scancode, action, mods, ctx);
+    }
 
     [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
     void setExpanded(bool exp) noexcept { isExpanded_ = exp; }
     void toggle() noexcept { isExpanded_ = !isExpanded_; }
+
+    [[nodiscard]] float getAnimProgress() const noexcept { return animProgress_; }
+    [[nodiscard]] bool isAnimating() const noexcept { return std::abs(animProgress_ - (isExpanded_ ? 1.0f : 0.0f)) > 0.001f; }
+    [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (width_ * animProgress_); }
+    [[nodiscard]] bool isPluginDialogOpen() const noexcept { return panel_.getPluginSearchDialog().isOpen(); }
 
     [[nodiscard]] float getWidth() const noexcept { return width_; }
     void setWidth(float w) noexcept { width_ = std::clamp(w, minWidth_, maxWidth_); }
@@ -177,34 +44,61 @@ public:
     [[nodiscard]] const Rect2D& getDrawerBounds() const noexcept { return drawerBounds_; }
     [[nodiscard]] const Rect2D& getCloseButtonBounds() const noexcept { return closeButtonBounds_; }
 
-    [[nodiscard]] float getScrollY() const noexcept { return scrollY_; }
-    void setScrollY(float sy) noexcept { scrollY_ = std::max(0.0f, sy); }
+    [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
+    void setScrollY(float sy) noexcept { panel_.setScrollY(sy); }
+
+    [[nodiscard]] TrackPropertiesPanel& getPanel() noexcept { return panel_; }
+    [[nodiscard]] const TrackPropertiesPanel& getPanel() const noexcept { return panel_; }
+
+    [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return panel_.getPluginSearchDialog(); }
+    [[nodiscard]] const PluginSearchDialog& getPluginSearchDialog() const noexcept { return panel_.getPluginSearchDialog(); }
 
     static constexpr float kPullTabWidth = 24.0f;
     static constexpr float kDefaultWidth = 360.0f;
     static constexpr float kMinWidth = 260.0f;
     static constexpr float kMaxWidth = 640.0f;
 
-private:
-    void renderTrackSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float contentX, float contentY, float contentW, float mouseX, float mouseY);
-    void renderMasterSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float contentX, float contentY, float contentW, float mouseX, float mouseY);
-    void renderClipSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float contentX, float contentY, float contentW, float mouseX, float mouseY);
+    // Decoupled callbacks for shared usage in Arranger and Mixer tabs
+    std::function<void(uint32_t trackIndex)> onTrackSelected;
+    std::function<void(uint32_t trackIndex)> onTrackRename;
+    std::function<void(uint32_t trackIndex, const std::string& newName)> onTrackRenameWithText;
+    std::function<void(uint32_t trackIndex)> onChooseTrackIcon;
+    std::function<void(uint32_t trackIndex, float volume)> onVolumeChanged;
+    std::function<void(uint32_t trackIndex, float pan)> onPanChanged;
+    std::function<void(uint32_t trackIndex, bool mute)> onMuteToggled;
+    std::function<void(uint32_t trackIndex, bool solo)> onSoloToggled;
+    std::function<void(uint32_t trackIndex, bool freeze)> onFreezeToggled;
+    std::function<void(uint32_t trackIndex, float r, float g, float b)> onColorChanged;
+    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
+    std::function<void(uint32_t trackIndex)> onChangeInstrument;
+    std::function<void()> onPrevPreset;
+    std::function<void()> onNextPreset;
+    std::function<void(TrackPropertiesTab newTab)> onTabSelected;
+    std::function<void(uint32_t trackIndex, int clipIndex)> onEditInPianoRoll;
+    std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
+    std::function<void(uint32_t trackIndex)> onAddMidiFx;
+    std::function<void(uint32_t trackIndex)> onAddAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveMidiFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveAudioFx;
 
+private:
     bool isExpanded_{true};
+    float animProgress_{1.0f};
+    float browserOffset_{0.0f};
+    bool isResizing_{false};
     float width_{kDefaultWidth};
     float minWidth_{kMinWidth};
     float maxWidth_{kMaxWidth};
-    float scrollY_{0.0f};
 
     Rect2D containerBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D pullTabBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D drawerBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D closeButtonBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
-    // Drag resize tracking
-    bool isResizing_{false};
     float resizeStartX_{0.0f};
     float resizeStartWidth_{kDefaultWidth};
+
+    TrackPropertiesPanel panel_;
 };
 
 } // namespace eatsbits::ui

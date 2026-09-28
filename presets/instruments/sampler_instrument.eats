@@ -1,0 +1,72 @@
+# @id: sampler_instrument
+# @name: Sampler (Melodic / One-Shot)
+# @category: instrument
+# @description: Pitch-shifted sample player with ADSR envelope, filter cutoff, and root key tuning.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "RootKey": eat.param("RootKey", 36.0, 84.0, 60.0, step=0.0),
+        "AttackSec": eat.param("AttackSec", 0.0, 1.0, 0.0, step=0.0),
+        "DecaySec": eat.param("DecaySec", 0.01, 1.0, 0.1, step=0.0),
+        "Sustain": eat.param("Sustain", 0.0, 1.0, 0.8, step=0.0),
+        "ReleaseSec": eat.param("ReleaseSec", 0.01, 2.0, 0.4, step=0.0),
+        "FilterCutoff": eat.param("FilterCutoff", 200.0, 12000.0, 8000.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "MELODIC SAMPLER",
+            "subtitle": "Pitch-Shifted ADSR Sample Player",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "RootKey",
+                            "label": "ROOT KEY",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "AttackSec",
+                            "label": "ATTACK",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "DecaySec",
+                            "label": "DECAY",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ReleaseSec",
+                            "label": "RELEASE",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FilterCutoff",
+                            "label": "CUTOFF",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

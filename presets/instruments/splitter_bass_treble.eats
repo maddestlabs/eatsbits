@@ -1,0 +1,19 @@
+# @id: splitter_bass_treble
+# @name: Bass & Treble Clef Splitter (Piano)
+# @category: noteSplitter
+# @description: Splits notes at a pivot key into Left Hand (Bass Clef) and Right Hand (Treble Clef) tracks.
+
+# @author: Eatsbeats
+# @category: note_splitter
+# @description: Splits notes at a pivot key into Left Hand (Bass Clef) and Right Hand (Treble Clef) tracks.
+
+def init():
+    return {
+        "split_pitch": eat.param("split_pitch", 36, 84, 60, step=1),
+    }
+
+def split(notes, params):
+    return [
+        {"name": "Bass Clef (Left Hand)", "color": 0xFF3399FF},
+        {"name": "Treble Clef (Right Hand)", "color": 0xFFFFD700},
+    ]

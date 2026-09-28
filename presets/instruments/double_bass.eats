@@ -1,0 +1,92 @@
+# @id: double_bass
+# @name: Orchestral Double Bass
+# @category: instrument
+# @description: Physical modeling of an orchestral double bass (contrabass): 55Hz acoustic air cavity sub-resonance, heavy wound steel string friction, woody jazz pizzicato slap, and massive symphonic low-end foundation.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "BowPressure": eat.param("BowPressure", 0.1, 2.5, 1.45, step=0.0),
+        "BowSpeed": eat.param("BowSpeed", 0.1, 3.0, 0.82, step=0.0),
+        "BowPos": eat.param("BowPos", 0.0, 1.0, 0.4, step=0.0),
+        "RosinGrit": eat.param("RosinGrit", 0.0, 1.5, 0.6, step=0.0),
+        "TremoloSpeed": eat.param("TremoloSpeed", 4.0, 16.0, 9.5, step=0.0),
+        "Sustain": eat.param("Sustain", 0.9, 0.9998, 0.9978, step=0.0),
+        "Damping": eat.param("Damping", 0.02, 0.8, 0.24, step=0.0),
+        "VibratoDepth": eat.param("VibratoDepth", 0.0, 1.0, 0.22, step=0.0),
+        "VibratoDelay": eat.param("VibratoDelay", 0.0, 0.6, 0.22, step=0.0),
+        "WoodWarmth": eat.param("WoodWarmth", 0.0, 2.0, 0.75, step=0.0),
+        "SubPunch": eat.param("SubPunch", -4.0, 12.0, 4.5, step=0.0),
+        "ConSordino": eat.param("ConSordino", 0.0, 1.0, 0.0, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "ORCHESTRAL DOUBLE BASS",
+            "subtitle": "55Hz Sub-Bass Cavity & Contrabass Friction Physical Model",
+            "accent": "#78350F",
+            "background": "dark_varnish",
+            "rackSides": "dark_walnut",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "BowPressure",
+                            "label": "BOW PRESSURE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "RosinGrit",
+                            "label": "ROSIN GRIT",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SubPunch",
+                            "label": "SUB BASS 85Hz",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "WoodWarmth",
+                            "label": "BASS BODY",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "BowPos",
+                            "label": "BOW POSITION (0.0 SUL TASTO <-> 0.5 NORMALE <-> 1.0 SUL PONTICELLO)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

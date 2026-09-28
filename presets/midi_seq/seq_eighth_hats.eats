@@ -1,0 +1,13 @@
+# @id: seq_eighth_hats
+# @name: Eighth Hats
+# @category: midiSeq
+# @description: Driving 8th-note hi-hat groove hitting on the beat and between beats with dynamic accents.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

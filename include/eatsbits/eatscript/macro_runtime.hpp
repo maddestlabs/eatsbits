@@ -59,6 +59,11 @@ public:
                                           const std::string& style = "Techno",
                                           uint32_t seed = 42);
 
+    static MacroResult generateProceduralSong(sequencer::StepSequencer& sequencer,
+                                             const std::string& style = "Lo-Fi Hip Hop",
+                                             uint32_t bars = 16,
+                                             uint32_t seed = 42);
+
     static MacroResult humanizeAllTracks(sequencer::StepSequencer& sequencer,
                                         float timingJitter = 0.03f,
                                         float velocityJitter = 0.12f,

@@ -1,0 +1,13 @@
+# @id: seq_bass_full
+# @name: Bass Full
+# @category: midiSeq
+# @description: Single sustained full 1-bar root bass note (16 steps).
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

@@ -1,0 +1,61 @@
+# @id: analog_909_rimshot
+# @name: Analog 909 Rimshot
+# @category: instrument
+# @description: Authentic Eats-909 analog high-Q resonant tank circuit (rim.raw) with stick click clack and envelope decay.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", -0.5, 0.5, 0.0, step=0.0),
+        "Decay": eat.param("Decay", 0.02, 0.2, 0.075, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-909 RIMSHOT",
+            "subtitle": "High-Q Resonant Tank Circuit ROM Clack",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "SAMPLE TUNE",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "RING DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    rim = eat.node.tr909_sample(sample="rim", tune="Tune", decay="Decay")
+    out = eat.node.saturate(rim, drive=1.1)
+    return out

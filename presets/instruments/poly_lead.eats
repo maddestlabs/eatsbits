@@ -1,0 +1,150 @@
+# @id: poly_lead
+# @name: Poly Lead Synth
+# @category: instrument
+# @engine: poly_synth
+# @description: Versatile polyphonic & monophonic analog synthesizer with selectable waveforms (Saw, Sine, Square, Triangle, Pulse, Noise), sub-oscillator, resonant state-variable filter (LP/BP/HP), full ADSR, and overdrive.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Waveform": eat.param("Waveform", 0.0, 5.0, 0.0, step=1.0, options=["SAW", "SINE", "SQR", "TRI", "PULSE", "NOISE"]),
+        "PulseWidth": eat.param("PulseWidth", 0.05, 0.95, 0.50, step=0.01),
+        "Detune": eat.param("Detune", 0.0, 50.0, 3.0, step=0.1, unit="ct"),
+        "SubLevel": eat.param("SubLevel", 0.0, 1.0, 0.0, step=0.01),
+        "Cutoff": eat.param("Cutoff", 20.0, 18000.0, 4500.0, step=0.0, unit="Hz"),
+        "Resonance": eat.param("Resonance", 0.1, 10.0, 2.5, step=0.0),
+        "FilterEnv": eat.param("FilterEnv", -2.0, 2.0, 0.0, step=0.01),
+        "FilterMode": eat.param("FilterMode", 0.0, 2.0, 0.0, step=1.0, options=["LP", "BP", "HP"]),
+        "Attack": eat.param("Attack", 0.001, 1.0, 0.01, step=0.0, unit="s"),
+        "Decay": eat.param("Decay", 0.01, 3.0, 0.20, step=0.0, unit="s"),
+        "Sustain": eat.param("Sustain", 0.0, 1.0, 0.75, step=0.01),
+        "Release": eat.param("Release", 0.01, 3.0, 0.35, step=0.0, unit="s"),
+        "Drive": eat.param("Drive", 0.0, 5.0, 0.0, step=0.01),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "POLY SYNTH",
+            "subtitle": "Multi-Waveform Analog Synthesis & Resonant SVF",
+            "accent": "#00FFE0",
+            "background": "dark",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Waveform",
+                            "label": "WAVE",
+                            "knobStyle": "twoToneStepped",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PulseWidth",
+                            "label": "PW",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Detune",
+                            "label": "DETUNE",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SubLevel",
+                            "label": "SUB OSC",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FilterMode",
+                            "label": "VCF MODE",
+                            "knobStyle": "twoToneStepped",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Cutoff",
+                            "label": "CUTOFF",
+                            "knobStyle": "chrome",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Resonance",
+                            "label": "RESO",
+                            "knobStyle": "chrome",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FilterEnv",
+                            "label": "ENV MOD",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Attack",
+                            "label": "ATTACK",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Release",
+                            "label": "RELEASE",
+                            "knobStyle": "chromeFluted",
+                            "size": 48,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Drive",
+                            "label": "DRIVE",
+                            "knobStyle": "anodizedKnurled",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Modular DSP Graph Topology ---
+def graph():
+    vco = eat.node.osc(wave="saw", detune=3.0)
+    sub = eat.node.sub(octave=-1, level=0.40)
+    vcf = eat.node.svf(in_sig=vco, cutoff="Cutoff", reso="Resonance")
+    env = eat.node.adsr(attack="Attack", decay="Decay", sustain="Sustain", release="Release")
+    sat = eat.node.saturate(in_sig=vcf, drive="Drive")
+    return sat * env
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

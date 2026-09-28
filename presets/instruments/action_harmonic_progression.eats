@@ -1,0 +1,22 @@
+# @id: action_harmonic_progression
+# @name: Harmonic Progression Generator
+# @category: projectAction
+# @description: Generates Roman numeral / modal chord progressions across the project chord track and conforms tracks.
+
+# @author: Eatsbeats
+# @category: project_action
+# @description: Generates Roman numeral / modal chord progressions across the project chord track and conforms tracks.
+
+def init():
+    return {
+        "Genre": eat.param("Genre", 0, 4, 0, options=["Synthwave", "Pop Anthem", "Deep House / Club", "Jazz / Neo-Soul", "Classic EDM"]),
+        "LengthBars": eat.param("LengthBars", 2, 32, 8, step=2),
+        "ConformTracks": eat.param("ConformTracks", 0, 1, 1, options=["Chord Track Only", "Conform Synth Tracks to Chords"]),
+    }
+
+def run(project, params):
+    return {
+        "genre": params.get("Genre", 0),
+        "length_bars": params.get("LengthBars", 8),
+        "conform_tracks": params.get("ConformTracks", 1),
+    }

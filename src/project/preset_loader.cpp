@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cctype>
 #include <iostream>
+#include <filesystem>
 
 namespace eatsbits::project {
 
@@ -467,9 +468,20 @@ bool PresetLoader::loadFromFile(const std::string& filePath, PresetDefinition& o
 }
 
 std::vector<PresetDefinition> PresetLoader::loadDirectory(const std::string& dirPath) {
-    (void)dirPath;
     std::vector<PresetDefinition> presets;
-    // When filesystem traversal is performed or fallback is needed
+    std::error_code ec;
+    if (!std::filesystem::exists(dirPath, ec)) {
+        return presets;
+    }
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(dirPath, ec)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".eats") {
+            PresetDefinition def;
+            if (loadFromFile(entry.path().string(), def)) {
+                presets.push_back(std::move(def));
+            }
+        }
+    }
     return presets;
 }
 

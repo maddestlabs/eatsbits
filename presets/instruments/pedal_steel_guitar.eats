@@ -1,0 +1,87 @@
+# @id: pedal_steel_guitar
+# @name: Pedal Steel & Lap Steel Guitar
+# @category: instrument
+# @description: Physical modeling of a pedal steel / lap steel guitar: continuous microtonal bar glide, volume pedal swell dynamics, 5.2Hz hand vibrato, single-coil pickup reluctance saturation, and singing tube warmth.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "VolumeSwell": eat.param("VolumeSwell", 0.0, 0.4, 0.14, step=0.0),
+        "BarVibrato": eat.param("BarVibrato", 0.0, 1.0, 0.4, step=0.0),
+        "PickupBark": eat.param("PickupBark", 0.1, 2.0, 0.85, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.9999, 0.9975, step=0.0),
+        "AmpPresence": eat.param("AmpPresence", -6.0, 8.0, 2.5, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.08, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "PEDAL STEEL & LAP STEEL",
+            "subtitle": "Continuous Bar Glissando & Volume Swell Physical Model",
+            "accent": "#38BDF8",
+            "background": "black_matte",
+            "rackSides": "chrome",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "VolumeSwell",
+                            "label": "PEDAL SWELL",
+                            "unit": "s",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "BarVibrato",
+                            "label": "BAR VIBRATO",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "PickupBark",
+                            "label": "PICKUP BARK",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "AmpPresence",
+                            "label": "AMP PRESENCE",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "VolumeSwell",
+                            "label": "VOLUME PEDAL SWELL (0.0ms INSTANT PICK <-> 400ms SINGING SWELL)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

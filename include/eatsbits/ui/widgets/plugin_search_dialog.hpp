@@ -4,6 +4,7 @@
 #include "../theme.hpp"
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
+#include "scrollable_area.hpp"
 #include <string>
 #include <vector>
 #include <functional>
@@ -68,7 +69,13 @@ private:
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
+    ScrollableArea scrollArea_;
     float scrollY_{0.0f};
+    float lastMouseX_{0.0f};
+    float lastMouseY_{0.0f};
+    bool isDraggingScroll_{false};
+    float dragStartY_{0.0f};
+    float dragStartScrollY_{0.0f};
 
     std::vector<PluginEntry> instrumentLibrary_;
     std::vector<PluginEntry> midiFxLibrary_;

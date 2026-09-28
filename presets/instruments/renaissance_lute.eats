@@ -1,0 +1,118 @@
+# @id: renaissance_lute
+# @name: Renaissance & Baroque Lute
+# @category: instrument
+# @description: Physical modeling of a double-course gut lute: paired coupled waveguides with organic micro-chorus beating (3.8 cents), soft fingertip flesh pluck, multi-ribbed vaulted bowl modal resonance (300-1200Hz), and airy renaissance upper shimmer.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "FleshRatio": eat.param("FleshRatio", 0.0, 1.0, 0.7, step=0.0),
+        "GutScrape": eat.param("GutScrape", 0.0, 1.0, 0.25, step=0.0),
+        "CourseSpread": eat.param("CourseSpread", 1.0, 20.0, 5.0, step=0.0),
+        "CourseDetune": eat.param("CourseDetune", 0.0, 10.0, 3.8, step=0.0),
+        "BridgeCoupling": eat.param("BridgeCoupling", 0.0, 0.25, 0.09, step=0.0),
+        "Sustain": eat.param("Sustain", 0.85, 0.999, 0.993, step=0.0),
+        "GutDamp": eat.param("GutDamp", 0.05, 0.75, 0.2, step=0.0),
+        "BowlWarmth": eat.param("BowlWarmth", -6.0, 8.0, 2.2, step=0.0),
+        "AirShimmer": eat.param("AirShimmer", -6.0, 8.0, 1.8, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "RENAISSANCE & BAROQUE LUTE",
+            "subtitle": "Double-Course Gut & Vaulted Rib Bowl Physical Model",
+            "accent": "#EAB308",
+            "background": "matte_carbon",
+            "rackSides": "maple",
+            "cornerRadius": 0,
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "CourseDetune",
+                            "label": "COURSE DETUNE",
+                            "unit": "cents",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "BridgeCoupling",
+                            "label": "BRIDGE COUPL",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "FleshRatio",
+                            "label": "FLESH PLUCK",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "GutScrape",
+                            "label": "GUT SCRAPE",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Sustain",
+                            "label": "SUSTAIN",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "CourseDetune",
+                            "label": "DOUBLE-COURSE UNISON BEATING / CHORUS (0.0 <-> 10.0 CENTS)",
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "BowlWarmth",
+                            "label": "VAULTED BOWL",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "AirShimmer",
+                            "label": "RENAISSANCE AIR",
+                            "unit": "dB",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "GutDamp",
+                            "label": "GUT DAMPING",
+                            "unit": "%",
+                            "knobStyle": "vintage",
+                            "size": 52,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

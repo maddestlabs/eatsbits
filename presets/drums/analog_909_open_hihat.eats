@@ -1,0 +1,61 @@
+# @id: analog_909_open_hihat
+# @name: Analog 909 Open Hi-Hat
+# @category: instrument
+# @description: Authentic Eats-909 analog 6-bit compressed PCM ROM (opened-hihat) with extended analog envelope decay and pitch tuning.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Tune": eat.param("Tune", -0.5, 0.5, 0.0, step=0.0),
+        "Decay": eat.param("Decay", 0.03, 0.16, 0.08, step=0.0),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-909 OPEN HI-HAT",
+            "subtitle": "Authentic 6-Bit Compressed PCM ROM & Extended Decay",
+            "accent": "track",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "nixie",
+                            "param": "Tune",
+                            "label": "SAMPLE TUNE",
+                        },
+                        {
+                            "type": "nixie",
+                            "param": "Decay",
+                            "label": "VCA DECAY",
+                            "unit": "s",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "Tune",
+                            "label": "TUNE",
+                            "size": 56,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Decay",
+                            "label": "DECAY",
+                            "size": 56,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+# --- Modular Synthesis Graph Topology ---
+def graph():
+    hh = eat.node.tr909_sample(sample="opened_hihat", tune="Tune", decay="Decay")
+    hpf = eat.node.svf(hh, cutoff=3500.0, type="highpass")
+    return hpf

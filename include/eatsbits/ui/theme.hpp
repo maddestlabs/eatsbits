@@ -52,6 +52,16 @@ struct Color {
                      a);
     }
 
+    static constexpr Color lerp(const Color& c1, const Color& c2, float t) noexcept {
+        float f = std::clamp(t, 0.0f, 1.0f);
+        return Color(
+            c1.r + (c2.r - c1.r) * f,
+            c1.g + (c2.g - c1.g) * f,
+            c1.b + (c2.b - c1.b) * f,
+            c1.a + (c2.a - c1.a) * f
+        );
+    }
+
     // ITU-R BT.709 relative perceptual luminance
     [[nodiscard]] float luminance() const noexcept {
         return 0.2126f * r + 0.7152f * g + 0.0722f * b;

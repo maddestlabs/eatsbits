@@ -32,6 +32,10 @@
 #include "widgets/transport_header.hpp"
 #include "widgets/bottom_nav_bar.hpp"
 #include "widgets/value_edit_dialog.hpp"
+#include "widgets/command_palette_dialog.hpp"
+#include "widgets/audio_to_midi_dialog.hpp"
+#include "widgets/plugin_search_dialog.hpp"
+#include "widgets/scrollable_area.hpp"
 #include "input/pointer_event.hpp"
 
 struct GLFWwindow;
@@ -106,7 +110,9 @@ enum class DragMode {
     PianoRollMiddlePan,
     PianoRollScrollbarV,
     PianoRollScrollbarH,
-    VirtualKeyboardGlissando
+    VirtualKeyboardGlissando,
+    ProjectHubScroll,
+    CrtTweakerSlider
 };
 
 enum class TransportAction {
@@ -132,7 +138,9 @@ enum class TransportAction {
     PresetNext,
     Toggle3dConsole,
     ToggleCameraFocus,
-    FullscreenToggle
+    FullscreenToggle,
+    LockToggle,
+    SearchToggle
 };
 
 struct HitTestTransportResult {
@@ -215,7 +223,15 @@ enum class ProjectHubAction {
     ToggleCrtShader,
     ToggleAnimations,
     SetAntiAliasing,
-    ToggleHiDpi
+    ToggleHiDpi,
+    Scrollbar,
+    ContentDrag,
+    OpenCrtTweaker,
+    CrtPresetStudioRef,
+    CrtPresetMaxClarity,
+    CrtPresetWarmVintage,
+    CrtPresetReset,
+    CrtSlider
 };
 
 struct DialogFrameConfig {
@@ -226,6 +242,7 @@ struct DialogFrameConfig {
     bool showCloseButton{true};
     bool showBottomClose{true};
     float cornerRadius{14.0f};
+    bool enableBlur{false};
 };
 
 struct DialogLayout {
@@ -254,6 +271,7 @@ struct HitTestProjectHubResult {
     float scaleValue{1.0f};
     int themeIndex{0};
     int aaMode{2};
+    int crtSliderIndex{-1};
 };
 
 struct HitTestJackResult {
@@ -415,6 +433,7 @@ struct HitTestMixerResult {
 struct ArrangerTrackData {
     std::string name{"Track"};
     std::string type{"SYNTH"};
+    std::string iconRef{""};
     float r{0.0f}, g{0.9f}, b{1.0f};
     float volume{0.8f};
     float pan{0.0f};
@@ -555,7 +574,11 @@ public:
     void onMouseDown(int button, float x, float y);
     void onMouseUp(int button, float x, float y);
     void onKeyDown(int key, int mods = 0);
+    void onChar(unsigned int codepoint);
     void onMouseScroll(double xoffset, double yoffset);
+    void onFilesDropped(const std::vector<std::string>& filePaths, float x, float y);
+
+    std::function<void(const std::vector<std::string>&, float, float)> onExternalFilesDropped;
 
     // Window Dimensions, DPI, Resizing & Global UI Scale Factor
     [[nodiscard]] uint32_t getWidth() const noexcept { return width_; }
@@ -623,6 +646,8 @@ public:
     void setAuthorName(const std::string& name) { authorName_ = name; }
     [[nodiscard]] int getProjectHubSection() const noexcept { return projectHubSection_; }
     void setProjectHubSection(int sec) noexcept { projectHubSection_ = sec; }
+    [[nodiscard]] float getProjectHubScrollY() const noexcept { return projectHubScrollY_; }
+    [[nodiscard]] const ScrollableArea& getProjectHubScrollArea() const noexcept { return projectHubScrollArea_; }
 
     [[nodiscard]] bool isAutoRestoreSession() const noexcept { return autoRestoreSession_; }
     void setAutoRestoreSession(bool enable) noexcept { autoRestoreSession_ = enable; }
@@ -631,8 +656,16 @@ public:
     [[nodiscard]] bool isCrtShaderEnabled() const noexcept { return crtShaderEnabled_; }
     void setCrtShaderEnabled(bool enable) noexcept { crtShaderEnabled_ = enable; }
     void toggleCrtShader() noexcept { crtShaderEnabled_ = !crtShaderEnabled_; }
+    [[nodiscard]] bool isCrtTweakerOpen() const noexcept { return crtTweakerOpen_; }
+    void toggleCrtTweaker() noexcept { crtTweakerOpen_ = !crtTweakerOpen_; }
+    void setCrtTweakerOpen(bool open) noexcept { crtTweakerOpen_ = open; }
     [[nodiscard]] bool isGuiAnimationsEnabled() const noexcept { return guiAnimationsEnabled_; }
-    void setGuiAnimationsEnabled(bool enable) noexcept { guiAnimationsEnabled_ = enable; }
+    void setGuiAnimationsEnabled(bool enable) noexcept {
+        guiAnimationsEnabled_ = enable;
+        if (!enable) {
+            virtualKeyboardAnimProgress_ = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
+        }
+    }
     [[nodiscard]] int getActiveThemePreset() const noexcept { return activeThemePreset_; }
     void setActiveThemePreset(int preset) noexcept {
         activeThemePreset_ = preset;
@@ -666,6 +699,20 @@ public:
     [[nodiscard]] ValueEditDialog& getValueEditDialog() noexcept { return valueEditDialog_; }
     [[nodiscard]] const ValueEditDialog& getValueEditDialog() const noexcept { return valueEditDialog_; }
     void openValueEditDialog(const ValueEditRequest& req) { valueEditDialog_.open(req); }
+
+    [[nodiscard]] CommandPaletteDialog& getCommandPaletteDialog() noexcept { return commandPaletteDialog_; }
+    [[nodiscard]] const CommandPaletteDialog& getCommandPaletteDialog() const noexcept { return commandPaletteDialog_; }
+    void openCommandPalette() noexcept;
+    void closeCommandPalette() noexcept;
+    void toggleCommandPalette() noexcept;
+    [[nodiscard]] bool isCommandPaletteOpen() const noexcept;
+
+    [[nodiscard]] AudioToMidiDialog& getAudioToMidiDialog() noexcept { return audioToMidiDialog_; }
+    [[nodiscard]] const AudioToMidiDialog& getAudioToMidiDialog() const noexcept { return audioToMidiDialog_; }
+    void openAudioToMidiConverter(const std::optional<audio::DecodedAudioBuffer>& initialBuffer = std::nullopt,
+                                  const std::string& name = "");
+    void closeAudioToMidiConverter() noexcept;
+    [[nodiscard]] bool isAudioToMidiDialogOpen() const noexcept;
 
     // Hit-Testing logic
     [[nodiscard]] HitTestTransportResult hitTestTransport(float x, float y) const noexcept;
@@ -714,8 +761,19 @@ public:
 
     // Collapsible Virtual Piano Keyboard Drawer (Horizontal)
     [[nodiscard]] bool isVirtualKeyboardDrawerOpen() const noexcept { return virtualKeyboardDrawerOpen_; }
-    void setVirtualKeyboardDrawerOpen(bool open) noexcept { virtualKeyboardDrawerOpen_ = open; }
-    void toggleVirtualKeyboardDrawer() noexcept { virtualKeyboardDrawerOpen_ = !virtualKeyboardDrawerOpen_; }
+    void setVirtualKeyboardDrawerOpen(bool open) noexcept {
+        virtualKeyboardDrawerOpen_ = open;
+        if (!guiAnimationsEnabled_) {
+            virtualKeyboardAnimProgress_ = open ? 1.0f : 0.0f;
+        }
+    }
+    void toggleVirtualKeyboardDrawer() noexcept {
+        virtualKeyboardDrawerOpen_ = !virtualKeyboardDrawerOpen_;
+        if (!guiAnimationsEnabled_) {
+            virtualKeyboardAnimProgress_ = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
+        }
+    }
+    [[nodiscard]] float getVirtualKeyboardAnimProgress() const noexcept { return virtualKeyboardAnimProgress_; }
     [[nodiscard]] float getVirtualKeyboardDrawerHeight() const noexcept { return virtualKeyboardDrawerHeight_; }
     void setVirtualKeyboardDrawerHeight(float h) noexcept { virtualKeyboardDrawerHeight_ = std::clamp(h, 120.0f, 280.0f); }
     [[nodiscard]] int getVirtualKeyboardBaseOctave() const noexcept { return virtualKeyboardBaseOctave_; }
@@ -796,6 +854,7 @@ public:
     bool loadProjectFromFile(const std::string& filePath = "project.eats");
     bool bounceMasterToWav(const std::string& filePath = "master_output.wav");
     [[nodiscard]] const std::string& getLastStatusMessage() const noexcept { return lastStatusMessage_; }
+    [[nodiscard]] const std::string& getStatusToastText() const noexcept { return statusToastText_; }
     void setStatusMessage(const std::string& msg) noexcept;
 
     // Pure Diff-Based History & Time-Travel
@@ -815,6 +874,12 @@ public:
 
     [[nodiscard]] uint32_t getSelectedTrackIndex() const noexcept { return selectedTrackIndex_; }
     void setSelectedTrackIndex(uint32_t idx) noexcept;
+    void setTrackMuteState(uint32_t trackIdx, bool mute);
+    void setTrackSoloState(uint32_t trackIdx, bool solo);
+    void setTrackFreezeState(uint32_t trackIdx, bool freeze);
+    void syncActiveClipToEditView(uint32_t trackIdx, int clipIdx = -1);
+    void syncArrangerToSequencer();
+    void syncArrangerFromSequencer();
     [[nodiscard]] int getPreviewingPitch() const noexcept { return previewingPitch_; }
     [[nodiscard]] float getPreviewingVelocity() const noexcept { return previewingVelocity_; }
     void setPreviewingVelocity(float vel) noexcept { previewingVelocity_ = std::clamp(vel, 0.0f, 1.0f); }
@@ -842,6 +907,7 @@ public:
     // Mixer Strips
     struct MixerStrip {
         std::string name{"Channel"};
+        std::string iconRef{""};
         audio::NodeId nodeId{0};
         float volume{0.8f};
         float pan{0.0f};
@@ -1016,6 +1082,10 @@ private:
     int savedWindowH_{800};
     bool hasSavedWindowState_{false};
     int projectHubSection_{0};
+    float projectHubScrollY_{0.0f};
+    float projectHubMaxScroll_{0.0f};
+    bool projectHubDraggingThumb_{false};
+    ScrollableArea projectHubScrollArea_;
     std::string projectName_{"Untitled Song"};
     std::string authorName_{"Anonymous Producer"};
     std::string projectFilePath_{"project.eats"};
@@ -1023,6 +1093,10 @@ private:
     bool autoSaveEnabled_{true};
     int activeThemePreset_{0};
     bool crtShaderEnabled_{false};
+    bool crtTweakerOpen_{false};
+    int crtTweakerSliderIndex_{-1};
+    float crtTweakerTrackX_{0.0f};
+    float crtTweakerTrackW_{0.0f};
     float lampTime_{0.0f};
     bool guiAnimationsEnabled_{true};
     bool isEditingTitle_{false};
@@ -1110,6 +1184,7 @@ private:
     std::string statusToastText_{""};
     float statusToastTimer_{0.0f};
     size_t selectedBrowserPresetIndex_{0};
+    bool projectLocked_{false};
 
     // Pure Diff-Based History State
     project::DiffHistoryManager diffHistory_;
@@ -1192,6 +1267,7 @@ private:
 
     // Virtual Piano Keyboard Drawer (Horizontal)
     bool virtualKeyboardDrawerOpen_{false};
+    float virtualKeyboardAnimProgress_{0.0f};
     float virtualKeyboardDrawerHeight_{175.0f};
     int virtualKeyboardBaseOctave_{3};
     int virtualKeyboardActivePitch_{-1};
@@ -1220,8 +1296,14 @@ private:
     std::unique_ptr<TransportHeader> transportHeaderWidget_;
     std::unique_ptr<BottomNavBar> bottomNavBarWidget_;
     ValueEditDialog valueEditDialog_;
+    CommandPaletteDialog commandPaletteDialog_;
+    AudioToMidiDialog audioToMidiDialog_;
     KineticScroller kineticScroller_;
     GestureRecognizer gestureRecognizer_;
+
+    void renderCrtTweakerModal();
+    bool handleCrtTweakerPointer(float x, float y, bool isDown, bool isUp);
+    void handleCrtTweakerDrag(float x, float y);
 };
 
 } // namespace eatsbits::ui

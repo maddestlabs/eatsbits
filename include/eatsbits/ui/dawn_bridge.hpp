@@ -38,21 +38,27 @@ public:
 };
 
 struct CrtMaterialConfig {
-    float scanlineIntensity{0.38f};  // Authentic CRT scanline depth
+    float scanlineIntensity{0.38f};  // Authentic CRT scanline depth (0.0 = removed, 1.0 = deep)
     uint32_t borderWidthPx{16};      // CRT monitor chassis bezel margin (16px)
     uint32_t cornerRadiusPx{18};     // Phosphor tube rounded corner radius (18px)
-    float vignetteStrength{0.28f};   // Analog optical edge & corner falloff
-    float spotlightIntensity{1.0f};  // Ambient spotlight sweep
+    float vignetteStrength{1.0f};    // Analog optical edge & corner falloff multiplier (0.0 to 2.0)
+    float spotlightIntensity{1.0f};  // Ambient spotlight sweep intensity (0.0 to 2.0; 0.0 = flat uniform light)
+    float spotlightSize{1.35f};      // Beam radius / spread (0.5 to 2.5)
     bool spotlightEnabled{true};     // Enabled for atmospheric studio lighting
     uint32_t topBarHeightPx{56};     // Exact top panel height (56px)
     uint32_t bottomBarHeightPx{48};  // Exact bottom panel height (48px)
-    float curvature{0.85f};          // CRT barrel curvature intensity (0.0 to 1.0)
+    float curvature{0.85f};          // CRT barrel curvature intensity (0.0 = flat screen, 1.5 = deep bulb)
     uint32_t frameWidthPx{20};       // Outer reflective bezel frame curved with CRT (20px)
     uint32_t borderPaddingPx{0};     // Removed black border padding so frame directly hugs curved screen
     bool logoReflectionEnabled{true}; // Subtle brand logo reflection glare
-    float reflectionOpacity{0.45f};  // Diffused frame reflection opacity
+    float reflectionOpacity{0.52f};  // Bezel frame reflection level (0.0 = matte, 1.0 = mirror glaze)
     float scanlinePitchPx{2.5f};     // Scanline spacing/pitch in pixels
     bool reflectionBlurEnabled{true}; // GPU-accelerated frosted reflection blur
+    float panelSoftness{0.75f};      // Sub-pixel blur radius for physical panel blending (0.0 to 1.5px)
+    float panelSaturation{0.70f};    // Panel color saturation (0.0 to 1.0; 0.70 = realistic hardware desaturation)
+    float panelBlackLift{0.025f};    // Soften harsh dark lines by lifting the black floor (0.0 to 0.08)
+    float crtReflectionLevel{1.0f};  // Phosphor tube room reflection opacity (0.0 = removed, 1.0 = full reflection)
+    float hsyncDistortion{1.0f};     // Horizontal sync wave distortion multiplier (0.0 = rock solid / zero distortion)
 };
 
 /**
@@ -67,6 +73,7 @@ public:
 
     bool initialize(uint32_t width, uint32_t height) override;
     bool initializeNative(void* windowHandle, uint32_t width, uint32_t height);
+    bool initializeWeb(void* device, void* surface, uint32_t width, uint32_t height);
     void shutdownNative();
     void resize(uint32_t width, uint32_t height);
 
@@ -74,6 +81,7 @@ public:
     [[nodiscard]] bool isGpuAccelerated() const noexcept;
 
     [[nodiscard]] bool isNativeActive() const noexcept { return nativeActive_; }
+    [[nodiscard]] void* getDawTextureView() const noexcept;
 
     void beginFrame(float width, float height, float pixelRatio) override;
     void submitBatch(const VectorVertex2D* vertices, size_t vCount,

@@ -1,0 +1,158 @@
+# @id: cab_designer
+# @name: Cab Designer
+# @category: audioFx
+# @description: Physical modeling amplifier cabinet simulator with modal standing waves and speaker resonance.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+        "Material": eat.param("Material", 0.0, 2.0, 0.0, options=["Birch Plywood", "Pine Wood", "Wood Paneling"], allow_variance=False),
+        "Width": eat.param("Width", 0.2, 1.5, 0.76, step=0.02),
+        "Length": eat.param("Length", 0.2, 1.5, 0.76, step=0.02),
+        "Height": eat.param("Height", 0.15, 1.0, 0.36, step=0.02),
+        "SourceX": eat.param("SourceX", 0.05, 0.95, 0.5, step=0.01),
+        "SourceY": eat.param("SourceY", 0.05, 0.95, 0.5, step=0.01),
+        "SourceZ": eat.param("SourceZ", 0.05, 0.95, 0.5, step=0.01),
+        "ListenerX": eat.param("ListenerX", 0.05, 0.95, 0.5, step=0.01),
+        "ListenerY": eat.param("ListenerY", 0.05, 0.95, 0.8, step=0.01),
+        "ListenerZ": eat.param("ListenerZ", 0.05, 0.95, 0.5, step=0.01),
+        "MicDistance": eat.param("MicDistance", 0.01, 0.3, 0.05, step=0.01),
+        "MicAngle": eat.param("MicAngle", 0.0, 60.0, 0.0, step=1.0, allow_variance=False),
+        "DryLevel": eat.param("DryLevel", 0.0, 1.5, 0.0, step=0.05),
+        "WetLevel": eat.param("WetLevel", 0.0, 1.5, 1.0, step=0.05),
+        "isCabinet": eat.param("isCabinet", 0.0, 1.0, 1.0, step=1.0, allow_variance=False),
+    }
+
+# --- Hardware GUI Layout ---
+def gui():
+    return {
+        "panel": {
+            "title": "Cab Designer",
+            "subtitle": "Modal Enclosure & Speaker Physical Modeling",
+            "background": "grunge",
+            "accent": "#FF6B00",
+            "layout": [
+                {
+                    "type": "space_visualizer",
+                    "height": 135,
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "listbox",
+                            "param": "Material",
+                            "label": "WOOD",
+                            "width": 120,
+                            "height": 70,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Width",
+                            "label": "WIDTH",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Length",
+                            "label": "LENGTH",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "Height",
+                            "label": "HEIGHT",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "MicDistance",
+                            "label": "MIC DIST",
+                            "unit": "m",
+                        },
+                        {
+                            "type": "knob",
+                            "param": "MicAngle",
+                            "label": "OFF-AXIS",
+                            "unit": "°",
+                        },
+                        {
+                            "type": "switch",
+                            "param": "OpenBack",
+                            "label": "OPEN",
+                            "orientation": "vertical",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "knob",
+                            "param": "SourceX",
+                            "label": "CONE X",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SourceY",
+                            "label": "CONE Y",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "SourceZ",
+                            "label": "CONE Z",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerX",
+                            "label": "MIC X",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerY",
+                            "label": "MIC Y",
+                            "size": 36,
+                        },
+                        {
+                            "type": "knob",
+                            "param": "ListenerZ",
+                            "label": "MIC Z",
+                            "size": 36,
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "DryLevel",
+                            "label": "DRY LEVEL",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+                {
+                    "type": "row",
+                    "children": [
+                        {
+                            "type": "hslider",
+                            "param": "WetLevel",
+                            "label": "WET LEVEL",
+                            "width": 480,
+                            "style": "capsule",
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+# --- Audio FX DSP Process Hook ---
+def process(input_l, input_r, params):
+    return [input_l, input_r]

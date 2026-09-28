@@ -1,0 +1,50 @@
+# @id: humanize_midi_fx
+# @name: Humanize & Groove FX
+# @category: midiFx
+# @description: Adds organic human feel with micro-timing jitter and velocity dynamics.
+
+def init():
+    return {
+        "Timing": eat.param("Timing", 0.0, 0.15, 0.04, step=0.005),
+        "Velocity": eat.param("Velocity", 0.0, 0.5, 0.15, step=0.02),
+    }
+
+def transform_notes(notes, params, time_context):
+    return eat.humanize(notes, timing=params.get("Timing", 0.04), velocity=params.get("Velocity", 0.15))
+
+def gui():
+    return {
+        "panel": {
+            "title": "Humanize & Groove FX",
+            "subtitle": "Organic Micro-Timing & Velocity Humanizer",
+            "background": "dark",
+            "accent": "#E040FB",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "Timing", "label": "TIMING JITTER", "size": 56},
+                        {"type": "knob", "param": "Velocity", "label": "VEL DYNAMICS", "size": 56},
+                    ]
+                }
+            ]
+        }
+    }
+
+def rack():
+    return {
+        "rows": [
+            [
+                {"id": "midi_in", "title": "MIDI NOTE IN", "hp": 14, "row": 1, "category": "MOD"},
+                {"id": "jitter_mod", "title": "MICRO-TIMING JITTER", "hp": 16, "row": 1, "category": "MOD"},
+            ],
+            [
+                {"id": "vel_human", "title": "VELOCITY DYNAMICS", "hp": 14, "row": 2, "category": "MOD"},
+                {"id": "midi_out", "title": "GROOVE NOTE OUT", "hp": 14, "row": 2, "category": "MOD"},
+            ],
+        ],
+        "cables": [
+            {"from": "1:0:1", "to": "1:1:0", "color": "pitch"},
+            {"from": "1:1:1", "to": "2:1:0", "color": "pitch"},
+        ]
+    }

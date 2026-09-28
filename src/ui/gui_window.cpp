@@ -9,6 +9,7 @@
 #include "eatsbits/eatscript/note_script.hpp"
 #include "eatsbits/eatscript/dispatch_scanner.hpp"
 #include "eatsbits/eatscript/macro_runtime.hpp"
+#include "eatsbits/procgen/procedural_song_engine.hpp"
 #include "eatsbits/audio/graph/nodes/eatscript_node.hpp"
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
@@ -47,6 +48,22 @@ std::string promptOpenEatsFile() {
     OPENFILENAMEA ofn{};
     ofn.lStructSize = sizeof(ofn);
     ofn.lpstrFilter = "Eatsbits Project (*.eats)\0*.eats\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (GetOpenFileNameA(&ofn)) {
+        return std::string(filename);
+    }
+#endif
+    return "";
+}
+
+std::string promptOpenAudioFile() {
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    char filename[MAX_PATH] = "";
+    OPENFILENAMEA ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = "Audio Files (*.wav;*.mp3;*.flac;*.ogg;*.aif)\0*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -110,6 +127,8 @@ using GLuint = unsigned int;
 #endif
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <cstring>
 extern "C" {
 #include "fontstash.h"
@@ -118,6 +137,22 @@ void fonsResetFallbackFont(FONScontext* stash, int base);
 }
 
 namespace eatsbits::ui {
+
+#if defined(__EMSCRIPTEN__)
+static GuiWindow* g_activeGuiWindowForWeb = nullptr;
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void eats_on_file_dropped_web(const char* virtualPath, float clientX, float clientY) {
+    if (!g_activeGuiWindowForWeb || !virtualPath) return;
+    float logX = g_activeGuiWindowForWeb->windowToLogicalX(clientX);
+    float logY = g_activeGuiWindowForWeb->windowToLogicalY(clientY);
+    if (g_activeGuiWindowForWeb->is3dConsoleEnabled()) {
+        g_activeGuiWindowForWeb->transform3dMouseCoords(logX, logY, logX, logY);
+    }
+    g_activeGuiWindowForWeb->remapCrtMouseCoords(logX, logY, logX, logY);
+    g_activeGuiWindowForWeb->onFilesDropped({std::string(virtualPath)}, logX, logY);
+}
+#endif
 
 static inline std::string toHex2(uint32_t val) {
     char buf[4];
@@ -393,10 +428,384 @@ void drawSvgLayers(const std::vector<SvgLayerDef>& layers, float x, float y, flo
     }
 }
 
+// =============================================================================
+// PROCEDURAL GRUNGY CAST-METAL CHASSIS TEXTURE SYSTEM (THEME-TINTED)
+// Generates a master monochrome micro-pitted cast-iron & chipped-rim surface
+// map once at boot, then tints it to the active theme with zero per-frame cost.
+// =============================================================================
+namespace {
+
+struct ChassisSurfaceSample {
+    float stipple;      // 0.0 .. 1.0 (neutral 0.5)
+    float fleck;        // 0.0 .. 1.0 (sparse brass flecks)
+    float edgeErosion;  // 0.0 .. 1.0 (chipped rim wear)
+    float edgeGrime;    // 0.0 .. 1.0 (crevice shadow)
+};
+
+class ChassisTextureSystem {
+public:
+    static constexpr int kWidth = 512;
+    static constexpr int kHeight = 64;
+    static constexpr int kNoiseDim = 64;
+
+    static ChassisTextureSystem& instance() {
+        static ChassisTextureSystem s_sys;
+        return s_sys;
+    }
+
+    ChassisTextureSystem() {
+        initMasterGrayscale();
+    }
+
+    void draw(BatchRenderer2D* r, float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
+        if (!r || w <= 0.0f || h <= 0.0f) return;
+        ensureTinted(theme);
+
+        const auto& rgba = isTopPanel ? tintedTop_ : tintedBottom_;
+        if (rgba.empty()) return;
+
+        // Tile horizontally across [x, x + w]
+        for (float curX = x; curX < x + w; curX += static_cast<float>(kWidth)) {
+            float chunkW = std::min(static_cast<float>(kWidth), x + w - curX);
+            r->drawRgbaBitmap(curX, y, chunkW, h, rgba.data(), kWidth, kHeight, 1.0f);
+        }
+    }
+
+    void drawButtonNoise(BatchRenderer2D* r, float x, float y, float w, float h,
+                         bool isTop = true, float opacity = 0.28f, float cornerRadius = 0.0f,
+                         bool roundTL = true, bool roundTR = true, bool roundBL = true, bool roundBR = true,
+                         bool pressed = false, float pressShiftY = 3.0f) {
+        if (!r || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
+
+        int iW = static_cast<int>(std::round(w));
+        int iH = static_cast<int>(std::round(h));
+        if (iW <= 0 || iH <= 0) return;
+
+        static std::vector<uint8_t> s_buttonNoiseBuf;
+        s_buttonNoiseBuf.resize(static_cast<size_t>(iW * iH * 4));
+
+        const auto& master = isTop ? masterTop_ : masterBottom_;
+        if (master.empty()) return;
+
+        int sampleShiftY = pressed ? static_cast<int>(std::round(pressShiftY)) : 0;
+
+        for (int py = 0; py < iH; ++py) {
+            float fy = static_cast<float>(py) + 0.5f;
+            for (int px = 0; px < iW; ++px) {
+                float fx = static_cast<float>(px) + 0.5f;
+                int idx = (py * iW + px) * 4;
+
+                // Precision corner masking
+                if (cornerRadius > 0.5f) {
+                    bool inCorner = false;
+                    float cornerCx = 0.0f, cornerCy = 0.0f;
+                    if (roundTL && fx < cornerRadius && fy < cornerRadius) {
+                        inCorner = true; cornerCx = cornerRadius; cornerCy = cornerRadius;
+                    } else if (roundTR && fx > w - cornerRadius && fy < cornerRadius) {
+                        inCorner = true; cornerCx = w - cornerRadius; cornerCy = cornerRadius;
+                    } else if (roundBL && fx < cornerRadius && fy > h - cornerRadius) {
+                        inCorner = true; cornerCx = cornerRadius; cornerCy = h - cornerRadius;
+                    } else if (roundBR && fx > w - cornerRadius && fy > h - cornerRadius) {
+                        inCorner = true; cornerCx = w - cornerRadius; cornerCy = h - cornerRadius;
+                    }
+
+                    if (inCorner) {
+                        float dx = fx - cornerCx;
+                        float dy = fy - cornerCy;
+                        if (dx * dx + dy * dy > cornerRadius * cornerRadius) {
+                            s_buttonNoiseBuf[idx + 0] = 0;
+                            s_buttonNoiseBuf[idx + 1] = 0;
+                            s_buttonNoiseBuf[idx + 2] = 0;
+                            s_buttonNoiseBuf[idx + 3] = 0;
+                            continue;
+                        }
+                    }
+                }
+
+                // Sample corresponding coordinate in the panel's procedural master map (with pressed down-stroke shift)
+                int srcX = (static_cast<int>(x) + px) % kWidth;
+                if (srcX < 0) srcX += kWidth;
+                int srcY = (static_cast<int>(y) + py + sampleShiftY) % kHeight;
+                if (srcY < 0) srcY += kHeight;
+
+                const auto& s = master[srcY * kWidth + srcX];
+                float diff = s.stipple - 0.50f;
+
+                uint8_t rCol = 0, gCol = 0, bCol = 0, aCol = 0;
+                if (s.fleck > 0.04f) {
+                    // Warm metallic micro-fleck glint matching chassis plate (toned down)
+                    rCol = 255;
+                    gCol = 225;
+                    bCol = 160;
+                    aCol = static_cast<uint8_t>(std::clamp(s.fleck * 120.0f + 25.0f, 0.0f, 135.0f));
+                } else if (diff < -0.022f) {
+                    // Tactile micro-pit shadow (toned down, subtle powder-coat crevice)
+                    rCol = 0; gCol = 0; bCol = 0;
+                    float pit = (-diff - 0.022f) / 0.40f;
+                    aCol = static_cast<uint8_t>(std::clamp(pit * 130.0f, 0.0f, 150.0f));
+                } else if (diff > 0.022f) {
+                    // Stipple powder-coat micro-highlight (toned down, gentle specular sheen)
+                    rCol = 245; gCol = 245; bCol = 250;
+                    float peak = (diff - 0.022f) / 0.40f;
+                    aCol = static_cast<uint8_t>(std::clamp(peak * 110.0f, 0.0f, 130.0f));
+                }
+
+                // Top socket crevice shadow when physically pressed into faceplate well
+                if (pressed && py < 4) {
+                    float socketShadow = (4.0f - static_cast<float>(py)) / 4.0f * 100.0f;
+                    if (socketShadow > static_cast<float>(aCol)) {
+                        aCol = static_cast<uint8_t>(socketShadow);
+                        rCol = 0; gCol = 0; bCol = 0;
+                    }
+                }
+
+                s_buttonNoiseBuf[idx + 0] = rCol;
+                s_buttonNoiseBuf[idx + 1] = gCol;
+                s_buttonNoiseBuf[idx + 2] = bCol;
+                s_buttonNoiseBuf[idx + 3] = aCol;
+            }
+        }
+
+        r->drawRgbaBitmap(x, y, w, h, s_buttonNoiseBuf.data(), iW, iH, opacity);
+    }
+
+
+private:
+    void initMasterGrayscale() {
+        masterTop_.resize(kWidth * kHeight);
+        masterBottom_.resize(kWidth * kHeight);
+        buttonNoiseMaster_.resize(kNoiseDim * kNoiseDim);
+
+        auto hash2D = [](int x, int y, uint32_t seed) -> float {
+            uint32_t n = static_cast<uint32_t>(x) * 374761393u + static_cast<uint32_t>(y) * 668265263u + seed * 1442695040888963407u;
+            n = (n ^ (n >> 13)) * 1274126177u;
+            return static_cast<float>(n & 0x7FFFFFFF) / static_cast<float>(0x7FFFFFFF);
+        };
+
+        // 1. Button Noise Master Tile (pure tactile stipple noise)
+        for (int ny = 0; ny < kNoiseDim; ++ny) {
+            for (int nx = 0; nx < kNoiseDim; ++nx) {
+                float n1 = hash2D(nx, ny, 401) - 0.5f;
+                float n2 = hash2D((nx / 2) % (kNoiseDim / 2), (ny / 2) % (kNoiseDim / 2), 503) - 0.5f;
+                buttonNoiseMaster_[ny * kNoiseDim + nx] = 0.5f + (n1 * 0.65f + n2 * 0.35f) * 0.40f;
+            }
+        }
+
+        // 2. Chassis Master Surface Maps (Top & Bottom panels)
+        for (int y = 0; y < kHeight; ++y) {
+            for (int x = 0; x < kWidth; ++x) {
+                float fx = static_cast<float>(x);
+                float fy = static_cast<float>(y);
+
+                // Multi-octave cast iron stipple and micro-pitting
+                float h1 = hash2D(x, y, 101) - 0.5f;
+                float h2 = hash2D((x / 2) % (kWidth / 2), y / 2, 203) - 0.5f;
+                float h3 = hash2D((x / 6) % (kWidth / 6), y / 6, 307) - 0.5f;
+                float xWarp = std::sin(fx * 0.045f) * 0.18f + std::cos(fx * 0.09f + fy * 0.12f) * 0.12f;
+                float stipple = 0.5f + (h1 * 0.52f + h2 * 0.32f + h3 * 0.16f + xWarp * 0.14f) * 0.45f;
+
+                // Subtle organic pixels of slightly lighter intensity (replacing harsh horizontal lines)
+                float fleck = 0.0f;
+                float randSubtle = hash2D(x, y, 888);
+                if (randSubtle > 0.965f) {
+                    fleck = (randSubtle - 0.965f) / 0.035f * 0.22f; // Soft intensity 0.0 to 0.22
+                }
+
+                // Sparse warm flecks - toned down to gentle metallic micro-highlights
+                float randFleck = hash2D(x, y, 777);
+                if (randFleck > 0.988f) {
+                    float bright = (randFleck - 0.988f) / 0.012f * 0.38f; // Softened peak
+                    fleck = std::max(fleck, bright);
+                }
+
+                // --- Top Panel Specifics ---
+                // Uniform machined chassis crevice along bottom edge (y = kHeight - 1)
+                ChassisSurfaceSample sampleTop;
+                sampleTop.stipple = stipple;
+                sampleTop.fleck = fleck;
+                sampleTop.edgeErosion = 0.0f;
+                sampleTop.edgeGrime = 0.0f;
+
+                float distToBottom = static_cast<float>(kHeight - 1 - y);
+                if (distToBottom < 3.5f) {
+                    sampleTop.edgeGrime = std::clamp((3.5f - distToBottom) / 3.5f, 0.0f, 1.0f) * 0.50f;
+                }
+                masterTop_[y * kWidth + x] = sampleTop;
+
+                // --- Bottom Panel Specifics ---
+                // Uniform machined chassis crevice along top edge (y = 0)
+                ChassisSurfaceSample sampleBot;
+                sampleBot.stipple = stipple;
+                sampleBot.fleck = fleck;
+                sampleBot.edgeErosion = 0.0f;
+                sampleBot.edgeGrime = 0.0f;
+
+                float distToTop = fy;
+                if (distToTop < 3.5f) {
+                    sampleBot.edgeGrime = std::clamp((3.5f - distToTop) / 3.5f, 0.0f, 1.0f) * 0.50f;
+                }
+                masterBottom_[y * kWidth + x] = sampleBot;
+            }
+        }
+    }
+
+    void ensureTinted(const ThemeTokens& theme) {
+        if (!tintedTop_.empty() && cachedThemeName_ == theme.name &&
+            cachedGradTop_ == theme.panelHeaderGradientTop.toRgba8() &&
+            cachedGradBot_ == theme.panelHeaderGradientBottom.toRgba8()) {
+            return;
+        }
+
+        cachedThemeName_ = theme.name;
+        cachedGradTop_ = theme.panelHeaderGradientTop.toRgba8();
+        cachedGradBot_ = theme.panelHeaderGradientBottom.toRgba8();
+
+        tintedTop_.resize(kWidth * kHeight * 4);
+        tintedBottom_.resize(kWidth * kHeight * 4);
+        buttonNoiseRgba_.resize(kNoiseDim * kNoiseDim * 4);
+
+        // 1. Bake Button Tactile Noise Tile
+        for (int i = 0; i < kNoiseDim * kNoiseDim; ++i) {
+            float s = buttonNoiseMaster_[i];
+            float delta = (s - 0.5f) * 0.35f;
+            Color base = Color(0.18f, 0.18f, 0.19f);
+            Color c = (delta >= 0.0f) ? base.lighten(delta) : base.darken(-delta * 1.2f);
+            buttonNoiseRgba_[i * 4 + 0] = static_cast<uint8_t>(std::clamp(c.r * 255.0f, 0.0f, 255.0f));
+            buttonNoiseRgba_[i * 4 + 1] = static_cast<uint8_t>(std::clamp(c.g * 255.0f, 0.0f, 255.0f));
+            buttonNoiseRgba_[i * 4 + 2] = static_cast<uint8_t>(std::clamp(c.b * 255.0f, 0.0f, 255.0f));
+            buttonNoiseRgba_[i * 4 + 3] = 255;
+        }
+
+        // 2. Bake Top and Bottom Panel Plates
+        auto bakePanel = [&](const std::vector<ChassisSurfaceSample>& master, std::vector<uint8_t>& dst, bool /*isTop*/) {
+            for (int y = 0; y < kHeight; ++y) {
+                float t = static_cast<float>(y) / static_cast<float>(kHeight - 1);
+                Color base = Color::lerp(theme.panelHeaderGradientTop, theme.panelHeaderGradientBottom, t);
+
+                for (int x = 0; x < kWidth; ++x) {
+                    const auto& s = master[y * kWidth + x];
+
+                    // Modulate base color with stipple pitting
+                    float stippleDelta = (s.stipple - 0.5f) * 0.20f;
+                    Color c = (stippleDelta >= 0.0f)
+                        ? base.lighten(stippleDelta)
+                        : base.darken(-stippleDelta * 1.35f);
+
+                    // Grime and dirt shadow in crevices
+                    if (s.edgeGrime > 0.005f) {
+                        Color grimeCol = theme.backgroundDark.darken(0.35f);
+                        c = Color::lerp(c, grimeCol, s.edgeGrime * 0.85f);
+                    }
+
+                    // Warm brass/bronze flecks and surface micro-highlights (subtle & toned down)
+                    if (s.fleck > 0.01f) {
+                        Color brassFleck = Color::lerp(base.lighten(0.10f), theme.primaryAccent.lighten(0.10f), 0.22f);
+                        c = Color::lerp(c, brassFleck, s.fleck * 0.40f);
+                    }
+
+                    // Exposed raw brass/steel chipped rim wear along edge
+                    if (s.edgeErosion > 0.02f) {
+                        Color wornMetal = Color::lerp(Color(0.88f, 0.74f, 0.46f), theme.borderSubtle.lighten(0.40f), 0.30f);
+                        c = Color::lerp(c, wornMetal, s.edgeErosion * 0.95f);
+                    }
+
+                    int idx = (y * kWidth + x) * 4;
+                    dst[idx + 0] = static_cast<uint8_t>(std::clamp(c.r * 255.0f, 0.0f, 255.0f));
+                    dst[idx + 1] = static_cast<uint8_t>(std::clamp(c.g * 255.0f, 0.0f, 255.0f));
+                    dst[idx + 2] = static_cast<uint8_t>(std::clamp(c.b * 255.0f, 0.0f, 255.0f));
+                    dst[idx + 3] = 255;
+                }
+            }
+        };
+
+        bakePanel(masterTop_, tintedTop_, true);
+        bakePanel(masterBottom_, tintedBottom_, false);
+    }
+
+    std::vector<ChassisSurfaceSample> masterTop_;
+    std::vector<ChassisSurfaceSample> masterBottom_;
+    std::vector<float> buttonNoiseMaster_;
+    std::vector<uint8_t> tintedTop_;
+    std::vector<uint8_t> tintedBottom_;
+    std::vector<uint8_t> buttonNoiseRgba_;
+    std::string cachedThemeName_;
+    uint32_t cachedGradTop_{0};
+    uint32_t cachedGradBot_{0};
+};
+
+inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
+    if (g_activeBatchRenderer) {
+        ChassisTextureSystem::instance().draw(g_activeBatchRenderer, x, y, w, h, isTopPanel, theme);
+    }
+}
+
+inline void drawButtonNoise(float x, float y, float w, float h, bool isTop = true, float opacity = 0.28f,
+                            float cornerRadius = 0.0f, bool roundTL = true, bool roundTR = true,
+                            bool roundBL = true, bool roundBR = true, bool pressed = false, float pressShiftY = 3.0f) {
+    if (g_activeBatchRenderer) {
+        ChassisTextureSystem::instance().drawButtonNoise(g_activeBatchRenderer, x, y, w, h, isTop, opacity,
+                                                         cornerRadius, roundTL, roundTR, roundBL, roundBR,
+                                                         pressed, pressShiftY);
+    }
+}
+
+inline void setBlendMode(BlendMode mode) {
+    if (g_activeBatchRenderer) g_activeBatchRenderer->setBlendMode(mode);
+}
+
+struct ScopedBlendMode {
+    BatchRenderer2D* r;
+    BlendMode prev;
+    ScopedBlendMode(BlendMode mode) : r(g_activeBatchRenderer), prev(BlendMode::Normal) {
+        if (r) {
+            prev = r->getBlendMode();
+            r->setBlendMode(mode);
+        }
+    }
+    ~ScopedBlendMode() {
+        if (r) r->setBlendMode(prev);
+    }
+};
+
+} // namespace
+
 void drawEatsbitsLogo(float x, float y, float size, float opacity = 1.0f, bool inverted = false) {
     static const auto s_logoLayers = SvgLogo::getLayers();
     static const auto s_invertedLayers = SvgLogo::getInvertedLayers();
     drawSvgLayers(inverted ? s_invertedLayers : s_logoLayers, x, y, size, size, opacity);
+}
+
+inline uint32_t packSvgColor(const Color& c, float extraAlpha = 1.0f) {
+    auto ur = static_cast<uint32_t>(std::clamp(c.r * 255.0f, 0.0f, 255.0f));
+    auto ug = static_cast<uint32_t>(std::clamp(c.g * 255.0f, 0.0f, 255.0f));
+    auto ub = static_cast<uint32_t>(std::clamp(c.b * 255.0f, 0.0f, 255.0f));
+    auto ua = static_cast<uint32_t>(std::clamp(c.a * extraAlpha * 255.0f, 0.0f, 255.0f));
+    return ur | (ug << 8) | (ub << 16) | (ua << 24);
+}
+
+void drawPlainEatsbitsLogo(float x, float y, float w, float h, const Color& color, float opacity = 1.0f,
+                           bool inverted = false, const Color& darkColor = Color(0.08f, 0.07f, 0.06f)) {
+    if (!inverted) {
+        // Subtle drop shadow / stamped depth edge for realistic faceplate silkscreen
+        uint32_t shadowCol = packSvgColor(Color(0.0f, 0.0f, 0.0f, 0.50f));
+        std::vector<SvgLayerDef> shadowLayers = {
+            SvgLayerDef(SvgLogo::kPlainLogoPath, shadowCol, 0.40f * opacity, true)
+        };
+        drawSvgLayers(shadowLayers, x + 0.65f, y + 0.85f, w, h, opacity);
+
+        // Stamped silkscreen emblem with theme accent color
+        uint32_t emblemCol = packSvgColor(color);
+        std::vector<SvgLayerDef> emblemLayers = {
+            SvgLayerDef(SvgLogo::kPlainLogoPath, emblemCol, opacity, true)
+        };
+        drawSvgLayers(emblemLayers, x, y, w, h, opacity);
+    } else {
+        // Inverted state on hover: dark creature body with illuminated accent outline, eye, and eating bits
+        uint32_t accentCol = packSvgColor(color);
+        uint32_t darkCol = packSvgColor(darkColor);
+        auto invertedLayers = SvgLogo::getPlainInvertedLayers(accentCol, darkCol);
+        drawSvgLayers(invertedLayers, x, y, w, h, opacity);
+    }
 }
 
 // Clean vector stroke typography for labels and unicode music/box characters
@@ -1142,29 +1551,37 @@ inline void drawIconPlay(float cx, float cy, float size, const Color& fill, cons
     drawTriangle(x0, y0, x1, y1, x2, y2, fill.r, fill.g, fill.b, fill.a);
 }
 
-inline void drawIconScrewClose(float cx, float cy, float radius, bool hovered) {
+inline void drawIconScrewClose(float cx, float cy, float radius, bool hovered, const Color& highlightColor = Color(0.98f, 0.32f, 0.28f)) {
     // 1. Recessed outer countersink well shadow
     drawCircle(cx, cy, radius + 1.2f, Color(0.04f, 0.03f, 0.04f, 0.95f), 16);
     drawCircle(cx, cy, radius + 0.4f, Color(0.08f, 0.08f, 0.09f, 0.85f), 16);
 
-    // 2. Metallic screw head body
-    Color screwBody = hovered ? Color(0.28f, 0.30f, 0.36f) : Color(0.18f, 0.20f, 0.23f);
+    if (hovered) {
+        // Outer aura and halo ring in active theme highlight color
+        drawCircle(cx, cy, radius + 2.2f, Color(highlightColor.r, highlightColor.g, highlightColor.b, 0.22f), 16);
+        drawCircleOutline(cx, cy, radius + 1.5f, highlightColor.withAlpha(0.70f), 1.2f);
+    }
+
+    // 2. Metallic screw head body with highlight tint on hover
+    Color screwBody = hovered
+        ? Color::lerp(Color(0.28f, 0.30f, 0.36f), highlightColor, 0.22f)
+        : Color(0.18f, 0.20f, 0.23f);
     drawCircle(cx, cy, radius, screwBody, 16);
 
     // 3. Chamfer highlight on top-left edge
-    drawCircle(cx - 0.5f, cy - 0.5f, radius * 0.85f, Color(1.0f, 1.0f, 1.0f, hovered ? 0.30f : 0.15f), 16);
+    drawCircle(cx - 0.5f, cy - 0.5f, radius * 0.85f, Color(1.0f, 1.0f, 1.0f, hovered ? 0.35f : 0.15f), 16);
     drawCircle(cx + 0.2f, cy + 0.2f, radius * 0.85f, screwBody, 16);
 
     // 4. Inset Phillips cross slot ("X")
     float arm = radius * 0.55f;
-    Color slotColor = hovered ? Color(0.98f, 0.32f, 0.28f) : Color(0.06f, 0.06f, 0.08f);
-    float strokeW = std::max(1.3f, radius * 0.28f);
+    Color slotColor = hovered ? highlightColor : Color(0.06f, 0.06f, 0.08f);
+    float strokeW = std::max(1.3f, radius * (hovered ? 0.32f : 0.28f));
 
     drawLine(cx - arm, cy - arm, cx + arm, cy + arm, slotColor, strokeW);
     drawLine(cx - arm, cy + arm, cx + arm, cy - arm, slotColor, strokeW);
 
     if (hovered) {
-        drawCircle(cx, cy, 1.5f, Color(1.0f, 0.6f, 0.5f, 0.6f), 8);
+        drawCircle(cx, cy, std::max(1.5f, radius * 0.25f), highlightColor, 8);
     }
 }
 
@@ -1177,8 +1594,47 @@ inline void drawIconArranger(float x, float y, float w, float h, const Color& c)
 }
 
 inline void drawIconEdit(float x, float y, float size, const Color& c) {
-    drawLine(x + 2.0f, y + size - 2.0f, x + size - 2.0f, y + 2.0f, c, 1.8f);
-    drawTriangle(x, y + size, x + 3.5f, y + size - 0.5f, x + 0.5f, y + size - 3.5f, c.r, c.g, c.b, c.a);
+    float s = size;
+
+    // 1. Stylus Silhouette (45-deg chisel stylus pointing down to baseline)
+    float p0x = x + 0.93f * s, p0y = y + 0.27f * s; // top right
+    float p1x = x + 0.74f * s, p1y = y + 0.08f * s; // top left (cap)
+    float p2x = x + 0.30f * s, p2y = y + 0.48f * s; // shaft left
+    float p3x = x + 0.30f * s, p3y = y + 0.70f * s; // chisel tip bottom-left
+    float p4x = x + 0.52f * s, p4y = y + 0.70f * s; // chisel tip bottom-right
+
+    // Convex decomposition of 5-gon stylus
+    drawTriangle(p0x, p0y, p1x, p1y, p2x, p2y, c.r, c.g, c.b, c.a);
+    drawTriangle(p0x, p0y, p2x, p2y, p4x, p4y, c.r, c.g, c.b, c.a);
+    drawTriangle(p2x, p2y, p3x, p3y, p4x, p4y, c.r, c.g, c.b, c.a);
+
+    // 2. Diamond cutout near cap
+    if (s >= 8.0f) {
+        float cx = x + 0.75f * s;
+        float cy = y + 0.25f * s;
+        float d = std::max(1.0f, 0.065f * s);
+        Color bg(0.08f, 0.09f, 0.11f, c.a);
+        drawTriangle(cx, cy - d, cx + d, cy, cx, cy + d, bg.r, bg.g, bg.b, bg.a);
+        drawTriangle(cx, cy - d, cx - d, cy, cx, cy + d, bg.r, bg.g, bg.b, bg.a);
+    }
+
+    // 3. Baseline underline bar (solid filled left section + outlined right box)
+    float barH = std::max(1.5f, 0.14f * s);
+    float barY = y + 0.78f * s;
+    float barX = x + 0.06f * s;
+    float barW = 0.88f * s;
+
+    // Solid filled left portion (~68%)
+    float filledW = barW * 0.68f;
+    drawRect(barX, barY, filledW, barH, c);
+
+    // Outlined right box (~32%)
+    float emptyX = barX + filledW;
+    float emptyW = barW - filledW;
+    float strokeW = std::max(1.0f, 0.06f * s);
+    drawLine(emptyX, barY + strokeW * 0.5f, emptyX + emptyW, barY + strokeW * 0.5f, c, strokeW);
+    drawLine(emptyX, barY + barH - strokeW * 0.5f, emptyX + emptyW, barY + barH - strokeW * 0.5f, c, strokeW);
+    drawLine(emptyX + emptyW - strokeW * 0.5f, barY, emptyX + emptyW - strokeW * 0.5f, barY + barH, c, strokeW);
 }
 
 inline void drawIconTrack(float x, float y, float w, float h, const Color& c) {
@@ -1253,6 +1709,11 @@ GuiWindow::GuiWindow(uint32_t width, uint32_t height, const std::string& title)
 }
 
 GuiWindow::~GuiWindow() {
+#if defined(__EMSCRIPTEN__)
+    if (g_activeGuiWindowForWeb == this) {
+        g_activeGuiWindowForWeb = nullptr;
+    }
+#endif
     close();
 }
 
@@ -1299,6 +1760,11 @@ void GuiWindow::setHiDpiEnabled(bool enable) noexcept {
         dawnBridge_.resize(physW, physH);
         if (batchRenderer_) {
             batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+            if (dawnBridge_.isNativeActive()) {
+                batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+            }
+#endif
         }
     }
     setStatusMessage(hiDpiEnabled_ ? "HiDPI Canvas: Native 1:1 Enabled" : "HiDPI Canvas: Standard 1x (Performance Mode)");
@@ -1389,6 +1855,11 @@ void GuiWindow::onWindowResize(int width, int height) noexcept {
     dawnBridge_.resize(physW, physH);
     if (batchRenderer_) {
         batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+        if (dawnBridge_.isNativeActive()) {
+            batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+        }
+#endif
     }
 }
 
@@ -1402,6 +1873,11 @@ void GuiWindow::onFramebufferResize(int width, int height) noexcept {
     dawnBridge_.resize(physW, physH);
     if (batchRenderer_) {
         batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+        if (dawnBridge_.isNativeActive()) {
+            batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+        }
+#endif
     }
     if (!isRendering_ && engine_) {
         renderFrame();
@@ -1545,6 +2021,14 @@ void GuiWindow::setFullscreen(bool enable) noexcept {
         uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
         uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
         dawnBridge_.resize(physW, physH);
+        if (batchRenderer_) {
+            batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+            if (dawnBridge_.isNativeActive()) {
+                batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+            }
+#endif
+        }
         renderFrame();
     }
 #else
@@ -2015,10 +2499,314 @@ void GuiWindow::setSelectedTrackIndex(uint32_t idx) noexcept {
     if (modularTrackInspectorView_) {
         modularTrackInspectorView_->setActiveTrack(idx);
     }
-    if (modularEditView_) {
-        modularEditView_->setActiveTrackIndex(idx);
-    }
+    syncActiveClipToEditView(idx, -1);
     syncTrackToPreset(idx);
+}
+
+void GuiWindow::setTrackMuteState(uint32_t trackIdx, bool mute) {
+    if (trackIdx < arrangerTracks_.size()) {
+        arrangerTracks_[trackIdx].mute = mute;
+    }
+    if (trackIdx < mixerStrips_.size()) {
+        mixerStrips_[trackIdx].mute = mute;
+    }
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->getTracks()[trackIdx].mute = mute;
+    }
+    if (engine_) {
+        engine_->setTrackMute(trackIdx, mute);
+    }
+    recordProjectHistory("Toggle Mute on Track " + std::to_string(trackIdx + 1), "TRACK");
+}
+
+void GuiWindow::setTrackSoloState(uint32_t trackIdx, bool solo) {
+    if (trackIdx < arrangerTracks_.size()) {
+        arrangerTracks_[trackIdx].solo = solo;
+    }
+    if (trackIdx < mixerStrips_.size()) {
+        mixerStrips_[trackIdx].solo = solo;
+    }
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->getTracks()[trackIdx].solo = solo;
+    }
+    if (engine_) {
+        engine_->setTrackSolo(trackIdx, solo);
+    }
+    recordProjectHistory("Toggle Solo on Track " + std::to_string(trackIdx + 1), "TRACK");
+}
+
+void GuiWindow::setTrackFreezeState(uint32_t trackIdx, bool freeze) {
+    if (trackIdx < arrangerTracks_.size()) {
+        arrangerTracks_[trackIdx].freeze = freeze;
+    }
+    if (trackIdx < mixerStrips_.size()) {
+        mixerStrips_[trackIdx].freeze = freeze;
+    }
+    if (engine_) {
+        if (freeze) {
+            engine_->freezeTrack(trackIdx);
+        } else {
+            engine_->unfreezeTrack(trackIdx);
+        }
+    }
+    recordProjectHistory("Toggle Freeze on Track " + std::to_string(trackIdx + 1), "TRACK");
+    setStatusMessage(freeze ?
+        ("Track " + std::to_string(trackIdx + 1) + ": FROZEN (DSP synth & FX offloaded to PCM buffer)") :
+        ("Track " + std::to_string(trackIdx + 1) + ": UNFROZEN (Live real-time synthesis restored)"));
+}
+
+void GuiWindow::syncActiveClipToEditView(uint32_t trackIdx, int clipIdx) {
+    if (!modularEditView_ || !modularArrangerView_) return;
+
+    auto& tracks = modularArrangerView_->getTracks();
+    if (trackIdx >= tracks.size()) return;
+
+    auto& trk = tracks[trackIdx];
+    int cIdx = clipIdx;
+    if (cIdx < 0 || static_cast<size_t>(cIdx) >= trk.clips.size()) {
+        cIdx = modularArrangerView_->getSelectedClipIndex();
+        if (cIdx < 0 || static_cast<size_t>(cIdx) >= trk.clips.size()) {
+            cIdx = 0;
+        }
+    }
+
+    if (!trk.clips.empty() && static_cast<size_t>(cIdx) < trk.clips.size()) {
+        modularArrangerView_->setSelectedClip(cIdx);
+        modularEditView_->loadFromArrangerClip(
+            trk.clips[cIdx],
+            trk.name,
+            Color(trk.r, trk.g, trk.b),
+            tracks
+        );
+    }
+}
+
+void GuiWindow::syncArrangerToSequencer() {
+    if (!engine_ || !modularArrangerView_) return;
+
+    auto& seq = engine_->getSequencer();
+    const auto& tracks = modularArrangerView_->getTracks();
+    uint32_t numTracks = static_cast<uint32_t>(tracks.size());
+
+    // Determine arrangement extent in bars / steps
+    uint32_t maxBar = 16; // At least 16 bars for standard arrangement
+    for (const auto& trk : tracks) {
+        for (const auto& clip : trk.clips) {
+            uint32_t clipEndBar = clip.startBar + clip.lengthBars - 1;
+            if (clipEndBar > maxBar) {
+                maxBar = clipEndBar;
+            }
+        }
+    }
+    uint32_t totalArrangerSteps = std::min(static_cast<uint32_t>(sequencer::MAX_STEPS_PER_TRACK), maxBar * 16u);
+    seq.getTransport().setMaxSteps(totalArrangerSteps);
+
+    for (uint32_t t = 0; t < numTracks; ++t) {
+        if (t >= seq.getNumTracks()) break;
+        auto* seqTrack = seq.getTrack(t);
+        if (!seqTrack) continue;
+
+        seqTrack->setNumSteps(totalArrangerSteps);
+
+        // Clear all steps to inactive
+        for (uint32_t s = 0; s < totalArrangerSteps; ++s) {
+            sequencer::StepData sd{};
+            sd.active = false;
+            seqTrack->setStep(s, sd);
+        }
+
+        const auto& arrTrack = tracks[t];
+        std::map<uint32_t, std::vector<ArrangerClipNote>> stepBuckets;
+
+        for (const auto& clip : arrTrack.clips) {
+            if (clip.mute) continue;
+
+            uint32_t clipStartStep = (clip.startBar > 0 ? (clip.startBar - 1) : 0) * 16;
+            uint32_t clipLengthSteps = clip.lengthBars * 16;
+            uint32_t clipEndStep = clipStartStep + clipLengthSteps;
+
+            uint32_t loopLenBars = clip.isLooped ? (clip.loopLengthBars > 0 ? clip.loopLengthBars : clip.lengthBars) : clip.lengthBars;
+            if (loopLenBars == 0) loopLenBars = 1;
+            uint32_t loopLenSteps = loopLenBars * 16;
+
+            for (uint32_t cycleStart = clipStartStep; cycleStart < clipEndStep; cycleStart += loopLenSteps) {
+                uint32_t cycleEnd = std::min(cycleStart + loopLenSteps, clipEndStep);
+                for (const auto& cn : clip.notes) {
+                    uint32_t noteStep = cycleStart + static_cast<uint32_t>(std::round(cn.startBeat * 4.0f));
+                    if (noteStep >= cycleStart && noteStep < cycleEnd && noteStep < totalArrangerSteps) {
+                        stepBuckets[noteStep].push_back(cn);
+                    }
+                }
+            }
+        }
+
+        // Apply grouped notes to sequencer track
+        for (const auto& [s, noteList] : stepBuckets) {
+            if (noteList.empty() || s >= totalArrangerSteps) continue;
+            sequencer::StepData sd{};
+            sd.active = true;
+            sd.note = noteList[0].pitch;
+            sd.velocity = std::clamp(noteList[0].velocity, 0.05f, 1.0f);
+            sd.gateLength = (noteList[0].lengthBeats <= 0.25f)
+                ? std::clamp(noteList[0].lengthBeats * 4.0f, 0.2f, 0.85f)
+                : 0.95f;
+            for (size_t i = 1; i < noteList.size(); ++i) {
+                sd.extraNotes.push_back(noteList[i].pitch);
+            }
+            seqTrack->setStep(s, sd);
+        }
+    }
+}
+
+void GuiWindow::syncArrangerFromSequencer() {
+    if (!engine_ || !modularArrangerView_) return;
+
+    auto& seq = engine_->getSequencer();
+    if (seq.getNumPatterns() == 0) {
+        initArrangerTracks();
+        return;
+    }
+
+    const auto& pat = seq.getPattern(0);
+    if (pat.tracks.empty()) {
+        initArrangerTracks();
+        return;
+    }
+
+    arrangerTracks_.clear();
+    auto& arrangerTracks = modularArrangerView_->getTracks();
+    arrangerTracks.clear();
+
+    struct TrackStyleInfo {
+        float r, g, b;
+        const char* icon;
+        const char* instrument;
+        const char* engine;
+    };
+    static const TrackStyleInfo kStyles[] = {
+        {1.0f,  0.55f, 0.0f,  "preset:inst_synth",   "Roland TB-303",        "tb303"},       // Amber
+        {0.13f, 0.96f, 0.91f, "preset:drum_machine", "Analog 808",           "tr808"},       // Cyan
+        {1.0f,  0.16f, 0.43f, "preset:drum_kick",    "Analog 909",           "tr909"},       // Pink/Crimson
+        {0.62f, 0.31f, 0.87f, "preset:inst_piano",   "Yamaha DX7 6-Op FM",   "dx7"},         // Purple
+        {0.88f, 0.66f, 0.43f, "preset:inst_piano",   "Waveguide Grand Piano","piano"},       // Gold
+        {0.20f, 0.85f, 0.35f, "preset:inst_keys",    "Polyphonic Synth",     "poly_synth"},  // Emerald
+        {0.25f, 0.65f, 1.0f,  "preset:audio_filter", "Bass Synthesizer",     "synth"},       // Sky Blue
+        {1.0f,  0.85f, 0.20f, "preset:fx_reverb",    "EatScript Sound FX",   "eatscript"},   // Yellow
+    };
+    constexpr size_t numStyles = sizeof(kStyles) / sizeof(kStyles[0]);
+
+    uint32_t maxSteps = 16;
+
+    for (size_t t = 0; t < pat.tracks.size(); ++t) {
+        const auto& seqTrk = pat.tracks[t];
+        ArrangerTimelineTrack tArr;
+        tArr.name = seqTrk.getName().empty() ? ("Track " + std::to_string(t + 1)) : seqTrk.getName();
+        tArr.volume = seqTrk.getVolume();
+        tArr.pan = seqTrk.getPan();
+        tArr.mute = seqTrk.isMuted();
+        tArr.solo = seqTrk.isSolo();
+        tArr.freeze = seqTrk.isFrozen();
+
+        // Style matching based on name and target node
+        std::string lower = tArr.name;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        size_t styleIdx = t % numStyles;
+        if (lower.find("303") != std::string::npos || lower.find("acid") != std::string::npos || lower.find("bass") != std::string::npos) {
+            styleIdx = 0;
+        } else if (lower.find("808") != std::string::npos || lower.find("kick") != std::string::npos || lower.find("bd") != std::string::npos) {
+            styleIdx = 1;
+        } else if (lower.find("909") != std::string::npos || lower.find("drum") != std::string::npos || lower.find("hat") != std::string::npos || lower.find("snare") != std::string::npos || lower.find("clap") != std::string::npos) {
+            styleIdx = 2;
+        } else if (lower.find("dx7") != std::string::npos || lower.find("rhodes") != std::string::npos || lower.find("ep") != std::string::npos || lower.find("keys") != std::string::npos) {
+            styleIdx = 3;
+        } else if (lower.find("piano") != std::string::npos || lower.find("grand") != std::string::npos || lower.find("guitar") != std::string::npos || lower.find("string") != std::string::npos) {
+            styleIdx = 4;
+        }
+
+        const auto& st = kStyles[styleIdx];
+        tArr.r = st.r;
+        tArr.g = st.g;
+        tArr.b = st.b;
+        tArr.iconRef = seqTrk.getIconRef().empty() ? st.icon : seqTrk.getIconRef();
+        tArr.instrument = st.instrument;
+        tArr.instrumentEngine = st.engine;
+
+        // Create timeline clip from steps
+        uint32_t trkSteps = std::max(16u, seqTrk.getNumSteps());
+        if (trkSteps > maxSteps) maxSteps = trkSteps;
+        uint32_t lengthBars = std::max(1u, (trkSteps + 15) / 16);
+
+        ArrangerTimelineClip clip;
+        clip.id = "clip_" + std::to_string(t) + "_0";
+        clip.name = tArr.name + " Pattern";
+        clip.trackIndex = static_cast<uint32_t>(t);
+        clip.startBar = 1;
+        clip.lengthBars = lengthBars;
+        clip.r = tArr.r;
+        clip.g = tArr.g;
+        clip.b = tArr.b;
+        clip.isSelected = (t == 0);
+        clip.isAudio = false;
+        clip.isLooped = false;
+        clip.loopLengthBars = lengthBars;
+        clip.volumeScale = 1.0f;
+        clip.mute = tArr.mute;
+
+        for (uint32_t s = 0; s < seqTrk.getNumSteps(); ++s) {
+            const auto& step = seqTrk.getStep(s);
+            if (!step.active) continue;
+
+            ArrangerClipNote note;
+            note.pitch = step.note;
+            note.startBeat = static_cast<float>(s) * 0.25f; // 16 steps = 4 beats = 1 bar
+            note.lengthBeats = std::clamp(step.gateLength * 0.25f, 0.05f, 1.0f);
+            note.velocity = std::clamp(step.velocity, 0.05f, 1.0f);
+            clip.notes.push_back(note);
+
+            for (uint8_t ex : step.extraNotes) {
+                ArrangerClipNote exNote = note;
+                exNote.pitch = ex;
+                clip.notes.push_back(exNote);
+            }
+        }
+
+        modularArrangerView_->updateClipDetectedChords(clip);
+        tArr.clips.push_back(clip);
+
+        // Populate legacy ArrangerTrackData
+        ArrangerTrackData legTrk;
+        legTrk.name = tArr.name;
+        legTrk.type = (tArr.instrumentEngine == "tr808" || tArr.instrumentEngine == "tr909") ? "SAMPLER" : "SYNTH";
+        legTrk.r = tArr.r; legTrk.g = tArr.g; legTrk.b = tArr.b;
+        legTrk.volume = tArr.volume;
+        legTrk.pan = tArr.pan;
+        legTrk.mute = tArr.mute;
+        legTrk.solo = tArr.solo;
+        legTrk.freeze = tArr.freeze;
+
+        ArrangerClip legClip;
+        legClip.name = clip.name;
+        legClip.startBar = clip.startBar;
+        legClip.barLength = clip.lengthBars;
+        legClip.r = clip.r; legClip.g = clip.g; legClip.b = clip.b;
+        legClip.isLooped = clip.isLooped;
+        legClip.loopLengthBars = clip.loopLengthBars;
+        legTrk.clips.push_back(legClip);
+        arrangerTracks_.push_back(legTrk);
+
+        arrangerTracks.push_back(tArr);
+    }
+
+    selectedTrackIndex_ = 0;
+    modularArrangerView_->setActiveTrack(0);
+    modularArrangerView_->setSelectedClip(0);
+    syncActiveClipToEditView(0, 0);
+
+    seq.getTransport().setMaxSteps(std::max(16u, maxSteps));
+    seq.getTransport().setPosition(0);
+
+    mixerStrips_.clear();
+    updateMixerStrips();
 }
 
 void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
@@ -2334,7 +3122,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     while (mixerStrips_.size() < 5) {
         MixerStrip strip;
         size_t idx = mixerStrips_.size();
-        strip.name = (idx == 0) ? "TB-303 Acid" : ((idx == 1) ? "TR-808 Drums" : ((idx == 2) ? "Sub Bass" : ((idx == 3) ? "Poly Lead" : "Waveguide Piano")));
+        strip.name = (idx == 0) ? "303 Acid Bass" : ((idx == 1) ? "TR-808 Kit" : ((idx == 2) ? "TR-909 Drive" : ((idx == 3) ? "DX7 Rhodes" : "Concert Grand")));
         strip.nodeId = static_cast<audio::NodeId>(idx + 1);
         strip.volume = 0.8f;
         mixerStrips_.push_back(strip);
@@ -2361,6 +3149,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     transportHeaderWidget_->onToggleBrowser = [this]() { toggleBrowser(); };
     transportHeaderWidget_->onToggleLoop = [this]() { toggleLoop(); };
     transportHeaderWidget_->onToggleMetronome = [this]() { toggleMetronome(); };
+    transportHeaderWidget_->onOpenValueEdit = [this](const auto& req) { openValueEditDialog(req); };
     transportHeaderWidget_->onTogglePlay = [this]() {
         if (engine_) {
             if (engine_->getSequencer().isPlaying()) engine_->getSequencer().stop();
@@ -2368,6 +3157,280 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         }
     };
     projectBrowserDrawerWidget_->onClose = [this]() { setBrowserOpen(false); };
+    projectBrowserDrawerWidget_->onSelectTrack = [this](uint32_t trackIndex) {
+        if (trackIndex < arrangerTracks_.size()) {
+            selectedTrackIndex_ = trackIndex;
+            if (modularArrangerView_) modularArrangerView_->setActiveTrack(trackIndex);
+            if (modularMixerView_) modularMixerView_->setSelectedChannel(trackIndex);
+            if (engine_) engine_->setActiveTrack(trackIndex);
+        }
+    };
+    projectBrowserDrawerWidget_->onSelectPreset = [this](const std::string& presetId) {
+        for (size_t i = 0; i < presets_.size(); ++i) {
+            if (presets_[i].metadata.id == presetId || presets_[i].metadata.name.find(presetId) != std::string::npos) {
+                loadPresetToSelectedTrack(i);
+                return;
+            }
+        }
+        if (!presets_.empty()) loadPresetToSelectedTrack(0);
+    };
+    projectBrowserDrawerWidget_->onRunMacro = [this](const std::string& macroId) {
+        if (macroId == "macro_song") {
+            runMacro(4);
+        } else if (macroId == "macro_909") {
+            runMacro(1);
+        } else if (macroId == "macro_humanize") {
+            runMacro(2);
+        } else {
+            runMacro(0);
+        }
+    };
+    projectBrowserDrawerWidget_->onRunScript = [this](const std::string& scriptId) {
+        runMacro(0);
+    };
+    projectBrowserDrawerWidget_->onAddPresetTrack = [this](const std::string& presetId) {
+        lastStatusMessage_ = "ADDED TRACK: " + presetId;
+    };
+    projectBrowserDrawerWidget_->onLoadProject = [this](const std::string& filePath) {
+        loadProjectFromFile(filePath);
+    };
+    projectBrowserDrawerWidget_->onSaveProject = [this](const std::string& filePath) {
+        saveProjectToFile(filePath);
+        if (projectBrowserDrawerWidget_) projectBrowserDrawerWidget_->scanSavedProjects();
+    };
+    projectBrowserDrawerWidget_->onSaveProjectAs = [this]() {
+        saveProjectAs();
+        if (projectBrowserDrawerWidget_) projectBrowserDrawerWidget_->scanSavedProjects();
+    };
+    projectBrowserDrawerWidget_->onOpenProjectsFolder = [this]() {
+#if defined(_WIN32)
+        system("start Projects");
+#endif
+    };
+    projectBrowserDrawerWidget_->onDeleteProject = [this](const std::string& filePath) {
+        std::error_code ec;
+        std::filesystem::remove(filePath, ec);
+        if (projectBrowserDrawerWidget_) projectBrowserDrawerWidget_->scanSavedProjects();
+    };
+    projectBrowserDrawerWidget_->onUndo = [this]() { undoHistory(); };
+    projectBrowserDrawerWidget_->onRedo = [this]() { redoHistory(); };
+    projectBrowserDrawerWidget_->onJumpToHistory = [this](size_t historyIndex) { jumpToHistoryIndex(historyIndex); };
+    projectBrowserDrawerWidget_->onCreateCheckpoint = [this](const std::string& name) {
+        createHistoryMilestone(name + " " + std::to_string(diffHistory_.getTimelineCount()));
+    };
+    projectBrowserDrawerWidget_->onClearHistory = [this]() { clearHistory(); };
+    projectBrowserDrawerWidget_->onLaunchAudioToMidi = [this]() {
+        openAudioToMidiConverter();
+    };
+
+    // Configure Audio-to-MIDI Transcription Modal Dialog
+    audioToMidiDialog_.onBrowseAudioFile = [this]() {
+        return promptOpenAudioFile();
+    };
+
+    audioToMidiDialog_.onTranscriptionComplete = [this](const audio::TranscribedMidiTrack& track,
+                                                        bool createNewTrack,
+                                                        const std::string& trackName,
+                                                        bool extractChords) {
+        if (track.notes.empty()) {
+            lastStatusMessage_ = "Audio to MIDI: No notes detected in audio file";
+            return;
+        }
+
+        uint32_t targetTrackIdx = selectedTrackIndex_;
+        if (createNewTrack && modularArrangerView_) {
+            ArrangerTimelineTrack newTrack;
+            newTrack.name = trackName.empty() ? "Transcribed MIDI" : trackName;
+            newTrack.instrument = "Polyphonic Synth";
+            newTrack.instrumentEngine = "poly_synth";
+            newTrack.iconRef = "preset:inst_keys";
+            newTrack.r = 0.0f; newTrack.g = 0.85f; newTrack.b = 1.0f; // Cyan
+            modularArrangerView_->getTracks().push_back(newTrack);
+            targetTrackIdx = static_cast<uint32_t>(modularArrangerView_->getTracks().size() - 1);
+            setSelectedTrackIndex(targetTrackIdx);
+        }
+
+        if (modularArrangerView_ && targetTrackIdx < modularArrangerView_->getTracks().size()) {
+            auto& t = modularArrangerView_->getTracks()[targetTrackIdx];
+            ArrangerTimelineClip clip;
+            clip.id = "transcribed_clip_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+            clip.name = trackName.empty() ? "Transcribed Clip" : trackName;
+            clip.trackIndex = targetTrackIdx;
+            clip.startBar = 1;
+            float maxStep = 16.0f;
+            for (const auto& tn : track.notes) {
+                ArrangerClipNote cn;
+                cn.pitch = tn.pitch;
+                cn.startBeat = tn.getStartBeat();
+                cn.lengthBeats = std::max(0.25f, tn.getDurationBeats());
+                cn.velocity = tn.velocity;
+                clip.notes.push_back(cn);
+                maxStep = std::max(maxStep, tn.startStep + tn.durationSteps);
+            }
+            clip.lengthBars = std::max(1u, static_cast<uint32_t>(std::ceil(maxStep / 16.0f)));
+            clip.r = 0.0f; clip.g = 0.85f; clip.b = 1.0f;
+            if (extractChords && !track.detectedChords.empty()) {
+                clip.detectedChords = track.detectedChords;
+            }
+            t.clips.push_back(clip);
+        }
+
+        if (engine_ && targetTrackIdx < engine_->getSequencer().getNumTracks()) {
+            auto* seqTrack = engine_->getSequencer().getTrack(targetTrackIdx);
+            if (seqTrack) {
+                for (const auto& tn : track.notes) {
+                    uint32_t sIdx = static_cast<uint32_t>(std::round(tn.startStep));
+                    if (sIdx < seqTrack->getNumSteps()) {
+                        auto& step = seqTrack->getStep(sIdx);
+                        step.active = true;
+                        step.note = tn.pitch;
+                        step.velocity = tn.velocity;
+                        step.gateLength = std::clamp(tn.durationSteps / 2.0f, 0.2f, 1.0f);
+                    }
+                }
+            }
+        }
+
+        lastStatusMessage_ = "Transcribed " + std::to_string(track.notes.size()) +
+                             " MIDI notes into " + trackName +
+                             (extractChords && !track.detectedChords.empty()
+                                 ? " (" + std::to_string(track.detectedChords.size()) + " chords extracted)"
+                                 : "");
+    };
+
+    audioToMidiDialog_.onAuditionStart = [this](const std::vector<float>& /*samples*/, uint32_t /*sampleRate*/) {
+        if (engine_) engine_->postNoteOn(60, 0.85f);
+    };
+
+    audioToMidiDialog_.onAuditionStop = [this]() {
+        if (engine_) engine_->postNoteOff(60);
+    };
+
+    // Register Default Universal Quick Commands into CommandPaletteDialog
+    commandPaletteDialog_.clearCommands();
+    commandPaletteDialog_.registerCommand({
+        "view.arranger", "Arranger View", "Full multi-track timeline, clips and automation",
+        CommandCategory::View, "1", [this]() { setActiveView(WorkspaceView::Arranger); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.edit", "Edit View (Piano Roll / Tracker)", "Note editing, step sequencer and chords",
+        CommandCategory::View, "2", [this]() { setActiveView(WorkspaceView::Edit); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.inspector", "Track Inspector", "Channel parameters, inserts and routing",
+        CommandCategory::View, "3", [this]() { setActiveView(WorkspaceView::Track); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.mixer", "Modular Mixer", "High-density 8-channel console with VU ballistics",
+        CommandCategory::View, "4", [this]() { setActiveView(WorkspaceView::Mixer); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.design", "Modular Rack & Design", "Synthesizer node graph and modular routing",
+        CommandCategory::View, "5", [this]() { setActiveView(WorkspaceView::Design); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.drawer.keyboard", "Toggle Piano / Drum Pad Drawer", "Slide-up interactive audition drawer",
+        CommandCategory::View, "K", [this]() { toggleVirtualKeyboardDrawer(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.drawer.browser", "Toggle Project Browser Drawer", "Projects, presets, macros, and history timeline",
+        CommandCategory::View, "B", [this]() { toggleBrowser(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.play_pause", "Play / Pause Transport", "Toggle global transport playback",
+        CommandCategory::Action, "Space", [this]() {
+            if (engine_) {
+                if (engine_->getSequencer().isPlaying()) engine_->getSequencer().stop();
+                else engine_->getSequencer().start();
+            }
+        }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.stop_panic", "Panic / All Notes Off", "Halt transport and kill all sounding voices",
+        CommandCategory::Action, "Esc", [this]() {
+            if (engine_) engine_->panic();
+        }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.loop", "Toggle Loop Cycle", "Enable or disable global arrangement cycle loop",
+        CommandCategory::Action, "L", [this]() { toggleLoop(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.metronome", "Toggle Metronome", "Audible click track on beats",
+        CommandCategory::Action, "M", [this]() { toggleMetronome(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.undo", "Undo Last Action", "Revert last project or parameter state",
+        CommandCategory::Action, "Ctrl+Z", [this]() { undoHistory(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.redo", "Redo Reverted Action", "Re-apply reverted state modification",
+        CommandCategory::Action, "Ctrl+Y", [this]() { redoHistory(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.save", "Save Project", "Write project to current active file",
+        CommandCategory::Action, "Ctrl+S", [this]() { saveProjectToFile(projectFilePath_); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.save_as", "Save Project As...", "Export project with new name or path",
+        CommandCategory::Action, "Ctrl+Shift+S", [this]() { saveProjectAs(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.bounce_wav", "Bounce Master to WAV", "Render arrangement master audio to WAV file",
+        CommandCategory::Action, "Ctrl+E", [this]() { bounceMasterToWav(projectName_ + ".wav"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "action.audio_to_midi", "Audio to MIDI Converter", "Transcribe audio recording or sample into MIDI clip",
+        CommandCategory::Action, "Ctrl+M", [this]() { openAudioToMidiConverter(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.303_acid", "TB-303 Acid Bass", "Resonant acid squelch synth preset",
+        CommandCategory::Preset, "", [this]() { loadPresetToSelectedTrack(0); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.808_kit", "TR-808 Rhythm Kit", "Classic analog drum machine kit",
+        CommandCategory::Preset, "", [this]() { if (presets_.size() > 1) loadPresetToSelectedTrack(1); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.909_drive", "TR-909 Punch Kit", "Club kick and snappy snares",
+        CommandCategory::Preset, "", [this]() { if (presets_.size() > 2) loadPresetToSelectedTrack(2); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.dx7_rhodes", "DX7 Electric Piano", "Lush FM synth tine keys and bells",
+        CommandCategory::Preset, "", [this]() { if (presets_.size() > 3) loadPresetToSelectedTrack(3); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "theme.neon", "Theme: Cyberpunk Neon", "Electric purple, hot pink, and cyan glow",
+        CommandCategory::Theme, "", [this]() { setActiveThemePreset(0); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "theme.midnight", "Theme: Midnight Blue", "Deep midnight blue with vibrant accents",
+        CommandCategory::Theme, "", [this]() { setActiveThemePreset(1); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "theme.charcoal", "Theme: Charcoal Studio", "Minimalist sleek dark mode professional studio",
+        CommandCategory::Theme, "", [this]() { setActiveThemePreset(2); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern",
+        CommandCategory::Macro, "", [this]() { runMacro(0); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.techno_groove", "Macro: 909 Techno Groove", "Populate kick, hi-hat offbeat, and claps",
+        CommandCategory::Macro, "", [this]() { runMacro(1); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.humanize", "Macro: Humanize Velocities & Timing", "Apply subtle organic jitter to selected notes",
+        CommandCategory::Macro, "", [this]() { runMacro(2); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.arp_track", "Macro: Arpeggiate Active Track", "Transform active track notes into 16th-note arpeggio",
+        CommandCategory::Macro, "", [this]() { runMacro(3); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.procedural_song", "Macro: Procedural Song Architect", "Generate complete multi-track song arrangement",
+        CommandCategory::Macro, "Ctrl+Shift+G", [this]() { runMacro(4); }
+    });
 
     if (modularArrangerView_) {
         modularArrangerView_->onVolumeChanged = [this](uint32_t idx, float vol) {
@@ -2388,9 +3451,42 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 engine_->setTrackPan(idx, pan);
             }
         };
+        modularArrangerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
+            setTrackMuteState(idx, mute);
+        };
+        modularArrangerView_->onSoloToggled = [this](uint32_t idx, bool solo) {
+            setTrackSoloState(idx, solo);
+        };
         modularArrangerView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
             (void)idx;
             dispatchHardwareParam(paramName, normVal);
+        };
+        modularArrangerView_->onClipsChanged = [this]() {
+            syncArrangerToSequencer();
+        };
+        modularArrangerView_->onTrackSelected = [this](uint32_t idx) {
+            setSelectedTrackIndex(idx);
+        };
+        modularArrangerView_->onTrackRename = [this](uint32_t idx, const std::string& newName) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].name = newName;
+            }
+            if (idx < mixerStrips_.size()) {
+                mixerStrips_[idx].name = newName;
+            }
+            setStatusMessage("Track renamed: " + newName);
+        };
+        modularArrangerView_->onTrackIconChanged = [this](uint32_t idx, const std::string& iconRef) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].iconRef = iconRef;
+            }
+            if (idx < mixerStrips_.size()) {
+                mixerStrips_[idx].iconRef = iconRef;
+            }
+            if (valueEditDialog_.isOpen()) {
+                valueEditDialog_.setIconRef(iconRef);
+            }
+            setStatusMessage("Track icon updated");
         };
         modularArrangerView_->getIconSearchDialog().setClipboardProvider([this]() -> std::string {
 #if EATS_HAS_GLFW
@@ -2402,6 +3498,23 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             return {};
         });
     }
+
+    valueEditDialog_.onCopyToClipboard = [this](const std::string& text) {
+#if EATS_HAS_GLFW
+        if (window_) {
+            glfwSetClipboardString(window_, text.c_str());
+        }
+#endif
+    };
+    valueEditDialog_.onPasteFromClipboard = [this]() -> std::string {
+#if EATS_HAS_GLFW
+        if (window_) {
+            const char* str = glfwGetClipboardString(window_);
+            return str ? std::string(str) : std::string();
+        }
+#endif
+        return {};
+    };
 
     if (modularTrackInspectorView_) {
         modularTrackInspectorView_->onTrackSelected = [this](uint32_t idx) {
@@ -2426,33 +3539,13 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
         };
         modularTrackInspectorView_->onMuteToggled = [this](uint32_t idx, bool mute) {
-            if (idx < arrangerTracks_.size()) {
-                arrangerTracks_[idx].mute = mute;
-                if (idx < mixerStrips_.size()) mixerStrips_[idx].mute = mute;
-                if (engine_ && idx < engine_->getSequencer().getNumTracks()) {
-                    auto* tr = engine_->getSequencer().getTrack(idx);
-                    if (tr) tr->setMuted(mute);
-                }
-                recordProjectHistory("Toggle Mute on Track " + std::to_string(idx + 1), "TRACK");
-            }
+            setTrackMuteState(idx, mute);
         };
         modularTrackInspectorView_->onSoloToggled = [this](uint32_t idx, bool solo) {
-            if (idx < arrangerTracks_.size()) {
-                arrangerTracks_[idx].solo = solo;
-                if (idx < mixerStrips_.size()) mixerStrips_[idx].solo = solo;
-                if (engine_ && idx < engine_->getSequencer().getNumTracks()) {
-                    auto* tr = engine_->getSequencer().getTrack(idx);
-                    if (tr) tr->setSolo(solo);
-                }
-                recordProjectHistory("Toggle Solo on Track " + std::to_string(idx + 1), "TRACK");
-            }
+            setTrackSoloState(idx, solo);
         };
         modularTrackInspectorView_->onFreezeToggled = [this](uint32_t idx, bool freeze) {
-            if (idx < arrangerTracks_.size()) {
-                arrangerTracks_[idx].freeze = freeze;
-                if (idx < mixerStrips_.size()) mixerStrips_[idx].freeze = freeze;
-                recordProjectHistory("Toggle Freeze on Track " + std::to_string(idx + 1), "TRACK");
-            }
+            setTrackFreezeState(idx, freeze);
         };
         modularTrackInspectorView_->onColorChanged = [this](uint32_t idx, float r, float g, float b) {
             if (idx < arrangerTracks_.size()) {
@@ -2494,6 +3587,62 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             trackInspectorScrollY_ = sY;
         };
     }
+
+    if (modularMixerView_) {
+        modularMixerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
+            setTrackMuteState(idx, mute);
+        };
+        modularMixerView_->onSoloToggled = [this](uint32_t idx, bool solo) {
+            setTrackSoloState(idx, solo);
+        };
+        modularMixerView_->onTrackSelected = [this](uint32_t idx) {
+            setSelectedTrackIndex(idx);
+        };
+        modularMixerView_->onTrackRename = [this](uint32_t idx, const std::string& newName) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].name = newName;
+            }
+            if (idx < mixerStrips_.size()) {
+                mixerStrips_[idx].name = newName;
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].name = newName;
+            }
+            setStatusMessage("Track renamed: " + newName);
+        };
+        modularMixerView_->onChooseTrackIcon = [this](uint32_t idx) {
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                const auto& trk = modularArrangerView_->getTracks()[idx];
+                modularArrangerView_->getIconSearchDialog().open(trk.name, idx, trk.iconRef);
+            }
+        };
+    }
+
+    if (modularEditView_) {
+        modularEditView_->onNotesChanged = [this](uint32_t tIdx, int cIdx) {
+            if (!modularArrangerView_) return;
+            auto& tracks = modularArrangerView_->getTracks();
+            if (tIdx < tracks.size()) {
+                int clipToUpdate = cIdx;
+                if (clipToUpdate < 0 || static_cast<size_t>(clipToUpdate) >= tracks[tIdx].clips.size()) {
+                    clipToUpdate = modularArrangerView_->getSelectedClipIndex();
+                    if (clipToUpdate < 0 || static_cast<size_t>(clipToUpdate) >= tracks[tIdx].clips.size()) {
+                        clipToUpdate = 0;
+                    }
+                }
+                if (!tracks[tIdx].clips.empty() && static_cast<size_t>(clipToUpdate) < tracks[tIdx].clips.size()) {
+                    modularEditView_->writeBackToArrangerClip(tracks[tIdx].clips[clipToUpdate]);
+                    modularArrangerView_->updateClipDetectedChords(tracks[tIdx].clips[clipToUpdate]);
+                }
+            }
+            if (engine_) {
+                syncArrangerToSequencer();
+            }
+        };
+    }
+
+    syncArrangerToSequencer();
+    syncActiveClipToEditView(0, 0);
 
     if (modularDesignView_) {
         modularDesignView_->onCompileScript = [this](const std::string& targetId, const std::string& code) {
@@ -2576,6 +3725,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwGetWindowSize(window_, &windowWidth_, &windowHeight_);
     glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
 #if defined(__EMSCRIPTEN__)
+    g_activeGuiWindowForWeb = this;
     double initDpr = EM_ASM_DOUBLE({ return window.devicePixelRatio || 1.0; });
     fbWidth_ = static_cast<int>(std::round(static_cast<double>(windowWidth_) * (hiDpiEnabled_ ? initDpr : 1.0)));
     fbHeight_ = static_cast<int>(std::round(static_cast<double>(windowHeight_) * (hiDpiEnabled_ ? initDpr : 1.0)));
@@ -2584,6 +3734,48 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (canvas) {
             canvas.width = $0;
             canvas.height = $1;
+        }
+        if (!canvas) canvas = document.body;
+        if (canvas && !canvas._eatsDropInitialized) {
+            canvas._eatsDropInitialized = true;
+            canvas.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer) {
+                    e.dataTransfer.dropEffect = 'copy';
+                }
+            });
+            canvas.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var files = e.dataTransfer ? e.dataTransfer.files : null;
+                if (!files || files.length === 0) return;
+                var rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : {left: 0, top: 0};
+                var clientX = e.clientX - rect.left;
+                var clientY = e.clientY - rect.top;
+
+                for (var i = 0; i < files.length; i++) {
+                    (function(file) {
+                        var reader = new FileReader();
+                        reader.onload = function(evt) {
+                            var arrayBuffer = evt.target.result;
+                            var uint8 = new Uint8Array(arrayBuffer);
+                            var safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                            var vpath = '/tmp/' + safeName;
+                            try {
+                                FS.writeFile(vpath, uint8);
+                                Module.ccall('eats_on_file_dropped_web', null,
+                                    ['string', 'number', 'number'],
+                                    [vpath, clientX, clientY]
+                                );
+                            } catch (err) {
+                                console.error('Eatsbits Web Drop Error:', err);
+                            }
+                        };
+                        reader.readAsArrayBuffer(file);
+                    })(files[i]);
+                }
+            });
         }
     }, fbWidth_, fbHeight_);
 #endif
@@ -2600,12 +3792,22 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     batchRenderer_->setAntiAliasingMode(antiAliasingMode_);
     g_activeBatchRenderer = batchRenderer_.get();
 
+#if defined(__EMSCRIPTEN__)
+    if (dawnBridge_.initializeWeb(batchRenderer_->getNativeDevice(), batchRenderer_->getNativeSurface(), physW, physH)) {
+        if (dawnBridge_.isNativeActive()) {
+            std::cout << "[GuiWindow] Connected Google Dawn / WebGPU pipeline on Web." << std::endl;
+            batchRenderer_->setDirectPresent(false);
+            batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+        }
+    }
+#else
     if (dawnBridge_.initializeNative(window_, physW, physH)) {
         if (dawnBridge_.isNativeActive()) {
             std::cout << "[GuiWindow] Connected Google Dawn / WebGPU pipeline." << std::endl;
             batchRenderer_->setDirectPresent(false);
         }
     }
+#endif
 
     // Store pointer for GLFW callbacks
     glfwSetWindowUserPointer(window_, this);
@@ -2665,11 +3867,37 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         }
     });
 
+    glfwSetCharCallback(window_, [](GLFWwindow* w, unsigned int codepoint) {
+        auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
+        if (app) {
+            app->onChar(codepoint);
+        }
+    });
+
     glfwSetScrollCallback(window_, [](GLFWwindow* w, double xoffset, double yoffset) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
             app->onMouseScroll(xoffset, yoffset);
         }
+    });
+
+    glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
+        auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
+        if (!app || count <= 0 || !paths) return;
+        double x, y;
+        glfwGetCursorPos(w, &x, &y);
+        float logX = app->windowToLogicalX(x);
+        float logY = app->windowToLogicalY(y);
+        if (app->is3dConsoleEnabled()) {
+            app->transform3dMouseCoords(logX, logY, logX, logY);
+        }
+        app->remapCrtMouseCoords(logX, logY, logX, logY);
+        std::vector<std::string> fileList;
+        fileList.reserve(count);
+        for (int i = 0; i < count; ++i) {
+            if (paths[i]) fileList.emplace_back(paths[i]);
+        }
+        app->onFilesDropped(fileList, logX, logY);
     });
 #endif
 
@@ -2686,20 +3914,19 @@ ViewContext GuiWindow::createViewContext() const noexcept {
     ctx.logicalWidth = static_cast<float>(width_);
     ctx.logicalHeight = static_cast<float>(height_);
     ctx.uiScale = renderScale_;
+    ctx.mouseX = mouseX_;
+    ctx.mouseY = mouseY_;
     ctx.onNavigateTab = [this](WorkspaceView v) {
         if (v == WorkspaceView::Edit && modularEditView_) {
             modularEditView_->autoCenterOnNotesOrDefault();
         }
         const_cast<GuiWindow*>(this)->setActiveView(v);
     };
-    ctx.onJumpToClipEdit = [this](uint32_t tIdx, int /*cIdx*/) {
+    ctx.onJumpToClipEdit = [this](uint32_t tIdx, int cIdx) {
         auto* self = const_cast<GuiWindow*>(this);
         self->setSelectedTrackIndex(tIdx);
+        self->syncActiveClipToEditView(tIdx, cIdx);
         if (modularEditView_) {
-            modularEditView_->setActiveTrackIndex(tIdx);
-            if (engine_) {
-                modularEditView_->syncFromSequencer(engine_->getSequencer());
-            }
             modularEditView_->autoCenterOnNotesOrDefault();
         }
         self->setActiveView(WorkspaceView::Edit);
@@ -2819,143 +4046,232 @@ bool GuiWindow::isOpen() const noexcept {
 void GuiWindow::drawTopTransportBar() {
 #if EATS_HAS_GLFW
     const auto& theme = getTheme();
+    const float r = static_cast<float>(width_);
 
     // =========================================================================
-    // TOP TRANSPORT HEADER BAR (Height = 56px)
     // =========================================================================
-    // Heavy Industrial Weathered Cast-Metal Chassis Top Plate (Themed)
-    drawRectGradient(0.0f, 0.0f, static_cast<float>(width_), 56.0f,
-                     theme.panelHeaderGradientTop, theme.panelHeaderGradientBottom);
-    
-    // Subtle horizontal brushed metal grain striations
-    for (float gy = 2.0f; gy < 54.0f; gy += 3.0f) {
-        int hash = static_cast<int>(gy * 13.7f) % 7;
-        float alpha = (hash - 3) * 0.012f;
-        if (std::abs(alpha) > 0.004f) {
-            drawLine(0.0f, gy, static_cast<float>(width_), gy,
-                     (alpha > 0) ? Color(1.0f, 1.0f, 1.0f, alpha) : Color(0.0f, 0.0f, 0.0f, -alpha), 1.0f);
-        }
-    }
-    
-    // Specular top lip bevel line & bottom shadow crevice
-    drawLine(0.0f, 0.0f, static_cast<float>(width_), 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
-    drawLine(0.0f, 1.5f, static_cast<float>(width_), 1.5f, theme.borderSubtle, 1.0f);
-    drawLine(0.0f, 54.5f, static_cast<float>(width_), 54.5f, theme.backgroundDark, 1.5f);
-    drawLine(0.0f, 56.0f, static_cast<float>(width_), 56.0f, theme.backgroundDark.darken(0.1f), 1.5f);
+    // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
+    // =========================================================================
+    // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
+    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme);
 
-    // Corner Industrial Hex Rivets
+    // Top specular rim highlight & uniform bottom machined bevel
+    drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
+    drawLine(0.0f, 1.5f, r, 1.5f, theme.borderSubtle, 1.0f);
+    drawLine(0.0f, 54.5f, r, 54.5f, theme.borderSubtle.darken(0.10f), 1.0f);
+    drawLine(0.0f, 56.0f, r, 56.0f, theme.backgroundDark, 1.5f);
+
+    // Industrial Hex Corner Fasteners
     auto drawRivet = [&](float rx, float ry) {
-        drawCircle(rx, ry, 5.0f, theme.backgroundDark.darken(0.2f));
+        drawCircle(rx, ry, 5.0f, theme.backgroundDark.darken(0.15f));
         drawCircle(rx, ry, 3.5f, theme.borderSubtle);
         drawLine(rx - 2.0f, ry, rx + 2.0f, ry, theme.backgroundDark, 1.2f);
         drawLine(rx, ry - 2.0f, rx, ry + 2.0f, theme.backgroundDark, 1.2f);
     };
-    drawRivet(8.0f, 8.0f);
-    drawRivet(static_cast<float>(width_) - 8.0f, 8.0f);
+    drawRivet(r - 8.0f, 8.0f);
 
     const bool isPlaying = engine_ ? engine_->getSequencer().isPlaying() : false;
 
-    // Helper Lambdas for 3D Mechanical Keycaps & Skeuomorphic Retro LCDs
-    auto draw3dBtn = [&](float bx, float by, float bw, float bh, bool pressed, bool active,
-                         Color capTop, Color capBot, Color topHigh, Color botShadow, Color activeLed) {
-        // Recessed well with subtle rounded corners (r = 3.0px)
-        drawRoundedRect(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.0f, theme.backgroundDark);
-        drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.0f, theme.borderSubtle.darken(0.15f), 1.0f);
-        float po = pressed ? 2.5f : 0.0f;
-        drawRoundedRectGradient(bx, by + po, bw, bh - po, 2.5f, capTop, capBot);
-        drawLine(bx + 2.0f, by + po + 1.0f, bx + bw - 2.0f, by + po + 1.0f, topHigh, 1.5f);
-        drawLine(bx + 2.0f, by + bh - 1.0f, bx + bw - 2.0f, by + bh - 1.0f, botShadow, 1.5f);
-        drawRoundedRectOutline(bx, by + po, bw, bh - po, 2.5f,
-                               active ? activeLed : theme.borderSubtle.darken(0.15f),
-                               active ? 1.5f : 1.0f);
-        if (active) {
-            // Illuminated LED Tally Pip
-            drawRoundedRect(bx + bw * 0.5f - 8.0f, by + po + 2.0f, 16.0f, 2.5f, 1.0f, activeLed);
+    // 1. EATSBITS BRAND EMBLEM LOGO (Unboxed plain silkscreen logo directly on metal faceplate)
+    const float logoX = 14.0f;
+    const float logoY = 16.0f;
+    const float logoW = 27.0f;
+    const float logoH = 24.0f;
+    const bool logoHovered = (mouseX_ >= 8.0f && mouseX_ <= 50.0f &&
+                              mouseY_ >= 8.0f && mouseY_ <= 48.0f);
+    Color logoColor = logoHovered ? theme.primaryAccent.lighten(0.18f) : theme.primaryAccent;
+    drawPlainEatsbitsLogo(logoX, logoY, logoW, logoH, logoColor, 1.0f, logoHovered, theme.backgroundDark);
+
+    // =========================================================================
+    // 2. CLUSTERED TACTILE TRANSPORT KEYBANK (Play, Stop, Record)
+    // =========================================================================
+    const float tX = 54.0f;
+    const float tY = 10.0f;
+    const float btnW = 38.0f;
+    const float btnH = 36.0f;
+    const float clusterW = btnW * 3.0f; // 114px
+
+    // Deep recessed perimeter trench housing the clustered transport keys
+    drawRoundedRect(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.controlWell.darken(0.20f));
+    drawRoundedRectOutline(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.borderSubtle.darken(0.20f), 1.0f);
+
+    // Keycap base colors derived dynamically from theme primary accent
+    Color baseCapTop = theme.isLight ? theme.primaryAccent : theme.primaryAccent.darken(0.16f);
+    Color baseCapBot = theme.isLight ? baseCapTop.darken(0.15f) : baseCapTop.darken(0.24f);
+
+    // Helper for rendering realistic tactile keycaps with smooth corner radii and bevels
+    auto drawTransportKeyBase = [&](float bx, float by, float bw, float bh, bool pressed, int keyPos) {
+        float po = pressed ? 2.0f : 0.0f;
+        Color capTop = pressed ? baseCapTop.darken(0.14f) : baseCapTop;
+        Color capBot = pressed ? baseCapBot.darken(0.14f) : baseCapBot;
+
+        float cornerRadius = 3.5f;
+        if (keyPos == 0) {
+            // Left key: rounded left corners, square right
+            drawRoundedRectGradient(bx, by + po, bw, bh - po, cornerRadius, capTop, capBot);
+            drawRectGradient(bx + bw * 0.5f, by + po, bw * 0.5f, bh - po, capTop, capBot);
+        } else if (keyPos == 2) {
+            // Right key: square left corners, rounded right
+            drawRoundedRectGradient(bx, by + po, bw, bh - po, cornerRadius, capTop, capBot);
+            drawRectGradient(bx, by + po, bw * 0.5f, bh - po, capTop, capBot);
+        } else {
+            // Center key: square
+            drawRectGradient(bx, by + po, bw, bh - po, capTop, capBot);
         }
     };
 
-    // 1. EATSBITS BRAND EMBLEM LOGO (Inverts on hover, not a button)
-    const float logoX = 10.0f;
-    const float logoY = 10.0f;
-    const float logoSize = 36.0f;
-    const bool logoHovered = (mouseX_ >= logoX && mouseX_ <= logoX + logoSize &&
-                              mouseY_ >= logoY && mouseY_ <= logoY + logoSize);
-    drawEatsbitsLogo(logoX, logoY, logoSize, 1.0f, logoHovered);
+    auto drawTransportKeyOverlay = [&](float bx, float by, float bw, float bh, bool pressed, int keyPos) {
+        float po = pressed ? 2.0f : 0.0f;
+        Color capTop = pressed ? baseCapTop.darken(0.14f) : baseCapTop;
+        Color capBot = pressed ? baseCapBot.darken(0.14f) : baseCapBot;
 
-    // 2. PRIMARY TRANSPORT CONTROLS (Play, Stop, Record)
-    float tX = 54.0f;
-    float tY = 10.0f;
-    float btnW = 40.0f;
-    float btnH = 36.0f;
+        float cornerRadius = 3.5f;
+        float cr = (keyPos == 1) ? 0.0f : cornerRadius;
+        bool rTL = (keyPos == 0);
+        bool rBL = (keyPos == 0);
+        bool rTR = (keyPos == 2);
+        bool rBR = (keyPos == 2);
 
-    // PLAY BUTTON >
-    Color playLed = Color(0.0f, 0.95f, 0.40f); // Bright Neon Green LED
-    draw3dBtn(tX, tY, btnW, btnH, isPlaying, isPlaying,
-              isPlaying ? theme.controlWell : theme.controlBackground,
-              isPlaying ? theme.controlWell.darken(0.15f) : theme.controlWell,
-              theme.controlBackground.lighten(0.15f), theme.controlWell.darken(0.10f), playLed);
-    // Play Triangle Icon
-    float plX = tX + 14.0f;
-    float plY = tY + 11.0f;
-    Color playCol = isPlaying ? playLed : theme.textPrimary;
-    drawTriangle(plX, plY, plX + 13.0f, plY + 7.0f, plX, plY + 14.0f, playCol.r, playCol.g, playCol.b, 1.0f);
-    tX += btnW;
+        // Tactile micro-noise overlay applied across keycap AND printed icon content!
+        drawButtonNoise(bx, by + po, bw, bh - po, true, 0.28f, cr, rTL, rTR, rBL, rBR, pressed, 3.0f);
 
-    // STOP BUTTON []
-    draw3dBtn(tX, tY, btnW, btnH, !isPlaying, false,
-              theme.controlBackground, theme.controlWell,
-              theme.controlBackground.lighten(0.15f), theme.controlWell.darken(0.10f), theme.secondaryAccent);
-    // Stop Square Icon
-    float stX = tX + 13.0f;
-    float stY = tY + 11.0f;
-    drawRect(stX, stY, 14.0f, 14.0f, theme.textPrimary);
-    tX += btnW;
+        // Multi-layer 3D Chamfer Bevels
+        Color topBevel = capTop.lighten(0.22f);
+        Color botShadow = capBot.darken(0.22f);
+        drawLine(bx + 1.0f, by + po + 1.0f, bx + bw - 1.0f, by + po + 1.0f, topBevel, 1.5f);
+        drawLine(bx + 1.0f, by + bh - 1.0f, bx + bw - 1.0f, by + bh - 1.0f, botShadow, 1.5f);
 
-    // RECORD BUTTON (Circle Pip)
-    Color recRed = Color(1.0f, 0.20f, 0.15f);
-    draw3dBtn(tX, tY, btnW, btnH, false, false,
-              theme.controlBackground, theme.controlWell,
-              theme.controlBackground.lighten(0.15f), theme.controlWell.darken(0.10f), recRed);
-    // Record Circle Icon
-    drawCircle(tX + 20.0f, tY + 18.0f, 6.5f, recRed);
-    drawCircle(tX + 20.0f, tY + 18.0f, 3.0f, recRed.lighten(0.35f));
+        // Vertical hairline shadow outline
+        drawRectOutline(bx, by + po, bw, bh - po, capBot.darken(0.15f), 1.0f);
+    };
+
+    // Dark screen-printed icon color providing clean tactile contrast against keycaps
+    Color darkIcon = theme.isLight ? theme.textPrimary : Color(0.14f, 0.12f, 0.10f);
+
+    // PLAY KEY (Key 0)
+    drawTransportKeyBase(tX, tY, btnW, btnH, isPlaying, 0);
+    // Dark Charcoal / Graphite Screen-Printed Triangle Icon
+    float plX = tX + 13.5f;
+    float plY = tY + 11.0f + (isPlaying ? 2.0f : 0.0f);
+    drawTriangle(plX, plY, plX + 13.0f, plY + 7.0f, plX, plY + 14.0f, darkIcon.r, darkIcon.g, darkIcon.b, 0.92f);
+    drawTransportKeyOverlay(tX, tY, btnW, btnH, isPlaying, 0);
+
+    // Tight Division Crevice between Play & Stop
+    drawLine(tX + btnW, tY, tX + btnW, tY + btnH, theme.controlWell.darken(0.35f), 1.5f);
+
+    // STOP KEY (Key 1)
+    drawTransportKeyBase(tX + btnW, tY, btnW, btnH, !isPlaying, 1);
+    // Dark Charcoal / Graphite Screen-Printed Square Icon
+    float stX = tX + btnW + 12.5f;
+    float stY = tY + 11.5f + (!isPlaying ? 2.0f : 0.0f);
+    drawRect(stX, stY, 13.0f, 13.0f, darkIcon.r, darkIcon.g, darkIcon.b, 0.92f);
+    drawTransportKeyOverlay(tX + btnW, tY, btnW, btnH, !isPlaying, 1);
+
+    // Tight Division Crevice between Stop & Record
+    drawLine(tX + btnW * 2.0f, tY, tX + btnW * 2.0f, tY + btnH, theme.controlWell.darken(0.35f), 1.5f);
+
+    // RECORD KEY (Key 2)
+    drawTransportKeyBase(tX + btnW * 2.0f, tY, btnW, btnH, false, 2);
+    // Screen-Printed Deep Vermilion / Crimson Circle Dot (Themed)
+    float recX = tX + btnW * 2.0f + 19.0f;
+    float recY = tY + 18.0f;
+    drawCircleOutline(recX, recY, 6.5f, theme.recordActive.darken(0.30f), 1.2f);
+    drawCircle(recX, recY, 6.5f, theme.recordActive.withAlpha(0.92f));
+    drawTransportKeyOverlay(tX + btnW * 2.0f, tY, btnW, btnH, false, 2);
 
     // =========================================================================
-    // MULTI-SEGMENT DIGIT APPARATUS & RETRO VFD / AMBER CRT CONSOLE (Center-Left)
+    // 3. MINIMAL RECESSED READOUT PODS (BPM & TIMECODE)
     // =========================================================================
-    float ledX = 178.0f;
-    float ledY = 9.0f;
-    float ledW = (width_ >= 980) ? 420.0f : 386.0f;
-    float ledH = 38.0f;
+    // Helper 1: Recessed dark trench and smoked substrate (behind the content)
+    auto drawReadoutPodBase = [&](float podX, float podY, float podW, float podH) {
+        drawRoundedRect(podX - 2.5f, podY - 2.5f, podW + 5.0f, podH + 5.0f, 6.0f, theme.controlWell.darken(0.20f));
+        drawRoundedRectOutline(podX - 2.5f, podY - 2.5f, podW + 5.0f, podH + 5.0f, 6.0f, theme.borderSubtle.darken(0.20f), 1.0f);
+        drawRoundedRect(podX, podY, podW, podH, 4.5f, theme.lcdBackground);
+    };
 
-    // 1. Outer Dark Anodized Beveled Recessed Chassis
-    drawRoundedRect(ledX - 3.0f, ledY - 3.0f, ledW + 6.0f, ledH + 6.0f, 4.0f, theme.backgroundDark.darken(0.20f));
-    drawRoundedRectOutline(ledX - 3.0f, ledY - 3.0f, ledW + 6.0f, ledH + 6.0f, 4.0f, theme.borderSubtle.darken(0.25f), 1.2f);
-    
-    // 2. Beveled Dark Glass Display Substrate
-    Color vfdGlassTop = theme.lcdBackground;
-    Color vfdGlassBot = theme.lcdBackground.darken(0.18f);
-    drawRoundedRectGradient(ledX, ledY, ledW, ledH, 2.5f, vfdGlassTop, vfdGlassBot);
-    drawRoundedRectOutline(ledX, ledY, ledW, ledH, 2.5f, theme.borderSubtle.darken(0.10f), 1.0f);
+    // Helper 2: Subtle lens reflection gradient rendered IN FRONT of the content
+    // Matching CSS: linear-gradient(to bottom, 0% rgba(226,226,226), 50% rgba(219,219,219), 51% rgba(209,209,209), 100% rgba(254,254,254))
+    // tinted with theme.lcdBackground
+    auto drawReadoutPodGlassOverlay = [&](float podX, float podY, float podW, float podH) {
+        const Color& B = theme.lcdBackground;
+        float halfH = podH * 0.5f;
 
-    // 3. Subtle Hex CRT / VFD Dot-Matrix Screen Texture Pattern
-    for (float px = ledX + 4.0f; px < ledX + ledW - 4.0f; px += 4.0f) {
-        drawLine(px, ledY + 2.0f, px, ledY + ledH - 2.0f, Color(0.0f, 0.0f, 0.0f, 0.07f), 1.0f);
-    }
-    for (float py = ledY + 4.0f; py < ledY + ledH - 4.0f; py += 3.0f) {
-        drawLine(ledX + 2.0f, py, ledX + ledW - 2.0f, py, Color(0.0f, 0.0f, 0.0f, 0.08f), 1.0f);
-    }
+        // Top half specular reflection: 0% to 50%
+        Color gradTop0 = Color(std::clamp(B.r * 1.20f + 0.16f, 0.0f, 1.0f),
+                               std::clamp(B.g * 1.20f + 0.16f, 0.0f, 1.0f),
+                               std::clamp(B.b * 1.20f + 0.16f, 0.0f, 1.0f), 0.18f);
+        Color gradTop1 = Color(std::clamp(B.r * 1.05f + 0.06f, 0.0f, 1.0f),
+                               std::clamp(B.g * 1.05f + 0.06f, 0.0f, 1.0f),
+                               std::clamp(B.b * 1.05f + 0.06f, 0.0f, 1.0f), 0.07f);
+        drawRoundedRectGradient(podX, podY, podW, halfH + 1.0f, 4.5f, gradTop0, gradTop1);
+        drawRectGradient(podX, podY + 4.5f, podW, halfH - 3.5f, gradTop0, gradTop1);
 
-    // 4. Phosphor Glowing Digits Readout
-    Color glowCol = theme.lcdText;
-    Color subTextCol = theme.lcdText.withAlpha(0.65f);
-    Color dimPipCol = theme.lcdText.withAlpha(0.15f);
+        // Sharp specular split horizon crease at 50%/51%
+        drawLine(podX + 2.0f, podY + halfH, podX + podW - 2.0f, podY + halfH, Color(0.0f, 0.0f, 0.0f, 0.30f), 1.0f);
 
-    // Calculate Bars:Beats:16ths position
-    int curStep = engine_ ? static_cast<int>(engine_->getSequencer().getTransport().getCurrentStep()) : 0;
+        // Bottom half specular refraction: 51% to 100%
+        Color gradBot0 = Color(B.r * 0.85f, B.g * 0.85f, B.b * 0.85f, 0.04f);
+        Color gradBot1 = Color(std::clamp(B.r * 1.35f + 0.22f, 0.0f, 1.0f),
+                               std::clamp(B.g * 1.35f + 0.22f, 0.0f, 1.0f),
+                               std::clamp(B.b * 1.35f + 0.22f, 0.0f, 1.0f), 0.24f);
+        drawRoundedRectGradient(podX, podY + halfH, podW, halfH, 4.5f, gradBot0, gradBot1);
+        drawRectGradient(podX, podY + halfH, podW, halfH - 4.5f, gradBot0, gradBot1);
+
+        // Smoked acrylic glass outer lens bezel rim
+        drawRoundedRectOutline(podX, podY, podW, podH, 4.5f, theme.lcdBorder.withAlpha(0.65f), 1.0f);
+
+        // Top subtle inner shadow line
+        drawLine(podX + 2.0f, podY + 1.0f, podX + podW - 2.0f, podY + 1.0f, Color(0.0f, 0.0f, 0.0f, 0.55f), 1.5f);
+
+        // Bottom specular flare reflection line
+        drawLine(podX + 2.0f, podY + podH - 1.0f, podX + podW - 2.0f, podY + podH - 1.0f,
+                 Color(1.0f, 1.0f, 1.0f, 0.20f), 1.0f);
+    };
+
+    // Shared readout palette (both readouts in theme.lcdText with subtle, delicate phosphor bloom)
+    Color textColor = theme.lcdText;
+    Color glowColor = theme.tempoGlow;
+
+    // --- POD 1: BPM READOUT CAPSULE (Center-Left) ---
+    const float bpmPodX = tX + clusterW + 14.0f; // ~182px
+    const float bpmPodY = 10.0f;
+    const float bpmPodW = 112.0f;
+    const float bpmPodH = 36.0f;
+
+    // 1. Base substrate
+    drawReadoutPodBase(bpmPodX, bpmPodY, bpmPodW, bpmPodH);
+
     int bpmVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getBpm())) : 120;
-    int swgVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getSwing() * 100.0f)) : 0;
-    
+    std::string bpmStr = std::to_string(bpmVal) + " BPM";
+
+    float bpmTextX = bpmPodX + (bpmPodW - static_cast<float>(bpmStr.size()) * 11.5f) * 0.5f;
+    float bpmTextY = bpmPodY + 8.5f;
+
+    // 2. Soft, delicate ambient bloom behind digits
+    float bpmCx = bpmPodX + bpmPodW * 0.5f;
+    float bpmCy = bpmPodY + bpmPodH * 0.5f;
+    drawRoundedRect(bpmCx - 30.0f, bpmCy - 9.0f, 60.0f, 18.0f, 5.0f,
+                    Color(glowColor.r, glowColor.g, glowColor.b, 0.045f));
+    drawRoundedRect(bpmCx - 18.0f, bpmCy - 6.0f, 36.0f, 12.0f, 4.0f,
+                    Color(glowColor.r, glowColor.g, glowColor.b, 0.065f));
+
+    // 3. Subtle character optical bloom halo (lower intensity, soft & natural)
+    // Faint aura (1.2px)
+    drawMonoString(bpmStr, bpmTextX - 1.2f, bpmTextY, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(bpmStr, bpmTextX + 1.2f, bpmTextY, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(bpmStr, bpmTextX, bpmTextY - 1.0f, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(bpmStr, bpmTextX, bpmTextY + 1.0f, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    // Proximity halo (0.6px)
+    drawMonoString(bpmStr, bpmTextX - 0.6f, bpmTextY, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+    drawMonoString(bpmStr, bpmTextX + 0.6f, bpmTextY, 1.15f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+    // Active illuminated core text
+    drawMonoString(bpmStr, bpmTextX, bpmTextY, 1.15f, textColor.r, textColor.g, textColor.b, 0.98f);
+
+    // 4. Glass reflection gradient rendered IN FRONT of content
+    drawReadoutPodGlassOverlay(bpmPodX, bpmPodY, bpmPodW, bpmPodH);
+
+    // --- POD 2: SECONDARY TIMECODE / BAR:BEAT:DIV READOUT (Right side) ---
+    int curStep = engine_ ? static_cast<int>(engine_->getSequencer().getTransport().getCurrentStep()) : 0;
     int barNum = (curStep / 16) + 1;
     int beatNum = ((curStep % 16) / 4) + 1;
     int subBeat = (curStep % 4) + 1;
@@ -2963,112 +4279,106 @@ void GuiWindow::drawTopTransportBar() {
     char timeBuf[32];
     std::snprintf(timeBuf, sizeof(timeBuf), "%02d:%d:%d", barNum, beatNum, subBeat);
 
-    // Draw Unlit 88:8:8 Segment Ghost Mask for Authentic Vintage Phosphor Feel
-    drawMonoString("88:8:8", ledX + 12.0f, ledY + 6.0f, 1.25f, dimPipCol);
-    // Draw Active Illuminated Glowing Digits
-    drawMonoString(timeBuf, ledX + 12.0f, ledY + 6.0f, 1.25f, glowCol);
+    const float timePodW = 96.0f;
+    const float timePodH = 36.0f;
+    const float timePodX = r - 228.0f;
+    const float timePodY = 10.0f;
 
-    // Draw Mini Tempo Display
-    char tempoBuf[32];
-    std::snprintf(tempoBuf, sizeof(tempoBuf), "%3d", bpmVal);
-    drawMonoString("888", ledX + ledW - 130.0f, ledY + 6.0f, 1.25f, dimPipCol);
-    drawMonoString(tempoBuf, ledX + ledW - 130.0f, ledY + 6.0f, 1.25f, glowCol);
+    // 1. Base substrate
+    drawReadoutPodBase(timePodX, timePodY, timePodW, timePodH);
 
-    // Draw Swing Percentage Display
-    char swgBuf[32];
-    std::snprintf(swgBuf, sizeof(swgBuf), "%2d%%", swgVal);
-    drawMonoString("88%", ledX + ledW - 64.0f, ledY + 6.0f, 1.25f, dimPipCol);
-    drawMonoString(swgBuf, ledX + ledW - 64.0f, ledY + 6.0f, 1.25f, glowCol);
+    float timeTextX = timePodX + (timePodW - 6.0f * 10.5f) * 0.5f;
+    float timeTextY = timePodY + 8.5f;
 
-    // 5. Digital Tick Pips / Metronome Tally Indicator Pips
-    float pipStartX = ledX + 155.0f;
-    float pipY = ledY + 14.0f;
-    for (int p = 0; p < 4; ++p) {
-        float px = pipStartX + p * 18.0f;
-        bool isBeat = (p == (beatNum - 1));
-        if (isBeat && isPlaying) {
-            drawCircle(px, pipY, 4.5f, theme.primaryAccent);
-            drawCircle(px, pipY, 2.0f, Color(1.0f, 1.0f, 1.0f, 0.9f));
-        } else {
-            drawCircle(px, pipY, 3.5f, dimPipCol);
-            drawCircleOutline(px, pipY, 3.5f, subTextCol, 1.0f);
-        }
-    }
+    // 2. Soft, delicate ambient bloom behind digits
+    float timeCx = timePodX + timePodW * 0.5f;
+    float timeCy = timePodY + timePodH * 0.5f;
+    drawRoundedRect(timeCx - 26.0f, timeCy - 9.0f, 52.0f, 18.0f, 5.0f,
+                    Color(glowColor.r, glowColor.g, glowColor.b, 0.045f));
+    drawRoundedRect(timeCx - 15.0f, timeCy - 6.0f, 30.0f, 12.0f, 4.0f,
+                    Color(glowColor.r, glowColor.g, glowColor.b, 0.065f));
 
-    // 6. Sub-metrics Under-Readouts (Bar / Beat / 16th / BPM / SWING labels)
-    Color pipCol = theme.lcdText.withAlpha(0.35f);
-    // Left section: BAR BEAT TICK
-    drawMonoString("BAR", ledX + 14.0f, ledY + 26.0f, 0.52f, subTextCol);
-    drawLine(ledX + 38.0f, ledY + 24.5f, ledX + 38.0f, ledY + 33.5f, pipCol, 1.0f);
-    drawMonoString("BEAT", ledX + 44.0f, ledY + 26.0f, 0.52f, subTextCol);
-    drawLine(ledX + 74.0f, ledY + 24.5f, ledX + 74.0f, ledY + 33.5f, pipCol, 1.0f);
-    drawMonoString("DIV 16", ledX + 80.0f, ledY + 26.0f, 0.52f, subTextCol);
-    drawLine(ledX + 135.0f, ledY + 24.5f, ledX + 135.0f, ledY + 33.5f, pipCol, 1.0f);
+    // 3. Unlit ghost segment mask
+    Color ghostCol = textColor.withAlpha(0.12f);
+    drawMonoString("88:8:8", timeTextX, timeTextY, 1.05f, ghostCol.r, ghostCol.g, ghostCol.b, ghostCol.a);
 
-    // Center section: Meter 4/4
-    drawMonoString("4/4", ledX + ledW * 0.48f - 8.0f, ledY + 26.0f, 0.52f, subTextCol);
-    drawLine(ledX + ledW * 0.48f + 25.0f, ledY + 24.5f, ledX + ledW * 0.48f + 25.0f, ledY + 33.5f, pipCol, 1.0f);
+    // 4. Active illuminated digits with subtle, softened bloom
+    drawMonoString(timeBuf, timeTextX - 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(timeBuf, timeTextX + 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(timeBuf, timeTextX, timeTextY - 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(timeBuf, timeTextX, timeTextY + 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+    drawMonoString(timeBuf, timeTextX - 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+    drawMonoString(timeBuf, timeTextX + 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+    drawMonoString(timeBuf, timeTextX, timeTextY, 1.05f, textColor.r, textColor.g, textColor.b, 0.98f);
 
-    // Right section: BPM & SWG
-    std::string bpmSub = "BPM " + std::to_string(bpmVal);
-    std::string swgSub = "SWG " + std::to_string(swgVal) + "%";
-    drawMonoString(bpmSub.c_str(), ledX + ledW - 130.0f, ledY + 26.0f, 0.52f, subTextCol);
-    drawLine(ledX + ledW - 74.0f, ledY + 24.5f, ledX + ledW - 74.0f, ledY + 33.5f, pipCol, 1.0f);
-    drawMonoString(swgSub.c_str(), ledX + ledW - 64.0f, ledY + 26.0f, 0.52f, subTextCol);
+    // 5. Glass reflection gradient rendered IN FRONT of content
+    drawReadoutPodGlassOverlay(timePodX, timePodY, timePodW, timePodH);
 
-    // 7. Specular Diagonal Glass Glare across display
-    drawTriangle(ledX + ledW * 0.45f, ledY, ledX + ledW * 0.80f, ledY, ledX + ledW * 0.55f, ledY + ledH, 1.0f, 1.0f, 1.0f, 0.045f);
-    drawTriangle(ledX + ledW * 0.45f, ledY, ledX + ledW * 0.55f, ledY + ledH, ledX + ledW * 0.20f, ledY + ledH, 1.0f, 1.0f, 1.0f, 0.045f);
+    // =========================================================================
+    // 5. RIGHT TACTILE HARDWARE BUTTONS (Lock, Search, Folder)
+    // =========================================================================
+    const float toolY = 11.0f;
+    const float sqBtnSize = 34.0f;
+    Color buttonEtch = theme.secondaryAccent;
 
-    // Top Transport Right Tools
-    const float r = static_cast<float>(width_);
-    float toolY = 10.0f;
+    auto drawTactileSquareBtnBase = [&](float bx, float by, bool active) {
+        float po = active ? 2.0f : 0.0f;
+        // Recessed shadow well (Themed)
+        drawRoundedRect(bx - 2.0f, by - 2.0f, sqBtnSize + 4.0f, sqBtnSize + 4.0f, 4.0f, theme.controlWell.darken(0.20f));
+        drawRoundedRectOutline(bx - 2.0f, by - 2.0f, sqBtnSize + 4.0f, sqBtnSize + 4.0f, 4.0f, theme.borderSubtle.darken(0.20f), 1.0f);
+        // Keycap gradient
+        Color capTop = active ? theme.controlWell : theme.controlBackground;
+        Color capBot = active ? theme.controlWell.darken(0.12f) : theme.controlWell;
+        drawRoundedRectGradient(bx, by + po, sqBtnSize, sqBtnSize - po, 3.5f, capTop, capBot);
+    };
 
-    // Tactile Fullscreen Pushbutton on Top Right (F11 / Alt+Enter)
-    float fsX = r - 110.0f;
-    draw3dBtn(fsX, toolY, 46.0f, 36.0f, false, isFullscreen_,
-              theme.controlBackground, theme.controlWell,
-              theme.controlBackground.lighten(0.15f), theme.controlWell.darken(0.10f), theme.primaryAccent);
+    auto drawTactileSquareBtnOverlay = [&](float bx, float by, bool active) {
+        float po = active ? 2.0f : 0.0f;
+        Color capTop = active ? theme.controlWell : theme.controlBackground;
 
-    // Fullscreen Corner Brackets Icon
-    float cx = fsX + 23.0f;
-    float cy = toolY + 18.0f;
-    float bw = 7.0f;
-    float bh = 6.0f;
-    float bs = 3.5f;
-    Color iconCol = isFullscreen_ ? theme.primaryAccent : theme.textSecondary;
-    if (isFullscreen_) {
-        // Contracted brackets pointing inward (exit fullscreen)
-        drawLine(cx - bw, cy - bh, cx - bw + bs, cy - bh, iconCol, 1.5f);
-        drawLine(cx - bw, cy - bh, cx - bw, cy - bh + bs, iconCol, 1.5f);
-        drawLine(cx + bw, cy - bh, cx + bw - bs, cy - bh, iconCol, 1.5f);
-        drawLine(cx + bw, cy - bh, cx + bw, cy - bh + bs, iconCol, 1.5f);
-        drawLine(cx - bw, cy + bh, cx - bw + bs, cy + bh, iconCol, 1.5f);
-        drawLine(cx - bw, cy + bh, cx - bw, cy + bh - bs, iconCol, 1.5f);
-        drawLine(cx + bw, cy + bh, cx + bw - bs, cy + bh, iconCol, 1.5f);
-        drawLine(cx + bw, cy + bh, cx + bw, cy + bh - bs, iconCol, 1.5f);
-        drawCircle(cx, cy, 2.0f, iconCol);
-    } else {
-        // Expanded brackets pointing outward (enter fullscreen)
-        drawLine(cx - bw, cy - bh, cx - bw + bs, cy - bh, iconCol, 1.5f);
-        drawLine(cx - bw, cy - bh, cx - bw, cy - bh + bs, iconCol, 1.5f);
-        drawLine(cx + bw, cy - bh, cx + bw - bs, cy - bh, iconCol, 1.5f);
-        drawLine(cx + bw, cy - bh, cx + bw, cy - bh + bs, iconCol, 1.5f);
-        drawLine(cx - bw, cy + bh, cx - bw + bs, cy + bh, iconCol, 1.5f);
-        drawLine(cx - bw, cy + bh, cx - bw, cy + bh - bs, iconCol, 1.5f);
-        drawLine(cx + bw, cy + bh, cx + bw - bs, cy + bh, iconCol, 1.5f);
-        drawLine(cx + bw, cy + bh, cx + bw, cy + bh - bs, iconCol, 1.5f);
-    }
+        // Tactile micro-noise overlay applied across keycap AND icon glyph!
+        drawButtonNoise(bx, by + po, sqBtnSize, sqBtnSize - po, true, 0.28f, 3.5f, true, true, true, true, active, 3.0f);
 
-    // Tactile Presets / Folder Pushbutton on Top Right
-    float fldX = r - 58.0f;
-    draw3dBtn(fldX, toolY, 48.0f, 36.0f, false, browserOpen_,
-              theme.controlBackground, theme.controlWell,
-              theme.controlBackground.lighten(0.15f), theme.controlWell.darken(0.10f), theme.secondaryAccent);
-    // Folder Tab Icon
-    drawRect(fldX + 13.0f, toolY + 15.0f, 22.0f, 13.0f, theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-    drawRect(fldX + 13.0f, toolY + 12.0f, 10.0f, 5.0f, theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
-    drawLine(fldX + 13.0f, toolY + 17.0f, fldX + 35.0f, toolY + 17.0f, theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f, 1.0f);
+        // Top specular bevel highlight
+        drawLine(bx + 2.0f, by + po + 1.0f, bx + sqBtnSize - 2.0f, by + po + 1.0f, capTop.lighten(0.16f), 1.5f);
+        drawRoundedRectOutline(bx, by + po, sqBtnSize, sqBtnSize - po, 3.5f,
+                               active ? theme.primaryAccent : theme.borderSubtle.darken(0.15f), active ? 1.5f : 1.0f);
+    };
+
+    // BUTTON 1: LOCK (Toggle Workspace Edit Lock)
+    const float lockX = r - 120.0f;
+    drawTactileSquareBtnBase(lockX, toolY, projectLocked_);
+    // Etched Lock Glyph (Themed with clear contrast)
+    Color lockCol = projectLocked_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
+    float lBodyX = lockX + 10.5f;
+    float lBodyY = toolY + 16.0f + (projectLocked_ ? 2.0f : 0.0f);
+    drawRoundedRect(lBodyX, lBodyY, 13.0f, 10.0f, 2.0f, lockCol);
+    drawCircleOutline(lBodyX + 6.5f, lBodyY - 1.0f, 4.0f, lockCol, 1.5f);
+    drawCircle(lBodyX + 6.5f, lBodyY + 4.5f, 1.5f, darkIcon);
+    drawTactileSquareBtnOverlay(lockX, toolY, projectLocked_);
+
+    // BUTTON 2: SEARCH / INSPECT (Toggle Fullscreen / Plugin Finder)
+    const float searchX = r - 80.0f;
+    drawTactileSquareBtnBase(searchX, toolY, isFullscreen_);
+    // Etched Magnifying Glass Glyph (Themed with clear contrast)
+    Color searchCol = isFullscreen_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
+    float sLensX = searchX + 15.0f;
+    float sLensY = toolY + 16.0f + (isFullscreen_ ? 2.0f : 0.0f);
+    drawCircleOutline(sLensX, sLensY, 5.0f, searchCol, 1.6f);
+    drawLine(sLensX + 3.5f, sLensY + 3.5f, sLensX + 7.5f, sLensY + 7.5f, searchCol, 2.0f);
+    drawTactileSquareBtnOverlay(searchX, toolY, isFullscreen_);
+
+    // BUTTON 3: FOLDER / PRESET LIBRARY (Toggle Sliding Drawer)
+    const float folderX = r - 40.0f;
+    drawTactileSquareBtnBase(folderX, toolY, browserOpen_);
+    // Etched Folder Glyph (Themed with clear contrast)
+    Color fldCol = browserOpen_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
+    float fX = folderX + 8.5f;
+    float fY = toolY + 12.0f + (browserOpen_ ? 2.0f : 0.0f);
+    drawRect(fX, fY, 6.0f, 3.5f, fldCol);
+    drawRoundedRect(fX, fY + 3.0f, 17.0f, 11.5f, 1.5f, fldCol);
+    drawLine(fX, fY + 5.0f, fX + 17.0f, fY + 5.0f, darkIcon, 1.0f);
+    drawTactileSquareBtnOverlay(folderX, toolY, browserOpen_);
 #endif
 }
 
@@ -3175,10 +4485,7 @@ void GuiWindow::renderFrame() {
             float topY = 56.0f;
             float bottomY = static_cast<float>(height_) - 48.0f;
             if (modularEditView_->getActiveTrackIndex() != selectedTrackIndex_) {
-                modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
-                if (engine_) {
-                    modularEditView_->syncFromSequencer(engine_->getSequencer());
-                }
+                syncActiveClipToEditView(selectedTrackIndex_, -1);
             }
             modularEditView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
             modularEditView_->render(ctx);
@@ -3274,19 +4581,8 @@ void GuiWindow::renderFrame() {
         // =========================================================================
         const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
         const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
-        // Weathered Cast-Steel Chin Chassis (Themed, sealed against CRT frame)
-        drawRectGradient(0.0f, chinTopY, static_cast<float>(width_), chinTotalH,
-                         theme.panelHeaderGradientTop, theme.panelHeaderGradientBottom);
-        
-        // Subtle horizontal brushed metal grain striations across chin
-        for (float gy = chinTopY + 2.0f; gy < (bPanelY + bPanelH); gy += 3.0f) {
-            int hash = static_cast<int>(gy * 11.3f) % 7;
-            float alpha = (hash - 3) * 0.012f;
-            if (std::abs(alpha) > 0.004f) {
-                drawLine(0.0f, gy, static_cast<float>(width_), gy,
-                         (alpha > 0) ? Color(1.0f, 1.0f, 1.0f, alpha) : Color(0.0f, 0.0f, 0.0f, -alpha), 1.0f);
-            }
-        }
+        // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
+        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme);
 
         // Top lip specular highlight line & crevice
         drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -3318,48 +4614,33 @@ void GuiWindow::renderFrame() {
             // Tactile 3D Extruded Mechanical Keycaps with subtle rounded corners (r = 2.5px)
             float pressOff = isAct ? 2.0f : 0.0f;
 
-            // 1. Deep Recessed Shadow Trench
-            drawRoundedRect(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.0f, theme.backgroundDark);
-            drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+            // 1. Deep Recessed Shadow Trench (Themed)
+            drawRoundedRect(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.5f, theme.controlWell.darken(0.20f));
+            drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, 3.5f, theme.borderSubtle.darken(0.20f), 1.0f);
 
-            // 2. Extruded Keycap Body Plate
+            // 2. Extruded Keycap Body Plate (Themed)
             Color capTop = isAct ? theme.controlWell : theme.controlBackground;
             Color capBot = isAct ? theme.controlWell.darken(0.12f) : theme.controlWell;
             drawRoundedRectGradient(bx, by + pressOff, bw, bh - pressOff, 2.5f, capTop, capBot);
 
-            // 3. Multi-layer 3D Chamfer Bevels
-            drawLine(bx + 2.0f, by + pressOff + 1.0f, bx + bw - 2.0f, by + pressOff + 1.0f,
-                     isAct ? capTop.lighten(0.20f) : capTop.lighten(0.12f), 1.8f);
-            drawLine(bx + 1.0f, by + pressOff + 2.0f, bx + 1.0f, by + bh - 2.0f, capTop.lighten(0.05f), 1.2f);
-            drawRoundedRectOutline(bx, by + pressOff, bw, bh - pressOff, 2.5f,
-                                   isAct ? btnAccent : theme.borderSubtle.darken(0.15f),
-                                   isAct ? 1.8f : 1.0f);
-
-            // 4. Illuminated LED Tally Strip along top edge of active keycap
+            // 3. Consistent Linear Notch / LED Tally Strip along top center edge of keycap
             if (isAct) {
                 drawRoundedRect(bx + bw * 0.5f - 16.0f, by + pressOff + 1.5f, 32.0f, 2.5f, 1.0f, btnAccent);
                 drawRoundedRect(bx + bw * 0.5f - 18.0f, by + pressOff + 1.0f, 36.0f, 3.5f, 1.5f, Color(btnAccent.r, btnAccent.g, btnAccent.b, 0.30f));
+            } else {
+                drawRoundedRect(bx + bw * 0.5f - 16.0f, by + 1.5f, 32.0f, 2.5f, 1.0f, theme.controlWell.darken(0.35f));
+                drawRoundedRectOutline(bx + bw * 0.5f - 16.0f, by + 1.5f, 32.0f, 2.5f, 1.0f, theme.borderSubtle.darken(0.20f), 0.8f);
             }
 
-            // 5. Engraved Backlit Icon and Text with theme accent radiance
-            Color glowCol = isAct ? btnAccent : theme.textSecondary;
-            Color bloomCol = isAct ? Color(btnAccent.r, btnAccent.g, btnAccent.b, 0.40f) : Color(btnAccent.r, btnAccent.g, btnAccent.b, 0.15f);
+            // 4. Engraved Backlit Icon and Text with theme accent radiance
+            Color glowCol = isAct ? btnAccent : theme.textSecondary.lighten(0.12f);
 
             float iconW = 14.0f;
+            float gap = 8.0f;
             float textLen = static_cast<float>(std::strlen(navButtons[i].label)) * 7.0f;
-            float dotPipW = 12.0f;
-            float totalW = dotPipW + iconW + textLen + 8.0f;
+            float totalW = iconW + gap + textLen;
             float startX = bx + (bw - totalW) * 0.5f;
             float textY = by + pressOff + 9.0f;
-
-            // Illuminated status dot indicator on left of icon
-            float dotX = startX + 3.0f;
-            float dotY = by + pressOff + bh * 0.5f;
-            drawCircle(dotX, dotY, 2.5f, isAct ? btnAccent : theme.textMuted.darken(0.35f));
-            if (isAct) {
-                drawCircle(dotX, dotY, 4.5f, Color(btnAccent.r, btnAccent.g, btnAccent.b, 0.35f));
-            }
-            startX += dotPipW;
 
             // Procedural Navigation Icon
             if (navButtons[i].view == WorkspaceView::Arranger) {
@@ -3373,10 +4654,19 @@ void GuiWindow::renderFrame() {
             } else if (navButtons[i].view == WorkspaceView::Design) {
                 drawIconDesign(startX, textY - 1.0f, 13.0f, 11.0f, glowCol);
             }
-            startX += iconW + 8.0f;
 
-            drawVectorString(navButtons[i].label, startX, textY, 0.90f, bloomCol);
-            drawVectorString(navButtons[i].label, startX, textY, 0.90f, glowCol);
+            drawVectorString(navButtons[i].label, startX + iconW + gap, textY, 0.90f, glowCol);
+
+            // 5. Tactile micro-noise overlay applied across keycap, icon, AND text label (shifts on active)
+            drawButtonNoise(bx, by + pressOff, bw, bh - pressOff, false, 0.28f, 2.5f, true, true, true, true, isAct, 3.0f);
+
+            // 6. Multi-layer 3D Chamfer Bevels and border outline
+            drawLine(bx + 2.0f, by + pressOff + 1.0f, bx + bw - 2.0f, by + pressOff + 1.0f,
+                     isAct ? capTop.lighten(0.12f) : capTop.lighten(0.18f), 1.6f);
+            drawLine(bx + 1.0f, by + pressOff + 2.0f, bx + 1.0f, by + bh - 2.0f, capTop.lighten(0.08f), 1.0f);
+            drawRoundedRectOutline(bx, by + pressOff, bw, bh - pressOff, 2.5f,
+                                   isAct ? btnAccent : theme.borderSubtle.darken(0.15f),
+                                   isAct ? 1.6f : 1.0f);
         }
 
         // =========================================================================
@@ -3388,354 +4678,53 @@ void GuiWindow::renderFrame() {
         // =========================================================================
         // PRESET BROWSER / PATCH LIBRARIAN SLIDING DRAWER OVERLAY
         // =========================================================================
-        if (browserOpen_) {
-            const float drW = 440.0f;
-            const float drX = static_cast<float>(width_) - drW - 16.0f;
-            const float drY = 60.0f;
-            const float drH = static_cast<float>(height_) - 116.0f;
-
-            // Semi-transparent backdrop shadow
-            drawRect(0.0f, 56.0f, static_cast<float>(width_), static_cast<float>(height_) - 104.0f, 0.0f, 0.0f, 0.0f, 0.50f);
-
-            // Drawer Chassis
-            drawRectGradient(drX, drY, drW, drH, 0.12f, 0.14f, 0.19f, 0.07f, 0.08f, 0.11f);
-            drawRectOutline(drX, drY, drW, drH, 0.0f, 0.88f, 1.0f, 1.0f, 2.0f);
-
-            // Top Header Bar [drX, drY, drW, 44]
-            drawRectGradient(drX, drY, drW, 44.0f, 0.16f, 0.18f, 0.25f, 0.09f, 0.11f, 0.15f);
-            drawLine(drX, drY + 44.0f, drX + drW, drY + 44.0f, 0.22f, 0.26f, 0.35f, 1.0f, 1.5f);
-
-            drawCircle(drX + 22.0f, drY + 22.0f, 5.0f, 0.0f, 0.95f, 1.0f);
-            std::string curTrackName = "TRACK " + std::to_string(selectedTrackIndex_ + 1);
-            if (selectedTrackIndex_ < mixerStrips_.size()) {
-                curTrackName = mixerStrips_[selectedTrackIndex_].name;
-            }
-            drawVectorString("PRESET LIBRARY • " + curTrackName, drX + 36.0f, drY + 12.0f, 1.0f, 0.0f, 0.95f, 1.0f);
-            drawVectorString("HOT-SWAP HARDWARE INSTRUMENTS & MANAGE PROJECT", drX + 36.0f, drY + 28.0f, 0.7f, 0.55f, 0.60f, 0.72f);
-
-            // Close Button [Screw Close] [drX + drW - 32, drY + 8, 24, 24]
-            float bClX = drX + drW - 20.0f;
-            float bClY = drY + 20.0f;
-            bool bClHov = (mouseX_ >= drX + drW - 32.0f && mouseX_ <= drX + drW - 8.0f &&
-                           mouseY_ >= drY + 8.0f && mouseY_ <= drY + 32.0f);
-            drawIconScrewClose(bClX, bClY, 9.0f, bClHov);
-
-            // Top Tab Selector: [ SOUNDS / PRESETS ], [ SCRIPTS / MACROS ], and [ HISTORY & DELTAS ]
-            bool isPresetTab = (browserTab_ == BrowserTab::Presets);
-            bool isMacroTab = (browserTab_ == BrowserTab::Macros);
-            bool isHistoryTab = (browserTab_ == BrowserTab::History);
-
-            const float tabW = 130.0f;
-            const float tabGap = 8.0f;
-
-            // Presets Tab Pill [drX + 16, drY + 48, 130, 24]
-            if (isPresetTab) {
-                drawRectGradient(drX + 16.0f, drY + 48.0f, tabW, 24.0f, 0.20f, 0.28f, 0.38f, 0.10f, 0.16f, 0.24f);
-                drawRectOutline(drX + 16.0f, drY + 48.0f, tabW, 24.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.5f);
-                drawVectorString("SOUNDS & PRESETS", drX + 22.0f, drY + 53.0f, 0.72f, 0.0f, 1.0f, 1.0f);
-            } else {
-                drawRect(drX + 16.0f, drY + 48.0f, tabW, 24.0f, 0.08f, 0.09f, 0.13f);
-                drawRectOutline(drX + 16.0f, drY + 48.0f, tabW, 24.0f, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
-                drawVectorString("SOUNDS & PRESETS", drX + 22.0f, drY + 53.0f, 0.72f, 0.55f, 0.60f, 0.70f);
-            }
-
-            // Macros Tab Pill [drX + 154, drY + 48, 130, 24]
-            float tab2X = drX + 16.0f + tabW + tabGap;
-            if (isMacroTab) {
-                drawRectGradient(tab2X, drY + 48.0f, tabW, 24.0f, 0.20f, 0.28f, 0.38f, 0.10f, 0.16f, 0.24f);
-                drawRectOutline(tab2X, drY + 48.0f, tabW, 24.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.5f);
-                drawVectorString("SCRIPTS & MACROS", tab2X + 6.0f, drY + 53.0f, 0.72f, 0.0f, 1.0f, 1.0f);
-            } else {
-                drawRect(tab2X, drY + 48.0f, tabW, 24.0f, 0.08f, 0.09f, 0.13f);
-                drawRectOutline(tab2X, drY + 48.0f, tabW, 24.0f, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
-                drawVectorString("SCRIPTS & MACROS", tab2X + 6.0f, drY + 53.0f, 0.72f, 0.55f, 0.60f, 0.70f);
-            }
-
-            // History Tab Pill [drX + 292, drY + 48, 130, 24]
-            float tab3X = drX + 16.0f + 2.0f * (tabW + tabGap);
-            if (isHistoryTab) {
-                drawRectGradient(tab3X, drY + 48.0f, tabW, 24.0f, 0.20f, 0.28f, 0.38f, 0.10f, 0.16f, 0.24f);
-                drawRectOutline(tab3X, drY + 48.0f, tabW, 24.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.5f);
-                drawVectorString("HISTORY & DELTAS", tab3X + 6.0f, drY + 53.0f, 0.72f, 0.0f, 1.0f, 1.0f);
-            } else {
-                drawRect(tab3X, drY + 48.0f, tabW, 24.0f, 0.08f, 0.09f, 0.13f);
-                drawRectOutline(tab3X, drY + 48.0f, tabW, 24.0f, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
-                drawVectorString("HISTORY & DELTAS", tab3X + 6.0f, drY + 53.0f, 0.72f, 0.55f, 0.60f, 0.70f);
-            }
-
-            float actY = drY + drH - 46.0f;
-
-            if (isPresetTab) {
-                // Category Filter Pills
-                const char* cats[6] = {"ALL", "BASS", "LEAD", "DRUMS", "KEYS", "FX"};
-                const float catW = 58.0f;
-                const float catGap = 8.0f;
-                for (int c = 0; c < 6; ++c) {
-                    float cx = drX + 16.0f + c * (catW + catGap);
-                    bool isSel = (browserCategory_ == cats[c]);
-                    if (isSel) {
-                        drawRectGradient(cx, drY + 76.0f, catW, 26.0f, 0.18f, 0.26f, 0.36f, 0.09f, 0.15f, 0.22f);
-                        drawRectOutline(cx, drY + 76.0f, catW, 26.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.5f);
-                        drawVectorString(cats[c], cx + 8.0f, drY + 82.0f, 0.8f, 0.0f, 1.0f, 1.0f);
-                    } else {
-                        drawRect(cx, drY + 76.0f, catW, 26.0f, 0.09f, 0.10f, 0.14f);
-                        drawRectOutline(cx, drY + 76.0f, catW, 26.0f, 0.20f, 0.23f, 0.30f, 1.0f, 1.0f);
-                        drawVectorString(cats[c], cx + 8.0f, drY + 82.0f, 0.8f, 0.55f, 0.60f, 0.70f);
-                    }
-                }
-
-                // Preset List
-                float rowStartY = drY + 110.0f;
-                float rowH = 34.0f;
-                float rowGap = 4.0f;
-                size_t visibleIdx = 0;
-                for (size_t i = 0; i < presets_.size(); ++i) {
-                    const auto& p = presets_[i];
-                    if (browserCategory_ != "ALL") {
-                        std::string catUpper = p.metadata.category;
-                        std::transform(catUpper.begin(), catUpper.end(), catUpper.begin(), ::toupper);
-                        std::string idUpper = p.metadata.id;
-                        std::transform(idUpper.begin(), idUpper.end(), idUpper.begin(), ::toupper);
-                        std::string engUpper = p.metadata.engineId;
-                        std::transform(engUpper.begin(), engUpper.end(), engUpper.begin(), ::toupper);
-
-                        if (catUpper.find(browserCategory_) == std::string::npos &&
-                            idUpper.find(browserCategory_) == std::string::npos &&
-                            engUpper.find(browserCategory_) == std::string::npos) {
-                            continue;
+        if (projectBrowserDrawerWidget_ && (browserOpen_ || projectBrowserDrawerWidget_->getAnimOffset() < projectBrowserDrawerWidget_->getDrawerWidth())) {
+            if (browserOpen_) {
+                // Synchronize live tracks
+                std::vector<BrowserTrackAssetItem> bTracks;
+                if (engine_) {
+                    for (size_t i = 0; i < engine_->getSequencer().getNumTracks(); ++i) {
+                        const auto* t = engine_->getSequencer().getTrack(static_cast<uint32_t>(i));
+                        if (!t) continue;
+                        BrowserTrackAssetItem item;
+                        item.index = static_cast<uint32_t>(i);
+                        item.name = t->getName();
+                        item.type = (i == 1 || i == 2) ? "DRUMS" : "SYNTH";
+                        item.clipCount = (i < arrangerTracks_.size()) ? arrangerTracks_[i].clips.size() : 1;
+                        item.isMuted = t->isMuted();
+                        item.isSolo = t->isSolo();
+                        if (i < arrangerTracks_.size()) {
+                            item.color = Color(arrangerTracks_[i].r, arrangerTracks_[i].g, arrangerTracks_[i].b, 1.0f);
                         }
+                        bTracks.push_back(item);
                     }
-
-                    float ry = rowStartY + visibleIdx * (rowH + rowGap);
-                    if (ry + rowH > actY - 26.0f) break;
-
-                    bool isCurrentPreset = (activePresetIndex_ == i);
-
-                    // Row background
-                    if (isCurrentPreset) {
-                        drawRectGradient(drX + 16.0f, ry, drW - 32.0f, rowH, 0.16f, 0.22f, 0.30f, 0.09f, 0.14f, 0.20f);
-                        drawRectOutline(drX + 16.0f, ry, drW - 32.0f, rowH, 0.0f, 0.90f, 1.0f, 1.0f, 1.5f);
-                    } else {
-                        drawRect(drX + 16.0f, ry, drW - 32.0f, rowH, (visibleIdx % 2 == 0) ? 0.08f : 0.06f, (visibleIdx % 2 == 0) ? 0.09f : 0.07f, (visibleIdx % 2 == 0) ? 0.12f : 0.10f);
-                        drawRectOutline(drX + 16.0f, ry, drW - 32.0f, rowH, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
-                    }
-
-                    // Engine tag badge
-                    std::string engBadge = "[" + p.metadata.engineId + "]";
-                    if (engBadge.length() > 9) engBadge = engBadge.substr(0, 8) + "]";
-                    std::transform(engBadge.begin(), engBadge.end(), engBadge.begin(), ::toupper);
-                    drawVectorString(engBadge, drX + 24.0f, ry + 10.0f, 0.75f, 0.0f, 0.85f, 0.95f);
-
-                    // Preset Name
-                    drawVectorString(p.metadata.name, drX + 90.0f, ry + 9.0f, 0.9f, isCurrentPreset ? 1.0f : 0.85f, isCurrentPreset ? 1.0f : 0.88f, isCurrentPreset ? 1.0f : 0.92f);
-
-                    // [ LOAD ] button
-                    float btnX = drX + drW - 74.0f;
-                    float btnY = ry + 5.0f;
-                    drawRectGradient(btnX, btnY, 58.0f, 24.0f, 0.14f, 0.20f, 0.28f, 0.08f, 0.11f, 0.16f);
-                    drawRectOutline(btnX, btnY, 58.0f, 24.0f, 0.0f, 0.85f, 1.0f, 1.0f, 1.2f);
-                    drawVectorString("LOAD", btnX + 14.0f, btnY + 5.0f, 0.8f, 0.0f, 1.0f, 1.0f);
-
-                    visibleIdx++;
                 }
-            } else if (isMacroTab) {
-                // Macro List
-                const auto& macros = eatscript::MacroRuntime::getBuiltinMacros();
-                float rowStartY = drY + 84.0f;
-                float rowH = 48.0f;
-                float rowGap = 6.0f;
+                projectBrowserDrawerWidget_->setTracks(bTracks);
 
-                for (size_t i = 0; i < macros.size(); ++i) {
-                    const auto& m = macros[i];
-                    float ry = rowStartY + i * (rowH + rowGap);
-                    if (ry + rowH > actY - 26.0f) break;
-
-                    // Row background card
-                    drawRectGradient(drX + 16.0f, ry, drW - 32.0f, rowH, 0.10f, 0.12f, 0.17f, 0.06f, 0.07f, 0.10f);
-                    drawRectOutline(drX + 16.0f, ry, drW - 32.0f, rowH, 0.18f, 0.22f, 0.30f, 1.0f, 1.0f);
-
-                    // Category tag badge
-                    std::string catBadge = "[" + m.category + "]";
-                    std::transform(catBadge.begin(), catBadge.end(), catBadge.begin(), ::toupper);
-                    drawVectorString(catBadge, drX + 24.0f, ry + 8.0f, 0.72f, 0.0f, 0.85f, 0.95f);
-
-                    // Macro Title
-                    drawVectorString(m.name, drX + 106.0f, ry + 7.0f, 0.9f, 0.95f, 0.98f, 1.0f);
-
-                    // Macro Description
-                    std::string desc = m.description;
-                    if (desc.length() > 46) desc = desc.substr(0, 44) + "...";
-                    drawVectorString(desc, drX + 24.0f, ry + 28.0f, 0.7f, 0.50f, 0.55f, 0.65f);
-
-                    // [ RUN ] button
-                    float btnX = drX + drW - 74.0f;
-                    float btnY = ry + 10.0f;
-                    drawRectGradient(btnX, btnY, 58.0f, 28.0f, 0.05f, 0.25f, 0.20f, 0.02f, 0.15f, 0.12f);
-                    drawRectOutline(btnX, btnY, 58.0f, 28.0f, 0.0f, 0.95f, 0.50f, 1.0f, 1.5f);
-                    drawVectorString("RUN", btnX + 18.0f, btnY + 7.0f, 0.85f, 0.0f, 1.0f, 0.60f);
-                }
-            } else if (isHistoryTab) {
-                // Toolbar: [ UNDO ] [ REDO ] [ + CHECKPOINT ] [ CLEAR ]
-                float tbY = drY + 76.0f;
-                bool canU = diffHistory_.canUndo();
-                bool canR = diffHistory_.canRedo();
-
-                // [ UNDO (Ctrl+Z) ] [drX + 16, tbY, 90, 26]
-                if (canU) {
-                    drawRectGradient(drX + 16.0f, tbY, 90.0f, 26.0f, 0.15f, 0.28f, 0.35f, 0.08f, 0.16f, 0.22f);
-                    drawRectOutline(drX + 16.0f, tbY, 90.0f, 26.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.5f);
-                    drawVectorString("UNDO (Z)", drX + 26.0f, tbY + 8.0f, 0.75f, 0.0f, 1.0f, 1.0f);
-                } else {
-                    drawRect(drX + 16.0f, tbY, 90.0f, 26.0f, 0.07f, 0.08f, 0.10f);
-                    drawRectOutline(drX + 16.0f, tbY, 90.0f, 26.0f, 0.15f, 0.18f, 0.22f, 1.0f, 1.0f);
-                    drawVectorString("UNDO (Z)", drX + 26.0f, tbY + 8.0f, 0.75f, 0.35f, 0.40f, 0.45f);
-                }
-
-                // [ REDO (Ctrl+Y) ] [drX + 112, tbY, 90, 26]
-                if (canR) {
-                    drawRectGradient(drX + 112.0f, tbY, 90.0f, 26.0f, 0.28f, 0.12f, 0.28f, 0.15f, 0.06f, 0.16f);
-                    drawRectOutline(drX + 112.0f, tbY, 90.0f, 26.0f, 1.0f, 0.40f, 0.90f, 1.0f, 1.5f);
-                    drawVectorString("REDO (Y)", drX + 122.0f, tbY + 8.0f, 0.75f, 1.0f, 0.50f, 0.95f);
-                } else {
-                    drawRect(drX + 112.0f, tbY, 90.0f, 26.0f, 0.07f, 0.08f, 0.10f);
-                    drawRectOutline(drX + 112.0f, tbY, 90.0f, 26.0f, 0.15f, 0.18f, 0.22f, 1.0f, 1.0f);
-                    drawVectorString("REDO (Y)", drX + 122.0f, tbY + 8.0f, 0.75f, 0.35f, 0.40f, 0.45f);
-                }
-
-                // [ + CHECKPOINT ] [drX + 208, tbY, 116, 26]
-                drawRectGradient(drX + 208.0f, tbY, 116.0f, 26.0f, 0.24f, 0.18f, 0.06f, 0.12f, 0.09f, 0.03f);
-                drawRectOutline(drX + 208.0f, tbY, 116.0f, 26.0f, 1.0f, 0.75f, 0.0f, 1.0f, 1.2f);
-                drawVectorString("+ CHECKPOINT", drX + 218.0f, tbY + 8.0f, 0.75f, 1.0f, 0.85f, 0.15f);
-
-                // [ CLEAR ] [drX + 330, tbY, 94, 26]
-                drawRectGradient(drX + 330.0f, tbY, 94.0f, 26.0f, 0.18f, 0.08f, 0.08f, 0.09f, 0.04f, 0.04f);
-                drawRectOutline(drX + 330.0f, tbY, 94.0f, 26.0f, 0.80f, 0.25f, 0.25f, 1.0f, 1.0f);
-                drawVectorString("CLEAR", drX + 358.0f, tbY + 8.0f, 0.75f, 0.95f, 0.50f, 0.50f);
-
-                // Timeline Summary Header [drY + 108]
+                // Synchronize live diff history
+                std::vector<BrowserHistoryMilestoneItem> bHist;
                 auto timeline = diffHistory_.getTimeline();
                 size_t curIdx = diffHistory_.getCurrentTimelineIndex();
-                std::string summaryStr = "TIMELINE: " + std::to_string(timeline.size()) + " STEPS • CURRENT HEAD: #" + std::to_string(curIdx);
-                drawVectorString(summaryStr, drX + 18.0f, drY + 110.0f, 0.75f, 0.55f, 0.65f, 0.75f);
-
-                // Chronological steps list [drY + 124 .. actY - 140]
-                float listY = drY + 124.0f;
-                float itemH = 34.0f;
-                float itemGap = 4.0f;
-                float maxListH = (actY - 146.0f) - listY;
-
-                size_t maxItems = static_cast<size_t>(std::max(1, static_cast<int>(maxListH / (itemH + itemGap))));
-                size_t startItem = 0;
-                if (curIdx >= maxItems) {
-                    startItem = curIdx - maxItems + 1;
+                for (size_t i = 0; i < timeline.size(); ++i) {
+                    BrowserHistoryMilestoneItem m;
+                    m.stepIndex = i;
+                    m.description = timeline[i].description;
+                    m.category = timeline[i].category;
+                    m.isMilestone = timeline[i].isMilestone;
+                    m.isCurrent = (i == curIdx);
+                    bHist.push_back(m);
                 }
-
-                for (size_t i = startItem; i < timeline.size() && (i - startItem) < maxItems; ++i) {
-                    const auto& entry = timeline[i];
-                    float iy = listY + (i - startItem) * (itemH + itemGap);
-                    bool isHead = (i == curIdx);
-                    bool isSel = (i == selectedHistoryIndex_);
-
-                    // Background card
-                    if (isHead) {
-                        drawRectGradient(drX + 16.0f, iy, drW - 32.0f, itemH, 0.12f, 0.22f, 0.28f, 0.06f, 0.12f, 0.16f);
-                        drawRectOutline(drX + 16.0f, iy, drW - 32.0f, itemH, 0.0f, 0.95f, 1.0f, 1.0f, 1.8f);
-                    } else if (isSel) {
-                        drawRectGradient(drX + 16.0f, iy, drW - 32.0f, itemH, 0.16f, 0.18f, 0.24f, 0.08f, 0.10f, 0.14f);
-                        drawRectOutline(drX + 16.0f, iy, drW - 32.0f, itemH, 0.50f, 0.75f, 1.0f, 1.0f, 1.2f);
-                    } else {
-                        drawRect(drX + 16.0f, iy, drW - 32.0f, itemH, 0.07f, 0.08f, 0.11f);
-                        drawRectOutline(drX + 16.0f, iy, drW - 32.0f, itemH, 0.16f, 0.18f, 0.24f, 1.0f, 1.0f);
-                    }
-
-                    // Step Index & Badge
-                    std::string idxBadge = "#" + std::to_string(i);
-                    drawVectorString(idxBadge, drX + 24.0f, iy + 9.0f, 0.75f, isHead ? 0.0f : 0.6f, isHead ? 1.0f : 0.65f, isHead ? 1.0f : 0.7f);
-
-                    // Category Badge
-                    std::string cat = "[" + entry.category + "]";
-                    drawVectorString(cat, drX + 54.0f, iy + 9.0f, 0.75f, 1.0f, 0.75f, 0.2f);
-
-                    // Action Description
-                    std::string desc = entry.description;
-                    if (desc.length() > 30) desc = desc.substr(0, 28) + "..";
-                    drawVectorString(desc, drX + 115.0f, iy + 9.0f, 0.8f, isHead ? 1.0f : 0.90f, isHead ? 1.0f : 0.92f, isHead ? 1.0f : 0.95f);
-
-                    // Milestone tag or Head indicator
-                    if (entry.isMilestone) {
-                        drawRect(drX + drW - 100.0f, iy + 7.0f, 76.0f, 20.0f, 0.25f, 0.18f, 0.04f);
-                        drawRectOutline(drX + drW - 100.0f, iy + 7.0f, 76.0f, 20.0f, 1.0f, 0.75f, 0.0f, 1.0f, 1.0f);
-                        drawVectorString("MILESTONE", drX + drW - 96.0f, iy + 11.0f, 0.65f, 1.0f, 0.85f, 0.1f);
-                    } else if (isHead) {
-                        drawRect(drX + drW - 80.0f, iy + 7.0f, 56.0f, 20.0f, 0.05f, 0.25f, 0.20f);
-                        drawRectOutline(drX + drW - 80.0f, iy + 7.0f, 56.0f, 20.0f, 0.0f, 0.95f, 0.50f, 1.0f, 1.0f);
-                        drawVectorString("ACTIVE", drX + drW - 74.0f, iy + 11.0f, 0.65f, 0.0f, 1.0f, 0.60f);
-                    }
-                }
-
-                // Bottom Diff Inspector Panel [actY - 136 .. actY - 14]
-                float diffPanelY = actY - 136.0f;
-                float diffPanelH = 120.0f;
-                drawRect(drX + 16.0f, diffPanelY, drW - 32.0f, diffPanelH, 0.05f, 0.06f, 0.08f);
-                drawRectOutline(drX + 16.0f, diffPanelY, drW - 32.0f, diffPanelH, 0.18f, 0.22f, 0.30f, 1.0f, 1.0f);
-
-                // Inspector Title Bar
-                drawRect(drX + 16.0f, diffPanelY, drW - 32.0f, 22.0f, 0.09f, 0.11f, 0.15f);
-                drawLine(drX + 16.0f, diffPanelY + 22.0f, drX + drW - 16.0f, diffPanelY + 22.0f, 0.20f, 0.25f, 0.32f, 1.0f, 1.0f);
-                drawVectorString("CODE DELTA INSPECTOR (PURE DIFF STORAGE)", drX + 24.0f, diffPanelY + 6.0f, 0.7f, 0.0f, 0.95f, 1.0f);
-
-                if (selectedHistoryIndex_ < timeline.size()) {
-                    const auto& selEntry = timeline[selectedHistoryIndex_];
-                    float dLineY = diffPanelY + 28.0f;
-
-                    if (selEntry.forwardHunks.empty()) {
-                        drawVectorString("* Baseline snapshot: Canonical project initial state.", drX + 24.0f, dLineY, 0.72f, 0.55f, 0.65f, 0.75f);
-                    } else {
-                        size_t renderedLines = 0;
-                        for (const auto& hunk : selEntry.forwardHunks) {
-                            for (const auto& delLine : hunk.oldLines) {
-                                if (renderedLines >= 4) break;
-                                std::string dl = "- " + delLine;
-                                if (dl.length() > 46) dl = dl.substr(0, 44) + "..";
-                                drawVectorString(dl, drX + 24.0f, dLineY + renderedLines * 18.0f, 0.72f, 1.0f, 0.35f, 0.45f);
-                                renderedLines++;
-                            }
-                            for (const auto& addLine : hunk.newLines) {
-                                if (renderedLines >= 4) break;
-                                std::string al = "+ " + addLine;
-                                if (al.length() > 46) al = al.substr(0, 44) + "..";
-                                drawVectorString(al, drX + 24.0f, dLineY + renderedLines * 18.0f, 0.72f, 0.0f, 1.0f, 0.60f);
-                                renderedLines++;
-                            }
-                            if (renderedLines >= 4) break;
-                        }
-                    }
-                }
+                projectBrowserDrawerWidget_->setHistory(bHist, diffHistory_.canUndo(), diffHistory_.canRedo());
+                projectBrowserDrawerWidget_->open();
+            } else {
+                projectBrowserDrawerWidget_->close();
             }
 
-            // Divider before action buttons
-            drawLine(drX + 16.0f, actY - 8.0f, drX + drW - 16.0f, actY - 8.0f, 0.25f, 0.28f, 0.35f, 1.0f, 1.0f);
-
-            // Status message
-            if (!lastStatusMessage_.empty()) {
-                drawVectorString(lastStatusMessage_, drX + 18.0f, actY - 22.0f, 0.75f, 0.0f, 1.0f, 0.5f);
+            projectBrowserDrawerWidget_->layout(static_cast<float>(width_), static_cast<float>(height_), 56.0f, 48.0f);
+            projectBrowserDrawerWidget_->update(0.016f);
+            if (batchRenderer_) {
+                projectBrowserDrawerWidget_->render(*batchRenderer_, getTheme());
             }
-
-            // Action Buttons: [ SAVE PROJECT ] [ LOAD PROJECT ] [ BOUNCE WAV ]
-            // SAVE
-            drawRectGradient(drX + 16.0f, actY, 124.0f, 32.0f, 0.14f, 0.20f, 0.28f, 0.08f, 0.11f, 0.16f);
-            drawRectOutline(drX + 16.0f, actY, 124.0f, 32.0f, 0.0f, 0.85f, 1.0f, 1.0f, 1.2f);
-            drawVectorString("SAVE PROJECT", drX + 26.0f, actY + 9.0f, 0.85f, 0.0f, 0.95f, 1.0f);
-
-            // LOAD
-            drawRectGradient(drX + 150.0f, actY, 124.0f, 32.0f, 0.14f, 0.20f, 0.28f, 0.08f, 0.11f, 0.16f);
-            drawRectOutline(drX + 150.0f, actY, 124.0f, 32.0f, 0.0f, 0.85f, 1.0f, 1.0f, 1.2f);
-            drawVectorString("LOAD PROJECT", drX + 160.0f, actY + 9.0f, 0.85f, 0.0f, 0.95f, 1.0f);
-
-            // BOUNCE
-            drawRectGradient(drX + 284.0f, actY, 140.0f, 32.0f, 0.24f, 0.18f, 0.10f, 0.12f, 0.09f, 0.05f);
-            drawRectOutline(drX + 284.0f, actY, 140.0f, 32.0f, 1.0f, 0.75f, 0.0f, 1.0f, 1.5f);
-            drawVectorString("BOUNCE WAV", drX + 304.0f, actY + 9.0f, 0.85f, 1.0f, 0.85f, 0.20f);
         }
 
         // =========================================================================
@@ -3757,18 +4746,61 @@ void GuiWindow::renderFrame() {
             const float hubW = dl.w;
             const float hubH = dl.h;
 
-            // Render Accordion Sections
-            float curY = hubY + 50.0f;
-            const char* secTitles[5] = {
+            // Accordion and Drawer Dimensions
+            const float topContentY = hubY + 50.0f;
+            const float footerY = hubY + hubH - 36.0f;
+            const float headerH = 30.0f;
+            const float headerGap = 6.0f;
+            const float headerStep = headerH + headerGap; // 36.0f
+            const int numSections = 6;
+            // Maximum height available for any expanded drawer inside the dialog
+            const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap; // 272.0f
+
+            float curDrawerH = 0.0f;
+            if (projectHubSection_ >= 0) {
+                if (projectHubSection_ == 0) curDrawerH = 190.0f;
+                else if (projectHubSection_ == 1) curDrawerH = 114.0f;
+                else if (projectHubSection_ == 2) curDrawerH = 244.0f;
+                else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
+                else if (projectHubSection_ == 4) curDrawerH = 100.0f;
+                else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+            }
+
+            const float drawerX = hubX + 16.0f;
+            const float drawerW = hubW - 32.0f;
+            const float drawerY = topContentY + (projectHubSection_ + 1) * headerStep;
+            const float drawerH = curDrawerH;
+
+            // Configure scrollable area constrained to the CRT Shader drawer
+            if (projectHubSection_ == 3) {
+                projectHubScrollArea_.setViewport(drawerX, drawerY, drawerW, drawerH);
+                projectHubScrollArea_.setContentHeight(586.0f);
+                projectHubScrollArea_.setScrollY(projectHubScrollY_);
+                projectHubMaxScroll_ = projectHubScrollArea_.getMaxScroll();
+                projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+            } else {
+                projectHubScrollArea_.setViewport(0.0f, 0.0f, 0.0f, 0.0f);
+                projectHubScrollArea_.setContentHeight(0.0f);
+                projectHubScrollY_ = 0.0f;
+            }
+
+            const char* secTitles[6] = {
                 "PROJECT HUB",
                 "SESSION PERSISTENCE & AUTO-RESTORE",
                 "DISPLAY & WORKSPACE",
+                "CRT SHADER",
                 "AUDIO ENGINE CONFIG",
                 "CREDITS & ACKNOWLEDGMENTS"
             };
 
-            for (int s = 0; s < 5; ++s) {
+            for (int s = 0; s < 6; ++s) {
                 bool isExp = (projectHubSection_ == s);
+                float curY = 0.0f;
+                if (projectHubSection_ == -1 || s <= projectHubSection_) {
+                    curY = topContentY + s * headerStep;
+                } else {
+                    curY = drawerY + drawerH + headerGap + (s - (projectHubSection_ + 1)) * headerStep;
+                }
 
                 // Section Header Bar [hubX + 12, curY, hubW - 24, 30]
                 if (isExp) {
@@ -3776,12 +4808,20 @@ void GuiWindow::renderFrame() {
                                             theme.controlWell.darken(0.04f), theme.controlWell.darken(0.12f));
                     drawRoundedRectOutline(hubX + 12.0f, curY, hubW - 24.0f, 30.0f, 5.0f,
                                            theme.primaryAccent.darken(0.35f), 1.0f);
-                    drawVectorString("v", hubX + hubW - 32.0f, curY + 8.0f, 0.8f, theme.primaryAccent);
+                    // Small closed down arrow ▼
+                    float ax = hubX + hubW - 28.0f;
+                    float ay = curY + 15.0f;
+                    drawTriangle(ax - 4.5f, ay - 2.5f, ax + 4.5f, ay - 2.5f, ax, ay + 3.5f,
+                                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
                     drawVectorString(secTitles[s], hubX + 44.0f, curY + 8.0f, 0.85f, theme.primaryAccent);
                 } else {
                     drawRoundedRect(hubX + 12.0f, curY, hubW - 24.0f, 30.0f, 5.0f, theme.panelBackground.darken(0.04f));
                     drawRoundedRectOutline(hubX + 12.0f, curY, hubW - 24.0f, 30.0f, 5.0f, theme.borderSubtle.darken(0.20f), 1.0f);
-                    drawVectorString(">", hubX + hubW - 32.0f, curY + 8.0f, 0.8f, theme.textMuted);
+                    // Small closed right arrow ▶
+                    float ax = hubX + hubW - 28.0f;
+                    float ay = curY + 15.0f;
+                    drawTriangle(ax - 3.0f, ay - 4.5f, ax + 3.5f, ay, ax - 3.0f, ay + 4.5f,
+                                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
                     drawVectorString(secTitles[s], hubX + 44.0f, curY + 8.0f, 0.85f, theme.textSecondary);
                 }
 
@@ -3796,17 +4836,24 @@ void GuiWindow::renderFrame() {
                 } else if (s == 2) {
                     drawIconEdit(hubX + 22.0f, curY + 10.0f, 10.0f, isExp ? theme.primaryAccent : theme.textSecondary);
                 } else if (s == 3) {
+                    drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 9.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
+                    drawLine(hubX + 25.0f, curY + 19.0f, hubX + 31.0f, curY + 19.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
+                } else if (s == 4) {
                     drawLine(hubX + 22.0f, curY + 15.0f, hubX + 32.0f, curY + 15.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 12.0f, hubX + 25.0f, curY + 18.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 10.0f, hubX + 28.0f, curY + 20.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                } else if (s == 4) {
+                } else if (s == 5) {
                     drawCircleOutline(hubX + 28.0f, curY + 15.0f, 5.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 14.0f, hubX + 28.0f, curY + 17.5f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawCircle(hubX + 28.0f, curY + 12.0f, 1.0f, isExp ? theme.primaryAccent : theme.textSecondary);
                 }
 
                 if (isExp) {
-                    float contentY = curY + 32.0f;
+                    // Drawer Container Well
+                    drawRoundedRect(drawerX, drawerY, drawerW, drawerH, 6.0f, theme.backgroundDark);
+                    drawRoundedRectOutline(drawerX, drawerY, drawerW, drawerH, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
+
+                    float contentY = drawerY;
                     if (s == 0) {
                         // SECTION 0: PROJECT HUB
                         // Composition Details Outer Card
@@ -3870,8 +4917,6 @@ void GuiWindow::renderFrame() {
                                                 Color(0.20f, 0.08f, 0.22f), Color(0.11f, 0.04f, 0.12f));
                         drawRoundedRectOutline(hubX + 40.0f + 2.0f * btnW, row2Y, btnW, 34.0f, 4.0f, Color(0.80f, 0.35f, 0.90f), 1.2f);
                         drawVectorString("SCRIPT VIEW", hubX + 58.0f + 2.0f * btnW, row2Y + 10.0f, 0.85f, Color(0.95f, 0.45f, 1.0f));
-
-                        curY += 190.0f;
                     } else if (s == 1) {
                         // SECTION 1: SESSION PERSISTENCE & AUTO-RESTORE
                         drawVectorString("Restore last project on startup", hubX + 28.0f, contentY + 14.0f, 0.85f, theme.textPrimary);
@@ -3900,8 +4945,6 @@ void GuiWindow::renderFrame() {
                         drawRoundedRect(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 30.0f, 4.0f, theme.controlWell);
                         drawRoundedRectOutline(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 30.0f, 4.0f, theme.borderSubtle, 1.0f);
                         drawVectorString("RESET TO DEFAULT TEMPLATE (CLEAN SLATE)", hubX + 110.0f, contentY + 82.0f, 0.80f, theme.textSecondary);
-
-                        curY += 114.0f;
                     } else if (s == 2) {
                         // SECTION 2: DISPLAY & WORKSPACE
                         // UI Magnification / Scale Chips
@@ -3962,8 +5005,13 @@ void GuiWindow::renderFrame() {
                         drawCircle(hiDpiEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 166.0f, 7.0f,
                                    hiDpiEnabled_ ? theme.primaryAccent : theme.textMuted);
 
-                        // CRT Curved Shaders
+                        // CRT Curved Shaders & Tweaker HUD Button
                         drawVectorString("Screen Shaders & CRT Glass Curvature", hubX + 28.0f, contentY + 186.0f, 0.85f, theme.textPrimary);
+                        // [TWEAK HUD] button
+                        drawRoundedRect(hubX + hubW - 165.0f, contentY + 180.0f, 82.0f, 22.0f, 4.0f, theme.controlBackground);
+                        drawRoundedRectOutline(hubX + hubW - 165.0f, contentY + 180.0f, 82.0f, 22.0f, 4.0f, theme.primaryAccent, 1.0f);
+                        drawVectorString("TWEAK HUD", hubX + hubW - 158.0f, contentY + 185.0f, 0.65f, theme.primaryAccent);
+                        // CRT toggle pill
                         drawRoundedRect(hubX + hubW - 70.0f, contentY + 182.0f, 44.0f, 20.0f, 10.0f,
                                        crtShaderEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
                         drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 182.0f, 44.0f, 20.0f, 10.0f,
@@ -3979,10 +5027,136 @@ void GuiWindow::renderFrame() {
                                               guiAnimationsEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
-
-                        curY += 244.0f;
                     } else if (s == 3) {
-                        // SECTION 3: AUDIO ENGINE CONFIG
+                        // SECTION 3: CRT SHADER (Scrollable within constrained drawer space)
+                        const float contentBaseY = drawerY - projectHubScrollY_;
+
+                        // Master Toggle Row
+                        float rowMasterY = contentBaseY + 6.0f;
+                        if (projectHubScrollArea_.isVisible(rowMasterY, 26.0f) && rowMasterY >= drawerY - 4.0f && rowMasterY + 26.0f <= drawerY + drawerH + 4.0f) {
+                            drawVectorString("CRT Screen Shader & Curvature Engine", drawerX + 12.0f, rowMasterY + 6.0f, 0.85f, theme.textPrimary);
+
+                            // [LIVE HUD (F10)] Button
+                            drawRoundedRect(drawerX + drawerW - 180.0f, rowMasterY, 108.0f, 22.0f, 4.0f, theme.controlBackground);
+                            drawRoundedRectOutline(drawerX + drawerW - 180.0f, rowMasterY, 108.0f, 22.0f, 4.0f, theme.primaryAccent, 1.0f);
+                            drawVectorString("LIVE HUD (F10)", drawerX + drawerW - 173.0f, rowMasterY + 5.0f, 0.65f, theme.primaryAccent);
+
+                            // CRT Toggle Switch
+                            drawRoundedRect(drawerX + drawerW - 60.0f, rowMasterY + 1.0f, 44.0f, 20.0f, 10.0f,
+                                           crtShaderEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
+                            drawRoundedRectOutline(drawerX + drawerW - 60.0f, rowMasterY + 1.0f, 44.0f, 20.0f, 10.0f,
+                                                  crtShaderEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
+                            drawCircle(crtShaderEnabled_ ? (drawerX + drawerW - 28.0f) : (drawerX + drawerW - 48.0f), rowMasterY + 11.0f, 7.0f,
+                                       crtShaderEnabled_ ? theme.primaryAccent : theme.textMuted);
+                        }
+
+                        // Presets Row
+                        float prY = contentBaseY + 36.0f;
+                        if (projectHubScrollArea_.isVisible(prY, 32.0f) && prY >= drawerY - 4.0f && prY + 32.0f <= drawerY + drawerH + 4.0f) {
+                            drawLine(drawerX + 12.0f, prY, drawerX + drawerW - 12.0f, prY, theme.borderSubtle.darken(0.15f), 1.0f);
+                            drawVectorString("PRESETS:", drawerX + 12.0f, prY + 9.0f, 0.65f, theme.primaryAccent);
+
+                            const char* prLabels[4] = {"STUDIO REF", "MAX CLARITY", "WARM VINTAGE", "RESET"};
+                            const float prWidths[4] = {92.0f, 98.0f, 102.0f, 68.0f};
+                            float prOffsets[4] = {74.0f, 172.0f, 276.0f, 384.0f};
+                            for (int p = 0; p < 4; ++p) {
+                                float px = drawerX + prOffsets[p];
+                                drawRoundedRect(px, prY + 5.0f, prWidths[p], 20.0f, 4.0f, theme.controlBackground);
+                                drawRoundedRectOutline(px, prY + 5.0f, prWidths[p], 20.0f, 4.0f, theme.borderSubtle, 1.0f);
+                                drawVectorString(prLabels[p], px + 8.0f, prY + 9.0f, 0.65f, theme.textSecondary);
+                            }
+                        }
+
+                        // Divider
+                        float divY = contentBaseY + 68.0f;
+                        if (divY >= drawerY && divY <= drawerY + drawerH) {
+                            drawLine(drawerX + 12.0f, divY, drawerX + drawerW - 12.0f, divY, theme.borderSubtle.darken(0.15f), 1.0f);
+                        }
+
+                        const auto& crtCfg = dawnBridge_.getMaterialConfig();
+                        char bufSoftness[32];
+                        snprintf(bufSoftness, sizeof(bufSoftness), (crtCfg.panelSoftness <= 0.01f) ? "0.00 px (SHARP)" : "%.2f px", crtCfg.panelSoftness);
+                        char bufBlackLift[32];
+                        snprintf(bufBlackLift, sizeof(bufBlackLift), (crtCfg.panelBlackLift <= 0.001f) ? "0.00 (PITCH BLACK)" : "+%.3f", crtCfg.panelBlackLift);
+
+                        struct HubSlider {
+                            std::string label;
+                            float minVal;
+                            float maxVal;
+                            float curVal;
+                            std::string valStr;
+                            bool isGreen;
+                        };
+
+                        HubSlider hSliders[11] = {
+                            {"SCANLINE INTENSITY (0 = NONE)", 0.0f, 1.0f, crtCfg.scanlineIntensity,
+                             (crtCfg.scanlineIntensity <= 0.005f) ? "0.00 (OFF / CRISP)" : (std::to_string(static_cast<int>(std::round(crtCfg.scanlineIntensity * 100.0f))) + "%"),
+                             (crtCfg.scanlineIntensity <= 0.005f)},
+                            {"CRT BULB CURVATURE", 0.0f, 1.50f, crtCfg.curvature,
+                             (crtCfg.curvature <= 0.01f) ? "0.00 (FLAT GLASS)" : (std::to_string(static_cast<int>(std::round(crtCfg.curvature * 100.0f))) + "%"), false},
+                            {"CRT TUBE ROOM REFLECTION", 0.0f, 1.0f, crtCfg.crtReflectionLevel,
+                             (crtCfg.crtReflectionLevel <= 0.005f) ? "0.00 (OFF / NONE)" : (std::to_string(static_cast<int>(std::round(crtCfg.crtReflectionLevel * 100.0f))) + "%"),
+                             (crtCfg.crtReflectionLevel <= 0.005f)},
+                            {"H-SYNC WAVE DISTORTION", 0.0f, 2.0f, crtCfg.hsyncDistortion,
+                             (crtCfg.hsyncDistortion <= 0.005f) ? "0.00 (ZERO / STATIC)" : (std::to_string(static_cast<int>(std::round(crtCfg.hsyncDistortion * 100.0f))) + "%"),
+                             (crtCfg.hsyncDistortion <= 0.005f)},
+                            {"SPOTLIGHT INTENSITY", 0.0f, 2.0f, crtCfg.spotlightIntensity,
+                             (crtCfg.spotlightIntensity <= 0.01f) ? "0.00 (FLAT LIGHT)" : (std::to_string(static_cast<int>(std::round(crtCfg.spotlightIntensity * 100.0f))) + "%"), false},
+                            {"SPOTLIGHT BEAM SIZE", 0.5f, 2.5f, crtCfg.spotlightSize,
+                             std::to_string(static_cast<int>(std::round(crtCfg.spotlightSize * 100.0f))) + "%", false},
+                            {"VIGNETTE CORNER FALLOFF", 0.0f, 2.0f, crtCfg.vignetteStrength,
+                             (crtCfg.vignetteStrength <= 0.01f) ? "0.00 (NONE)" : (std::to_string(static_cast<int>(std::round(crtCfg.vignetteStrength * 100.0f))) + "%"), false},
+                            {"BEZEL FRAME REFLECTION", 0.0f, 1.0f, crtCfg.reflectionOpacity,
+                             (crtCfg.reflectionOpacity <= 0.01f) ? "0.00 (MATTE)" : (std::to_string(static_cast<int>(std::round(crtCfg.reflectionOpacity * 100.0f))) + "%"), false},
+                            {"PANEL SOFTNESS (SUBPIXEL BLUR)", 0.0f, 1.50f, crtCfg.panelSoftness, bufSoftness, false},
+                            {"PANEL HARDWARE SATURATION", 0.0f, 1.0f, crtCfg.panelSaturation,
+                             std::to_string(static_cast<int>(std::round(crtCfg.panelSaturation * 100.0f))) + "%", false},
+                            {"PANEL BLACK FLOOR LIFT", 0.0f, 0.08f, crtCfg.panelBlackLift, bufBlackLift, false}
+                        };
+
+                        const float sTrackX = drawerX + 12.0f;
+                        const float sTrackW = drawerW - 32.0f;
+                        const float sTrackH = 5.0f;
+
+                        for (int i = 0; i < 11; ++i) {
+                            float rowY = contentBaseY + 76.0f + i * 46.0f;
+                            if (!projectHubScrollArea_.isVisible(rowY, 46.0f) || rowY < drawerY - 4.0f || rowY + 36.0f > drawerY + drawerH + 4.0f) continue;
+                            float trackY = rowY + 18.0f;
+
+                            // Label
+                            drawVectorString(hSliders[i].label, sTrackX, rowY + 2.0f, 0.65f, theme.textPrimary);
+
+                            // Value readout
+                            float valW = static_cast<float>(hSliders[i].valStr.size()) * 7.0f;
+                            drawVectorString(hSliders[i].valStr, sTrackX + sTrackW - valW, rowY + 2.0f, 0.68f,
+                                             hSliders[i].isGreen ? theme.playActive : theme.primaryAccent);
+
+                            // Track Background
+                            drawRoundedRect(sTrackX, trackY, sTrackW, sTrackH, 2.5f, theme.controlWell);
+                            drawRoundedRectOutline(sTrackX, trackY, sTrackW, sTrackH, 2.5f, theme.borderSubtle.darken(0.20f), 1.0f);
+
+                            // Fill bar
+                            float t = std::clamp((hSliders[i].curVal - hSliders[i].minVal) / (hSliders[i].maxVal - hSliders[i].minVal), 0.0f, 1.0f);
+                            float fillW = t * sTrackW;
+                            if (fillW > 2.0f) {
+                                drawRoundedRectGradient(sTrackX, trackY, fillW, sTrackH, 2.5f,
+                                                        theme.primaryAccent.darken(0.20f), theme.primaryAccent);
+                            }
+
+                            // Thumb
+                            float thumbX = sTrackX + fillW;
+                            float thumbY = trackY + 2.5f;
+                            drawCircle(thumbX, thumbY, 7.0f, theme.backgroundDark);
+                            drawCircle(thumbX, thumbY, 5.5f, theme.primaryAccent);
+                            drawCircleOutline(thumbX, thumbY, 5.5f, theme.textPrimary, 1.2f);
+                        }
+
+                        // Render scrollbar constrained inside the drawer
+                        if (projectHubScrollArea_.canScroll() && batchRenderer_) {
+                            projectHubScrollArea_.renderScrollbar(*batchRenderer_, theme);
+                        }
+                    } else if (s == 4) {
+                        // SECTION 4: AUDIO ENGINE CONFIG
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
 #if defined(__EMSCRIPTEN__)
@@ -3996,10 +5170,8 @@ void GuiWindow::renderFrame() {
                         drawVectorString("• Buffer Latency: 128 frames (~2.67 ms) / Strict Zero-Allocation Audio Loop", hubX + 32.0f, contentY + 46.0f, 0.75f, theme.textSecondary);
                         drawVectorString("• Script Engine: Dual-Mode Eatscript VM & SIMD AOT Transpiler (Pure C++20)", hubX + 32.0f, contentY + 62.0f, 0.75f, theme.textSecondary);
                         drawVectorString("• Lock-Free Concurrency: SPSC Wait-Free Event & Meter Ringbuffers", hubX + 32.0f, contentY + 78.0f, 0.75f, theme.textSecondary);
-
-                        curY += 100.0f;
-                    } else if (s == 4) {
-                        // SECTION 4: CREDITS & ACKNOWLEDGMENTS
+                    } else if (s == 5) {
+                        // SECTION 5: CREDITS & ACKNOWLEDGMENTS
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
                         drawVectorString("• Stanford CCRMA / Bank-Bensa commuted waveguide piano, bass & guitar models.", hubX + 32.0f, contentY + 14.0f, 0.70f, theme.textPrimary);
@@ -4007,11 +5179,14 @@ void GuiWindow::renderFrame() {
                         drawVectorString("• Vintage Soundchips: Commodore 64 MOS 6581 SID, SPC700, Yamaha YM2612 & DX7.", hubX + 32.0f, contentY + 46.0f, 0.70f, theme.textPrimary);
                         drawVectorString("• Studio FX: Convolution Reverb procedural IR simulator & 5-band parametric EQ.", hubX + 32.0f, contentY + 62.0f, 0.70f, theme.textPrimary);
                         drawVectorString("• Built with pure C++20, miniaudio, Google Filament, and NanoVG vector graphics.", hubX + 32.0f, contentY + 78.0f, 0.70f, theme.textPrimary);
-
-                        curY += 100.0f;
                     }
                 }
-                curY += 36.0f;
+            }
+
+            // Clean caps above and below drawer to prevent any subpixel bleed
+            if (projectHubSection_ >= 0) {
+                drawRect(hubX + 12.0f, drawerY - headerGap, hubW - 24.0f, headerGap, theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 1.0f);
+                drawRect(hubX + 12.0f, drawerY + drawerH, hubW - 24.0f, headerGap, theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 1.0f);
             }
 
             // Status message at bottom of modal
@@ -4026,6 +5201,58 @@ void GuiWindow::renderFrame() {
             if (batchRenderer_) {
                 valueEditDialog_.render(*batchRenderer_, theme);
             }
+        }
+
+        // 6a. STACKED ICON SEARCH MODAL DIALOG (stacked above value edit dialog)
+        if (valueEditDialog_.isOpen() && modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            modularArrangerView_->getIconSearchDialog().layout(static_cast<float>(width_), static_cast<float>(height_));
+            if (batchRenderer_) {
+                modularArrangerView_->getIconSearchDialog().render(*batchRenderer_, theme);
+            }
+        }
+
+        // 6b. AUDIO TO MIDI TRANSCRIPTION MODAL DIALOG
+        if (audioToMidiDialog_.isOpen()) {
+            audioToMidiDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+            audioToMidiDialog_.update(0.016f);
+            if (batchRenderer_) {
+                audioToMidiDialog_.render(*batchRenderer_, theme);
+            }
+        }
+
+        // 7. UNIVERSAL QUICK COMMAND PALETTE DIALOG (Ctrl+P / Ctrl+K / Search)
+        if (commandPaletteDialog_.isOpen()) {
+            commandPaletteDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+            commandPaletteDialog_.update(0.016f);
+            if (batchRenderer_) {
+                commandPaletteDialog_.render(*batchRenderer_, theme);
+            }
+        }
+
+        // 7b. REUSABLE MODAL PLUGIN / FX SEARCH DIALOG (Full-Screen Backdrop)
+        PluginSearchDialog* activePluginDialog = nullptr;
+        if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+            if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
+                activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
+            } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+                activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
+            }
+        } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+            if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+                activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
+            }
+        }
+
+        if (activePluginDialog && activePluginDialog->isOpen()) {
+            activePluginDialog->layout(static_cast<float>(width_), static_cast<float>(height_));
+            if (batchRenderer_) {
+                activePluginDialog->render(*batchRenderer_, theme);
+            }
+        }
+
+        // 8. CRT SHADER & CHASSIS TWEAKER HUD MODAL
+        if (crtTweakerOpen_) {
+            renderCrtTweakerModal();
         }
 
         // Persistent Floating Status Toast Overlay (F10 / F11 / Action Feedback)
@@ -4069,14 +5296,14 @@ void GuiWindow::renderFrame() {
 
 DialogLayout GuiWindow::computeDialogLayout(float w, float h) const noexcept {
     DialogLayout dl{};
-    dl.w = w;
-    dl.h = h;
+    dl.w = std::min(w, static_cast<float>(width_) - 24.0f);
+    dl.h = std::min(h, static_cast<float>(height_) - 24.0f);
     dl.x = std::max(12.0f, (static_cast<float>(width_) - dl.w) * 0.5f);
     dl.y = std::max(12.0f, (static_cast<float>(height_) - dl.h) * 0.5f);
     dl.contentX = dl.x + 16.0f;
     dl.contentY = dl.y + 48.0f;
     dl.contentW = dl.w - 32.0f;
-    dl.contentH = dl.h - 86.0f;
+    dl.contentH = std::max(80.0f, dl.h - 86.0f);
     dl.closeBtnW = 24.0f;
     dl.closeBtnH = 24.0f;
     dl.closeBtnX = dl.x + dl.w - 32.0f;
@@ -4092,8 +5319,8 @@ DialogLayout GuiWindow::drawModalDialogFrame(const DialogFrameConfig& config) {
     const auto& theme = getTheme();
     DialogLayout dl = computeDialogLayout(config.width, config.height);
 
-    // High-performance GPU / Framebuffer soft blur & soft dimming backdrop
-    if (batchRenderer_) {
+    // Soft dimming backdrop (GPU blur disabled by default for maximum 60+ FPS performance)
+    if (config.enableBlur && batchRenderer_) {
         batchRenderer_->applyBackdropBlur(4.0f, 0.48f);
     }
 
@@ -4120,8 +5347,9 @@ DialogLayout GuiWindow::drawModalDialogFrame(const DialogFrameConfig& config) {
         float hClX = dl.closeBtnX + dl.closeBtnW * 0.5f;
         float hClY = dl.closeBtnY + dl.closeBtnH * 0.5f;
         bool hClHov = (mouseX_ >= dl.closeBtnX - 4.0f && mouseX_ <= dl.closeBtnX + dl.closeBtnW + 4.0f &&
-                       mouseY_ >= dl.closeBtnY - 4.0f && mouseY_ <= dl.closeBtnY + dl.closeBtnH + 4.0f);
-        drawIconScrewClose(hClX, hClY, 9.0f, hClHov);
+                       mouseY_ >= dl.closeBtnY - 4.0f && mouseY_ <= dl.closeBtnY + dl.closeBtnH + 4.0f) ||
+                      (std::hypot(mouseX_ - hClX, mouseY_ - hClY) <= 13.0f);
+        drawIconScrewClose(hClX, hClY, 9.0f, hClHov, theme.primaryAccent);
     }
 
     // 5. Close Button [Bottom-Right]
@@ -4298,50 +5526,49 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
         return res;
     }
 
-    // 1. Studio Backlit Transport Buttons: Play, Stop, Record [54 to 174]
-    if (x >= 54.0f && x < 94.0f && y >= 8.0f && y <= 48.0f) {
+    // 1. Tactile Clustered Transport Keys: Play [54..92], Stop [92..130], Record [130..168]
+    if (x >= 54.0f && x < 92.0f && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::PlayPause;
         return res;
     }
-    if (x >= 94.0f && x < 134.0f && y >= 8.0f && y <= 48.0f) {
+    if (x >= 92.0f && x < 130.0f && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::Stop;
         return res;
     }
-    if (x >= 134.0f && x < 174.0f && y >= 8.0f && y <= 48.0f) {
+    if (x >= 130.0f && x < 168.0f && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::Record;
         return res;
     }
 
-    // 2. Retro Smoked-Glass LED Master Readout Console [178 to 178 + ledW]
-    const float ledX = 178.0f;
-    const float ledW = (width_ >= 980) ? 420.0f : 386.0f;
-    if (x >= ledX && x <= (ledX + ledW) && y >= 8.0f && y <= 48.0f) {
-        if (x >= (ledX + ledW - 74.0f)) {
-            res.hit = true;
-            res.action = TransportAction::Swing;
-            return res;
-        } else if (x >= (ledX + ledW - 135.0f)) {
-            res.hit = true;
-            res.action = TransportAction::Bpm;
-            return res;
-        }
-        // BAR | BEAT readout area click does not initiate play
-    }
-
-    // 3. Right-Side Industrial Tool Button: Presets/Browser [r - 60 to r - 8]
-    if (x >= (r - 60.0f) && x <= (r - 8.0f) && y >= 8.0f && y <= 48.0f) {
+    // 2. Minimal Recessed BPM Display Capsule [178 to 294]
+    if (x >= 176.0f && x <= 296.0f && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
-        res.action = TransportAction::BrowserToggle;
+        res.action = TransportAction::Bpm;
         return res;
     }
 
-    // Fullscreen Toggle Button [r - 114 to r - 62]
-    if (x >= (r - 114.0f) && x <= (r - 62.0f) && y >= 8.0f && y <= 48.0f) {
+    // 3. Right-Side Tactile Pushbuttons:
+    // Lock Button [r - 134 to r - 96]
+    if (x >= (r - 134.0f) && x < (r - 96.0f) && y >= 8.0f && y <= 48.0f) {
+        res.hit = true;
+        res.action = TransportAction::LockToggle;
+        return res;
+    }
+
+    // Search / Fullscreen Button [r - 96 to r - 66]
+    if (x >= (r - 96.0f) && x < (r - 66.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::FullscreenToggle;
+        return res;
+    }
+
+    // Folder / Preset Library Button [r - 66 to r - 4]
+    if (x >= (r - 66.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
+        res.hit = true;
+        res.action = TransportAction::BrowserToggle;
         return res;
     }
 
@@ -4510,7 +5737,7 @@ HitTestMixerResult GuiWindow::hitTestMixer(float x, float y) const noexcept {
     const float propW = mixerPropertiesExpanded_ ? mixerPropertiesWidth_ : 0.0f;
     const float pullTabW = kMixerPullTabW;
     const float drawerTotalW = mixerPropertiesExpanded_ ? (pullTabW + propW) : pullTabW;
-    const float browserOffset = browserOpen_ ? 440.0f : 0.0f;
+    const float browserOffset = browserOpen_ ? ProjectBrowserDrawer::getDrawerWidth() : 0.0f;
     const float rightBoundary = w - drawerTotalW - browserOffset;
     const float pullTabX = rightBoundary;
     const float propX = pullTabX + pullTabW;
@@ -5955,165 +7182,176 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
         return res;
     }
 
-    // 2. Accordion Sections
-    float curY = hubY + 50.0f;
-    for (int s = 0; s < 5; ++s) {
-        // Section Header bar [hubX + 12, curY, hubW - 24, 30]
-        if (y >= curY && y <= curY + 30.0f && x >= hubX + 12.0f && x <= hubX + hubW - 12.0f) {
+    const float topContentY = hubY + 50.0f;
+    const float footerY = hubY + hubH - 36.0f;
+    const float headerH = 30.0f;
+    const float headerGap = 6.0f;
+    const float headerStep = headerH + headerGap; // 36.0f
+    const int numSections = 6;
+    const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap;
+
+    float curDrawerH = 0.0f;
+    if (projectHubSection_ >= 0) {
+        if (projectHubSection_ == 0) curDrawerH = 190.0f;
+        else if (projectHubSection_ == 1) curDrawerH = 114.0f;
+        else if (projectHubSection_ == 2) curDrawerH = 244.0f;
+        else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
+        else if (projectHubSection_ == 4) curDrawerH = 100.0f;
+        else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+    }
+
+    const float drawerX = hubX + 16.0f;
+    const float drawerW = hubW - 32.0f;
+    const float drawerY = topContentY + (projectHubSection_ + 1) * headerStep;
+    const float drawerH = curDrawerH;
+
+    // 1. Check Section Headers hit FIRST (headers always receive clicks over underlying drawer bleed)
+    for (int s = 0; s < 6; ++s) {
+        float hY = 0.0f;
+        if (projectHubSection_ == -1 || s <= projectHubSection_) {
+            hY = topContentY + s * headerStep;
+        } else {
+            hY = drawerY + drawerH + headerGap + (s - (projectHubSection_ + 1)) * headerStep;
+        }
+
+        if (y >= hY && y <= hY + 30.0f && x >= hubX + 12.0f && x <= hubX + hubW - 12.0f) {
             res.action = ProjectHubAction::SectionHeader;
             res.sectionIndex = s;
             return res;
         }
+    }
 
-        if (projectHubSection_ == s) {
-            float contentStartY = curY + 32.0f;
-            if (s == 0) {
-                // Section 0: Project Hub
-                // Title Box [hubX + 24, contentStartY + 6, hubW - 48, 42]
-                if (y >= contentStartY + 6.0f && y <= contentStartY + 48.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::TitleClick;
-                    return res;
-                }
-                // Author Box [hubX + 24, contentStartY + 54, hubW - 48, 42]
-                if (y >= contentStartY + 54.0f && y <= contentStartY + 96.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::AuthorClick;
-                    return res;
-                }
-                // Action Buttons Grid (2 rows of 3 buttons)
-                const float btnW = (hubW - 48.0f - 16.0f) / 3.0f; // ~158px
-                const float row1Y = contentStartY + 104.0f;
-                const float row2Y = contentStartY + 144.0f;
+    // 2. If a section is open, check hit within drawer bounds
+    if (projectHubSection_ >= 0 && x >= drawerX && x <= drawerX + drawerW && y >= drawerY && y <= drawerY + drawerH) {
+        if (projectHubSection_ == 0) {
+            float contentStartY = drawerY;
+            if (y >= contentStartY + 6.0f && y <= contentStartY + 48.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::TitleClick;
+                return res;
+            }
+            if (y >= contentStartY + 54.0f && y <= contentStartY + 96.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::AuthorClick;
+                return res;
+            }
+            const float btnW = (hubW - 48.0f - 16.0f) / 3.0f;
+            const float row1Y = contentStartY + 104.0f;
+            const float row2Y = contentStartY + 144.0f;
 
-                if (y >= row1Y && y <= row1Y + 34.0f) {
-                    // Col 0: SAVE (.eats)
-                    if (x >= hubX + 24.0f && x <= hubX + 24.0f + btnW) {
-                        res.action = ProjectHubAction::SaveProject;
-                        return res;
-                    }
-                    // Col 1: SAVE AS...
-                    if (x >= hubX + 32.0f + btnW && x <= hubX + 32.0f + 2.0f * btnW) {
-                        res.action = ProjectHubAction::SaveAsProject;
-                        return res;
-                    }
-                    // Col 2: LOAD (.eats)
-                    if (x >= hubX + 40.0f + 2.0f * btnW && x <= hubX + 40.0f + 3.0f * btnW) {
-                        res.action = ProjectHubAction::LoadProject;
-                        return res;
-                    }
-                } else if (y >= row2Y && y <= row2Y + 34.0f) {
-                    // Col 0: NEW / RESET
-                    if (x >= hubX + 24.0f && x <= hubX + 24.0f + btnW) {
-                        res.action = ProjectHubAction::NewProject;
-                        return res;
-                    }
-                    // Col 1: BOUNCE WAV
-                    if (x >= hubX + 32.0f + btnW && x <= hubX + 32.0f + 2.0f * btnW) {
-                        res.action = ProjectHubAction::BounceWav;
-                        return res;
-                    }
-                    // Col 2: SCRIPT VIEW
-                    if (x >= hubX + 40.0f + 2.0f * btnW && x <= hubX + 40.0f + 3.0f * btnW) {
-                        res.action = ProjectHubAction::OpenScriptView;
+            if (y >= row1Y && y <= row1Y + 34.0f) {
+                if (x >= hubX + 24.0f && x <= hubX + 24.0f + btnW) { res.action = ProjectHubAction::SaveProject; return res; }
+                if (x >= hubX + 32.0f + btnW && x <= hubX + 32.0f + 2.0f * btnW) { res.action = ProjectHubAction::SaveAsProject; return res; }
+                if (x >= hubX + 40.0f + 2.0f * btnW && x <= hubX + 40.0f + 3.0f * btnW) { res.action = ProjectHubAction::LoadProject; return res; }
+            } else if (y >= row2Y && y <= row2Y + 34.0f) {
+                if (x >= hubX + 24.0f && x <= hubX + 24.0f + btnW) { res.action = ProjectHubAction::NewProject; return res; }
+                if (x >= hubX + 32.0f + btnW && x <= hubX + 32.0f + 2.0f * btnW) { res.action = ProjectHubAction::BounceWav; return res; }
+                if (x >= hubX + 40.0f + 2.0f * btnW && x <= hubX + 40.0f + 3.0f * btnW) { res.action = ProjectHubAction::OpenScriptView; return res; }
+            }
+        } else if (projectHubSection_ == 1) {
+            float contentStartY = drawerY;
+            if (y >= contentStartY + 6.0f && y <= contentStartY + 34.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleRestoreSession;
+                return res;
+            }
+            if (y >= contentStartY + 38.0f && y <= contentStartY + 66.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleAutosave;
+                return res;
+            }
+            if (y >= contentStartY + 74.0f && y <= contentStartY + 104.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ResetCleanSlate;
+                return res;
+            }
+        } else if (projectHubSection_ == 2) {
+            float contentStartY = drawerY;
+            if (y >= contentStartY + 24.0f && y <= contentStartY + 50.0f) {
+                const float scales[5] = {1.0f, 1.10f, 1.25f, 1.50f, 2.0f};
+                for (int sc = 0; sc < 5; ++sc) {
+                    float cx = hubX + 24.0f + sc * 64.0f;
+                    if (x >= cx && x <= cx + 58.0f) {
+                        res.action = ProjectHubAction::SetUiScale;
+                        res.scaleValue = scales[sc];
                         return res;
                     }
                 }
-                curY += 190.0f;
-            } else if (s == 1) {
-                // Section 1: Session Persistence & Auto-Restore
-                // Toggle Restore switch [hubX + hubW - 70, contentStartY + 6, 48, 28]
-                if (y >= contentStartY + 6.0f && y <= contentStartY + 34.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::ToggleRestoreSession;
+            }
+            if (y >= contentStartY + 68.0f && y <= contentStartY + 94.0f) {
+                for (int th = 0; th < 5; ++th) {
+                    float tx = hubX + 24.0f + th * 95.0f;
+                    if (x >= tx && x <= tx + 88.0f) {
+                        res.action = ProjectHubAction::SelectTheme;
+                        res.themeIndex = th;
+                        return res;
+                    }
+                }
+            }
+            if (y >= contentStartY + 116.0f && y <= contentStartY + 144.0f) {
+                if (x >= hubX + 24.0f && x <= hubX + 124.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 0; return res; }
+                if (x >= hubX + 132.0f && x <= hubX + 232.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 1; return res; }
+                if (x >= hubX + 240.0f && x <= hubX + 350.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 2; return res; }
+            }
+            if (y >= contentStartY + 154.0f && y <= contentStartY + 178.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleHiDpi;
+                return res;
+            }
+            if (y >= contentStartY + 180.0f && y <= contentStartY + 204.0f) {
+                if (x >= hubX + hubW - 170.0f && x <= hubX + hubW - 80.0f) { res.action = ProjectHubAction::OpenCrtTweaker; return res; }
+                if (x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) { res.action = ProjectHubAction::ToggleCrtShader; return res; }
+            }
+            if (y >= contentStartY + 206.0f && y <= contentStartY + 230.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleAnimations;
+                return res;
+            }
+        } else if (projectHubSection_ == 3) {
+            // Check scrollbar hit within drawer
+            if (projectHubScrollArea_.canScroll() && projectHubScrollArea_.getScrollbarTrackBounds().contains(x, y)) {
+                res.action = ProjectHubAction::Scrollbar;
+                return res;
+            }
+
+            float contentStartY = drawerY - projectHubScrollY_;
+
+            // CRT Switch & Live HUD Button
+            if (y >= contentStartY + 6.0f && y <= contentStartY + 30.0f) {
+                if (x >= drawerX + drawerW - 180.0f && x <= drawerX + drawerW - 72.0f) {
+                    res.action = ProjectHubAction::OpenCrtTweaker;
                     return res;
                 }
-                // Toggle Autosave switch [hubX + hubW - 70, contentStartY + 38, 48, 28]
-                if (y >= contentStartY + 38.0f && y <= contentStartY + 66.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::ToggleAutosave;
-                    return res;
-                }
-                // Reset clean slate button [hubX + 24, contentStartY + 74, hubW - 48, 30]
-                if (y >= contentStartY + 74.0f && y <= contentStartY + 104.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::ResetCleanSlate;
-                    return res;
-                }
-                curY += 114.0f;
-            } else if (s == 2) {
-                // Section 2: Display & Workspace
-                // Scale Chips [contentStartY + 24..contentStartY + 50]
-                if (y >= contentStartY + 24.0f && y <= contentStartY + 50.0f) {
-                    const float scales[5] = {1.0f, 1.10f, 1.25f, 1.50f, 2.0f};
-                    for (int sc = 0; sc < 5; ++sc) {
-                        float cx = hubX + 24.0f + sc * 64.0f;
-                        if (x >= cx && x <= cx + 58.0f) {
-                            res.action = ProjectHubAction::SetUiScale;
-                            res.scaleValue = scales[sc];
-                            return res;
-                        }
-                    }
-                }
-                // Theme Chips [contentStartY + 68..contentStartY + 94]
-                if (y >= contentStartY + 68.0f && y <= contentStartY + 94.0f) {
-                    for (int th = 0; th < 5; ++th) {
-                        float tx = hubX + 24.0f + th * 95.0f;
-                        if (x >= tx && x <= tx + 88.0f) {
-                            res.action = ProjectHubAction::SelectTheme;
-                            res.themeIndex = th;
-                            return res;
-                        }
-                    }
-                }
-                // Anti-Aliasing Chips [contentStartY + 116..contentStartY + 144]
-                if (y >= contentStartY + 116.0f && y <= contentStartY + 144.0f) {
-                    if (x >= hubX + 24.0f && x <= hubX + 124.0f) {
-                        res.action = ProjectHubAction::SetAntiAliasing;
-                        res.aaMode = 0;
-                        return res;
-                    }
-                    if (x >= hubX + 132.0f && x <= hubX + 232.0f) {
-                        res.action = ProjectHubAction::SetAntiAliasing;
-                        res.aaMode = 1;
-                        return res;
-                    }
-                    if (x >= hubX + 240.0f && x <= hubX + 350.0f) {
-                        res.action = ProjectHubAction::SetAntiAliasing;
-                        res.aaMode = 2;
-                        return res;
-                    }
-                }
-                // HiDPI Canvas Switch [contentStartY + 154..contentStartY + 178]
-                if (y >= contentStartY + 154.0f && y <= contentStartY + 178.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::ToggleHiDpi;
-                    return res;
-                }
-                // CRT Switch [contentStartY + 180..contentStartY + 204]
-                if (y >= contentStartY + 180.0f && y <= contentStartY + 204.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                if (x >= drawerX + drawerW - 60.0f && x <= drawerX + drawerW - 16.0f) {
                     res.action = ProjectHubAction::ToggleCrtShader;
                     return res;
                 }
-                // Animations Switch [contentStartY + 206..contentStartY + 230]
-                if (y >= contentStartY + 206.0f && y <= contentStartY + 230.0f &&
-                    x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
-                    res.action = ProjectHubAction::ToggleAnimations;
+            }
+
+            // Presets
+            if (y >= contentStartY + 38.0f && y <= contentStartY + 64.0f) {
+                if (x >= drawerX + 74.0f && x <= drawerX + 166.0f) { res.action = ProjectHubAction::CrtPresetStudioRef; return res; }
+                if (x >= drawerX + 172.0f && x <= drawerX + 270.0f) { res.action = ProjectHubAction::CrtPresetMaxClarity; return res; }
+                if (x >= drawerX + 276.0f && x <= drawerX + 378.0f) { res.action = ProjectHubAction::CrtPresetWarmVintage; return res; }
+                if (x >= drawerX + 384.0f && x <= drawerX + 452.0f) { res.action = ProjectHubAction::CrtPresetReset; return res; }
+            }
+
+            // Sliders 0..10
+            const float sTrackX = drawerX + 12.0f;
+            const float sTrackW = drawerW - 32.0f;
+            for (int i = 0; i < 11; ++i) {
+                float rowY = contentStartY + 76.0f + i * 46.0f;
+                if (y >= rowY + 6.0f && y <= rowY + 36.0f && x >= sTrackX - 4.0f && x <= sTrackX + sTrackW + 4.0f) {
+                    res.action = ProjectHubAction::CrtSlider;
+                    res.crtSliderIndex = i;
                     return res;
                 }
-                curY += 244.0f;
-            } else if (s == 3) {
-                // Section 3: Audio Engine Config (Informational)
-                curY += 100.0f;
-            } else if (s == 4) {
-                // Section 4: Credits & Acknowledgments (Informational)
-                curY += 100.0f;
             }
-        }
-        curY += 36.0f;
-    }
 
+            res.action = ProjectHubAction::ContentDrag;
+            return res;
+        }
+    }
     return res;
 }
 
@@ -6710,107 +7948,117 @@ void GuiWindow::initNoteScriptEditor() {
 void GuiWindow::initArrangerTracks() {
     arrangerTracks_.clear();
 
-    // Track 0: TB-303 Acid (Synth)
+    // Track 0: 303 Acid Bass (Synth)
     {
         ArrangerTrackData t0;
-        t0.name = "TB-303 Acid";
+        t0.name = "303 Acid Bass";
         t0.type = "SYNTH";
-        t0.r = 0.0f; t0.g = 0.90f; t0.b = 1.0f;
+        t0.r = 1.0f; t0.g = 0.55f; t0.b = 0.0f;
         t0.volume = 0.8f;
         t0.eqLow = 0.5f; t0.eqMid = 0.65f; t0.eqHigh = 0.55f;
 
         ArrangerClip c1;
-        c1.name = "TB-303 Riff 01";
+        c1.name = "Acid Pattern A";
         c1.startBar = 1;
         c1.barLength = 4;
-        c1.isLooped = true;
+        c1.isLooped = false;
         c1.loopLengthBars = 4;
-        c1.r = 0.0f; c1.g = 0.90f; c1.b = 1.0f;
+        c1.r = 1.0f; c1.g = 0.55f; c1.b = 0.0f;
         t0.clips.push_back(c1);
 
         ArrangerClip c2;
-        c2.name = "TB-303 Acid Variation";
+        c2.name = "Acid Pattern B";
         c2.startBar = 5;
         c2.barLength = 4;
-        c2.isLooped = true;
+        c2.isLooped = false;
         c2.loopLengthBars = 4;
-        c2.r = 0.0f; c2.g = 0.80f; c2.b = 0.95f;
+        c2.r = 1.0f; c2.g = 0.55f; c2.b = 0.0f;
         t0.clips.push_back(c2);
 
         arrangerTracks_.push_back(t0);
     }
 
-    // Track 1: TR-808 Drums (Sampler)
+    // Track 1: TR-808 Kit (Sampler)
     {
         ArrangerTrackData t1;
-        t1.name = "TR-808 Drums";
+        t1.name = "TR-808 Kit";
         t1.type = "SAMPLER";
-        t1.r = 1.0f; t1.g = 0.55f; t1.b = 0.0f;
+        t1.r = 0.13f; t1.g = 0.96f; t1.b = 0.91f;
         t1.volume = 0.85f;
         t1.eqLow = 0.70f; t1.eqMid = 0.50f; t1.eqHigh = 0.60f;
 
         ArrangerClip c1;
-        c1.name = "808 Electro Pattern";
+        c1.name = "808 Beat 01";
         c1.startBar = 1;
         c1.barLength = 8;
         c1.isLooped = true;
         c1.loopLengthBars = 4;
-        c1.r = 1.0f; c1.g = 0.60f; c1.b = 0.1f;
+        c1.r = 0.13f; c1.g = 0.96f; c1.b = 0.91f;
         t1.clips.push_back(c1);
 
         arrangerTracks_.push_back(t1);
     }
 
-    // Track 2: Sub Bass (Mono)
+    // Track 2: TR-909 Drive (Drums)
     {
         ArrangerTrackData t2;
-        t2.name = "Sub Bass";
-        t2.type = "MONO";
-        t2.r = 0.0f; t2.g = 0.90f; t2.b = 0.45f;
-        t2.volume = 0.75f;
-        t2.eqLow = 0.80f; t2.eqMid = 0.40f; t2.eqHigh = 0.35f;
+        t2.name = "TR-909 Drive";
+        t2.type = "SAMPLER";
+        t2.r = 1.0f; t2.g = 0.16f; t2.b = 0.43f;
+        t2.volume = 0.80f;
+        t2.eqLow = 0.80f; t2.eqMid = 0.50f; t2.eqHigh = 0.60f;
 
         ArrangerClip c1;
-        c1.name = "Sub Groove Stem";
-        c1.startBar = 1;
-        c1.barLength = 8;
-        c1.isLooped = true;
+        c1.name = "909 Groove";
+        c1.startBar = 5;
+        c1.barLength = 4;
+        c1.isLooped = false;
         c1.loopLengthBars = 4;
-        c1.r = 0.2f; c1.g = 0.90f; c1.b = 0.45f;
+        c1.r = 1.0f; c1.g = 0.16f; c1.b = 0.43f;
         t2.clips.push_back(c1);
 
         arrangerTracks_.push_back(t2);
     }
 
-    // Track 3: Poly Lead (Poly)
+    // Track 3: DX7 Rhodes (FM Electric Piano)
     {
         ArrangerTrackData t3;
-        t3.name = "Poly Lead";
+        t3.name = "DX7 Rhodes";
         t3.type = "SYNTH";
-        t3.r = 0.90f; t3.g = 0.20f; t3.b = 0.85f;
-        t3.volume = 0.78f;
+        t3.r = 0.62f; t3.g = 0.31f; t3.b = 0.87f;
+        t3.volume = 0.75f;
         t3.eqLow = 0.40f; t3.eqMid = 0.60f; t3.eqHigh = 0.70f;
 
         ArrangerClip c1;
-        c1.name = "Synth Chord Progression";
-        c1.startBar = 5;
+        c1.name = "Chords A";
+        c1.startBar = 1;
         c1.barLength = 8;
-        c1.isLooped = true;
-        c1.loopLengthBars = 4;
-        c1.r = 0.90f; c1.g = 0.30f; c1.b = 0.85f;
+        c1.isLooped = false;
+        c1.loopLengthBars = 8;
+        c1.r = 0.62f; c1.g = 0.31f; c1.b = 0.87f;
         t3.clips.push_back(c1);
 
         arrangerTracks_.push_back(t3);
     }
 
-    // Track 4: Waveguide Piano (Physical Modeling)
+    // Track 4: Concert Grand (Physical Modeling Piano)
     {
         ArrangerTrackData t4;
-        t4.name = "Waveguide Piano";
+        t4.name = "Concert Grand";
         t4.type = "PHYSICAL";
         t4.r = 0.88f; t4.g = 0.66f; t4.b = 0.43f;
-        t4.volume = 0.85f;
+        t4.volume = 0.75f;
         t4.eqLow = 0.50f; t4.eqMid = 0.50f; t4.eqHigh = 0.50f;
+
+        ArrangerClip c1;
+        c1.name = "Piano Solo";
+        c1.startBar = 9;
+        c1.barLength = 8;
+        c1.isLooped = false;
+        c1.loopLengthBars = 8;
+        c1.r = 0.88f; c1.g = 0.66f; c1.b = 0.43f;
+        t4.clips.push_back(c1);
+
         arrangerTracks_.push_back(t4);
     }
 }
@@ -6866,9 +8114,7 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             recordProjectHistory("Toggle Solo on Track " + std::to_string(tIdx + 1), "TRACK");
             break;
         case TrackInspectorHitArea::FreezeButton:
-            trk.freeze = !trk.freeze;
-            if (tIdx < mixerStrips_.size()) mixerStrips_[tIdx].freeze = trk.freeze;
-            recordProjectHistory("Toggle Freeze on Track " + std::to_string(tIdx + 1), "TRACK");
+            setTrackFreezeState(tIdx, !trk.freeze);
             break;
         case TrackInspectorHitArea::VolumeSlider:
             dragMode_ = DragMode::TrackInspectorVolume;
@@ -7238,6 +8484,42 @@ void GuiWindow::runMacro(size_t macroIndex) {
     if (res.success) {
         lastStatusMessage_ = "MACRO: " + macros[macroIndex].name + " EXECUTED";
         recordProjectHistory("Ran Macro: " + macros[macroIndex].name, "MACRO");
+
+        if (macroIndex == 4) {
+            // Procedural Song: sync arranger timeline tracks & clips
+            procgen::SongGenerationParams p;
+            p.style = "Lo-Fi Hip Hop";
+            p.bars = 16;
+            p.seed = 42;
+            auto songRes = procgen::ProceduralSongEngine::generateSong(p);
+            if (songRes.success && !songRes.generatedTracks.empty()) {
+                arrangerTracks_.clear();
+                for (const auto& gt : songRes.generatedTracks) {
+                    ArrangerTrackData atd;
+                    atd.name = gt.name;
+                    atd.type = gt.instrumentEngine;
+                    atd.volume = gt.volume;
+                    atd.pan = gt.pan;
+                    atd.r = gt.r;
+                    atd.g = gt.g;
+                    atd.b = gt.b;
+                    for (const auto& c : gt.clips) {
+                        ArrangerClip ac;
+                        ac.name = c.name;
+                        ac.startBar = c.startBar;
+                        ac.barLength = c.lengthBars;
+                        ac.r = c.r;
+                        ac.g = c.g;
+                        ac.b = c.b;
+                        atd.clips.push_back(ac);
+                    }
+                    arrangerTracks_.push_back(std::move(atd));
+                }
+                projectName_ = "Lo-Fi Hip Hop (Procedural)";
+                if (engine_) engine_->getSequencer().setBpm(songRes.bpm);
+            }
+        }
+
         // If on note script view, synchronize script editor with new track data
         if (selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
             auto* trk = engine_->getSequencer().getTrack(selectedTrackIndex_);
@@ -7283,12 +8565,14 @@ bool GuiWindow::loadProjectFromFile(const std::string& filePath) {
             projectName_ = title;
         }
         projectFilePath_ = filePath;
+        engine_->setEngineMode(audio::SynthEngineMode::ModularGraph);
         engine_->getGraph().compile();
         canvas_.updateRackLayout(engine_->getGraph());
         updateMixerStrips();
+        syncArrangerFromSequencer();
         initDefaultKnobValues();
         initHistory();
-        lastStatusMessage_ = "LOADED PROJECT: " + title;
+        lastStatusMessage_ = "LOADED PROJECT: " + (title.empty() ? filePath : title);
     } else {
         lastStatusMessage_ = "ERROR: FAILED TO LOAD " + filePath;
     }
@@ -7774,25 +9058,19 @@ HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float
     const float tabH = 20.0f;
     const float tabX = (static_cast<float>(width_) - tabW) * 0.5f;
 
-    if (!virtualKeyboardDrawerOpen_) {
-        // Tab parked right above bottom chin bar
-        float tabY = bPanelY - tabH;
-        if (mx >= tabX && mx <= tabX + tabW && my >= tabY && my <= bPanelY) {
-            res.hit = true;
-            res.isPullTab = true;
-            return res;
-        }
-    } else {
-        float drawerY = bPanelY - virtualKeyboardDrawerHeight_;
-        float tabY = drawerY - tabH;
+    float animProg = guiAnimationsEnabled_ ? virtualKeyboardAnimProgress_ : (virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f);
+    float currentH = virtualKeyboardDrawerHeight_ * animProg;
+    float drawerY = bPanelY - currentH;
+    float tabY = drawerY - tabH;
 
-        // Pull Tab at top of open drawer
-        if (mx >= tabX && mx <= tabX + tabW && my >= tabY && my <= drawerY) {
-            res.hit = true;
-            res.isPullTab = true;
-            return res;
-        }
+    // Pull-tab hit test (active in both open and closed animated states)
+    if (mx >= tabX && mx <= tabX + tabW && my >= tabY && my <= (currentH > 0.0f ? drawerY + 4.0f : bPanelY)) {
+        res.hit = true;
+        res.isPullTab = true;
+        return res;
+    }
 
+    if (animProg > 0.2f && currentH > 30.0f) {
         // Inside Drawer Body
         if (my >= drawerY && my <= bPanelY && mx >= 0.0f && mx <= static_cast<float>(width_)) {
             res.hit = true;
@@ -7815,14 +9093,16 @@ HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float
             float kx = 16.0f;
             float ky = drawerY + 28.0f;
             float kw = static_cast<float>(width_) - 32.0f;
-            float kh = virtualKeyboardDrawerHeight_ - 34.0f;
+            float kh = currentH - 34.0f;
 
-            auto keyHit = virtualPianoDrawerKeyboard_.hitTest(mx, my, kx, ky, kw, kh, 0.0f);
-            if (keyHit.hit) {
-                res.isKey = true;
-                res.pitch = keyHit.pitch;
-                res.velocity = keyHit.velocity;
-                return res;
+            if (kh > 20.0f && my >= ky && my <= ky + kh && mx >= kx && mx <= kx + kw) {
+                auto keyHit = virtualPianoDrawerKeyboard_.hitTest(mx, my, kx, ky, kw, kh, 0.0f);
+                if (keyHit.hit) {
+                    res.isKey = true;
+                    res.pitch = keyHit.pitch;
+                    res.velocity = keyHit.velocity;
+                    return res;
+                }
             }
         }
     }
@@ -7837,28 +9117,35 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
     const float tabX = (static_cast<float>(width_) - tabW) * 0.5f;
     const auto& theme = getTheme();
 
-    if (!virtualKeyboardDrawerOpen_) {
+    // Smooth ease-in animation step (speed matching ProjectBrowserDrawer)
+    float target = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
+    constexpr float speed = 28.0f;
+    virtualKeyboardAnimProgress_ += (target - virtualKeyboardAnimProgress_) * std::clamp(0.016f * speed, 0.0f, 1.0f);
+    if (std::abs(virtualKeyboardAnimProgress_ - target) < 0.005f) {
+        virtualKeyboardAnimProgress_ = target;
+    }
+
+    float currentH = virtualKeyboardDrawerHeight_ * virtualKeyboardAnimProgress_;
+    float drawerY = bPanelY - currentH;
+    float tabY = drawerY - tabH;
+
+    if (virtualKeyboardAnimProgress_ <= 0.001f) {
         // Closed: draw pull-tab docked above bottom bar
-        float tabY = bPanelY - tabH;
-        drawRoundedRectGradient(tabX, tabY, tabW, tabH + 4.0f, 4.0f,
+        float closedTabY = bPanelY - tabH;
+        drawRoundedRectGradient(tabX, closedTabY, tabW, tabH + 4.0f, 4.0f,
                                 theme.controlBackground, theme.controlWell);
-        drawRoundedRectOutline(tabX, tabY, tabW, tabH + 4.0f, 4.0f,
+        drawRoundedRectOutline(tabX, closedTabY, tabW, tabH + 4.0f, 4.0f,
                                theme.borderSubtle, 1.0f);
         if (batchRenderer_) {
-            drawPianoIcon(*batchRenderer_, tabX + 16.0f, tabY + 4.5f, 16.0f, 11.0f, theme.primaryAccent);
-            drawCenteredText(*batchRenderer_, "VIRTUAL PIANO", tabX + 36.0f, tabY, tabW - 44.0f, tabH, 10.5f, theme.primaryAccent);
+            drawPianoIcon(*batchRenderer_, tabX + 16.0f, closedTabY + 4.5f, 16.0f, 11.0f, theme.primaryAccent);
+            drawCenteredText(*batchRenderer_, "VIRTUAL PIANO", tabX + 36.0f, closedTabY, tabW - 44.0f, tabH, 10.5f, theme.primaryAccent);
         } else {
-            drawVectorString("VIRTUAL PIANO", tabX + 38.0f, tabY + 5.0f, 0.72f, theme.primaryAccent);
+            drawVectorString("VIRTUAL PIANO", tabX + 38.0f, closedTabY + 5.0f, 0.72f, theme.primaryAccent);
         }
         return;
     }
 
-    // Open: drawer chassis
-    float drawerY = bPanelY - virtualKeyboardDrawerHeight_;
-    float drawerH = virtualKeyboardDrawerHeight_;
-    float tabY = drawerY - tabH;
-
-    // Pull Tab to close
+    // Pull Tab above drawer sliding smoothly
     drawRoundedRectGradient(tabX, tabY, tabW, tabH + 4.0f, 4.0f,
                             theme.controlBackground, theme.controlWell);
     drawRoundedRectOutline(tabX, tabY, tabW, tabH + 4.0f, 4.0f,
@@ -7870,36 +9157,47 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
         drawVectorString("VIRTUAL PIANO", tabX + 38.0f, tabY + 5.0f, 0.72f, theme.secondaryAccent);
     }
 
-    // Chassis background with drop shadow and sleek bevel
-    drawRect(0.0f, drawerY - 4.0f, static_cast<float>(width_), 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
-    drawRectGradient(0.0f, drawerY, static_cast<float>(width_), drawerH,
-                     0.12f, 0.13f, 0.17f, 0.07f, 0.08f, 0.10f);
-    drawLine(0.0f, drawerY, static_cast<float>(width_), drawerY, 0.0f, 0.85f, 1.0f, 0.9f, 1.5f);
+    // Chassis background with drop shadow and sleek bevel following theme
+    drawRect(0.0f, drawerY - 4.0f, static_cast<float>(width_), 4.0f, 0.0f, 0.0f, 0.0f, 0.45f * virtualKeyboardAnimProgress_);
+    drawRectGradient(0.0f, drawerY, static_cast<float>(width_), currentH,
+                     theme.panelBackground.lighten(0.04f).r, theme.panelBackground.lighten(0.04f).g, theme.panelBackground.lighten(0.04f).b,
+                     theme.panelBackground.darken(0.12f).r, theme.panelBackground.darken(0.12f).g, theme.panelBackground.darken(0.12f).b);
+    drawLine(0.0f, drawerY, static_cast<float>(width_), drawerY,
+             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f * virtualKeyboardAnimProgress_, 1.5f);
+
+    if (virtualKeyboardAnimProgress_ <= 0.15f || currentH <= 40.0f) {
+        return;
+    }
 
     // Top Header / Toolbar inside Drawer
-    drawVectorString("VIRTUAL PIANO KEYBOARD", 20.0f, drawerY + 6.0f, 0.85f, 0.0f, 0.95f, 1.0f);
-    drawVectorString("| TOUCH / DRAG GLISSANDO & VELOCITY", 210.0f, drawerY + 6.0f, 0.70f, 0.55f, 0.60f, 0.70f);
+    drawVectorString("VIRTUAL PIANO KEYBOARD", 20.0f, drawerY + 6.0f, 0.85f, theme.primaryAccent);
+    drawVectorString("| TOUCH / DRAG GLISSANDO & VELOCITY", 210.0f, drawerY + 6.0f, 0.70f, theme.textMuted);
 
     // Octave controls
     // [< OCT] button
-    drawRoundedRect(240.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f, 0.16f, 0.18f, 0.24f);
-    drawRoundedRectOutline(240.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f, 0.35f, 0.40f, 0.55f, 1.0f, 1.0f);
-    drawVectorStringCentered("< OCT", 270.0f, drawerY + 14.0f, 0.70f, 0.9f, 0.9f, 1.0f);
+    drawRoundedRect(240.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f,
+                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 1.0f);
+    drawRoundedRectOutline(240.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f,
+                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
+    drawVectorStringCentered("< OCT", 270.0f, drawerY + 14.0f, 0.70f, theme.textPrimary);
 
     // Current Octave Label
     std::string octText = "OCTAVE: C" + std::to_string(virtualKeyboardBaseOctave_);
-    drawVectorString(octText, 320.0f, drawerY + 6.5f, 0.75f, 1.0f, 0.85f, 0.20f);
+    drawVectorString(octText, 320.0f, drawerY + 6.5f, 0.75f, theme.secondaryAccent);
 
     // [OCT >] button
-    drawRoundedRect(420.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f, 0.16f, 0.18f, 0.24f);
-    drawRoundedRectOutline(420.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f, 0.35f, 0.40f, 0.55f, 1.0f, 1.0f);
-    drawVectorStringCentered("OCT >", 450.0f, drawerY + 14.0f, 0.70f, 0.9f, 0.9f, 1.0f);
+    drawRoundedRect(420.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f,
+                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 1.0f);
+    drawRoundedRectOutline(420.0f, drawerY + 3.0f, 60.0f, 22.0f, 3.0f,
+                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
+    drawVectorStringCentered("OCT >", 450.0f, drawerY + 14.0f, 0.70f, theme.textPrimary);
 
     // Keyboard geometry
     const float kx = 16.0f;
     const float ky = drawerY + 28.0f;
     const float kw = static_cast<float>(width_) - 32.0f;
-    const float kh = drawerH - 34.0f;
+    const float kh = currentH - 34.0f;
+    if (kh <= 10.0f) return;
 
     int startPitch = (virtualKeyboardBaseOctave_ + 1) * 12;
     int octavesCount = virtualPianoDrawerKeyboard_.getOctavesCount();
@@ -7917,19 +9215,23 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
             bool isPressed = (previewingPitch_ == p || virtualKeyboardActivePitch_ == p);
 
             if (isPressed) {
-                drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh, 0.0f, 0.85f, 1.0f, 0.0f, 0.55f, 0.80f);
+                drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh,
+                                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b,
+                                 theme.primaryAccent.darken(0.35f).r, theme.primaryAccent.darken(0.35f).g, theme.primaryAccent.darken(0.35f).b);
                 // Dynamic Velocity Fill Bar (extending from bottom up, matching top-is-higher velocity)
                 float fillH = std::clamp(kh * previewingVelocity_, 4.0f, kh);
-                drawRect(wx, ky + kh - fillH, whiteKeyW - 1.0f, fillH, 0.0f, 0.95f, 1.0f, 0.85f);
+                drawRect(wx, ky + kh - fillH, whiteKeyW - 1.0f, fillH,
+                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.90f);
             } else {
                 drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh, 0.92f, 0.94f, 0.97f, 0.76f, 0.78f, 0.82f);
             }
-            drawRectOutline(wx, ky, whiteKeyW - 1.0f, kh, 0.25f, 0.28f, 0.35f, 1.0f, 1.0f);
+            drawRectOutline(wx, ky, whiteKeyW - 1.0f, kh, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.85f, 1.0f);
 
             // Note label on white key bottom lip
             if (p % 12 == 0) {
                 std::string cLabel = "C" + std::to_string(p / 12 - 1);
-                drawVectorString(cLabel, wx + 4.0f, ky + kh - 18.0f, 0.75f, 0.15f, 0.18f, 0.25f, 1.0f);
+                Color lblCol = isPressed ? Color(1.0f, 1.0f, 1.0f, 1.0f) : theme.textMuted;
+                drawVectorString(cLabel, wx + 4.0f, ky + kh - 18.0f, 0.75f, lblCol);
             }
             currWhite++;
         }
@@ -7944,14 +9246,17 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
             bool isPressed = (previewingPitch_ == p || virtualKeyboardActivePitch_ == p);
 
             if (isPressed) {
-                drawRectGradient(bx, ky, blackKeyW, blackKeyH, 0.0f, 0.95f, 1.0f, 0.0f, 0.50f, 0.80f);
+                drawRectGradient(bx, ky, blackKeyW, blackKeyH,
+                                 theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b,
+                                 theme.secondaryAccent.darken(0.40f).r, theme.secondaryAccent.darken(0.40f).g, theme.secondaryAccent.darken(0.40f).b);
                 // Dynamic Velocity Fill Bar (extending from bottom up, matching top-is-higher velocity)
                 float fillH = std::clamp(blackKeyH * previewingVelocity_, 4.0f, blackKeyH);
-                drawRect(bx, ky + blackKeyH - fillH, blackKeyW, fillH, 0.10f, 0.95f, 1.0f, 0.90f);
+                drawRect(bx, ky + blackKeyH - fillH, blackKeyW, fillH,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f);
             } else {
                 drawRectGradient(bx, ky, blackKeyW, blackKeyH, 0.22f, 0.24f, 0.30f, 0.08f, 0.09f, 0.12f);
             }
-            drawRectOutline(bx, ky, blackKeyW, blackKeyH, 0.35f, 0.40f, 0.50f, 1.0f, 1.0f);
+            drawRectOutline(bx, ky, blackKeyW, blackKeyH, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.90f, 1.0f);
         } else {
             currWhite++;
         }
@@ -8213,9 +9518,9 @@ void GuiWindow::drawNoteSelectionSidebar(float x, float y, float width, float he
     // Close Button [x + width - 30, y + 5, 22, 22]
     float closeX = x + width - 30.0f;
     float closeY = y + 5.0f;
-    drawRect(closeX, closeY, 22.0f, 22.0f, 0.15f, 0.17f, 0.22f);
-    drawRectOutline(closeX, closeY, 22.0f, 22.0f, 0.35f, 0.40f, 0.50f, 1.0f, 1.0f);
-    drawVectorString("X", closeX + 7.0f, closeY + 5.0f, 0.75f, 0.70f, 0.75f, 0.85f);
+    bool closeHov = (mouseX_ >= closeX - 2.0f && mouseX_ <= closeX + 24.0f && mouseY_ >= closeY - 2.0f && mouseY_ <= closeY + 24.0f) ||
+                    (std::hypot(mouseX_ - (closeX + 11.0f), mouseY_ - (closeY + 11.0f)) <= 12.0f);
+    drawIconScrewClose(closeX + 11.0f, closeY + 11.0f, 8.5f, closeHov, getTheme().primaryAccent);
 
     // 3. Summary Box (Y: y + 38 .. y + 78)
     float sumY = y + 38.0f;
@@ -8588,7 +9893,7 @@ HitTestArrangerResult GuiWindow::hitTestArranger(float x, float y) const noexcep
     const float propW = arrangerPropertiesExpanded_ ? arrangerPropertiesWidth_ : 0.0f;
     const float pullTabW = kArrangerPullTabW;
     const float drawerTotalW = arrangerPropertiesExpanded_ ? (pullTabW + propW) : pullTabW;
-    const float browserOffset = browserOpen_ ? 440.0f : 0.0f;
+    const float browserOffset = browserOpen_ ? ProjectBrowserDrawer::getDrawerWidth() : 0.0f;
     const float rightBoundary = w - drawerTotalW - browserOffset;
     const float pullTabX = rightBoundary;
     const float propX = pullTabX + pullTabW;
@@ -8825,7 +10130,92 @@ HitTestArrangerResult GuiWindow::hitTestArranger(float x, float y) const noexcep
 }
 
 void GuiWindow::onMouseMove(float x, float y) {
+    // Intercept if Plugin Search Modal Dialog is open
+    PluginSearchDialog* activePluginDialog = nullptr;
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
+            activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
+        } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    }
+
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        if (activePluginDialog->handlePointer(pev)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
+        mouseX_ = x;
+        mouseY_ = y;
+        return; // Absorb events behind modal
+    }
+
+    if (commandPaletteDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        if (commandPaletteDialog_.handlePointer(pev)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        if (audioToMidiDialog_.handlePointer(pev)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
+    }
+
     if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Move;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            pev.dx = x - mouseX_;
+            pev.dy = y - mouseY_;
+            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) {
+                mouseX_ = x;
+                mouseY_ = y;
+                return;
+            }
+        }
+
         PointerEvent pev;
         pev.type = PointerType::Mouse;
         pev.action = PointerAction::Move;
@@ -8840,6 +10230,19 @@ void GuiWindow::onMouseMove(float x, float y) {
             mouseY_ = y;
             return;
         }
+    }
+
+    if (browserOpen_ && projectBrowserDrawerWidget_) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        projectBrowserDrawerWidget_->handlePointer(pev);
     }
 
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -9245,6 +10648,24 @@ void GuiWindow::onMouseMove(float x, float y) {
             float scrollDelta = (deltaY / scrollRange) * (maxScroll + scrollRange);
             trackInspectorScrollY_ = std::clamp(dragStartScrollY_ + scrollDelta, 0.0f, maxScroll);
         }
+    } else if (dragMode_ == DragMode::ProjectHubScroll) {
+        if (projectHubScrollArea_.canScroll()) {
+            const float deltaY = y - dragStartY_;
+            if (projectHubDraggingThumb_) {
+                PointerEvent pev;
+                pev.type = PointerType::Mouse;
+                pev.action = PointerAction::Move;
+                pev.x = x;
+                pev.y = y;
+                projectHubScrollArea_.handlePointer(pev);
+                projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+            } else {
+                projectHubScrollArea_.setScrollY(dragStartScrollY_ - deltaY);
+                projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+            }
+        }
+    } else if (dragMode_ == DragMode::CrtTweakerSlider) {
+        handleCrtTweakerDrag(x, y);
     }
 }
 
@@ -9252,8 +10673,51 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
     mouseX_ = x;
     mouseY_ = y;
 
-    // 0. Intercept if Reusable Value Edit Modal Dialog is open
+    // Intercept if CRT Shader & Chassis Tweaker Modal is open
+    if (crtTweakerOpen_) {
+        if (handleCrtTweakerPointer(x, y, true, false)) {
+            return;
+        }
+    }
+
+    // 0. Intercept if Command Palette or Value Edit Modal Dialog is open
+    if (commandPaletteDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (commandPaletteDialog_.handlePointer(pev)) return;
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (audioToMidiDialog_.handlePointer(pev)) return;
+    }
+
     if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
+        }
+
         PointerEvent pev;
         pev.type = PointerType::Mouse;
         pev.action = PointerAction::Down;
@@ -9308,18 +10772,34 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
     }
 
-    // Modal Plugin Search Dialog intercepts clicks in Arranger View
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_ && modularArrangerView_->getPluginSearchDialog().isOpen()) {
-        ViewContext ctx = createViewContext();
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Down;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (modularArrangerView_->handlePointer(pev, ctx)) return;
+    // Modal Plugin Search Dialog intercepts clicks in Arranger and Mixer Views
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
+            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->handlePointer(pev, ctx)) return;
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularMixerView_->handlePointer(pev, ctx)) return;
+        }
     }
 
     if (button == 0) { // Left click
@@ -9335,6 +10815,8 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         break;
                     case ProjectHubAction::SectionHeader:
                         projectHubSection_ = (projectHubSection_ == hubHit.sectionIndex) ? -1 : hubHit.sectionIndex;
+                        projectHubScrollY_ = 0.0f;
+                        projectHubScrollArea_.setScrollY(0.0f);
                         isEditingTitle_ = false;
                         isEditingAuthor_ = false;
                         break;
@@ -9385,6 +10867,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::ToggleCrtShader:
                         crtShaderEnabled_ = !crtShaderEnabled_;
                         break;
+                    case ProjectHubAction::OpenCrtTweaker:
+                        crtTweakerOpen_ = true;
+                        break;
                     case ProjectHubAction::ToggleAnimations:
                         guiAnimationsEnabled_ = !guiAnimationsEnabled_;
                         break;
@@ -9393,6 +10878,98 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         break;
                     case ProjectHubAction::ToggleHiDpi:
                         toggleHiDpi();
+                        break;
+                    case ProjectHubAction::CrtPresetStudioRef: {
+                        auto cfg = dawnBridge_.getMaterialConfig();
+                        cfg.scanlineIntensity = 0.38f;
+                        cfg.curvature = 0.85f;
+                        cfg.crtReflectionLevel = 1.0f;
+                        cfg.hsyncDistortion = 1.0f;
+                        cfg.spotlightIntensity = 1.0f;
+                        cfg.spotlightSize = 1.0f;
+                        cfg.vignetteStrength = 1.0f;
+                        cfg.reflectionOpacity = 0.45f;
+                        cfg.panelSoftness = 0.50f;
+                        cfg.panelSaturation = 0.70f;
+                        cfg.panelBlackLift = 0.025f;
+                        crtShaderEnabled_ = true;
+                        dawnBridge_.setMaterialConfig(cfg);
+                        dawnBridge_.setCrtShaderEnabled(true);
+                        setStatusMessage("CRT Preset: STUDIO REF (Calibrated Hardware)");
+                        break;
+                    }
+                    case ProjectHubAction::CrtPresetMaxClarity: {
+                        auto cfg = dawnBridge_.getMaterialConfig();
+                        cfg.scanlineIntensity = 0.0f;
+                        cfg.curvature = 0.0f;
+                        cfg.crtReflectionLevel = 0.0f;
+                        cfg.hsyncDistortion = 0.0f;
+                        cfg.spotlightIntensity = 0.0f;
+                        cfg.spotlightSize = 1.0f;
+                        cfg.vignetteStrength = 0.0f;
+                        cfg.reflectionOpacity = 0.0f;
+                        cfg.panelSoftness = 0.0f;
+                        cfg.panelSaturation = 1.0f;
+                        cfg.panelBlackLift = 0.0f;
+                        dawnBridge_.setMaterialConfig(cfg);
+                        setStatusMessage("CRT Preset: MAX CLARITY (Flat Screen, 0 Scanlines, 0 Glare)");
+                        break;
+                    }
+                    case ProjectHubAction::CrtPresetWarmVintage: {
+                        auto cfg = dawnBridge_.getMaterialConfig();
+                        cfg.scanlineIntensity = 0.55f;
+                        cfg.curvature = 1.15f;
+                        cfg.crtReflectionLevel = 1.25f;
+                        cfg.hsyncDistortion = 1.35f;
+                        cfg.spotlightIntensity = 1.25f;
+                        cfg.spotlightSize = 1.20f;
+                        cfg.vignetteStrength = 1.35f;
+                        cfg.reflectionOpacity = 0.65f;
+                        cfg.panelSoftness = 1.0f;
+                        cfg.panelSaturation = 0.65f;
+                        cfg.panelBlackLift = 0.035f;
+                        crtShaderEnabled_ = true;
+                        dawnBridge_.setMaterialConfig(cfg);
+                        dawnBridge_.setCrtShaderEnabled(true);
+                        setStatusMessage("CRT Preset: WARM VINTAGE (Deep Bulb & Scanlines)");
+                        break;
+                    }
+                    case ProjectHubAction::CrtPresetReset: {
+                        CrtMaterialConfig cfg{};
+                        dawnBridge_.setMaterialConfig(cfg);
+                        setStatusMessage("CRT Preset: RESET (Factory Defaults)");
+                        break;
+                    }
+                    case ProjectHubAction::CrtSlider: {
+                        DialogLayout dl = computeDialogLayout(540.0f, 580.0f);
+                        dragMode_ = DragMode::CrtTweakerSlider;
+                        crtTweakerSliderIndex_ = hubHit.crtSliderIndex;
+                        crtTweakerTrackX_ = dl.x + 28.0f;
+                        crtTweakerTrackW_ = dl.w - 64.0f;
+                        handleCrtTweakerDrag(x, y);
+                        break;
+                    }
+                    case ProjectHubAction::Scrollbar: {
+                        PointerEvent pev;
+                        pev.type = PointerType::Mouse;
+                        pev.action = PointerAction::Down;
+                        pev.button = PointerButton::Left;
+                        pev.x = x;
+                        pev.y = y;
+                        if (projectHubScrollArea_.handlePointer(pev)) {
+                            projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+                        }
+                        dragMode_ = DragMode::ProjectHubScroll;
+                        dragStartY_ = y;
+                        dragStartScrollY_ = projectHubScrollY_;
+                        projectHubDraggingThumb_ = true;
+                        break;
+                    }
+                    case ProjectHubAction::ContentDrag:
+                        dragMode_ = DragMode::ProjectHubScroll;
+                        dragStartY_ = y;
+                        dragStartScrollY_ = projectHubScrollY_;
+                        projectHubDraggingThumb_ = false;
                         break;
                     default:
                         break;
@@ -9411,61 +10988,76 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         if (browserOpen_) {
             auto bHit = hitTestBrowser(x, y);
             if (bHit.hit) {
-                switch (bHit.action) {
-                    case BrowserHitAction::Close:
-                        browserOpen_ = false;
-                        break;
-                    case BrowserHitAction::TabPresets:
-                        browserTab_ = BrowserTab::Presets;
-                        break;
-                    case BrowserHitAction::TabMacros:
-                        browserTab_ = BrowserTab::Macros;
-                        break;
-                    case BrowserHitAction::TabHistory:
-                        browserTab_ = BrowserTab::History;
-                        break;
-                    case BrowserHitAction::HistoryUndo:
-                        undoHistory();
-                        break;
-                    case BrowserHitAction::HistoryRedo:
-                        redoHistory();
-                        break;
-                    case BrowserHitAction::HistoryMilestone:
-                        createHistoryMilestone("Checkpoint " + std::to_string(diffHistory_.getTimelineCount()));
-                        break;
-                    case BrowserHitAction::HistoryClear:
-                        clearHistory();
-                        break;
-                    case BrowserHitAction::HistoryStepSelect:
-                        jumpToHistoryIndex(bHit.historyStepIndex);
-                        break;
-                    case BrowserHitAction::CategorySelect:
-                        browserCategory_ = bHit.category;
-                        break;
-                    case BrowserHitAction::PresetSelect:
-                    case BrowserHitAction::PresetLoad:
+                if (bHit.action == BrowserHitAction::Close) {
+                    setBrowserOpen(false);
+                    return;
+                } else if (bHit.action == BrowserHitAction::CategorySelect) {
+                    browserCategory_ = bHit.category;
+                    return;
+                } else if (bHit.action == BrowserHitAction::PresetSelect) {
+                    if (bHit.presetIndex < presets_.size()) {
+                        selectedBrowserPresetIndex_ = bHit.presetIndex;
+                    }
+                    return;
+                } else if (bHit.action == BrowserHitAction::PresetLoad) {
+                    if (bHit.presetIndex < presets_.size()) {
+                        selectedBrowserPresetIndex_ = bHit.presetIndex;
                         loadPresetToSelectedTrack(bHit.presetIndex);
-                        break;
-                    case BrowserHitAction::MacroRun:
-                        runMacro(bHit.macroIndex);
-                        break;
-                    case BrowserHitAction::SaveProject:
-                        saveProjectToFile("project.eats");
-                        break;
-                    case BrowserHitAction::LoadProject:
-                        loadProjectFromFile("project.eats");
-                        break;
-                    case BrowserHitAction::BounceMaster:
-                        bounceMasterToWav("master_output.wav");
-                        break;
-                    default:
-                        break;
+                    }
+                    return;
+                } else if (bHit.action == BrowserHitAction::TabPresets) {
+                    browserTab_ = BrowserTab::Presets;
+                    return;
+                } else if (bHit.action == BrowserHitAction::TabMacros) {
+                    browserTab_ = BrowserTab::Macros;
+                    return;
+                } else if (bHit.action == BrowserHitAction::TabHistory) {
+                    browserTab_ = BrowserTab::History;
+                    return;
+                } else if (bHit.action == BrowserHitAction::MacroRun) {
+                    runMacro(bHit.macroIndex);
+                    return;
+                } else if (bHit.action == BrowserHitAction::SaveProject) {
+                    saveProjectToFile(projectFilePath_.empty() ? "project.eats" : projectFilePath_);
+                    return;
+                } else if (bHit.action == BrowserHitAction::LoadProject) {
+                    loadProjectFromFile(projectFilePath_.empty() ? "project.eats" : projectFilePath_);
+                    return;
+                } else if (bHit.action == BrowserHitAction::BounceMaster) {
+                    bounceMasterToWav("bounce.wav");
+                    return;
+                } else if (bHit.action == BrowserHitAction::HistoryUndo) {
+                    undoHistory();
+                    return;
+                } else if (bHit.action == BrowserHitAction::HistoryRedo) {
+                    redoHistory();
+                    return;
+                } else if (bHit.action == BrowserHitAction::HistoryMilestone) {
+                    createHistoryMilestone("Checkpoint " + std::to_string(diffHistory_.getTimelineCount()));
+                    return;
+                } else if (bHit.action == BrowserHitAction::HistoryClear) {
+                    clearHistory();
+                    return;
+                } else if (bHit.action == BrowserHitAction::HistoryStepSelect) {
+                    jumpToHistoryIndex(bHit.historyStepIndex);
+                    return;
                 }
-                return;
-            } else if (y >= 56.0f) {
-                // Clicked outside drawer in workspace area -> close drawer
-                browserOpen_ = false;
-                return;
+            }
+
+            if (projectBrowserDrawerWidget_) {
+                PointerEvent pev;
+                pev.type = PointerType::Mouse;
+                pev.action = PointerAction::Down;
+                pev.button = PointerButton::Left;
+                pev.x = x;
+                pev.y = y;
+                if (projectBrowserDrawerWidget_->handlePointer(pev)) {
+                    return;
+                } else if (y >= 56.0f && x < projectBrowserDrawerWidget_->getDrawerBounds().x) {
+                    // Clicked outside drawer in workspace area -> close drawer
+                    setBrowserOpen(false);
+                    return;
+                }
             }
         }
 
@@ -9532,6 +11124,13 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     break;
                 case TransportAction::FullscreenToggle:
                     toggleFullscreen();
+                    break;
+                case TransportAction::SearchToggle:
+                    toggleCommandPalette();
+                    break;
+                case TransportAction::LockToggle:
+                    projectLocked_ = !projectLocked_;
+                    setStatusMessage(projectLocked_ ? "[LOCK] Workspace Edit Protection Engaged" : "[LOCK] Workspace Edit Protection Released");
                     break;
                 case TransportAction::SnapToggle:
                     break;
@@ -9667,34 +11266,16 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     }
                 } else if (arrHit.area == ArrangerHitArea::TrackMute) {
                     selectedTrackIndex_ = arrHit.trackIndex;
-                    bool newMute = false;
-                    if (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) {
-                        arrangerTracks_[arrHit.trackIndex].mute = !arrangerTracks_[arrHit.trackIndex].mute;
-                        newMute = arrangerTracks_[arrHit.trackIndex].mute;
-                    }
-                    if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) {
-                        mixerStrips_[arrHit.trackIndex].mute = newMute;
-                    }
-                    if (engine_) {
-                        engine_->setTrackMute(arrHit.trackIndex, newMute);
-                    }
+                    bool currentMute = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].mute : false;
+                    setTrackMuteState(arrHit.trackIndex, !currentMute);
                 } else if (arrHit.area == ArrangerHitArea::TrackSolo) {
                     selectedTrackIndex_ = arrHit.trackIndex;
-                    if (engine_ && static_cast<size_t>(arrHit.trackIndex) < engine_->getSequencer().getNumTracks()) {
-                        auto* tr = engine_->getSequencer().getTrack(arrHit.trackIndex);
-                        if (tr) tr->setSolo(!tr->isSolo());
-                    }
-                    if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) {
-                        mixerStrips_[arrHit.trackIndex].solo = !mixerStrips_[arrHit.trackIndex].solo;
-                    }
+                    bool currentSolo = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].solo : false;
+                    setTrackSoloState(arrHit.trackIndex, !currentSolo);
                 } else if (arrHit.area == ArrangerHitArea::TrackFreeze) {
                     selectedTrackIndex_ = arrHit.trackIndex;
-                    if (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) {
-                        arrangerTracks_[arrHit.trackIndex].freeze = !arrangerTracks_[arrHit.trackIndex].freeze;
-                        setStatusMessage(arrangerTracks_[arrHit.trackIndex].freeze ?
-                            ("Track " + arrangerTracks_[arrHit.trackIndex].name + ": FROZEN (Stem locked)") :
-                            ("Track " + arrangerTracks_[arrHit.trackIndex].name + ": UNFROZEN"));
-                    }
+                    bool currentFz = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].freeze : false;
+                    setTrackFreezeState(arrHit.trackIndex, !currentFz);
                 } else if (arrHit.area == ArrangerHitArea::TrackVolume) {
                     selectedTrackIndex_ = arrHit.trackIndex;
                     activeArrangerTrack_ = arrHit.trackIndex;
@@ -9958,32 +11539,14 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         // Clicking only selects the track and updates/expands track properties.
                         mixerPropertiesExpanded_ = true;
                     } else if (mixerHit.isMute) {
-                        mixerStrips_[mixerHit.channelIndex].mute = !mixerStrips_[mixerHit.channelIndex].mute;
-                        bool newMute = mixerStrips_[mixerHit.channelIndex].mute;
-                        if (mixerHit.channelIndex < arrangerTracks_.size()) {
-                            arrangerTracks_[mixerHit.channelIndex].mute = newMute;
-                        }
-                        if (engine_) {
-                            engine_->setTrackMute(mixerHit.channelIndex, newMute);
-                        }
+                        bool currentMute = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].mute : false;
+                        setTrackMuteState(mixerHit.channelIndex, !currentMute);
                     } else if (mixerHit.isSolo) {
-                        mixerStrips_[mixerHit.channelIndex].solo = !mixerStrips_[mixerHit.channelIndex].solo;
-                        bool newSolo = mixerStrips_[mixerHit.channelIndex].solo;
-                        if (mixerHit.channelIndex < arrangerTracks_.size()) {
-                            arrangerTracks_[mixerHit.channelIndex].solo = newSolo;
-                        }
-                        if (engine_ && mixerHit.channelIndex < engine_->getSequencer().getNumTracks()) {
-                            auto* tr = engine_->getSequencer().getTrack(mixerHit.channelIndex);
-                            if (tr) tr->setSolo(newSolo);
-                        }
+                        bool currentSolo = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].solo : false;
+                        setTrackSoloState(mixerHit.channelIndex, !currentSolo);
                     } else if (mixerHit.isFreeze) {
-                        mixerStrips_[mixerHit.channelIndex].freeze = !mixerStrips_[mixerHit.channelIndex].freeze;
-                        bool newFreeze = mixerStrips_[mixerHit.channelIndex].freeze;
-                        if (mixerHit.channelIndex < arrangerTracks_.size()) {
-                            arrangerTracks_[mixerHit.channelIndex].freeze = newFreeze;
-                        }
-                        recordProjectHistory("Toggle Freeze on Track " + std::to_string(mixerHit.channelIndex + 1), "TRACK");
-                        setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Freeze " + (newFreeze ? "ACTIVE" : "OFF"));
+                        bool currentFz = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].freeze : false;
+                        setTrackFreezeState(mixerHit.channelIndex, !currentFz);
                     } else if (mixerHit.isPhase) {
                         mixerStrips_[mixerHit.channelIndex].phaseInvert = !mixerStrips_[mixerHit.channelIndex].phaseInvert;
                         setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Phase " + (mixerStrips_[mixerHit.channelIndex].phaseInvert ? "INVERTED (180deg)" : "NORMAL"));
@@ -10579,6 +12142,36 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             }
         }
     } else if (button == 1) { // Right click: manual value edit dialog, select notes by pitch on Piano Roll, or disconnect jack in Modular Rack
+        // Check right-click on tempo / BPM area to open manual value edit dialog
+        bool tempoHit = false;
+        if (transportHeaderWidget_ && transportHeaderWidget_->getBpmBounds().contains(x, y)) {
+            tempoHit = true;
+        } else if (x >= 170.0f && x <= 300.0f && y >= 6.0f && y <= 48.0f) {
+            tempoHit = true;
+        }
+        if (tempoHit) {
+            float bVal = engine_ ? static_cast<float>(engine_->getSequencer().getTransport().getBpm()) : 120.0f;
+            ValueEditRequest req;
+            req.title = "PROJECT TEMPO";
+            req.paramName = "Tempo";
+            req.currentValue = bVal;
+            req.minValue = 20.0f;
+            req.maxValue = 300.0f;
+            req.defaultValue = 120.0f;
+            req.hasDefault = true;
+            req.allowPercentage = false;
+            req.unit = "BPM";
+            const auto& theme = getTheme();
+            req.accentColor = theme.tempoGlow;
+            req.onCommit = [this](float val) {
+                if (engine_) {
+                    engine_->getSequencer().getTransport().setBpm(val);
+                }
+            };
+            openValueEditDialog(req);
+            return;
+        }
+
         // Forward right click to active view for contextual edit dialogs (Mixer volume sliders, Arranger track headers, etc.)
         if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
             ViewContext ctx = createViewContext();
@@ -10656,7 +12249,72 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 }
 
 void GuiWindow::onMouseUp(int button, float x, float y) {
+    if (projectHubOpen_) {
+        projectHubScrollArea_.stopDragging();
+    }
+
+    PluginSearchDialog* activePluginDialog = nullptr;
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
+            activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
+        } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    }
+
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (activePluginDialog->handlePointer(pev)) return;
+    }
+
+    if (commandPaletteDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (commandPaletteDialog_.handlePointer(pev)) return;
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (audioToMidiDialog_.handlePointer(pev)) return;
+    }
+
     if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Up;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
+        }
+
         PointerEvent pev;
         pev.type = PointerType::Mouse;
         pev.action = PointerAction::Up;
@@ -10778,52 +12436,86 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
             }
         }
     }
+
+    if (crtTweakerOpen_) {
+        handleCrtTweakerPointer(x, y, false, true);
+    }
+    if (dragMode_ == DragMode::CrtTweakerSlider) {
+        dragMode_ = DragMode::None;
+        crtTweakerSliderIndex_ = -1;
+    }
+
     dragMode_ = DragMode::None;
 }
 
 void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
+    PointerEvent pev;
+    pev.type = PointerType::Mouse;
+    pev.action = PointerAction::Scroll;
+    pev.x = mouseX_;
+    pev.y = mouseY_;
+    pev.scrollX = static_cast<float>(xoffset);
+    pev.scrollY = static_cast<float>(yoffset);
+
+    // 1. Modals & Dialogs (ensure context-based scroll and absorb scroll so it never leaks to DAW)
+    if (commandPaletteDialog_.isOpen()) {
+        commandPaletteDialog_.handlePointer(pev);
+        return;
+    }
+    if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            modularArrangerView_->getIconSearchDialog().handleScroll(static_cast<float>(yoffset));
+        }
+        return;
+    }
+    if (audioToMidiDialog_.isOpen()) {
+        return;
+    }
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
+            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            modularArrangerView_->handlePointer(pev, ctx);
+            return;
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            modularMixerView_->handlePointer(pev, ctx);
+            return;
+        }
+    }
+
+    // 2. Eatsbits Settings / Project Hub (context-based scroll via reusable ScrollableArea)
+    if (projectHubOpen_) {
+        DialogLayout dl = computeDialogLayout(540.0f, 580.0f);
+        if (mouseX_ >= dl.x && mouseX_ <= dl.x + dl.w && mouseY_ >= dl.y && mouseY_ <= dl.y + dl.h) {
+            if (projectHubSection_ == 3 && projectHubScrollArea_.canScroll()) {
+                projectHubScrollArea_.scrollBy(-static_cast<float>(yoffset) * 32.0f);
+                projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+            }
+        }
+        return; // Absorb all scroll events while Settings is open so it never scrolls the DAW underneath
+    }
+
+    // 3. Sidebars & Drawers
+    if (browserOpen_ && projectBrowserDrawerWidget_) {
+        if (projectBrowserDrawerWidget_->handlePointer(pev)) return;
+    }
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         ViewContext ctx = createViewContext();
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Scroll;
-        pev.x = mouseX_;
-        pev.y = mouseY_;
-        pev.scrollX = static_cast<float>(xoffset);
-        pev.scrollY = static_cast<float>(yoffset);
         if (modularArrangerView_->handlePointer(pev, ctx)) return;
     }
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
         ViewContext ctx = createViewContext();
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Scroll;
-        pev.x = mouseX_;
-        pev.y = mouseY_;
-        pev.scrollX = static_cast<float>(xoffset);
-        pev.scrollY = static_cast<float>(yoffset);
         modularEditView_->handlePointer(pev, ctx);
     }
     if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
         ViewContext ctx = createViewContext();
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Scroll;
-        pev.x = mouseX_;
-        pev.y = mouseY_;
-        pev.scrollX = static_cast<float>(xoffset);
-        pev.scrollY = static_cast<float>(yoffset);
         if (modularMixerView_->handlePointer(pev, ctx)) return;
     }
     if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
         ViewContext ctx = createViewContext();
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Scroll;
-        pev.x = mouseX_;
-        pev.y = mouseY_;
-        pev.scrollX = static_cast<float>(xoffset);
-        pev.scrollY = static_cast<float>(yoffset);
         if (modularTrackInspectorView_->handlePointer(pev, ctx)) return;
     }
     (void)xoffset;
@@ -10859,7 +12551,97 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     }
 }
 
+void GuiWindow::onFilesDropped(const std::vector<std::string>& filePaths, float x, float y) {
+    if (filePaths.empty()) return;
+
+    if (onExternalFilesDropped) {
+        onExternalFilesDropped(filePaths, x, y);
+    }
+
+    // 1. Audio-to-MIDI Modal Dialog routing
+    if (audioToMidiDialog_.isOpen()) {
+        for (const auto& path : filePaths) {
+            std::filesystem::path fp(path);
+            std::string ext = fp.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac" || ext == ".aif" || ext == ".aiff") {
+                if (audioToMidiDialog_.loadAudioFile(path)) {
+                    setStatusMessage("Loaded audio into Audio-to-MIDI Converter: " + fp.filename().string());
+                    return;
+                }
+            }
+        }
+    }
+
+    // 2. Delegate to active workspace view (e.g. ArrangerView timeline)
+    ViewContext ctx = createViewContext();
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->handleFileDrop(filePaths, x, y, ctx)) {
+            return;
+        }
+    }
+
+    // 3. Global Fallback Dispatch
+    for (const auto& path : filePaths) {
+        std::filesystem::path fp(path);
+        std::string ext = fp.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (ext == ".eats" || ext == ".json") {
+            if (loadProjectFromFile(path)) {
+                setStatusMessage("Loaded project: " + fp.filename().string());
+                return;
+            }
+        } else if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac" || ext == ".aif" || ext == ".aiff" || ext == ".sf2") {
+            if (modularArrangerView_) {
+                if (modularArrangerView_->handleFileDrop({path}, x, y, ctx)) {
+                    setStatusMessage("Imported sample into Arranger: " + fp.filename().string());
+                    return;
+                }
+            }
+        } else if (ext == ".mid" || ext == ".midi") {
+            if (modularArrangerView_) {
+                if (modularArrangerView_->handleFileDrop({path}, x, y, ctx)) {
+                    setStatusMessage("Imported MIDI into Arranger: " + fp.filename().string());
+                    return;
+                }
+            }
+        } else if (ext == ".eatscript") {
+            std::ifstream file(path);
+            if (file.is_open()) {
+                std::stringstream ss;
+                ss << file.rdbuf();
+                setActiveView(WorkspaceView::Design);
+                setStatusMessage("Loaded Eatscript: " + fp.filename().string());
+                return;
+            }
+        }
+    }
+}
+
 void GuiWindow::onKeyDown(int key, int mods) {
+    // Intercept keyboard input if CRT Shader Tweaker is open (Escape dismisses)
+    if (crtTweakerOpen_) {
+        if (key == 256) { // GLFW_KEY_ESCAPE
+            crtTweakerOpen_ = false;
+            return;
+        }
+    }
+
+    // Intercept keyboard input if Command Palette is open
+    if (commandPaletteDialog_.isOpen()) {
+        if (commandPaletteDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+    }
+
+    // Intercept keyboard input if Stacked Icon Search Modal Dialog is open
+    if (valueEditDialog_.isOpen() && modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        if (modularArrangerView_->getIconSearchDialog().handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+    }
+
     // Intercept keyboard input if Reusable Value Edit Modal Dialog is open
     if (valueEditDialog_.isOpen()) {
         if (valueEditDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
@@ -10867,17 +12649,50 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    if (!engine_) return;
+    // Intercept keyboard input if Audio-to-MIDI Modal Dialog is open
+    if (audioToMidiDialog_.isOpen()) {
+        if (audioToMidiDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+    }
+
+    // Intercept keyboard input if Plugin Search Modal Dialog is open
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
+            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            if (modularArrangerView_->handleKey(key, 0, 1, mods, ctx)) return;
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            ViewContext ctx = createViewContext();
+            if (modularMixerView_->handleKey(key, 0, 1, mods, ctx)) return;
+        }
+    }
 
     bool isCtrl = (mods & 2) != 0;
     bool isShift = (mods & 1) != 0;
     bool isAlt = (mods & 4) != 0;
 
+    // Ctrl+M: Open Audio to MIDI Converter Modal Dialog
+    if (isCtrl && (key == 77 || key == 109)) { // 'M'
+        openAudioToMidiConverter();
+        return;
+    }
+
+    // Ctrl+P or Ctrl+K: Toggle Universal Quick Command Palette
+    if (isCtrl && (key == 80 || key == 112 || key == 75 || key == 107)) { // 'P' or 'K'
+        toggleCommandPalette();
+        return;
+    }
+
+    if (!engine_) return;
+
     // Piano Roll & Editor Note Selection Keyboard Shortcuts
     auto* activeTrk = (engine_ && selectedTrackIndex_ < engine_->getSequencer().getNumTracks())
                           ? engine_->getSequencer().getTrack(selectedTrackIndex_)
                           : nullptr;
-    if (activeTrk && activeTrk->hasSelectedNotes()) {
+    if (activeView_ == WorkspaceView::Edit && editSubView_ == EditSubView::PianoRoll && activeTrk && activeTrk->hasSelectedNotes()) {
         if (key == 261 || key == 259) { // GLFW_KEY_DELETE or GLFW_KEY_BACKSPACE
             activeTrk->deleteSelectedNotes();
             recordProjectHistory("Delete Selected Notes on Track " + std::to_string(selectedTrackIndex_ + 1), "NOTE");
@@ -10934,10 +12749,20 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
-    // F9: Toggle Apocalypse CRT Shader
+    // F9: Toggle Apocalypse CRT Shader (Shift+F9 toggles CRT Tweaker HUD)
     if (key == 298) { // F9
+        if (isShift) {
+            toggleCrtTweaker();
+            return;
+        }
         toggleCrtShader();
         setStatusMessage(crtShaderEnabled_ ? "CRT Shader: ENABLED (Swaying Spotlight + Scanlines + Rumble)" : "CRT Shader: BYPASSED (Raw UI)");
+        return;
+    }
+
+    // F10: Toggle CRT Shader & Chassis Tweaker HUD Modal
+    if (key == 299) { // F10
+        toggleCrtTweaker();
         return;
     }
 
@@ -11366,6 +13191,382 @@ void GuiWindow::onKeyDown(int key, int mods) {
         int next = (static_cast<int>(activeView_) + 1) % 5;
         setActiveView(static_cast<WorkspaceView>(next));
     }
+}
+
+void GuiWindow::openCommandPalette() noexcept {
+    commandPaletteDialog_.open();
+}
+
+void GuiWindow::closeCommandPalette() noexcept {
+    commandPaletteDialog_.close();
+}
+
+void GuiWindow::toggleCommandPalette() noexcept {
+    commandPaletteDialog_.toggle();
+}
+
+bool GuiWindow::isCommandPaletteOpen() const noexcept {
+    return commandPaletteDialog_.isOpen();
+}
+
+void GuiWindow::onChar(unsigned int codepoint) {
+    if (commandPaletteDialog_.isOpen()) {
+        commandPaletteDialog_.handleChar(codepoint);
+        return;
+    }
+    if (audioToMidiDialog_.isOpen()) {
+        audioToMidiDialog_.handleChar(codepoint);
+        return;
+    }
+}
+
+void GuiWindow::openAudioToMidiConverter(const std::optional<audio::DecodedAudioBuffer>& initialBuffer,
+                                        const std::string& name) {
+    audioToMidiDialog_.open(initialBuffer, name);
+}
+
+void GuiWindow::closeAudioToMidiConverter() noexcept {
+    audioToMidiDialog_.close();
+}
+
+bool GuiWindow::isAudioToMidiDialogOpen() const noexcept {
+    return audioToMidiDialog_.isOpen();
+}
+
+void GuiWindow::renderCrtTweakerModal() {
+    // Backdrop darkener
+    drawRect(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_), 0.0f, 0.0f, 0.0f, 0.40f);
+
+    const float mW = 490.0f;
+    const float mH = 612.0f;
+    const float mX = (static_cast<float>(width_) - mW) * 0.5f;
+    const float mY = (static_cast<float>(height_) - mH) * 0.5f;
+
+    // Modal Outer Shadow & Glassmorphic Body
+    drawRect(mX - 4.0f, mY - 4.0f, mW + 8.0f, mH + 8.0f, 0.0f, 0.0f, 0.0f, 0.50f);
+    drawRoundedRectGradient(mX, mY, mW, mH, 8.0f, 0.11f, 0.13f, 0.16f, 0.06f, 0.07f, 0.09f, 0.96f);
+    drawRoundedRectOutline(mX, mY, mW, mH, 8.0f, 0.0f, 0.85f, 0.95f, 0.80f, 1.5f);
+
+    // Header Bar
+    drawRoundedRectGradient(mX, mY, mW, 42.0f, 8.0f, 0.14f, 0.16f, 0.20f, 0.09f, 0.10f, 0.13f, 1.0f);
+    drawLine(mX, mY + 42.0f, mX + mW, mY + 42.0f, 0.0f, 0.85f, 0.95f, 0.45f, 1.0f);
+
+    // [CRT HUD] pill badge
+    drawRoundedRect(mX + 14.0f, mY + 11.0f, 62.0f, 20.0f, 4.0f, 0.0f, 0.70f, 0.85f, 0.25f);
+    drawRoundedRectOutline(mX + 14.0f, mY + 11.0f, 62.0f, 20.0f, 4.0f, 0.0f, 0.85f, 1.0f, 0.70f, 1.0f);
+    drawVectorString("CRT HUD", mX + 20.0f, mY + 15.0f, 0.65f, Color(0.0f, 0.90f, 1.0f));
+
+    // Title
+    drawVectorString("CHASSIS & SHADER TWEAKER", mX + 84.0f, mY + 14.0f, 0.80f, Color(0.95f, 0.97f, 1.0f));
+
+    // Master Power Toggle Button
+    const float pBtnX = mX + mW - 138.0f;
+    const float pBtnY = mY + 9.0f;
+    drawRoundedRect(pBtnX, pBtnY, 92.0f, 24.0f, 4.0f, crtShaderEnabled_ ? 0.05f : 0.20f, crtShaderEnabled_ ? 0.35f : 0.08f, crtShaderEnabled_ ? 0.12f : 0.08f, 0.85f);
+    drawRoundedRectOutline(pBtnX, pBtnY, 92.0f, 24.0f, 4.0f, crtShaderEnabled_ ? 0.20f : 0.60f, crtShaderEnabled_ ? 0.95f : 0.20f, crtShaderEnabled_ ? 0.30f : 0.20f, 0.90f, 1.2f);
+    drawCircle(pBtnX + 12.0f, pBtnY + 12.0f, 4.0f, crtShaderEnabled_ ? 0.20f : 0.60f, crtShaderEnabled_ ? 0.95f : 0.20f, crtShaderEnabled_ ? 0.30f : 0.20f, 1.0f);
+    drawVectorString(crtShaderEnabled_ ? "CRT: ON" : "CRT: OFF", pBtnX + 22.0f, pBtnY + 14.0f, 0.70f, Color(1.0f, 1.0f, 1.0f));
+
+    // Close button [X]
+    const float cBtnX = mX + mW - 36.0f;
+    const float cBtnY = mY + 9.0f;
+    drawRoundedRect(cBtnX, cBtnY, 26.0f, 24.0f, 4.0f, 0.25f, 0.08f, 0.08f, 0.70f);
+    drawRoundedRectOutline(cBtnX, cBtnY, 26.0f, 24.0f, 4.0f, 0.90f, 0.30f, 0.30f, 0.85f, 1.0f);
+    drawVectorString("X", cBtnX + 8.5f, cBtnY + 14.0f, 0.80f, Color(1.0f, 0.6f, 0.6f));
+
+    // Subtitle & Hints
+    drawVectorString("Real-time WebGPU Shader Parameters * Live Viewport Feedback", mX + 16.0f, mY + 49.0f, 0.60f, Color(0.60f, 0.65f, 0.72f));
+
+    // Presets Row
+    drawVectorString("PRESETS:", mX + 16.0f, mY + 74.0f, 0.62f, Color(0.0f, 0.85f, 0.95f));
+
+    struct PresetBtn {
+        const char* label;
+        float x;
+        float w;
+    };
+    PresetBtn presets[4] = {
+        {"STUDIO REF", mX + 80.0f, 96.0f},
+        {"MAX CLARITY", mX + 182.0f, 102.0f},
+        {"WARM VINTAGE", mX + 290.0f, 106.0f},
+        {"RESET", mX + 402.0f, 72.0f}
+    };
+    for (int p = 0; p < 4; ++p) {
+        drawRoundedRect(presets[p].x, mY + 68.0f, presets[p].w, 22.0f, 4.0f, 0.12f, 0.15f, 0.19f, 0.90f);
+        drawRoundedRectOutline(presets[p].x, mY + 68.0f, presets[p].w, 22.0f, 4.0f, 0.25f, 0.30f, 0.38f, 0.85f, 1.0f);
+        drawVectorString(presets[p].label, presets[p].x + 10.0f, mY + 73.0f, 0.65f, Color(0.85f, 0.90f, 0.96f));
+    }
+
+    // Sliders
+    const auto& cfg = dawnBridge_.getMaterialConfig();
+
+    struct SliderItem {
+        std::string label;
+        float minVal;
+        float maxVal;
+        float curVal;
+        std::string valStr;
+        bool isGreen{false};
+    };
+
+    char buf6[32];
+    snprintf(buf6, sizeof(buf6), (cfg.panelSoftness <= 0.01f) ? "0.00 px (SHARP)" : "%.2f px", cfg.panelSoftness);
+
+    char buf8[32];
+    snprintf(buf8, sizeof(buf8), (cfg.panelBlackLift <= 0.001f) ? "0.00 (PITCH BLACK)" : "+%.3f", cfg.panelBlackLift);
+
+    SliderItem items[11] = {
+        {"SCANLINE INTENSITY (0 = NONE)", 0.0f, 1.0f, cfg.scanlineIntensity,
+         (cfg.scanlineIntensity <= 0.005f) ? "0.00 (OFF / CRISP)" : (std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%"),
+         (cfg.scanlineIntensity <= 0.005f)},
+        {"CRT BULB CURVATURE", 0.0f, 1.50f, cfg.curvature,
+         (cfg.curvature <= 0.01f) ? "0.00 (FLAT GLASS)" : (std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%"), false},
+        {"CRT TUBE ROOM REFLECTION", 0.0f, 1.0f, cfg.crtReflectionLevel,
+         (cfg.crtReflectionLevel <= 0.005f) ? "0.00 (OFF / NONE)" : (std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%"),
+         (cfg.crtReflectionLevel <= 0.005f)},
+        {"H-SYNC WAVE DISTORTION", 0.0f, 2.0f, cfg.hsyncDistortion,
+         (cfg.hsyncDistortion <= 0.005f) ? "0.00 (ZERO / STATIC)" : (std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%"),
+         (cfg.hsyncDistortion <= 0.005f)},
+        {"SPOTLIGHT INTENSITY", 0.0f, 2.0f, cfg.spotlightIntensity,
+         (cfg.spotlightIntensity <= 0.01f) ? "0.00 (FLAT LIGHT)" : (std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%"), false},
+        {"SPOTLIGHT BEAM SIZE", 0.5f, 2.5f, cfg.spotlightSize,
+         std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%", false},
+        {"VIGNETTE CORNER FALLOFF", 0.0f, 2.0f, cfg.vignetteStrength,
+         (cfg.vignetteStrength <= 0.01f) ? "0.00 (NONE)" : (std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%"), false},
+        {"BEZEL FRAME REFLECTION", 0.0f, 1.0f, cfg.reflectionOpacity,
+         (cfg.reflectionOpacity <= 0.01f) ? "0.00 (MATTE)" : (std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%"), false},
+        {"PANEL SOFTNESS (SUBPIXEL BLUR)", 0.0f, 1.50f, cfg.panelSoftness, buf6, false},
+        {"PANEL HARDWARE SATURATION", 0.0f, 1.0f, cfg.panelSaturation,
+         std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%", false},
+        {"PANEL BLACK FLOOR LIFT", 0.0f, 0.08f, cfg.panelBlackLift, buf8, false}
+    };
+
+    const float trackX = mX + 18.0f;
+    const float trackW = mW - 36.0f;
+    const float trackH = 6.0f;
+
+    for (int i = 0; i < 11; ++i) {
+        float rowY = mY + 98.0f + i * 45.0f;
+        float trackY = rowY + 20.0f;
+
+        // Label
+        drawVectorString(items[i].label, trackX, rowY + 2.0f, 0.68f, Color(0.85f, 0.88f, 0.94f));
+
+        // Value readout
+        float valW = static_cast<float>(items[i].valStr.size()) * 7.2f;
+        drawVectorString(items[i].valStr, trackX + trackW - valW, rowY + 2.0f, 0.70f,
+                         items[i].isGreen ? Color(0.20f, 1.0f, 0.40f) : Color(0.0f, 0.90f, 1.0f));
+
+        // Track Background
+        drawRoundedRect(trackX, trackY, trackW, trackH, 3.0f, 0.04f, 0.05f, 0.07f, 1.0f);
+        drawRoundedRectOutline(trackX, trackY, trackW, trackH, 3.0f, 0.18f, 0.20f, 0.26f, 0.8f, 1.0f);
+
+        // Fill bar
+        float t = std::clamp((items[i].curVal - items[i].minVal) / (items[i].maxVal - items[i].minVal), 0.0f, 1.0f);
+        float fillW = t * trackW;
+        if (fillW > 2.0f) {
+            drawRoundedRectGradient(trackX, trackY, fillW, trackH, 3.0f, 0.0f, 0.65f, 0.85f, 0.0f, 0.90f, 0.95f, 0.95f);
+        }
+
+        // Thumb
+        float thumbX = trackX + fillW;
+        float thumbY = trackY + 3.0f;
+        drawCircle(thumbX, thumbY, 8.0f, 0.0f, 0.0f, 0.0f, 0.40f);
+        drawCircle(thumbX, thumbY, 6.5f, 0.90f, 0.96f, 1.0f, 1.0f);
+        drawCircleOutline(thumbX, thumbY, 6.5f, 0.0f, 0.75f, 0.95f, 1.0f, 1.5f);
+    }
+}
+
+bool GuiWindow::handleCrtTweakerPointer(float x, float y, bool isDown, bool isUp) {
+    (void)isUp;
+    if (!crtTweakerOpen_) return false;
+
+    const float mW = 490.0f;
+    const float mH = 612.0f;
+    const float mX = (static_cast<float>(width_) - mW) * 0.5f;
+    const float mY = (static_cast<float>(height_) - mH) * 0.5f;
+
+    // Check click outside modal
+    if (x < mX || x > mX + mW || y < mY || y > mY + mH) {
+        if (isDown) {
+            crtTweakerOpen_ = false;
+            return true;
+        }
+        return false;
+    }
+
+    if (!isDown) {
+        return true; // Consume event inside modal bounds
+    }
+
+    // 1. Close button [X]
+    const float cBtnX = mX + mW - 36.0f;
+    const float cBtnY = mY + 9.0f;
+    if (x >= cBtnX && x <= cBtnX + 26.0f && y >= cBtnY && y <= cBtnY + 24.0f) {
+        crtTweakerOpen_ = false;
+        return true;
+    }
+
+    // 2. Power toggle button
+    const float pBtnX = mX + mW - 138.0f;
+    const float pBtnY = mY + 9.0f;
+    if (x >= pBtnX && x <= pBtnX + 92.0f && y >= pBtnY && y <= pBtnY + 24.0f) {
+        toggleCrtShader();
+        dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
+        setStatusMessage(crtShaderEnabled_ ? "CRT Shader: ENABLED" : "CRT Shader: BYPASSED");
+        return true;
+    }
+
+    // 3. Preset Buttons
+    auto cfg = dawnBridge_.getMaterialConfig();
+
+    // Preset 1: Studio Ref
+    if (x >= mX + 80.0f && x <= mX + 176.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
+        cfg.scanlineIntensity = 0.38f;
+        cfg.curvature = 0.85f;
+        cfg.crtReflectionLevel = 1.0f;
+        cfg.hsyncDistortion = 1.0f;
+        cfg.spotlightIntensity = 1.0f;
+        cfg.spotlightSize = 1.35f;
+        cfg.vignetteStrength = 1.0f;
+        cfg.reflectionOpacity = 0.52f;
+        cfg.panelSoftness = 0.75f;
+        cfg.panelSaturation = 0.70f;
+        cfg.panelBlackLift = 0.025f;
+        crtShaderEnabled_ = true;
+        dawnBridge_.setMaterialConfig(cfg);
+        dawnBridge_.setCrtShaderEnabled(true);
+        setStatusMessage("CRT Preset: STUDIO REF (Calibrated Hardware)");
+        return true;
+    }
+
+    // Preset 2: Max Clarity
+    if (x >= mX + 182.0f && x <= mX + 284.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
+        cfg.scanlineIntensity = 0.0f;  // Scanlines completely disabled
+        cfg.curvature = 0.0f;          // Flat screen
+        cfg.crtReflectionLevel = 0.0f; // Zero tube reflection
+        cfg.hsyncDistortion = 0.0f;    // Zero h-sync distortion / static raster
+        cfg.spotlightIntensity = 0.0f; // Flat uniform lighting
+        cfg.spotlightSize = 1.35f;
+        cfg.vignetteStrength = 0.0f;   // No corner vignette
+        cfg.reflectionOpacity = 0.0f;  // No frame glare
+        cfg.panelSoftness = 0.0f;      // Crisp pixels
+        cfg.panelSaturation = 1.0f;    // 100% saturation
+        cfg.panelBlackLift = 0.0f;
+        dawnBridge_.setMaterialConfig(cfg);
+        setStatusMessage("CRT Preset: MAX CLARITY (Flat Screen, 0 Scanlines, 0 Glare)");
+        return true;
+    }
+
+    // Preset 3: Warm Vintage
+    if (x >= mX + 290.0f && x <= mX + 396.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
+        cfg.scanlineIntensity = 0.55f;
+        cfg.curvature = 1.15f;
+        cfg.crtReflectionLevel = 1.25f;
+        cfg.hsyncDistortion = 1.35f;
+        cfg.spotlightIntensity = 1.25f;
+        cfg.spotlightSize = 1.20f;
+        cfg.vignetteStrength = 1.35f;
+        cfg.reflectionOpacity = 0.65f;
+        cfg.panelSoftness = 1.0f;
+        cfg.panelSaturation = 0.65f;
+        cfg.panelBlackLift = 0.035f;
+        crtShaderEnabled_ = true;
+        dawnBridge_.setMaterialConfig(cfg);
+        dawnBridge_.setCrtShaderEnabled(true);
+        setStatusMessage("CRT Preset: WARM VINTAGE (Deep Bulb & Scanlines)");
+        return true;
+    }
+
+    // Preset 4: Reset
+    if (x >= mX + 402.0f && x <= mX + 474.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
+        cfg = CrtMaterialConfig{};
+        dawnBridge_.setMaterialConfig(cfg);
+        setStatusMessage("CRT Preset: RESET (Factory Defaults)");
+        return true;
+    }
+
+    // 4. Slider Hit Tests
+    const float trackX = mX + 18.0f;
+    const float trackW = mW - 36.0f;
+    for (int i = 0; i < 11; ++i) {
+        float rowY = mY + 98.0f + i * 45.0f;
+        if (x >= trackX - 8.0f && x <= trackX + trackW + 8.0f && y >= rowY + 8.0f && y <= rowY + 36.0f) {
+            dragMode_ = DragMode::CrtTweakerSlider;
+            crtTweakerSliderIndex_ = i;
+            crtTweakerTrackX_ = trackX;
+            crtTweakerTrackW_ = trackW;
+            handleCrtTweakerDrag(x, y);
+            return true;
+        }
+    }
+
+    return true;
+}
+
+void GuiWindow::handleCrtTweakerDrag(float x, float y) {
+    (void)y;
+    if (crtTweakerSliderIndex_ < 0 || crtTweakerSliderIndex_ > 10 || crtTweakerTrackW_ <= 0.0f) return;
+
+    float t = std::clamp((x - crtTweakerTrackX_) / crtTweakerTrackW_, 0.0f, 1.0f);
+    auto cfg = dawnBridge_.getMaterialConfig();
+
+    switch (crtTweakerSliderIndex_) {
+        case 0:
+            cfg.scanlineIntensity = t * 1.0f;
+            setStatusMessage("Scanlines: " + std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%" + (cfg.scanlineIntensity <= 0.005f ? " (OFF)" : ""));
+            break;
+        case 1:
+            cfg.curvature = t * 1.50f;
+            setStatusMessage("CRT Curvature: " + std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%");
+            break;
+        case 2:
+            cfg.crtReflectionLevel = t * 1.0f;
+            setStatusMessage("CRT Tube Reflection: " + std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%" + (cfg.crtReflectionLevel <= 0.005f ? " (OFF)" : ""));
+            break;
+        case 3:
+            cfg.hsyncDistortion = t * 2.0f;
+            setStatusMessage("H-Sync Distortion: " + std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%" + (cfg.hsyncDistortion <= 0.005f ? " (ZERO / STATIC)" : ""));
+            break;
+        case 4:
+            cfg.spotlightIntensity = t * 2.0f;
+            setStatusMessage("Spotlight Intensity: " + std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%");
+            break;
+        case 5:
+            cfg.spotlightSize = 0.5f + t * 2.0f;
+            setStatusMessage("Spotlight Beam Size: " + std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%");
+            break;
+        case 6:
+            cfg.vignetteStrength = t * 2.0f;
+            setStatusMessage("Vignette Falloff: " + std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%");
+            break;
+        case 7:
+            cfg.reflectionOpacity = t * 1.0f;
+            setStatusMessage("Frame Reflection: " + std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%");
+            break;
+        case 8: {
+            cfg.panelSoftness = t * 1.50f;
+            char buf[32];
+            snprintf(buf, sizeof(buf), "Panel Softness: %.2f px", cfg.panelSoftness);
+            setStatusMessage(buf);
+            break;
+        }
+        case 9:
+            cfg.panelSaturation = t * 1.0f;
+            setStatusMessage("Panel Saturation: " + std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%");
+            break;
+        case 10: {
+            cfg.panelBlackLift = t * 0.08f;
+            char buf[32];
+            snprintf(buf, sizeof(buf), "Panel Black Floor Lift: +%.3f", cfg.panelBlackLift);
+            setStatusMessage(buf);
+            break;
+        }
+        default:
+            break;
+    }
+
+    dawnBridge_.setMaterialConfig(cfg);
 }
 
 } // namespace eatsbits::ui

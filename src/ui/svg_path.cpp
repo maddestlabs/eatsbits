@@ -873,4 +873,24 @@ std::vector<SvgLayerDef> SvgLogo::getInvertedLayers() {
     };
 }
 
+std::vector<SvgLayerDef> SvgLogo::getPlainLayers(uint32_t color) {
+    return {
+        // Single unified layer with outer contour, cutout eye, and eating bits
+        SvgLayerDef(kPlainLogoPath, color, 1.0f, true)
+    };
+}
+
+std::vector<SvgLayerDef> SvgLogo::getPlainInvertedLayers(uint32_t accentColor, uint32_t darkColor) {
+    return {
+        // Layer 1: Dark monster silhouette
+        SvgLayerDef(kMonsterHeadAndBitsPath, darkColor, 1.0f, true),
+        // Layer 2: Illuminated accent border rim around creature head
+        SvgLayerDef(kMonsterHeadAndBitsPath, accentColor, 1.0f, false, 12.0f),
+        // Layer 3: Illuminated accent monster eye
+        SvgLayerDef(kMonsterEyePath, accentColor, 1.0f, true),
+        // Layer 4: Illuminated accent eating bits
+        SvgLayerDef(kMonsterBitsPath, accentColor, 1.0f, true)
+    };
+}
+
 } // namespace eatsbits::ui

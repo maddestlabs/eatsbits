@@ -1,0 +1,13 @@
+# @id: seq_dynamic_bassline
+# @name: Dynamic Bassline (Chord Track Follow)
+# @category: midiSeq
+# @description: Rhythmic bass groove that tracks root and slash bass notes from the Chord Track.
+
+# --- Parameter Definitions ---
+def init():
+    return {
+    }
+
+# --- Synthesizer Voice DSP Process Hook ---
+def process(time, freq, note, params):
+    return 0.0

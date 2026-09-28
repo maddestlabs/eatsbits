@@ -48,52 +48,65 @@ public:
         if (sr > 1000.0f) {
             sampleRate_ = sr;
             updateDampingCoeffs();
-            if (!currentPresetName_.empty()) {
-                loadPreset(currentPresetName_);
-            }
+            regenerateCurrentSpace();
         }
     }
 
-    float getSampleRate() const { return sampleRate_; }
+    float getSampleRate() const noexcept { return sampleRate_; }
 
-    void setMix(float mix) { mix_ = std::clamp(mix, 0.0f, 1.0f); }
-    float getMix() const { return mix_; }
+    void setMix(float mix) noexcept { mix_ = std::clamp(mix, 0.0f, 1.0f); }
+    float getMix() const noexcept { return mix_; }
 
-    void setPreDelay(float ms) { preDelayMs_ = std::clamp(ms, 0.0f, 100.0f); }
-    float getPreDelay() const { return preDelayMs_; }
+    void setPreDelay(float ms) noexcept { preDelayMs_ = std::clamp(ms, 0.0f, 100.0f); }
+    float getPreDelay() const noexcept { return preDelayMs_; }
 
     void setDecay(float decay) {
         decay_ = std::clamp(decay, 0.1f, 2.5f);
-        // Reload preset with adjusted decay if applicable
-        if (!currentPresetName_.empty()) {
-            loadPreset(currentPresetName_);
-        }
+        regenerateCurrentSpace();
     }
-    float getDecay() const { return decay_; }
+    float getDecay() const noexcept { return decay_; }
+
+    void setRoomSize(float scale) {
+        roomSize_ = std::clamp(scale, 0.2f, 3.0f);
+        regenerateCurrentSpace();
+    }
+    float getRoomSize() const noexcept { return roomSize_; }
+
+    void setDamping(float damping) {
+        currentParams_.damping = std::clamp(damping, 0.0f, 1.0f);
+        regenerateCurrentSpace();
+    }
+    float getDamping() const noexcept { return currentParams_.damping; }
+
+    void setGated(bool gated, float holdTimeMs = 180.0f, float releaseTimeMs = 20.0f) {
+        currentParams_.isGated = gated;
+        currentParams_.gateHoldMs = holdTimeMs;
+        currentParams_.gateReleaseMs = releaseTimeMs;
+        regenerateCurrentSpace();
+    }
+    bool isGated() const noexcept { return currentParams_.isGated; }
 
     void setHighCut(float hz) {
         highCutHz_ = std::clamp(hz, 500.0f, 20000.0f);
         updateDampingCoeffs();
     }
-    float getHighCut() const { return highCutHz_; }
+    float getHighCut() const noexcept { return highCutHz_; }
 
     void setLowCut(float hz) {
         lowCutHz_ = std::clamp(hz, 20.0f, 2000.0f);
         updateDampingCoeffs();
     }
-    float getLowCut() const { return lowCutHz_; }
+    float getLowCut() const noexcept { return lowCutHz_; }
 
-    size_t getIrLength() const { return irLength_; }
-    const std::string& getCurrentPresetName() const { return currentPresetName_; }
+    size_t getIrLength() const noexcept { return irLength_; }
+    const std::string& getCurrentPresetName() const noexcept { return currentPresetName_; }
+    const AcousticSpaceParams& getCurrentSpaceParams() const noexcept { return currentParams_; }
 
     void loadPreset(const std::string& name) {
         const auto* preset = ProceduralIRGenerator::findPreset(name);
         if (preset) {
-            AcousticSpaceParams mod = *preset;
-            mod.rt60 = std::clamp(preset->rt60 * decay_, 0.015f, 6.0f);
-            size_t targetLen = preset->isCabinetMode ? 1024 : kDefaultIrLength;
-            auto ir = ProceduralIRGenerator::generateStereo(mod, static_cast<int>(sampleRate_), static_cast<int>(targetLen));
-            loadImpulseResponse(ir, preset->name);
+            currentParams_ = *preset;
+            regenerateCurrentSpace();
         }
     }
 
@@ -102,6 +115,20 @@ public:
         if (index < presets.size()) {
             loadPreset(presets[index].name);
         }
+    }
+
+    void setAcousticSpace(const AcousticSpaceParams& params) {
+        currentParams_ = params;
+        regenerateCurrentSpace();
+    }
+
+    StereoIRBuffer bakeCustomSpace(const AcousticSpaceParams& params) {
+        ProceduralIRGenerator::registerCustomPreset(params);
+        setAcousticSpace(params);
+        StereoIRBuffer result;
+        result.left.assign(targetIrL_.begin(), targetIrL_.begin() + targetLength_);
+        result.right.assign(targetIrR_.begin(), targetIrR_.begin() + targetLength_);
+        return result;
     }
 
     void loadImpulseResponse(const StereoIRBuffer& ir, const std::string& name = "Custom IR") {
@@ -135,7 +162,7 @@ public:
     }
 
     // Zero-allocation real-time stereo processing
-    void processStereo(const float* inL, const float* inR, float* outL, float* outR, size_t numFrames) {
+    void processStereo(const float* inL, const float* inR, float* outL, float* outR, size_t numFrames) noexcept {
         if (numFrames == 0) return;
 
         // If fully dry, pass through
@@ -227,6 +254,19 @@ public:
     }
 
 private:
+    void regenerateCurrentSpace() {
+        AcousticSpaceParams mod = currentParams_;
+        mod = mod.withRoomScale(roomSize_);
+        mod.rt60 = std::clamp(mod.rt60 * decay_, 0.015f, 6.0f);
+        size_t targetLen = mod.isCabinetMode ? 1024 : (mod.isGated ? 2048 : kDefaultIrLength);
+        auto ir = ProceduralIRGenerator::generateStereo(
+            mod,
+            static_cast<int>(sampleRate_),
+            static_cast<int>(targetLen)
+        );
+        loadImpulseResponse(ir, mod.name);
+    }
+
     void updateDampingCoeffs() {
         // 1-pole Low-pass coefficient: alpha = dt / (RC + dt)
         float dt = 1.0f / sampleRate_;
@@ -238,36 +278,39 @@ private:
         hpfCoeff_ = std::clamp(rcHpf / (rcHpf + dt), 0.01f, 0.999f);
     }
 
-    float sampleRate_ = 44100.0f;
-    float mix_ = 0.35f;
-    float preDelayMs_ = 10.0f;
-    float decay_ = 1.0f;
-    float highCutHz_ = 8500.0f;
-    float lowCutHz_ = 80.0f;
+    float sampleRate_{44100.0f};
+    float mix_{0.35f};
+    float preDelayMs_{10.0f};
+    float decay_{1.0f};
+    float roomSize_{1.0f};
+    float highCutHz_{8500.0f};
+    float lowCutHz_{80.0f};
 
-    float lpfCoeff_ = 0.5f;
-    float hpfCoeff_ = 0.99f;
-    float lpfStateL_ = 0.0f;
-    float lpfStateR_ = 0.0f;
-    float hpfStateL_ = 0.0f;
-    float hpfStateR_ = 0.0f;
-    float hpfInPrevL_ = 0.0f;
-    float hpfInPrevR_ = 0.0f;
+    AcousticSpaceParams currentParams_;
+
+    float lpfCoeff_{0.5f};
+    float hpfCoeff_{0.99f};
+    float lpfStateL_{0.0f};
+    float lpfStateR_{0.0f};
+    float hpfStateL_{0.0f};
+    float hpfStateR_{0.0f};
+    float hpfInPrevL_{0.0f};
+    float hpfInPrevR_{0.0f};
 
     std::vector<float> historyL_;
     std::vector<float> historyR_;
-    size_t writePos_ = 0;
+    size_t writePos_{0};
 
     std::vector<float> activeIrL_;
     std::vector<float> activeIrR_;
-    size_t irLength_ = 0;
+    size_t irLength_{0};
 
     std::vector<float> targetIrL_;
     std::vector<float> targetIrR_;
-    size_t targetLength_ = 0;
+    size_t targetLength_{0};
 
-    int crossfadeRemaining_ = 0;
-    int crossfadeTotal_ = 128;
+    int crossfadeRemaining_{0};
+    int crossfadeTotal_{128};
 
     std::string currentPresetName_;
 };

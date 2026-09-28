@@ -171,11 +171,12 @@ bool EatsProjectSerializer::deserialize(
     outBpm = 135.0;
     outSwing = 0.50;
 
+    std::map<uint32_t, audio::NodeId> oldToNewId;
+
     // Check for graph block
     size_t graphPos = eatsScript.find("graph = {");
     if (graphPos != std::string::npos) {
         graph.clear();
-        std::map<uint32_t, audio::NodeId> oldToNewId;
 
         // Output Node Id
         static const std::regex outNodeRegex(R"(outputNodeId\s*=\s*(\d+))");
@@ -291,6 +292,66 @@ bool EatsProjectSerializer::deserialize(
             graph.setOutputNode(oldToNewId[targetOutputId], 0);
         }
 
+        // Ensure a valid output node exists
+        if (graph.getOutputNodeId() == audio::INVALID_NODE_ID && graph.getNodeCount() > 0) {
+            audio::NodeId fallbackOut = audio::INVALID_NODE_ID;
+            for (const auto& [id, node] : graph.getNodes()) {
+                if (node && node->getName() == "MasterOut") {
+                    fallbackOut = id;
+                    break;
+                }
+            }
+            if (fallbackOut == audio::INVALID_NODE_ID) {
+                for (const auto& [nid, node] : graph.getNodes()) {
+                    if (node && node->numOutputPorts() > 0) {
+                        fallbackOut = nid;
+                    }
+                }
+            }
+            if (fallbackOut != audio::INVALID_NODE_ID) {
+                graph.setOutputNode(fallbackOut, 0);
+            }
+        }
+
+        graph.compile();
+    }
+
+    // If graph has no nodes, set up the standard synthesis graph so audio is never silent
+    if (graph.getNodeCount() == 0) {
+        auto tb = std::make_shared<audio::Tb303Node>("Tb303");
+        auto delay = std::make_shared<audio::DelayNode>("AcidEcho");
+        delay->setDelayTimeMs(125.0f); delay->setFeedback(0.35f); delay->setDryWet(0.30f);
+        auto tbStrip = std::make_shared<audio::GainNode>("Track1_Gain");
+        auto drums808 = std::make_shared<audio::DrumKitNode>("Drums808");
+        auto drum808Strip = std::make_shared<audio::GainNode>("Track2_Gain");
+        auto drums909 = std::make_shared<audio::DrumKitNode>("Drums909");
+        auto drum909Strip = std::make_shared<audio::GainNode>("Track3_Gain");
+        auto dx7 = std::make_shared<audio::PolySynthNode>("Dx7Rhodes");
+        auto dx7Strip = std::make_shared<audio::GainNode>("Track4_Gain");
+        auto piano = std::make_shared<audio::PolySynthNode>("ConcertGrand");
+        auto pianoStrip = std::make_shared<audio::GainNode>("Track5_Gain");
+        auto masterGain = std::make_shared<audio::GainNode>("MasterOut");
+        masterGain->setVolume(0.85f);
+
+        audio::NodeId tbId = graph.addNode(tb);
+        audio::NodeId dlId = graph.addNode(delay);
+        audio::NodeId tbG = graph.addNode(tbStrip);
+        audio::NodeId d8Id = graph.addNode(drums808);
+        audio::NodeId d8G = graph.addNode(drum808Strip);
+        audio::NodeId d9Id = graph.addNode(drums909);
+        audio::NodeId d9G = graph.addNode(drum909Strip);
+        audio::NodeId dxId = graph.addNode(dx7);
+        audio::NodeId dxG = graph.addNode(dx7Strip);
+        audio::NodeId pId = graph.addNode(piano);
+        audio::NodeId pG = graph.addNode(pianoStrip);
+        audio::NodeId mId = graph.addNode(masterGain);
+
+        graph.connect(tbId, 0, dlId, 0); graph.connect(dlId, 0, tbG, 0); graph.connect(tbG, 0, mId, 0);
+        graph.connect(d8Id, 0, d8G, 0); graph.connect(d8G, 0, mId, 0);
+        graph.connect(d9Id, 0, d9G, 0); graph.connect(d9G, 0, mId, 0);
+        graph.connect(dxId, 0, dxG, 0); graph.connect(dxG, 0, mId, 0);
+        graph.connect(pId, 0, pG, 0); graph.connect(pG, 0, mId, 0);
+        graph.setOutputNode(mId, 0);
         graph.compile();
     }
 
@@ -317,88 +378,267 @@ bool EatsProjectSerializer::deserialize(
     sequencer.setSwing(outSwing);
     sequencer.clearPatterns();
 
-    // Find tracks block
-    size_t patIdx = sequencer.addPattern("Pattern 1");
-    auto& pat = sequencer.getPattern(patIdx);
-    pat.tracks.clear();
-
-    // Match each track block: { id = "trk_..." ... }
-    static const std::regex trackStartRegex(R"(id\s*=\s*["']trk_(\d+)["'])");
-    std::sregex_iterator it(eatsScript.begin(), eatsScript.end(), trackStartRegex);
+    // Find all pattern blocks (e.g. "Pattern A", "Pattern B", "Pattern 1")
+    std::vector<std::pair<std::string, size_t>> patternsFound;
+    static const std::regex tracksBlockRegex(R"(tracks\s*=\s*\{)");
+    std::sregex_iterator patIt(eatsScript.begin(), eatsScript.end(), tracksBlockRegex);
     std::sregex_iterator end;
 
-    std::vector<size_t> trackOffsets;
-    for (; it != end; ++it) {
-        trackOffsets.push_back(it->position());
+    for (; patIt != end; ++patIt) {
+        size_t trkBlockPos = patIt->position();
+        std::string pName = "Pattern " + std::to_string(patternsFound.size() + 1);
+        size_t lookbackStart = (trkBlockPos >= 400) ? (trkBlockPos - 400) : 0;
+        std::string lookback = eatsScript.substr(lookbackStart, trkBlockPos - lookbackStart);
+        static const std::regex patNameRegex(R"(name\s*=\s*["']([^"']*)["'])");
+        std::sregex_iterator pnIt(lookback.begin(), lookback.end(), patNameRegex);
+        std::string lastPName;
+        for (; pnIt != end; ++pnIt) {
+            lastPName = (*pnIt)[1].str();
+        }
+        if (!lastPName.empty()) {
+            pName = lastPName;
+        }
+        patternsFound.emplace_back(pName, trkBlockPos);
     }
 
-    for (size_t i = 0; i < trackOffsets.size(); ++i) {
-        size_t start = trackOffsets[i];
-        size_t endPos = (i + 1 < trackOffsets.size()) ? trackOffsets[i + 1] : eatsScript.size();
-        std::string trkChunk = eatsScript.substr(start, endPos - start);
+    if (patternsFound.empty()) {
+        patternsFound.emplace_back("Pattern 1", 0);
+    }
 
-        std::string trkName = "Track";
-        static const std::regex trkNameRegex(R"(name\s*=\s*["']([^"']*)["'])");
-        if (std::regex_search(trkChunk, match, trkNameRegex)) {
-            trkName = match[1].str();
+    for (size_t pIdx = 0; pIdx < patternsFound.size(); ++pIdx) {
+        size_t patIdx = sequencer.addPattern(patternsFound[pIdx].first);
+        auto& pat = sequencer.getPattern(patIdx);
+        pat.tracks.clear();
+
+        size_t blockStart = patternsFound[pIdx].second;
+        size_t blockEnd = (pIdx + 1 < patternsFound.size()) ? patternsFound[pIdx + 1].second : eatsScript.size();
+        std::string patternSection = eatsScript.substr(blockStart, blockEnd - blockStart);
+
+        // Identify track blocks within patternSection
+        static const std::regex idRegex(R"(\bid\s*=\s*["']([^"']+)["'])");
+        std::sregex_iterator idIt(patternSection.begin(), patternSection.end(), idRegex);
+        std::vector<size_t> trackOffsets;
+
+        for (; idIt != end; ++idIt) {
+            std::string idVal = (*idIt)[1].str();
+            // Filter out clips, fx, and step note IDs
+            if (idVal.rfind("clip", 0) == 0 || idVal.rfind("c_", 0) == 0) continue;
+            if (idVal.rfind("fx", 0) == 0) continue;
+            if (idVal.rfind("n_", 0) == 0 || idVal.rfind("s_", 0) == 0 || idVal.rfind("h_", 0) == 0) continue;
+
+            size_t idPos = idIt->position();
+            size_t checkLen = std::min<size_t>(350, patternSection.size() - idPos);
+            std::string preview = patternSection.substr(idPos, checkLen);
+
+            // Clips contain 'trackId'
+            if (preview.find("trackId") != std::string::npos) continue;
+            // Notes contain 'pitch' and 'startStep'
+            if (preview.find("pitch") != std::string::npos && preview.find("startStep") != std::string::npos) continue;
+            // Patterns contain 'lengthSteps' or 'tracks =' or have pattern IDs like 'p0', 'pat_0'
+            if (preview.find("lengthSteps") != std::string::npos || preview.find("tracks =") != std::string::npos) continue;
+            static const std::regex patIdRegex(R"(^p(?:at_)?\d+$)");
+            if (std::regex_match(idVal, patIdRegex)) continue;
+            // Tracks must have name
+            static const std::regex hasNameRegex(R"(name\s*=\s*["'][^"']+["'])");
+            if (!std::regex_search(preview, hasNameRegex)) continue;
+
+            trackOffsets.push_back(idPos);
         }
 
-        uint32_t targetNodeId = 0;
-        static const std::regex nodeIdRegex(R"(targetNodeId\s*=\s*(\d+))");
-        if (std::regex_search(trkChunk, match, nodeIdRegex)) {
-            targetNodeId = static_cast<uint32_t>(std::stoul(match[1].str()));
-        }
+        for (size_t i = 0; i < trackOffsets.size(); ++i) {
+            size_t start = trackOffsets[i];
+            size_t endPos = (i + 1 < trackOffsets.size()) ? trackOffsets[i + 1] : patternSection.size();
+            std::string trkChunk = patternSection.substr(start, endPos - start);
 
-        sequencer::SequencerTrack trk(trkName, targetNodeId, 16);
-
-        // Mute / Solo
-        static const std::regex muteRegex(R"(isMuted\s*=\s*(true|false))");
-        if (std::regex_search(trkChunk, match, muteRegex)) {
-            trk.setMuted(match[1].str() == "true");
-        }
-        static const std::regex soloRegex(R"(isSoloed\s*=\s*(true|false))");
-        if (std::regex_search(trkChunk, match, soloRegex)) {
-            trk.setSolo(match[1].str() == "true");
-        }
-
-        // EatScript Code
-        static const std::regex scriptCodeRegex(R"(eatScriptCode\s*=\s*\[\[([\s\S]*?)\]\])");
-        if (std::regex_search(trkChunk, match, scriptCodeRegex)) {
-            std::string code = match[1].str();
-            // Trim leading/trailing whitespace
-            size_t first = code.find_first_not_of(" \t\r\n");
-            size_t last = code.find_last_not_of(" \t\r\n");
-            if (first != std::string::npos && last != std::string::npos) {
-                trk.setEatscriptCode(code.substr(first, last - first + 1));
+            std::string trkName = "Track " + std::to_string(i + 1);
+            static const std::regex trkNameRegex(R"(name\s*=\s*["']([^"']*)["'])");
+            if (std::regex_search(trkChunk, match, trkNameRegex)) {
+                trkName = match[1].str();
             }
-        }
 
-        // Steps: [1] = { pitch = 36, velocity = 0.80, isSlide = false, isAccent = false }
-        static const std::regex stepRegex(R"(\[(\d+)\]\s*=\s*\{([^}]*)\})");
-        std::sregex_iterator stepIt(trkChunk.begin(), trkChunk.end(), stepRegex);
-        for (; stepIt != end; ++stepIt) {
-            uint32_t sIdx = static_cast<uint32_t>(std::stoul((*stepIt)[1].str()));
-            if (sIdx > 0 && sIdx <= 64) {
-                std::string stepBody = (*stepIt)[2].str();
-                sequencer::StepData sd;
-                sd.active = true;
-
-                static const std::regex pRegex(R"(pitch\s*=\s*(\d+))");
-                static const std::regex vRegex(R"(velocity\s*=\s*([\d\.]+))");
-                static const std::regex slRegex(R"(isSlide\s*=\s*(true|false))");
-                static const std::regex acRegex(R"(isAccent\s*=\s*(true|false))");
-
-                std::smatch sm;
-                if (std::regex_search(stepBody, sm, pRegex)) sd.note = static_cast<uint8_t>(std::stoi(sm[1].str()));
-                if (std::regex_search(stepBody, sm, vRegex)) sd.velocity = std::stof(sm[1].str());
-                if (std::regex_search(stepBody, sm, slRegex)) sd.slide = (sm[1].str() == "true");
-                if (std::regex_search(stepBody, sm, acRegex)) sd.accent = (sm[1].str() == "true");
-
-                trk.setStep(sIdx - 1, sd);
+            uint32_t targetNodeId = 0;
+            static const std::regex nodeIdRegex(R"(targetNodeId\s*=\s*(\d+))");
+            if (std::regex_search(trkChunk, match, nodeIdRegex)) {
+                targetNodeId = static_cast<uint32_t>(std::stoul(match[1].str()));
             }
-        }
 
-        pat.tracks.push_back(std::move(trk));
+            // Remap old node ID or match by instrument keywords to modular synth graph
+            if (oldToNewId.count(targetNodeId)) {
+                targetNodeId = oldToNewId[targetNodeId];
+            } else if (graph.getNodeCount() > 0) {
+                std::string lowerTrk = trkName;
+                std::transform(lowerTrk.begin(), lowerTrk.end(), lowerTrk.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                audio::NodeId matchedId = 0;
+
+                for (const auto& [nid, node] : graph.getNodes()) {
+                    if (!node) continue;
+                    std::string lowerNode = node->getName();
+                    std::transform(lowerNode.begin(), lowerNode.end(), lowerNode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                    if ((lowerTrk.find("303") != std::string::npos || lowerTrk.find("acid") != std::string::npos || lowerTrk.find("bass") != std::string::npos) &&
+                        (lowerNode.find("303") != std::string::npos || lowerNode.find("acid") != std::string::npos)) {
+                        matchedId = nid; break;
+                    } else if ((lowerTrk.find("kick") != std::string::npos || lowerTrk.find("808") != std::string::npos || lowerTrk.find("bd") != std::string::npos) &&
+                               lowerNode.find("808") != std::string::npos) {
+                        matchedId = nid; break;
+                    } else if ((lowerTrk.find("hat") != std::string::npos || lowerTrk.find("cymbal") != std::string::npos || lowerTrk.find("909") != std::string::npos || lowerTrk.find("hh") != std::string::npos) &&
+                               lowerNode.find("909") != std::string::npos) {
+                        matchedId = nid; break;
+                    } else if ((lowerTrk.find("snare") != std::string::npos || lowerTrk.find("clap") != std::string::npos || lowerTrk.find("sd") != std::string::npos) &&
+                               (lowerNode.find("808") != std::string::npos || lowerNode.find("909") != std::string::npos)) {
+                        matchedId = nid; break;
+                    } else if ((lowerTrk.find("rhodes") != std::string::npos || lowerTrk.find("dx") != std::string::npos || lowerTrk.find("ep") != std::string::npos || lowerTrk.find("keys") != std::string::npos) &&
+                               (lowerNode.find("rhodes") != std::string::npos || lowerNode.find("dx") != std::string::npos)) {
+                        matchedId = nid; break;
+                    } else if ((lowerTrk.find("piano") != std::string::npos || lowerTrk.find("grand") != std::string::npos || lowerTrk.find("guitar") != std::string::npos || lowerTrk.find("string") != std::string::npos || lowerTrk.find("lead") != std::string::npos) &&
+                               (lowerNode.find("piano") != std::string::npos || lowerNode.find("grand") != std::string::npos)) {
+                        matchedId = nid; break;
+                    }
+                }
+
+                if (matchedId == 0) {
+                    // Pick a sound generator node (outputs > 0, inputs == 0)
+                    std::vector<audio::NodeId> generators;
+                    for (const auto& [nid, node] : graph.getNodes()) {
+                        if (node && node->numOutputPorts() > 0 && node->numInputPorts() == 0) {
+                            generators.push_back(nid);
+                        }
+                    }
+                    if (!generators.empty()) {
+                        matchedId = generators[i % generators.size()];
+                    }
+                }
+                targetNodeId = matchedId;
+            }
+
+            sequencer::SequencerTrack trk(trkName, targetNodeId, 16);
+
+            // Volume & Pan
+            static const std::regex volRegex(R"(\bvolume\s*=\s*([\d\.]+))");
+            if (std::regex_search(trkChunk, match, volRegex)) {
+                trk.setVolume(std::stof(match[1].str()));
+            }
+
+            static const std::regex panRegex(R"(\bpan\s*=\s*([-\d\.]+))");
+            if (std::regex_search(trkChunk, match, panRegex)) {
+                trk.setPan(std::stof(match[1].str()));
+            }
+
+            // Mute / Solo
+            static const std::regex muteRegex(R"(isMuted\s*=\s*(true|false))");
+            if (std::regex_search(trkChunk, match, muteRegex)) {
+                trk.setMuted(match[1].str() == "true");
+            }
+            static const std::regex soloRegex(R"(isSoloed\s*=\s*(true|false))");
+            if (std::regex_search(trkChunk, match, soloRegex)) {
+                trk.setSolo(match[1].str() == "true");
+            }
+
+            // EatScript Code / LuaScript Code
+            static const std::regex scriptCodeRegex(R"((?:eatScriptCode|luaScriptCode)\s*=\s*\[\[([\s\S]*?)\]\])");
+            if (std::regex_search(trkChunk, match, scriptCodeRegex)) {
+                std::string code = match[1].str();
+                size_t first = code.find_first_not_of(" \t\r\n");
+                size_t last = code.find_last_not_of(" \t\r\n");
+                if (first != std::string::npos && last != std::string::npos) {
+                    trk.setEatscriptCode(code.substr(first, last - first + 1));
+                }
+            }
+
+            uint32_t maxStep = 16;
+
+            // Format A: steps = { [1] = { pitch = 36, velocity = 0.80, isSlide = false, isAccent = false } }
+            static const std::regex stepRegex(R"(\[(\d+)\]\s*=\s*\{([^}]*)\})");
+            std::sregex_iterator stepIt(trkChunk.begin(), trkChunk.end(), stepRegex);
+            for (; stepIt != end; ++stepIt) {
+                uint32_t sIdx = static_cast<uint32_t>(std::stoul((*stepIt)[1].str()));
+                if (sIdx > 0 && sIdx <= sequencer::MAX_STEPS_PER_TRACK) {
+                    std::string stepBody = (*stepIt)[2].str();
+                    sequencer::StepData sd;
+                    sd.active = true;
+
+                    static const std::regex pRegex(R"(pitch\s*=\s*(\d+))");
+                    static const std::regex vRegex(R"(velocity\s*=\s*([\d\.]+))");
+                    static const std::regex slRegex(R"(isSlide\s*=\s*(true|false))");
+                    static const std::regex acRegex(R"(isAccent\s*=\s*(true|false))");
+
+                    std::smatch sm;
+                    if (std::regex_search(stepBody, sm, pRegex)) sd.note = static_cast<uint8_t>(std::stoi(sm[1].str()));
+                    if (std::regex_search(stepBody, sm, vRegex)) sd.velocity = std::stof(sm[1].str());
+                    if (std::regex_search(stepBody, sm, slRegex)) sd.slide = (sm[1].str() == "true");
+                    if (std::regex_search(stepBody, sm, acRegex)) sd.accent = (sm[1].str() == "true");
+
+                    trk.setStep(sIdx - 1, sd);
+                    if (sIdx > maxStep) maxStep = sIdx;
+                }
+            }
+
+            // Format B: notes = { { ... startStep = ... } } (in track notes and clip notes)
+            static const std::regex noteRegex(R"(\{[^{}]*\bstartStep\s*=\s*([\d\.]+)[^{}]*\})");
+            std::sregex_iterator noteIt(trkChunk.begin(), trkChunk.end(), noteRegex);
+            for (; noteIt != end; ++noteIt) {
+                std::string noteBody = noteIt->str();
+
+                static const std::regex pitchRx(R"(\bpitch\s*=\s*(\d+))");
+                static const std::regex stepRx(R"(\bstartStep\s*=\s*([\d\.]+))");
+                static const std::regex durRx(R"(\bdurationSteps\s*=\s*([\d\.]+))");
+                static const std::regex velRx(R"(\bvelocity\s*=\s*([\d\.]+))");
+                static const std::regex slRx(R"(\bisSlide\s*=\s*(true|false))");
+                static const std::regex acRx(R"(\bisAccent\s*=\s*(true|false))");
+
+                std::smatch smP, smS;
+                if (std::regex_search(noteBody, smP, pitchRx) && std::regex_search(noteBody, smS, stepRx)) {
+                    uint8_t noteNum = static_cast<uint8_t>(std::stoi(smP[1].str()));
+                    float startStep = std::stof(smS[1].str());
+                    uint32_t sIdx = static_cast<uint32_t>(std::round(startStep));
+
+                    if (sIdx < sequencer::MAX_STEPS_PER_TRACK) {
+                        float dur = 1.0f;
+                        float vel = 0.8f;
+                        bool slide = false;
+                        bool accent = false;
+
+                        std::smatch smOther;
+                        if (std::regex_search(noteBody, smOther, durRx)) dur = std::stof(smOther[1].str());
+                        if (std::regex_search(noteBody, smOther, velRx)) vel = std::stof(smOther[1].str());
+                        if (std::regex_search(noteBody, smOther, slRx)) slide = (smOther[1].str() == "true");
+                        if (std::regex_search(noteBody, smOther, acRx)) accent = (smOther[1].str() == "true");
+
+                        auto& existingStep = trk.getStep(sIdx);
+                        if (existingStep.active) {
+                            if (existingStep.note != noteNum) {
+                                if (std::find(existingStep.extraNotes.begin(), existingStep.extraNotes.end(), noteNum) == existingStep.extraNotes.end()) {
+                                    existingStep.extraNotes.push_back(noteNum);
+                                }
+                            }
+                        } else {
+                            sequencer::StepData sd;
+                            sd.active = true;
+                            sd.note = noteNum;
+                            sd.velocity = std::clamp(vel, 0.05f, 1.0f);
+                            sd.slide = slide;
+                            sd.accent = accent;
+                            sd.gateLength = (dur >= 1.0f) ? 0.95f : std::clamp(dur, 0.1f, 0.95f);
+                            trk.setStep(sIdx, sd);
+                        }
+                        if (sIdx + 1 > maxStep) maxStep = sIdx + 1;
+                    }
+                }
+            }
+
+            if (maxStep > 16) {
+                uint32_t alignedSteps = std::min(static_cast<uint32_t>(sequencer::MAX_STEPS_PER_TRACK), ((maxStep + 15) / 16) * 16);
+                trk.setNumSteps(alignedSteps);
+            } else {
+                trk.setNumSteps(16);
+            }
+
+            pat.tracks.push_back(std::move(trk));
+        }
+    }
+
+    if (sequencer.getNumPatterns() > 0) {
+        sequencer.setActivePatternIndex(0);
     }
 
     return true;

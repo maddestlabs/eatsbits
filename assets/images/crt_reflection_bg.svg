@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 426 240" width="426" height="240">
+  <defs>
+    <!-- Deep Room Ambient Base -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06090c"/>
+      <stop offset="45%" stop-color="#0b1014"/>
+      <stop offset="100%" stop-color="#030507"/>
+    </linearGradient>
+
+    <!-- Receding Corridor Left Wall -->
+    <linearGradient id="leftWall" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0a1014"/>
+      <stop offset="60%" stop-color="#141c22"/>
+      <stop offset="90%" stop-color="#1a252c"/>
+      <stop offset="100%" stop-color="#080d10"/>
+    </linearGradient>
+
+    <!-- Ceiling Soffit / Ductwork -->
+    <linearGradient id="ceilingGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#0b1013"/>
+      <stop offset="60%" stop-color="#070a0c"/>
+      <stop offset="100%" stop-color="#030406"/>
+    </linearGradient>
+
+    <!-- Floor Specular Bounce & Depth -->
+    <linearGradient id="floorGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#0f191e"/>
+      <stop offset="20%" stop-color="#132026"/>
+      <stop offset="55%" stop-color="#091013"/>
+      <stop offset="100%" stop-color="#030507"/>
+    </linearGradient>
+
+    <!-- Distant Backdoor Window Intense Radial Bloom -->
+    <radialGradient id="backWindowBloom" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f4fcfe" stop-opacity="1.0"/>
+      <stop offset="25%" stop-color="#b8e8ed" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#589fa8" stop-opacity="0.65"/>
+      <stop offset="75%" stop-color="#1c454c" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0a171a" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <!-- Hallway Light Spill / Halo -->
+    <radialGradient id="hallwaySpill" cx="40%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#6ea8b0" stop-opacity="0.55"/>
+      <stop offset="40%" stop-color="#284e55" stop-opacity="0.25"/>
+      <stop offset="80%" stop-color="#0b1619" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <!-- Office Window Pane Backlight Halo (Behind Eatsbits Logo) -->
+    <radialGradient id="logoHalo" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#eaf8fa" stop-opacity="1.0"/>
+      <stop offset="35%" stop-color="#7ec2ca" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#2a5760" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0f262b" stop-opacity="0.2"/>
+    </radialGradient>
+
+    <!-- Glass Pane Glow Gradient -->
+    <linearGradient id="glassPaneGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4e7f88" stop-opacity="0.65"/>
+      <stop offset="40%" stop-color="#325860" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#142c32" stop-opacity="0.35"/>
+    </linearGradient>
+
+    <!-- Floor Light Spill from Windows -->
+    <radialGradient id="floorSpill" cx="42%" cy="0%" r="75%">
+      <stop offset="0%" stop-color="#457880" stop-opacity="0.40"/>
+      <stop offset="35%" stop-color="#1d3d44" stop-opacity="0.22"/>
+      <stop offset="70%" stop-color="#0c1a1e" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#030507" stop-opacity="0.0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 1. Background & Perspective Envelope -->
+  <rect width="426" height="240" fill="url(#bgGrad)"/>
+
+  <!-- Left Receding Hallway Wall -->
+  <polygon points="0,0 142,78 142,142 0,215" fill="url(#leftWall)"/>
+
+  <!-- Ceiling Soffit & Beam -->
+  <polygon points="0,0 426,0 426,78 142,78" fill="url(#ceilingGrad)"/>
+  <rect x="142" y="74" width="284" height="4" fill="#090d10"/>
+  <line x1="142" y1="78" x2="426" y2="78" stroke="#151e24" stroke-width="1.2"/>
+
+  <!-- Right Receding Wall & Partition Line -->
+  <polygon points="280,78 426,78 426,240 280,142" fill="#080c0f"/>
+  <line x1="280" y1="126" x2="426" y2="126" stroke="#131a1e" stroke-width="1.8"/> <!-- Wainscot rail -->
+
+  <!-- Dusty Floor & Light Bounce -->
+  <polygon points="0,215 142,142 426,142 426,240 0,240" fill="url(#floorGrad)"/>
+  <polygon points="110,142 290,142 360,240 60,240" fill="url(#floorSpill)"/>
+
+  <!-- 2. Left Hallway / Doorway Opening -->
+  <polygon points="142,78 180,78 180,142 142,142" fill="#060a0d"/>
+  
+  <!-- Hallway Back Wall & Distant Exterior Window -->
+  <rect x="150" y="88" width="24" height="24" fill="#091316"/>
+  <!-- Exterior Window Glow & Frame -->
+  <circle cx="162" cy="99" r="28" fill="url(#backWindowBloom)"/>
+  <rect x="154" y="93" width="16" height="13" fill="#ffffff" opacity="0.95"/>
+  <!-- Window Muntins / Taped Criss-Cross -->
+  <line x1="154" y1="93" x2="170" y2="106" stroke="#1c3338" stroke-width="1.2"/>
+  <line x1="154" y1="106" x2="170" y2="93" stroke="#1c3338" stroke-width="1.2"/>
+  <line x1="162" y1="93" x2="162" y2="106" stroke="#1c3338" stroke-width="1"/>
+
+  <!-- Light bloom leaking out of doorway onto wall/floor -->
+  <circle cx="162" cy="110" r="38" fill="url(#hallwaySpill)"/>
+
+  <!-- 3. Glass Partition Wall (4 Window Panes) -->
+  <!-- Solid Lower Bulkhead / Half-Wall -->
+  <polygon points="180,122 280,122 280,142 180,142" fill="#090d10"/>
+  <line x1="180" y1="122" x2="280" y2="122" stroke="#1a252c" stroke-width="1.5"/> <!-- Sill highlight line -->
+
+  <!-- Outer Window Frame Border -->
+  <rect x="180" y="78" width="100" height="44" fill="none" stroke="#11181c" stroke-width="2"/>
+  
+  <!-- Vertical Mullions Dividing 4 Window Panes -->
+  <line x1="205" y1="78" x2="205" y2="122" stroke="#10171b" stroke-width="1.8"/>
+  <line x1="230" y1="78" x2="230" y2="122" stroke="#10171b" stroke-width="1.8"/>
+  <line x1="255" y1="78" x2="255" y2="122" stroke="#10171b" stroke-width="1.8"/>
+
+  <!-- ================= PANE 1: TAPED 'X' ================= -->
+  <rect x="181" y="79" width="23" height="42" fill="url(#glassPaneGlow)"/>
+  <line x1="184" y1="84" x2="202" y2="117" stroke="#111f24" stroke-width="2" stroke-linecap="round"/>
+  <line x1="184" y1="117" x2="202" y2="84" stroke="#111f24" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- ================= PANE 2: EATSBITS LOGO BACKLIT IN WINDOW ================= -->
+  <!-- Radiant Backlight Halo Filling Pane -->
+  <rect x="206" y="79" width="23" height="42" fill="url(#logoHalo)"/>
+  
+  <!-- Eatsbits Logo Silhouette Centered with Glowing Eye & Light Spill -->
+  <g transform="translate(208.5, 87) scale(0.062)">
+    <!-- Monster Body Silhouette (Near Black / Deep Slate) -->
+    <path d="M 50 50 H 190 V 110 H 110 V 170 H 190 V 205 H 50 Z" fill="#070c0e"/>
+    <!-- Eye Cutout (Bright Light Shining Through!) -->
+    <circle cx="130" cy="80" r="16" fill="#f4fdff"/>
+    <!-- Floating Bits -->
+    <rect x="200" y="115" width="24" height="24" rx="4" fill="#070c0e"/>
+    <rect x="200" y="160" width="18" height="18" rx="3" fill="#070c0e"/>
+  </g>
+
+  <!-- ================= PANE 3: TAPED 'X' ================= -->
+  <rect x="231" y="79" width="23" height="42" fill="url(#glassPaneGlow)"/>
+  <line x1="234" y1="84" x2="252" y2="117" stroke="#111f24" stroke-width="2" stroke-linecap="round"/>
+  <line x1="234" y1="117" x2="252" y2="84" stroke="#111f24" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- ================= PANE 4: CRISS-CROSS TAPE ================= -->
+  <rect x="256" y="79" width="23" height="42" fill="url(#glassPaneGlow)"/>
+  <line x1="259" y1="84" x2="276" y2="117" stroke="#0e1a1e" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="259" y1="117" x2="276" y2="84" stroke="#0e1a1e" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- 4. Foreground Atmospheric Silhouette (Chair in Dark Corner) -->
+  <path d="M 138 144 L 141 131 L 151 131 L 149 144 Z" fill="#05080a"/>
+  <rect x="136" y="144" width="16" height="14" rx="2" fill="#040608"/>
+  <line x1="138" y1="158" x2="137" y2="174" stroke="#030507" stroke-width="2"/>
+  <line x1="150" y1="158" x2="151" y2="174" stroke="#030507" stroke-width="2"/>
+</svg>

@@ -124,6 +124,7 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
         const auto& tick = ticks[t];
 
         for (auto& track : activePattern.tracks) {
+            if (track.isFrozen()) continue; // Skip live note triggering when track is frozen
             if (track.isMuted()) continue;
             if (hasSolo && !track.isSolo()) continue;
 
@@ -169,6 +170,20 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                 double duration = std::clamp(step.gateLength, 0.05f, 1.0f) * tick.stepDurationSamples;
                 uint32_t framesUntilOff = tick.frameOffset + static_cast<uint32_t>(duration);
                 scheduleNoteOff(track.getTargetNodeId(), noteEvent.note, framesUntilOff);
+                for (uint8_t exNote : step.extraNotes) {
+                    scheduleNoteOff(track.getTargetNodeId(), static_cast<uint8_t>(std::clamp(static_cast<int>(exNote) + track.getTranspose(), 0, 127)), framesUntilOff);
+                }
+            }
+
+            // Dispatch extra chord notes
+            for (uint8_t exNote : step.extraNotes) {
+                AudioEvent exEvent = noteEvent;
+                exEvent.note = static_cast<uint8_t>(std::clamp(static_cast<int>(exNote) + track.getTranspose(), 0, 127));
+                if (track.getTargetNodeId() != 0) {
+                    graph.sendNodeEvent(track.getTargetNodeId(), exEvent);
+                } else {
+                    graph.broadcastEvent(exEvent);
+                }
             }
         }
     }
@@ -202,6 +217,45 @@ void StepSequencer::dispatchNoteOff(audio::AudioGraph& graph, const ActiveVoice&
         graph.sendNodeEvent(voice.targetNodeId, offEvent);
     } else {
         graph.broadcastEvent(offEvent);
+    }
+}
+
+void StepSequencer::mixFrozenTracks(float* outL, float* outR, uint32_t numFrames, uint64_t startSample) noexcept {
+    if (activePatternIndex_ >= patterns_.size() || numFrames == 0 || (!outL && !outR)) {
+        return;
+    }
+    const auto& activePattern = patterns_[activePatternIndex_];
+    bool hasSolo = false;
+    for (const auto& track : activePattern.tracks) {
+        if (track.isSolo()) {
+            hasSolo = true;
+            break;
+        }
+    }
+
+    for (const auto& track : activePattern.tracks) {
+        if (!track.isFrozen()) continue;
+        if (track.isMuted()) continue;
+        if (hasSolo && !track.isSolo()) continue;
+
+        const auto& fzL = track.getFrozenBufferL();
+        if (fzL.empty()) continue;
+        const auto& fzR = track.getFrozenBufferR().empty() ? fzL : track.getFrozenBufferR();
+        const size_t len = fzL.size();
+        if (len == 0) continue;
+
+        const float vol = track.getVolume();
+        const float pan = track.getPan();
+        const float panL = std::clamp(1.0f - pan, 0.0f, 1.0f);
+        const float panR = std::clamp(1.0f + pan, 0.0f, 1.0f);
+        const float gainL = vol * panL;
+        const float gainR = vol * panR;
+
+        for (uint32_t i = 0; i < numFrames; ++i) {
+            size_t idx = static_cast<size_t>((startSample + i) % len);
+            if (outL) outL[i] += fzL[idx] * gainL;
+            if (outR) outR[i] += fzR[idx] * gainR;
+        }
     }
 }
 
