@@ -1106,7 +1106,10 @@ bool DawnBridge::isGpuAccelerated() const noexcept {
     return pImpl_ && pImpl_->gpuReady;
 }
 
-void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidth, uint32_t dawHeight, float lampTime, float subBassEnergy) {
+void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidth, uint32_t dawHeight, float lampTime, float subBassEnergy, float renderScale) {
+    if (renderScale > 0.001f) {
+        renderScale_ = renderScale;
+    }
 #if !defined(__EMSCRIPTEN__)
     if (!nativeActive_ || !dawPixelBuffer || dawWidth == 0 || dawHeight == 0) return;
 #else
@@ -1150,8 +1153,9 @@ void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidt
         uniforms.resolution[0] = static_cast<float>(dawWidth);
         uniforms.resolution[1] = static_cast<float>(dawHeight);
 
-        const float topCut = (dawHeight > 0) ? (static_cast<float>(matConfig_.topBarHeightPx) / static_cast<float>(dawHeight)) : 0.07f;
-        const float bottomCut = (dawHeight > 0) ? (static_cast<float>(matConfig_.bottomBarHeightPx) / static_cast<float>(dawHeight)) : 0.06f;
+        const float effH = (renderScale_ > 0.001f) ? (static_cast<float>(dawHeight) / renderScale_) : static_cast<float>(dawHeight);
+        const float topCut = (effH > 0.0f) ? (static_cast<float>(matConfig_.topBarHeightPx) / effH) : 0.07f;
+        const float bottomCut = (effH > 0.0f) ? (static_cast<float>(matConfig_.bottomBarHeightPx) / effH) : 0.06f;
 
         uniforms.topBarFraction = topCut;
         uniforms.bottomBarFraction = bottomCut;
@@ -1205,6 +1209,11 @@ void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidt
         } else {
             uniforms.hWaveStrength = 0.0f;
         }
+
+        currentRumbleOffsetX_ = uniforms.rumbleOffset[0];
+        currentRumbleOffsetY_ = uniforms.rumbleOffset[1];
+        currentHWaveStrength_ = uniforms.hWaveStrength;
+        currentLampTime_ = lampTime;
 
         wgpuQueueWriteBuffer(pImpl_->queue, pImpl_->uniformBuffer, 0, &uniforms, sizeof(uniforms));
 

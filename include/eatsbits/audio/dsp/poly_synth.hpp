@@ -116,18 +116,26 @@ public:
         }
     }
 
+    static inline float getVoiceScale(size_t activeCount) noexcept {
+        static const auto table = [] {
+            std::array<float, NumVoices + 1> t{};
+            t[0] = 1.0f;
+            for (size_t i = 1; i <= NumVoices; ++i) {
+                t[i] = 1.0f / std::sqrt(static_cast<float>(i));
+            }
+            return t;
+        }();
+        return (activeCount <= NumVoices) ? table[activeCount] : (1.0f / std::sqrt(static_cast<float>(activeCount)));
+    }
+
     void setCutoff(float cutoffHz) noexcept {
         cutoffHz_ = cutoffHz;
-        for (auto& v : voices_) {
-            updateVoiceParameters(v);
-        }
+        filterDirty_ = true;
     }
 
     void setResonance(float q) noexcept {
         q_ = q;
-        for (auto& v : voices_) {
-            updateVoiceParameters(v);
-        }
+        filterDirty_ = true;
     }
 
     void setAdsr(float a, float d, float s, float r) noexcept {
@@ -140,7 +148,18 @@ public:
         }
     }
 
+    void applyFilterParamsIfDirty() noexcept {
+        if (filterDirty_) {
+            for (auto& v : voices_) {
+                v.filter.configure(BiquadType::LowPass, cutoffHz_, q_, 0.0f, sampleRate_);
+            }
+            filterDirty_ = false;
+        }
+    }
+
     [[nodiscard]] inline float processSample() noexcept {
+        applyFilterParamsIfDirty();
+
         float mix = 0.0f;
         int activeCount = 0;
 
@@ -159,15 +178,16 @@ public:
             activeCount++;
         }
 
-        // Voice headroom scaling
+        // Voice headroom scaling using precomputed lookup table
         if (activeCount > 1) {
-            mix *= (1.0f / std::sqrt(static_cast<float>(activeCount)));
+            mix *= getVoiceScale(activeCount);
         }
 
         return std::clamp(mix, -1.0f, 1.0f);
     }
 
     void processBlock(float* outL, float* outR, size_t count) noexcept {
+        applyFilterParamsIfDirty();
         for (size_t i = 0; i < count; ++i) {
             const float s = processSample();
             outL[i] = s;
@@ -201,6 +221,7 @@ private:
     float decay_{0.1f};
     float sustain_{0.7f};
     float release_{0.3f};
+    bool filterDirty_{false};
 };
 
 } // namespace eatsbits::dsp

@@ -80,9 +80,13 @@ public:
 
         switch (waveform) {
             case FMWaveform::Square:
-                return std::sin(ph) >= 0.0f ? 1.0f : -1.0f;
-            case FMWaveform::Triangle:
-                return (2.0f / std::numbers::pi_v<float>) * std::asin(std::clamp(std::sin(ph), -1.0f, 1.0f));
+                return posPhase < std::numbers::pi_v<float> ? 1.0f : -1.0f;
+            case FMWaveform::Triangle: {
+                const float norm = posPhase * (1.0f / kTwoPi);
+                const float shifted = norm + 0.25f;
+                const float wrap = shifted - std::floor(shifted);
+                return 1.0f - 4.0f * std::abs(wrap - 0.5f);
+            }
             case FMWaveform::Saw:
                 return 2.0f * (posPhase / kTwoPi) - 1.0f;
             case FMWaveform::HalfSine: {
@@ -233,7 +237,10 @@ public:
 
         float fbMod = 0.0f;
         if (feedback > 0) {
-            const float fbAmount = std::pow(2.0f, static_cast<float>(feedback - 1)) * 0.5f;
+            static constexpr std::array<float, 8> kFbAmounts = {
+                0.0f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f
+            };
+            const float fbAmount = (feedback < 8) ? kFbAmounts[feedback] : 0.0f;
             fbMod = ((operators[0].lastOutput + operators[0].prevOutput) * 0.5f) * fbAmount;
         }
 

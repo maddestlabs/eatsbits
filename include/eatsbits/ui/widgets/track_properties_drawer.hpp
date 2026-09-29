@@ -21,7 +21,7 @@ public:
 
     void layout(const Rect2D& containerBounds, float browserOffset = 0.0f);
     void update(float dt) noexcept;
-    void render(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float mouseX = -1.0f, float mouseY = -1.0f);
+    void render(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data, float mouseX = -1.0f, float mouseY = -1.0f, float dt = 0.016f);
     [[nodiscard]] TrackPropertiesHitResult hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept;
     bool handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data, const ViewContext& ctx);
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {

@@ -43,8 +43,6 @@ public:
         const float cosW0 = std::cos(w0);
         const float sinW0 = std::sin(w0);
         const float alpha = sinW0 / (2.0f * q);
-        const float A = std::pow(10.0f, gainDb / 40.0f);
-
         float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a0 = 1.0f, a1 = 0.0f, a2 = 0.0f;
 
         switch (type) {
@@ -80,7 +78,8 @@ public:
                 a1 = -2.0f * cosW0;
                 a2 = 1.0f - alpha;
                 break;
-            case BiquadType::Peaking:
+            case BiquadType::Peaking: {
+                const float A = std::pow(10.0f, gainDb / 40.0f);
                 b0 = 1.0f + alpha * A;
                 b1 = -2.0f * cosW0;
                 b2 = 1.0f - alpha * A;
@@ -88,7 +87,9 @@ public:
                 a1 = -2.0f * cosW0;
                 a2 = 1.0f - alpha / A;
                 break;
+            }
             case BiquadType::LowShelf: {
+                const float A = std::pow(10.0f, gainDb / 40.0f);
                 const float sqrtA = std::sqrt(A);
                 b0 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 + 2.0f * sqrtA * alpha);
                 b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW0);
@@ -99,6 +100,7 @@ public:
                 break;
             }
             case BiquadType::HighShelf: {
+                const float A = std::pow(10.0f, gainDb / 40.0f);
                 const float sqrtA = std::sqrt(A);
                 b0 = A * ((A + 1.0f) + (A - 1.0f) * cosW0 + 2.0f * sqrtA * alpha);
                 b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cosW0);

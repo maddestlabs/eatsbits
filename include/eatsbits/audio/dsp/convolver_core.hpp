@@ -17,6 +17,8 @@ public:
     static constexpr size_t kMaxIrLength = 8192;
     static constexpr size_t kDefaultIrLength = 3072; // Optimized for high fidelity + real-time performance
 
+    static constexpr float kDefaultWetMakeupGain = 1.6f;
+
     ConvolverCore(float sampleRate = 44100.0f)
         : sampleRate_(sampleRate) {
         historyL_.assign(kHistorySize, 0.0f);
@@ -26,6 +28,7 @@ public:
         targetIrL_.assign(kMaxIrLength, 0.0f);
         targetIrR_.assign(kMaxIrLength, 0.0f);
 
+        updatePreDelaySamples();
         updateDampingCoeffs();
         // Load default Great Hall preset
         loadPreset("Great Hall");
@@ -47,6 +50,7 @@ public:
     void setSampleRate(float sr) {
         if (sr > 1000.0f) {
             sampleRate_ = sr;
+            updatePreDelaySamples();
             updateDampingCoeffs();
             regenerateCurrentSpace();
         }
@@ -57,8 +61,14 @@ public:
     void setMix(float mix) noexcept { mix_ = std::clamp(mix, 0.0f, 1.0f); }
     float getMix() const noexcept { return mix_; }
 
-    void setPreDelay(float ms) noexcept { preDelayMs_ = std::clamp(ms, 0.0f, 100.0f); }
+    void setPreDelay(float ms) noexcept {
+        preDelayMs_ = std::clamp(ms, 0.0f, 100.0f);
+        updatePreDelaySamples();
+    }
     float getPreDelay() const noexcept { return preDelayMs_; }
+
+    void setWetGain(float gain) noexcept { wetGain_ = gain; }
+    float getWetGain() const noexcept { return wetGain_; }
 
     void setDecay(float decay) {
         decay_ = std::clamp(decay, 0.1f, 2.5f);
@@ -172,14 +182,16 @@ public:
             return;
         }
 
-        const int preDelaySamples = static_cast<int>((preDelayMs_ * 0.001f) * sampleRate_);
+        const int preDelaySamples = preDelaySamples_;
         const size_t curIrLen = irLength_;
-        const float wetGain = 1.6f; // Standard acoustic makeup gain
+        const float wetGain = wetGain_;
 
         const float* __restrict hL = historyL_.data();
         const float* __restrict hR = historyR_.data();
         const float* __restrict irL = activeIrL_.data();
         const float* __restrict irR = activeIrR_.data();
+        const float* __restrict tgtL = targetIrL_.data();
+        const float* __restrict tgtR = targetIrR_.data();
 
         for (size_t i = 0; i < numFrames; ++i) {
             // 1. Push into circular delay history
@@ -211,10 +223,21 @@ public:
             if (crossfadeRemaining_ > 0) {
                 float convNextL = 0.0f;
                 float convNextR = 0.0f;
-                for (size_t ck = 0; ck < targetLength_; ++ck) {
+
+                size_t ck = 0;
+                for (; ck + 3 < targetLength_; ck += 4) {
+                    size_t idx0 = static_cast<size_t>(readHead - static_cast<int>(ck)) & kHistoryMask;
+                    size_t idx1 = static_cast<size_t>(readHead - static_cast<int>(ck + 1)) & kHistoryMask;
+                    size_t idx2 = static_cast<size_t>(readHead - static_cast<int>(ck + 2)) & kHistoryMask;
+                    size_t idx3 = static_cast<size_t>(readHead - static_cast<int>(ck + 3)) & kHistoryMask;
+
+                    convNextL += (hL[idx0] * tgtL[ck] + hL[idx1] * tgtL[ck + 1]) + (hL[idx2] * tgtL[ck + 2] + hL[idx3] * tgtL[ck + 3]);
+                    convNextR += (hR[idx0] * tgtR[ck] + hR[idx1] * tgtR[ck + 1]) + (hR[idx2] * tgtR[ck + 2] + hR[idx3] * tgtR[ck + 3]);
+                }
+                for (; ck < targetLength_; ++ck) {
                     size_t idx = static_cast<size_t>(readHead - static_cast<int>(ck)) & kHistoryMask;
-                    convNextL += historyL_[idx] * targetIrL_[ck];
-                    convNextR += historyR_[idx] * targetIrR_[ck];
+                    convNextL += hL[idx] * tgtL[ck];
+                    convNextR += hR[idx] * tgtR[ck];
                 }
 
                 float t = 1.0f - (static_cast<float>(crossfadeRemaining_) / static_cast<float>(crossfadeTotal_));
@@ -311,6 +334,13 @@ private:
 
     int crossfadeRemaining_{0};
     int crossfadeTotal_{128};
+
+    float wetGain_{kDefaultWetMakeupGain};
+    int preDelaySamples_{441};
+
+    void updatePreDelaySamples() noexcept {
+        preDelaySamples_ = static_cast<int>((preDelayMs_ * 0.001f) * sampleRate_);
+    }
 
     std::string currentPresetName_;
 };

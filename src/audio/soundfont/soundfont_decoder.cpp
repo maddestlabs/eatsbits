@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <array>
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -41,6 +43,39 @@ inline std::string readFixedString(const uint8_t* p, size_t maxLen) {
     }
     return std::string(reinterpret_cast<const char*>(p), len);
 }
+
+struct Sf2GenMap {
+    std::array<int16_t, 65> values{};
+    std::array<bool, 65> present{};
+
+    void clear() noexcept {
+        present.fill(false);
+    }
+
+    void set(uint16_t id, int16_t val) noexcept {
+        if (id < 65) {
+            values[id] = val;
+            present[id] = true;
+        }
+    }
+
+    [[nodiscard]] bool count(uint16_t id) const noexcept {
+        return (id < 65) && present[id];
+    }
+
+    [[nodiscard]] int16_t operator[](uint16_t id) const noexcept {
+        return (id < 65) ? values[id] : 0;
+    }
+
+    void overlay(const Sf2GenMap& other) noexcept {
+        for (size_t i = 0; i < 65; ++i) {
+            if (other.present[i]) {
+                values[i] = other.values[i];
+                present[i] = true;
+            }
+        }
+    }
+};
 
 const char* const kGeneralMidiNames[128] = {
     "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano",
@@ -111,10 +146,13 @@ std::string GeneralMidiNames::getPresetDisplayName(int bankNum, int presetNum, c
 
 const Sf2Preset* SoundFontData::findPreset(int presetNum, int bankNum) const noexcept {
     if (bankNum >= 0) {
-        for (const auto& p : presets) {
-            if (p.presetNum == presetNum && p.bankNum == bankNum) {
-                return &p;
-            }
+        auto it = std::lower_bound(presets.begin(), presets.end(), std::make_pair(bankNum, presetNum),
+            [](const Sf2Preset& p, const std::pair<int, int>& target) {
+                if (p.bankNum != target.first) return p.bankNum < target.first;
+                return p.presetNum < target.second;
+            });
+        if (it != presets.end() && it->bankNum == bankNum && it->presetNum == presetNum) {
+            return &(*it);
         }
     }
     for (const auto& p : presets) {
@@ -345,30 +383,26 @@ std::shared_ptr<SoundFontData> SoundFontDecoder::decode(const uint8_t* data, siz
                 preset.presetNum = rp.presetNum;
                 preset.bankNum = rp.bankNum;
 
-                std::map<uint16_t, int16_t> globalPresetGens;
+                Sf2GenMap globalPresetGens;
 
                 for (size_t pb = pBagStart; pb < pBagEnd && pb + 1 < rawPresetBags.size(); ++pb) {
                     size_t pGenStart = rawPresetBags[pb];
                     size_t pGenEnd = rawPresetBags[pb + 1];
 
-                    std::map<uint16_t, int16_t> pgenMap;
+                    Sf2GenMap pgenMap;
                     for (size_t g = pGenStart; g < pGenEnd && g < rawPresetGens.size(); ++g) {
-                        pgenMap[rawPresetGens[g].genId] = rawPresetGens[g].val;
+                        pgenMap.set(rawPresetGens[g].genId, rawPresetGens[g].val);
                     }
 
                     // If no instrument operator (genId 41), this is a global preset generator
-                    if (pgenMap.find(41) == pgenMap.end()) {
-                        for (const auto& kv : pgenMap) {
-                            globalPresetGens[kv.first] = kv.second;
-                        }
+                    if (!pgenMap.count(41)) {
+                        globalPresetGens.overlay(pgenMap);
                         continue;
                     }
 
                     // Overlay global preset gens with local preset zone gens
-                    std::map<uint16_t, int16_t> effectivePresetGens = globalPresetGens;
-                    for (const auto& kv : pgenMap) {
-                        effectivePresetGens[kv.first] = kv.second;
-                    }
+                    Sf2GenMap effectivePresetGens = globalPresetGens;
+                    effectivePresetGens.overlay(pgenMap);
 
                     uint8_t pMinKey = 0, pMaxKey = 127;
                     if (effectivePresetGens.count(43)) {
@@ -390,22 +424,20 @@ std::shared_ptr<SoundFontData> SoundFontDecoder::decode(const uint8_t* data, siz
                         size_t iBagStart = inst.bagIdx;
                         size_t iBagEnd = rawInsts[instIdx + 1].bagIdx;
 
-                        std::map<uint16_t, int16_t> globalInstGens;
+                        Sf2GenMap globalInstGens;
 
                         for (size_t ib = iBagStart; ib < iBagEnd && ib + 1 < rawInstBags.size(); ++ib) {
                             size_t iGenStart = rawInstBags[ib];
                             size_t iGenEnd = rawInstBags[ib + 1];
 
-                            std::map<uint16_t, int16_t> igenMap;
+                            Sf2GenMap igenMap;
                             for (size_t g = iGenStart; g < iGenEnd && g < rawInstGens.size(); ++g) {
-                                igenMap[rawInstGens[g].genId] = rawInstGens[g].val;
+                                igenMap.set(rawInstGens[g].genId, rawInstGens[g].val);
                             }
 
                             // If no sampleID operator (genId 53), treat as global instrument generator
-                            if (igenMap.find(53) == igenMap.end()) {
-                                for (const auto& kv : igenMap) {
-                                    globalInstGens[kv.first] = kv.second;
-                                }
+                            if (!igenMap.count(53)) {
+                                globalInstGens.overlay(igenMap);
                                 continue;
                             }
 
@@ -414,10 +446,8 @@ std::shared_ptr<SoundFontData> SoundFontDecoder::decode(const uint8_t* data, siz
                                 continue;
                             }
 
-                            std::map<uint16_t, int16_t> effectiveInstGens = globalInstGens;
-                            for (const auto& kv : igenMap) {
-                                effectiveInstGens[kv.first] = kv.second;
-                            }
+                            Sf2GenMap effectiveInstGens = globalInstGens;
+                            effectiveInstGens.overlay(igenMap);
 
                             uint8_t iMinKey = 0, iMaxKey = 127;
                             if (effectiveInstGens.count(43)) {

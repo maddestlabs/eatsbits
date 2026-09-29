@@ -22,12 +22,14 @@ std::vector<std::string> splitLines(const std::string& text) {
 }
 
 std::string joinLines(const std::vector<std::string>& lines) {
+    if (lines.empty()) return {};
+    size_t total = 0;
+    for (const auto& line : lines) total += line.size() + 1;
     std::string out;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        out += lines[i];
-        if (i + 1 < lines.size() || !lines.empty()) {
-            out += "\n";
-        }
+    out.reserve(total);
+    for (const auto& line : lines) {
+        out += line;
+        out += '\n';
     }
     return out;
 }
@@ -122,7 +124,7 @@ bool DiffHistoryManager::record(
     if (currentEntry_) {
         past_.push_back(*currentEntry_);
         if (past_.size() > maxDepth_) {
-            past_.erase(past_.begin());
+            past_.pop_front();
         }
     }
 
@@ -173,7 +175,7 @@ bool DiffHistoryManager::commitTransaction(const std::string& finalScript) {
     if (currentEntry_) {
         past_.push_back(*currentEntry_);
         if (past_.size() > maxDepth_) {
-            past_.erase(past_.begin());
+            past_.pop_front();
         }
     }
 

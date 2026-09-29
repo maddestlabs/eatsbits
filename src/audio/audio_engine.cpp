@@ -83,6 +83,7 @@ bool AudioEngine::initialize(const AudioEngineConfig& config) {
 
 void AudioEngine::setupDefaultAcidGraph() {
     graph_.clear();
+    invalidateTrackStripCache();
     auto tb = std::make_shared<Tb303Node>("Tb303");
     auto delay = std::make_shared<DelayNode>("AcidEcho");
     auto gain = std::make_shared<GainNode>("MasterGain");
@@ -104,6 +105,7 @@ void AudioEngine::setupDefaultAcidGraph() {
 
 void AudioEngine::setupDefaultPolyGraph() {
     graph_.clear();
+    invalidateTrackStripCache();
     auto poly = std::make_shared<PolySynthNode>("PolySynth");
     auto biquad = std::make_shared<BiquadNode>("Filter");
     auto delay = std::make_shared<DelayNode>("Delay");
@@ -124,6 +126,7 @@ void AudioEngine::setupDefaultPolyGraph() {
 
 void AudioEngine::setupDefaultAcidBeatGraph() {
     graph_.clear();
+    invalidateTrackStripCache();
 
     // Track 1: TB-303 Acid
     auto tb = std::make_shared<Tb303Node>("Tb303");
@@ -388,24 +391,41 @@ void AudioEngine::flushMeterFeedback() noexcept {
     while (feedbackQueue_.pop(dummyFeedback)) {}
 }
 
-bool AudioEngine::getTrackMeterFeedback(uint32_t trackIndex, MeterFeedback& feedback) const noexcept {
+void AudioEngine::invalidateTrackStripCache() noexcept {
+    trackGainNodeCache_.clear();
+}
+
+NodeId AudioEngine::getTrackGainNodeId(uint32_t trackIndex) const {
+    auto it = trackGainNodeCache_.find(trackIndex);
+    if (it != trackGainNodeCache_.end() && it->second != INVALID_NODE_ID) {
+        if (graph_.getNode(it->second)) {
+            return it->second;
+        }
+    }
+
     std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
-    for (const auto& [id, node] : graph_.getNodes()) {
-        if (node && node->getName() == stripName) {
-            if (auto* gn = dynamic_cast<GainNode*>(node.get())) {
-                float pL = 0.0f, pR = 0.0f;
-                gn->getPeakLevels(pL, pR);
-                feedback.peakLeft = pL;
-                feedback.peakRight = pR;
-                feedback.rmsLeft = pL * 0.707f;
-                feedback.rmsRight = pR * 0.707f;
-                return true;
-            }
+    NodeId foundId = graph_.findNodeByName(stripName);
+    trackGainNodeCache_[trackIndex] = foundId;
+    return foundId;
+}
+
+bool AudioEngine::getTrackMeterFeedback(uint32_t trackIndex, MeterFeedback& feedback) const noexcept {
+    NodeId stripId = getTrackGainNodeId(trackIndex);
+    if (stripId != INVALID_NODE_ID) {
+        auto node = graph_.getNode(stripId);
+        if (auto* gn = dynamic_cast<GainNode*>(node.get())) {
+            float pL = 0.0f, pR = 0.0f;
+            gn->getPeakLevels(pL, pR);
+            feedback.peakLeft = pL;
+            feedback.peakRight = pR;
+            feedback.rmsLeft = pL * 0.707f;
+            feedback.rmsRight = pR * 0.707f;
+            return true;
         }
     }
 
     if (trackIndex < sequencer_.getNumTracks()) {
-        const auto* trk = const_cast<sequencer::StepSequencer&>(sequencer_).getTrack(trackIndex);
+        const auto* trk = sequencer_.getTrack(trackIndex);
         if (trk) {
             auto node = graph_.getNode(trk->getTargetNodeId());
             if (auto* gn = dynamic_cast<GainNode*>(node.get())) {
@@ -454,7 +474,7 @@ void AudioEngine::setEngineMode(SynthEngineMode mode) noexcept {
 void AudioEngine::setCutoff(float cutoffHz) noexcept {
     polySynth_.setCutoff(cutoffHz);
     tb303_.setCutoff(cutoffHz);
-    for (const auto& [id, node] : graph_.getNodes()) {
+    for (const auto& [id, node] : graph_.getNodeSnapshot()) {
         if (auto* tb = dynamic_cast<Tb303Node*>(node.get())) {
             tb->setCutoff(cutoffHz);
         }
@@ -464,7 +484,7 @@ void AudioEngine::setCutoff(float cutoffHz) noexcept {
 void AudioEngine::setResonance(float res) noexcept {
     polySynth_.setResonance(res);
     tb303_.setResonance(res);
-    for (const auto& [id, node] : graph_.getNodes()) {
+    for (const auto& [id, node] : graph_.getNodeSnapshot()) {
         if (auto* tb = dynamic_cast<Tb303Node*>(node.get())) {
             tb->setResonance(res);
         }
@@ -480,12 +500,10 @@ void AudioEngine::setTrackVolume(uint32_t trackIndex, float volume) noexcept {
         auto* tr = sequencer_.getTrack(trackIndex);
         if (tr) tr->setVolume(volume);
     }
-    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
-    for (const auto& [id, node] : graph_.getNodes()) {
-        if (node && node->getName() == stripName) {
-            postNodeParameter(id, 0, volume);
-            return;
-        }
+    NodeId stripId = getTrackGainNodeId(trackIndex);
+    if (stripId != INVALID_NODE_ID) {
+        postNodeParameter(stripId, 0, volume);
+        return;
     }
     if (trackIndex < sequencer_.getNumTracks()) {
         auto* tr = sequencer_.getTrack(trackIndex);
@@ -503,12 +521,9 @@ void AudioEngine::setTrackPan(uint32_t trackIndex, float pan) noexcept {
         auto* tr = sequencer_.getTrack(trackIndex);
         if (tr) tr->setPan(pan);
     }
-    std::string stripName = "Track" + std::to_string(trackIndex + 1) + "_Gain";
-    for (const auto& [id, node] : graph_.getNodes()) {
-        if (node && node->getName() == stripName) {
-            postNodeParameter(id, 1, pan);
-            return;
-        }
+    NodeId stripId = getTrackGainNodeId(trackIndex);
+    if (stripId != INVALID_NODE_ID) {
+        postNodeParameter(stripId, 1, pan);
     }
 }
 
@@ -528,12 +543,9 @@ void AudioEngine::updateMuteSoloRouting() noexcept {
         if (!tr) continue;
         bool isSilenced = tr->isMuted() || (hasSolo && !tr->isSolo());
 
-        std::string stripName = "Track" + std::to_string(i + 1) + "_Gain";
-        for (const auto& [id, node] : graph_.getNodes()) {
-            if (node && node->getName() == stripName) {
-                postNodeParameter(id, 2, isSilenced ? 1.0f : 0.0f);
-                break;
-            }
+        NodeId stripId = getTrackGainNodeId(i);
+        if (stripId != INVALID_NODE_ID) {
+            postNodeParameter(stripId, 2, isSilenced ? 1.0f : 0.0f);
         }
         if (isSilenced && tr->getTargetNodeId() != 0) {
             AudioEvent offEvent{};

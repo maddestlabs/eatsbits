@@ -9,6 +9,20 @@
 #include "miniaudio.h"
 
 namespace eatsbits::audio {
+namespace {
+inline uint16_t readU16LE(const uint8_t* p) noexcept {
+    return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
+}
+inline int16_t readI16LE(const uint8_t* p) noexcept {
+    return static_cast<int16_t>(readU16LE(p));
+}
+inline uint32_t readU32LE(const uint8_t* p) noexcept {
+    return static_cast<uint32_t>(p[0]) |
+          (static_cast<uint32_t>(p[1]) << 8) |
+          (static_cast<uint32_t>(p[2]) << 16) |
+          (static_cast<uint32_t>(p[3]) << 24);
+}
+} // namespace
 
 // ============================================================================
 // DecodedAudioBuffer Implementation
@@ -96,14 +110,14 @@ DecodedAudioBuffer DecodedAudioBuffer::decodeFromMemory(const uint8_t* data, siz
         while (offset + 8 <= size) {
             char chunkId[5] = {0};
             std::memcpy(chunkId, data + offset, 4);
-            uint32_t chunkSize = *reinterpret_cast<const uint32_t*>(data + offset + 4);
+            uint32_t chunkSize = readU32LE(data + offset + 4);
             offset += 8;
 
             if (std::strcmp(chunkId, "fmt ") == 0 && offset + 16 <= size) {
-                audioFormat = *reinterpret_cast<const uint16_t*>(data + offset);
-                numChannels = *reinterpret_cast<const uint16_t*>(data + offset + 2);
-                sampleRate = *reinterpret_cast<const uint32_t*>(data + offset + 4);
-                bitsPerSample = *reinterpret_cast<const uint16_t*>(data + offset + 14);
+                audioFormat = readU16LE(data + offset);
+                numChannels = readU16LE(data + offset + 2);
+                sampleRate = readU32LE(data + offset + 4);
+                bitsPerSample = readU16LE(data + offset + 14);
             } else if (std::strcmp(chunkId, "data") == 0) {
                 pcmData = data + offset;
                 pcmDataSize = std::min(static_cast<size_t>(chunkSize), size - offset);
@@ -118,9 +132,8 @@ DecodedAudioBuffer DecodedAudioBuffer::decodeFromMemory(const uint8_t* data, siz
             if (audioFormat == 1 && bitsPerSample == 16) {
                 size_t numSamples = pcmDataSize / sizeof(int16_t);
                 buffer.samples.resize(numSamples);
-                const auto* pcm16 = reinterpret_cast<const int16_t*>(pcmData);
                 for (size_t i = 0; i < numSamples; ++i) {
-                    buffer.samples[i] = static_cast<float>(pcm16[i]) / 32768.0f;
+                    buffer.samples[i] = static_cast<float>(readI16LE(pcmData + i * 2)) / 32768.0f;
                 }
             } else if (audioFormat == 3 && bitsPerSample == 32) {
                 size_t numSamples = pcmDataSize / sizeof(float);

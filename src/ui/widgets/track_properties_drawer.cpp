@@ -64,8 +64,8 @@ void TrackPropertiesDrawer::layout(const Rect2D& containerBounds, float browserO
 }
 
 void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
-                                   TrackPropertiesDrawerData& data, float mouseX, float mouseY) {
-    update(0.016f);
+                                   TrackPropertiesDrawerData& data, float mouseX, float mouseY, float dt) {
+    update(dt);
     layout(containerBounds_, browserOffset_);
 
     data.syncKnobsIfEmpty();

@@ -48,10 +48,14 @@ public:
         return true;
     }
 
+    /// Returns an approximate snapshot size for telemetry/monitoring.
+    /// In a lock-free SPSC queue, callers must not rely on this for strict synchronization.
     [[nodiscard]] size_t size() const noexcept {
         const size_t current_head = head_.load(std::memory_order_relaxed);
         const size_t current_tail = tail_.load(std::memory_order_relaxed);
-        return (current_tail >= current_head) ? (current_tail - current_head) : 0;
+        if (current_tail < current_head) return 0;
+        const size_t count = current_tail - current_head;
+        return (count > Capacity) ? Capacity : count;
     }
 
     [[nodiscard]] bool empty() const noexcept {

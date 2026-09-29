@@ -77,7 +77,7 @@ public:
     void shutdownNative();
     void resize(uint32_t width, uint32_t height);
 
-    void renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidth, uint32_t dawHeight, float lampTime, float subBassEnergy = 0.0f);
+    void renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidth, uint32_t dawHeight, float lampTime, float subBassEnergy = 0.0f, float renderScale = 1.0f);
     [[nodiscard]] bool isGpuAccelerated() const noexcept;
 
     [[nodiscard]] bool isNativeActive() const noexcept { return nativeActive_; }
@@ -94,6 +94,14 @@ public:
     [[nodiscard]] const CrtMaterialConfig& getMaterialConfig() const noexcept { return matConfig_; }
     void setMaterialConfig(const CrtMaterialConfig& config) noexcept { matConfig_ = config; }
 
+    [[nodiscard]] float getRenderScale() const noexcept { return renderScale_; }
+    void setRenderScale(float scale) noexcept { renderScale_ = (scale > 0.001f) ? scale : 1.0f; }
+
+    [[nodiscard]] float getRumbleOffsetX() const noexcept { return currentRumbleOffsetX_; }
+    [[nodiscard]] float getRumbleOffsetY() const noexcept { return currentRumbleOffsetY_; }
+    [[nodiscard]] float getHWaveStrength() const noexcept { return currentHWaveStrength_; }
+    [[nodiscard]] float getLampTime() const noexcept { return currentLampTime_; }
+
     [[nodiscard]] uint64_t getTotalFramesRendered() const noexcept { return framesRendered_; }
     [[nodiscard]] uint64_t getTotalVerticesSubmitted() const noexcept { return totalVertices_; }
     [[nodiscard]] static const char* getShaderSource() noexcept;
@@ -106,6 +114,12 @@ private:
     uint32_t fboHeight_{768};
     CrtMaterialConfig matConfig_{};
     bool crtShaderEnabled_{false};
+    float renderScale_{1.0f};
+
+    float currentRumbleOffsetX_{0.0f};
+    float currentRumbleOffsetY_{0.0f};
+    float currentHWaveStrength_{0.0f};
+    float currentLampTime_{0.0f};
 
     uint64_t framesRendered_{0};
     uint64_t totalVertices_{0};

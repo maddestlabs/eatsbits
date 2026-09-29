@@ -131,9 +131,12 @@ public:
 private:
     void processEvents() noexcept;
 
+    [[nodiscard]] NodeId getTrackGainNodeId(uint32_t trackIndex) const;
+    void invalidateTrackStripCache() noexcept;
+
     AudioEngineConfig config_;
-    bool isRunning_{false};
-    bool isInitialized_{false};
+    std::atomic<bool> isRunning_{false};
+    std::atomic<bool> isInitialized_{false};
 
     // Miniaudio handle (heap-allocated to keep miniaudio.h out of engine public headers)
     struct Impl;
@@ -146,6 +149,7 @@ private:
 
     // Modular Audio Graph Engine
     AudioGraph graph_;
+    mutable std::unordered_map<uint32_t, NodeId> trackGainNodeCache_;
 
     // Sample-Accurate Step Sequencer
     sequencer::StepSequencer sequencer_;

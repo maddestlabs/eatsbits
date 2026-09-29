@@ -96,6 +96,8 @@ public:
     [[nodiscard]] std::shared_ptr<GraphNode> getNode(NodeId id) const;
     [[nodiscard]] size_t getNodeCount() const noexcept;
     [[nodiscard]] std::vector<NodeId> getNodeIds() const;
+    [[nodiscard]] std::vector<std::pair<NodeId, std::shared_ptr<GraphNode>>> getNodeSnapshot() const;
+    [[nodiscard]] NodeId findNodeByName(const std::string& name) const;
     [[nodiscard]] const std::unordered_map<NodeId, std::shared_ptr<GraphNode>>& getNodes() const noexcept { return nodes_; }
 
     // Cable Patching

@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 #include <chrono>
 #include <optional>
 #include <cstdint>
@@ -128,8 +129,8 @@ private:
     size_t maxDepth_;
     std::string currentScript_;
     std::optional<HistoryDiffEntry> currentEntry_;
-    std::vector<HistoryDiffEntry> past_;
-    std::vector<HistoryDiffEntry> future_; // top of stack (last element) is next redo
+    std::deque<HistoryDiffEntry> past_;
+    std::deque<HistoryDiffEntry> future_; // top of stack (last element) is next redo
 
     bool inTransaction_{false};
     std::string transactionDescription_;

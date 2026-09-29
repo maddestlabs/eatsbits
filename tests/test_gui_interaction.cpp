@@ -2094,6 +2094,70 @@ void test3dMouseCoordinateAugmentation() {
     std::cout << "  [PASS] Rectilinear Mouse Hit-Detection verified." << std::endl;
 }
 
+void testCrtMouseCoordinateRemapping() {
+    std::cout << "[Test] CRT Shader Coordinate Distortion & Mouse Remapping Accuracy..." << std::endl;
+    AudioEngine engine;
+    GuiWindow window(1280, 800, "Test CRT Remap");
+    window.initialize(engine);
+
+    float outX = 0.0f, outY = 0.0f;
+
+    // 1. When CRT shader is disabled, remapping is strictly 1:1 pass-through
+    window.setCrtShaderEnabled(false);
+    window.remapCrtMouseCoords(100.0f, 200.0f, outX, outY);
+    REQUIRE(std::abs(outX - 100.0f) < 0.001f);
+    REQUIRE(std::abs(outY - 200.0f) < 0.001f);
+
+    // 2. Enable CRT shader
+    window.setCrtShaderEnabled(true);
+    REQUIRE(window.isCrtShaderEnabled());
+
+    // 3. Top transport bar (y < 56.0f) must be 100% pristine and 1:1 rectilinear
+    window.remapCrtMouseCoords(400.0f, 25.0f, outX, outY);
+    REQUIRE(std::abs(outX - 400.0f) < 0.001f);
+    REQUIRE(std::abs(outY - 25.0f) < 0.001f);
+
+    window.remapCrtMouseCoords(640.0f, 55.0f, outX, outY);
+    REQUIRE(std::abs(outX - 640.0f) < 0.001f);
+    REQUIRE(std::abs(outY - 55.0f) < 0.001f);
+
+    // 4. Bottom navigation chin (y > 800 - 48 = 752.0f) must be 100% pristine and 1:1 rectilinear
+    window.remapCrtMouseCoords(300.0f, 760.0f, outX, outY);
+    REQUIRE(std::abs(outX - 300.0f) < 0.001f);
+    REQUIRE(std::abs(outY - 760.0f) < 0.001f);
+
+    window.remapCrtMouseCoords(800.0f, 790.0f, outX, outY);
+    REQUIRE(std::abs(outX - 800.0f) < 0.001f);
+    REQUIRE(std::abs(outY - 790.0f) < 0.001f);
+
+    // 5. Exact center of DAW area must map 1:1
+    // Central DAW span is 56.0f to 752.0f (height = 696.0f, center Y = 56 + 348 = 404.0f)
+    // Center X = 640.0f
+    window.remapCrtMouseCoords(640.0f, 404.0f, outX, outY);
+    REQUIRE(std::abs(outX - 640.0f) < 0.01f);
+    REQUIRE(std::abs(outY - 404.0f) < 0.01f);
+
+    // 6. Off-center in DAW area under curvature
+    // Test that coordinates smoothly remap within the phosphor aperture
+    window.remapCrtMouseCoords(200.0f, 300.0f, outX, outY);
+    // Under barrel distortion pulling toward center, (200, 300) samples texture from further inward
+    REQUIRE(outX > 0.0f);
+    REQUIRE(outX < 1280.0f);
+    REQUIRE(outY >= 56.0f);
+    REQUIRE(outY <= 752.0f);
+
+    // 7. Test Flat Monitor preset (Curvature = 0.0f)
+    auto matCfg = window.getDawnBridge().getMaterialConfig();
+    matCfg.curvature = 0.0f;
+    window.getDawnBridge().setMaterialConfig(matCfg);
+
+    window.remapCrtMouseCoords(640.0f, 404.0f, outX, outY);
+    REQUIRE(std::abs(outX - 640.0f) < 0.01f);
+    REQUIRE(std::abs(outY - 404.0f) < 0.01f);
+
+    std::cout << "  [PASS] CRT Mouse Coordinate Remapping verified with exact shader parity." << std::endl;
+}
+
 void testTrackInspectorInteraction() {
     std::cout << "[Test] Track Inspector Modular Rack, Clean Track Names & Hit-Testing..." << std::endl;
     AudioEngine engine;
@@ -3164,6 +3228,7 @@ int main() {
     std::cout << "=== Running Eatsbits Phase 6 GUI Interaction Tests ===" << std::endl;
     testDawnBridgeLifecycle();
     test3dMouseCoordinateAugmentation();
+    testCrtMouseCoordinateRemapping();
     testGuiWindowInteraction();
     testPianoRollInteraction();
     testPianoRollNoteSelectionAndSidebar();

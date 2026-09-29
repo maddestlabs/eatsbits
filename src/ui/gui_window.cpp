@@ -1800,13 +1800,14 @@ void GuiWindow::remapCrtMouseCoords(float inX, float inY, float& outX, float& ou
     const float topCut = topBarH / totalH;
     const float bottomCut = 1.0f - (bottomBarH / totalH);
 
-    const float u = inX / totalW;
-    const float v = inY / totalH;
+    // Apply rumble shake offset matching shader globalUV += u.rumbleOffset
+    float u = (inX / totalW) + dawnBridge_.getRumbleOffsetX();
+    float v = (inY / totalH) + dawnBridge_.getRumbleOffsetY();
 
     // Top transport bar and bottom navigation chin have zero curvature and 1:1 hit testing
     if (v < topCut || v > bottomCut) {
-        outX = inX;
-        outY = inY;
+        outX = std::clamp(u, 0.0f, 1.0f) * totalW;
+        outY = std::clamp(v, 0.0f, 1.0f) * totalH;
         return;
     }
 
@@ -1814,32 +1815,50 @@ void GuiWindow::remapCrtMouseCoords(float inX, float inY, float& outX, float& ou
     const float suvX = u;
     const float suvY = (v - topCut) / span;
 
-    // Sleek flush bezel geometry matching crt_screen.wgsl
-    const float frameX = 0.004f;
-    const float frameY_Top = 0.008f;
-    const float frameY_Bottom = 0.012f;
+    // Chassis frame dimensions matching crt_screen.wgsl:
+    // let screenRes = vec2<f32>(u.resolution.x, u.resolution.y * span);
+    // let frameWidthX_px = 22.0;
+    // let frameHeightY_px = 20.0;
+    const float fboW = static_cast<float>(dawnBridge_.getFboWidth() > 0 ? dawnBridge_.getFboWidth() : width_);
+    const float fboH = static_cast<float>(dawnBridge_.getFboHeight() > 0 ? dawnBridge_.getFboHeight() : height_);
+    const float screenResX = fboW;
+    const float screenResY = fboH * span;
 
-    // Map screen pixel coordinate to the corresponding DAW texture pixel under curvature
-    float curvedX = suvX;
-    float curvedY = suvY;
+    constexpr float frameWidthX_px = 22.0f;
+    constexpr float frameHeightY_px = 20.0f;
+
+    const float frameFracX = frameWidthX_px / std::max(1.0f, screenResX);
+    const float frameFracY = frameHeightY_px / std::max(1.0f, screenResY);
+
+    // Map screen coordinate inside the phosphor tube aperture:
+    // tubeUV = (suv - frameFrac) / (1.0 - 2.0 * frameFrac)
+    const float denomX = std::max(0.001f, 1.0f - 2.0f * frameFracX);
+    const float denomY = std::max(0.001f, 1.0f - 2.0f * frameFracY);
+    float tubeUVX = std::clamp((suvX - frameFracX) / denomX, 0.0f, 1.0f);
+    float tubeUVY = std::clamp((suvY - frameFracY) / denomY, 0.0f, 1.0f);
+
+    // Apply exact CRT bulb curvature polynomial matching WGSL:
+    // curvedTube += dCenter * pow(dist, 2.6) * (u.curvature * 0.08)
+    float curvedTubeX = tubeUVX;
+    float curvedTubeY = tubeUVY;
     if (cfg.curvature > 0.001f) {
-        const float dCenterX = curvedX - 0.5f;
-        const float dCenterY = curvedY - 0.5f;
+        const float dCenterX = curvedTubeX - 0.5f;
+        const float dCenterY = curvedTubeY - 0.5f;
         const float dist = std::sqrt(dCenterX * dCenterX + dCenterY * dCenterY);
-        const float factor = std::pow(dist, 2.5f) * (cfg.curvature * 0.09f);
-        curvedX += dCenterX * factor;
-        curvedY += dCenterY * factor;
+        const float factor = std::pow(dist, 2.6f) * (cfg.curvature * 0.08f);
+        curvedTubeX += dCenterX * factor;
+        curvedTubeY += dCenterY * factor;
     }
 
-    // Normalized coordinates inside the phosphor tube (filling flush to bezels)
-    float screenUVX = (curvedX - frameX) / (1.0f - 2.0f * frameX);
-    float screenUVY = (curvedY - frameY_Top) / (1.0f - frameY_Top - frameY_Bottom);
+    // Horizontal sync scan wave modulation matching shader
+    float hWave = 0.0f;
+    const float hWaveStrength = dawnBridge_.getHWaveStrength();
+    if (hWaveStrength > 0.00001f && cfg.hsyncDistortion > 0.001f) {
+        hWave = std::sin(suvY * 10.0f + dawnBridge_.getLampTime() * 5.0f) * (hWaveStrength * cfg.hsyncDistortion);
+    }
 
-    screenUVX = std::clamp(screenUVX, 0.0f, 1.0f);
-    screenUVY = std::clamp(screenUVY, 0.0f, 1.0f);
-
-    const float texUVX = screenUVX;
-    const float texUVY = topCut + screenUVY * span;
+    const float texUVX = std::clamp(curvedTubeX + hWave, 0.0f, 1.0f);
+    const float texUVY = topCut + std::clamp(curvedTubeY, 0.0f, 1.0f) * span;
 
     outX = texUVX * totalW;
     outY = texUVY * totalH;
@@ -1915,6 +1934,7 @@ void GuiWindow::updateLogicalDimensions() noexcept {
     if (batchRenderer_) {
         batchRenderer_->setRenderScale(renderScale_, renderScale_);
     }
+    dawnBridge_.setRenderScale(renderScale_);
 }
 
 void GuiWindow::toggleFullscreen() noexcept {
@@ -3904,7 +3924,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     return true;
 }
 
-ViewContext GuiWindow::createViewContext() const noexcept {
+ViewContext GuiWindow::createViewContext() noexcept {
     ViewContext ctx;
     ctx.renderer = batchRenderer_.get();
     ctx.theme = &getTheme();
@@ -3920,20 +3940,19 @@ ViewContext GuiWindow::createViewContext() const noexcept {
         if (v == WorkspaceView::Edit && modularEditView_) {
             modularEditView_->autoCenterOnNotesOrDefault();
         }
-        const_cast<GuiWindow*>(this)->setActiveView(v);
+        setActiveView(v);
     };
     ctx.onJumpToClipEdit = [this](uint32_t tIdx, int cIdx) {
-        auto* self = const_cast<GuiWindow*>(this);
-        self->setSelectedTrackIndex(tIdx);
-        self->syncActiveClipToEditView(tIdx, cIdx);
+        setSelectedTrackIndex(tIdx);
+        syncActiveClipToEditView(tIdx, cIdx);
         if (modularEditView_) {
             modularEditView_->autoCenterOnNotesOrDefault();
         }
-        self->setActiveView(WorkspaceView::Edit);
+        setActiveView(WorkspaceView::Edit);
     };
-    ctx.onToggleBrowser = [this](bool open) { const_cast<GuiWindow*>(this)->setBrowserOpen(open); };
-    ctx.onShowNotification = [this](const std::string& msg) { const_cast<GuiWindow*>(this)->setStatusMessage(msg); };
-    ctx.onOpenValueEdit = [this](const ValueEditRequest& req) { const_cast<GuiWindow*>(this)->openValueEditDialog(req); };
+    ctx.onToggleBrowser = [this](bool open) { setBrowserOpen(open); };
+    ctx.onShowNotification = [this](const std::string& msg) { setStatusMessage(msg); };
+    ctx.onOpenValueEdit = [this](const ValueEditRequest& req) { openValueEditDialog(req); };
     return ctx;
 }
 
@@ -4396,6 +4415,12 @@ void GuiWindow::renderFrame() {
                   << ", fb " << fbWidth_ << "x" << fbHeight_ << ")" << std::endl;
     }
 
+    static auto s_lastFrameTime = std::chrono::steady_clock::now();
+    const auto currentFrameTime = std::chrono::steady_clock::now();
+    float frameDt = std::chrono::duration<float>(currentFrameTime - s_lastFrameTime).count();
+    s_lastFrameTime = currentFrameTime;
+    if (frameDt <= 0.0001f || frameDt > 0.1f) frameDt = 0.016f;
+
     // 1. Pull real-time audio scope data & meters from lock-free queues
     size_t count = engine_->getScopeSamples(scopeBuffer_, 128);
     if (count > 0) {
@@ -4721,7 +4746,7 @@ void GuiWindow::renderFrame() {
             }
 
             projectBrowserDrawerWidget_->layout(static_cast<float>(width_), static_cast<float>(height_), 56.0f, 48.0f);
-            projectBrowserDrawerWidget_->update(0.016f);
+            projectBrowserDrawerWidget_->update(frameDt);
             if (batchRenderer_) {
                 projectBrowserDrawerWidget_->render(*batchRenderer_, getTheme());
             }
@@ -5214,7 +5239,7 @@ void GuiWindow::renderFrame() {
         // 6b. AUDIO TO MIDI TRANSCRIPTION MODAL DIALOG
         if (audioToMidiDialog_.isOpen()) {
             audioToMidiDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
-            audioToMidiDialog_.update(0.016f);
+            audioToMidiDialog_.update(frameDt);
             if (batchRenderer_) {
                 audioToMidiDialog_.render(*batchRenderer_, theme);
             }
@@ -5223,7 +5248,7 @@ void GuiWindow::renderFrame() {
         // 7. UNIVERSAL QUICK COMMAND PALETTE DIALOG (Ctrl+P / Ctrl+K / Search)
         if (commandPaletteDialog_.isOpen()) {
             commandPaletteDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
-            commandPaletteDialog_.update(0.016f);
+            commandPaletteDialog_.update(frameDt);
             if (batchRenderer_) {
                 commandPaletteDialog_.render(*batchRenderer_, theme);
             }
@@ -5287,7 +5312,7 @@ void GuiWindow::renderFrame() {
         uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
         uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
         float subBass = engine_ ? engine_->getSubBassEnergy() : 0.0f;
-        dawnBridge_.renderCrtScene(dawPixels, physW, physH, lampTime_, subBass);
+        dawnBridge_.renderCrtScene(dawPixels, physW, physH, lampTime_, subBass, renderScale_);
     } else {
         dawnBridge_.beginFrame(static_cast<float>(width_), static_cast<float>(height_), 1.0f);
         dawnBridge_.endFrame();

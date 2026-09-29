@@ -687,7 +687,7 @@ public:
     [[nodiscard]] BottomNavBar* getBottomNavBarWidget() noexcept { return bottomNavBarWidget_.get(); }
     [[nodiscard]] KineticScroller& getKineticScroller() noexcept { return kineticScroller_; }
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
-    [[nodiscard]] ViewContext createViewContext() const noexcept;
+    [[nodiscard]] ViewContext createViewContext() noexcept;
 
     [[nodiscard]] DialogLayout computeDialogLayout(float w = 540.0f, float h = 580.0f) const noexcept;
     DialogLayout drawModalDialogFrame(const DialogFrameConfig& config);

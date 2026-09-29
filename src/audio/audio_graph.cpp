@@ -92,6 +92,24 @@ std::vector<NodeId> AudioGraph::getNodeIds() const {
     return ids;
 }
 
+std::vector<std::pair<NodeId, std::shared_ptr<GraphNode>>> AudioGraph::getNodeSnapshot() const {
+    std::lock_guard<std::mutex> lock(graphMutex_);
+    std::vector<std::pair<NodeId, std::shared_ptr<GraphNode>>> snapshot;
+    snapshot.reserve(nodes_.size());
+    for (const auto& pair : nodes_) {
+        snapshot.push_back(pair);
+    }
+    return snapshot;
+}
+
+NodeId AudioGraph::findNodeByName(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(graphMutex_);
+    for (const auto& [id, node] : nodes_) {
+        if (node && node->getName() == name) return id;
+    }
+    return INVALID_NODE_ID;
+}
+
 bool AudioGraph::connect(NodeId srcNode, uint32_t srcPort, NodeId dstNode, uint32_t dstPort) {
     std::lock_guard<std::mutex> lock(graphMutex_);
 

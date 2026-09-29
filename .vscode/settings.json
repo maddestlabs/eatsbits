@@ -1,0 +1,6 @@
+{
+  "git.ignoredRepositories": [
+    "emsdk",
+    "c:/git/eatsbits/emsdk"
+  ]
+}
