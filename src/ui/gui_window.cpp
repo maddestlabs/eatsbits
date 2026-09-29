@@ -2071,6 +2071,154 @@ void GuiWindow::setFullscreen(bool enable) noexcept {
 #endif
 }
 
+bool GuiWindow::isFullscreenDeviceOpen() const noexcept {
+    return fullscreenDeviceModal_.isOpen();
+}
+
+void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
+    uint32_t tIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
+    selectedTrackIndex_ = tIdx;
+    syncTrackToPreset(tIdx);
+
+    TrackPropertiesDrawerData data;
+    data.trackIndex = tIdx;
+    if (tIdx < arrangerTracks_.size()) {
+        data.trackName = arrangerTracks_[tIdx].name;
+        data.r = arrangerTracks_[tIdx].r;
+        data.g = arrangerTracks_[tIdx].g;
+        data.b = arrangerTracks_[tIdx].b;
+        data.volume = arrangerTracks_[tIdx].volume;
+        data.pan = arrangerTracks_[tIdx].pan;
+        data.mute = arrangerTracks_[tIdx].mute;
+        data.solo = arrangerTracks_[tIdx].solo;
+        data.freeze = arrangerTracks_[tIdx].freeze;
+        data.midiFxData = arrangerTracks_[tIdx].midiFx;
+        data.audioFxData = arrangerTracks_[tIdx].audioFx;
+    }
+    const auto* preset = getActivePreset();
+    if (preset) {
+        data.instrument = preset->metadata.name.empty() ? preset->guiRoot.title : preset->metadata.name;
+        data.instrumentEngine = preset->metadata.engineId;
+        data.presetTitle = preset->guiRoot.title;
+        data.presetSubtitle = preset->guiRoot.subtitle;
+        data.activePresetIdx = activePresetIndex_;
+        data.totalPresets = presets_.size();
+
+        data.knobs.clear();
+        for (const auto& [name, param] : preset->params) {
+            TrackPropertiesKnob k;
+            k.name = name;
+            k.label = param.name.empty() ? name : param.name;
+            k.value = param.getNormalized();
+            k.display = param.getFormatted();
+            data.knobs.push_back(k);
+        }
+    }
+    data.syncKnobsIfEmpty();
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
+    DeviceTarget target;
+    target.type = DeviceTargetType::Instrument;
+    target.trackIndex = tIdx;
+    target.fxIndex = -1;
+    target.deviceName = data.instrument;
+
+    fullscreenDeviceModal_.open(target);
+    setStatusMessage("Device Full-Display: " + data.instrument + " (Esc to exit)");
+}
+
+void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
+    uint32_t tIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
+    selectedTrackIndex_ = tIdx;
+
+    TrackPropertiesDrawerData data;
+    data.trackIndex = tIdx;
+    if (tIdx < arrangerTracks_.size()) {
+        data.trackName = arrangerTracks_[tIdx].name;
+        data.r = arrangerTracks_[tIdx].r;
+        data.g = arrangerTracks_[tIdx].g;
+        data.b = arrangerTracks_[tIdx].b;
+        data.midiFxData = arrangerTracks_[tIdx].midiFx;
+        data.audioFxData = arrangerTracks_[tIdx].audioFx;
+    }
+    data.activePresetIdx = activePresetIndex_;
+    data.totalPresets = presets_.size();
+
+    data.knobs = {
+        {"fx_param1", "TIME / RATE", 0.45f, "450 ms"},
+        {"fx_param2", "FEEDBACK", 0.60f, "60%"},
+        {"fx_param3", "TONE / DAMP", 0.50f, "50%"},
+        {"fx_param4", "DRY / WET", 0.35f, "35%"},
+        {"fx_param5", "DRIVE", 0.25f, "25%"},
+        {"fx_param6", "OUTPUT", 0.80f, "80%"}
+    };
+
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
+    DeviceTarget target;
+    target.type = DeviceTargetType::AudioFx;
+    target.trackIndex = tIdx;
+    target.fxIndex = fxIndex;
+    target.deviceName = "Audio FX Insert Rack";
+
+    fullscreenDeviceModal_.open(target);
+    setStatusMessage("Device Full-Display: Audio FX Rack (Esc to exit)");
+}
+
+void GuiWindow::openFullscreenMidiFx(uint32_t trackIndex, int fxIndex) {
+    uint32_t tIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
+    selectedTrackIndex_ = tIdx;
+
+    TrackPropertiesDrawerData data;
+    data.trackIndex = tIdx;
+    if (tIdx < arrangerTracks_.size()) {
+        data.trackName = arrangerTracks_[tIdx].name;
+        data.r = arrangerTracks_[tIdx].r;
+        data.g = arrangerTracks_[tIdx].g;
+        data.b = arrangerTracks_[tIdx].b;
+        data.midiFxData = arrangerTracks_[tIdx].midiFx;
+        data.audioFxData = arrangerTracks_[tIdx].audioFx;
+    }
+    data.activePresetIdx = activePresetIndex_;
+    data.totalPresets = presets_.size();
+
+    data.knobs = {
+        {"midi_rate", "RATE", 0.50f, "1/16"},
+        {"midi_octaves", "OCTAVES", 0.40f, "2 Oct"},
+        {"midi_gate", "GATE", 0.85f, "85%"},
+        {"midi_swing", "SWING", 0.50f, "50%"},
+        {"midi_jitter", "HUMANIZE", 0.30f, "30%"},
+        {"midi_vel", "VEL SCALE", 0.90f, "90%"}
+    };
+
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
+    DeviceTarget target;
+    target.type = DeviceTargetType::MidiFx;
+    target.trackIndex = tIdx;
+    target.fxIndex = fxIndex;
+    target.deviceName = "MIDI FX Processor";
+
+    fullscreenDeviceModal_.open(target);
+    setStatusMessage("Device Full-Display: MIDI FX Rack (Esc to exit)");
+}
+
+void GuiWindow::closeFullscreenDevice() noexcept {
+    fullscreenDeviceModal_.close();
+    setStatusMessage("Device Full-Display Closed");
+}
+
+void GuiWindow::toggleFullscreenDevice() noexcept {
+    if (fullscreenDeviceModal_.isOpen()) {
+        closeFullscreenDevice();
+    } else {
+        openFullscreenDevice(selectedTrackIndex_);
+    }
+}
+
 void GuiWindow::initDefaultKnobValues() {
     const auto& modules = canvas_.getModules();
     for (const auto& m : modules) {
@@ -3404,6 +3552,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::Action, "Ctrl+M", [this]() { openAudioToMidiConverter(); }
     });
     commandPaletteDialog_.registerCommand({
+        "action.toggle_fullscreen_device", "Toggle Fullscreen Instrument / FX GUI", "Dedicated full-display view for active instrument or FX rack",
+        CommandCategory::Action, "Shift+F", [this]() { toggleFullscreenDevice(); }
+    });
+    commandPaletteDialog_.registerCommand({
         "preset.303_acid", "TB-303 Acid Bass", "Resonant acid squelch synth preset",
         CommandCategory::Preset, "", [this]() { loadPresetToSelectedTrack(0); }
     });
@@ -3606,7 +3758,62 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularTrackInspectorView_->onScrollChanged = [this](float sY) {
             trackInspectorScrollY_ = sY;
         };
+        modularTrackInspectorView_->getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularTrackInspectorView_->getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularTrackInspectorView_->getPanel().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
     }
+
+    if (modularArrangerView_) {
+        modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+    }
+
+    // High-performance Dedicated Fullscreen Device Modal Callbacks
+    fullscreenDeviceModal_.onClose = [this]() {
+        setStatusMessage("Device Full-Display Closed");
+    };
+    fullscreenDeviceModal_.onPrevPreset = [this]() {
+        prevPreset();
+        openFullscreenDevice(selectedTrackIndex_);
+    };
+    fullscreenDeviceModal_.onNextPreset = [this]() {
+        nextPreset();
+        openFullscreenDevice(selectedTrackIndex_);
+    };
+    fullscreenDeviceModal_.onOpenCodeEditor = [this](uint32_t idx) {
+        (void)idx;
+        setActiveView(WorkspaceView::Design);
+        setDesignSubView(DesignSubView::Eatscript);
+    };
+    fullscreenDeviceModal_.onOpenPresetDialog = [this](uint32_t idx) {
+        (void)idx;
+        setStatusMessage("Preset Selection Dialog Opened");
+    };
+    fullscreenDeviceModal_.onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        (void)idx;
+        dispatchHardwareParam(paramName, normVal);
+    };
+    fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        (void)idx;
+        dispatchHardwareParam(paramName, normVal);
+    };
+    fullscreenDeviceModal_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        (void)idx;
+        dispatchHardwareParam(paramName, normVal);
+    };
 
     if (modularMixerView_) {
         modularMixerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
@@ -4485,8 +4692,16 @@ void GuiWindow::renderFrame() {
         lampTime_ += (1.0f / 60.0f);
 
         // =========================================================================
-        // 2. ACTIVE VIEW DISPATCH
+        // 2. ACTIVE VIEW DISPATCH OR HIGH-PERFORMANCE DEDICATED FULL-DISPLAY DEVICE
         // =========================================================================
+        if (fullscreenDeviceModal_.isOpen()) {
+            fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+            fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
+            fullscreenDeviceModal_.update(frameDt);
+            if (batchRenderer_) {
+                fullscreenDeviceModal_.render(*batchRenderer_, theme);
+            }
+        } else {
         if (activeView_ == WorkspaceView::Arranger) {
             if (modularArrangerView_) {
                 ViewContext ctx = createViewContext();
@@ -4751,6 +4966,7 @@ void GuiWindow::renderFrame() {
                 projectBrowserDrawerWidget_->render(*batchRenderer_, getTheme());
             }
         }
+        } // End of !fullscreenDeviceModal_.isOpen()
 
         // =========================================================================
         // 5. PROJECT HUB & SYSTEM SETTINGS MODAL DIALOG
@@ -4972,19 +5188,68 @@ void GuiWindow::renderFrame() {
                         drawVectorString("RESET TO DEFAULT TEMPLATE (CLEAN SLATE)", hubX + 110.0f, contentY + 82.0f, 0.80f, theme.textSecondary);
                     } else if (s == 2) {
                         // SECTION 2: DISPLAY & WORKSPACE
-                        // UI Magnification / Scale Chips
-                        drawVectorString("UI MAGNIFICATION / SCALE FACTOR", hubX + 28.0f, contentY + 10.0f, 0.65f, theme.textMuted);
-                        const float scales[5] = {1.0f, 1.10f, 1.25f, 1.50f, 2.0f};
-                        const char* scaleLabels[5] = {"100%", "110%", "125%", "150%", "200%"};
-                        for (int sc = 0; sc < 5; ++sc) {
-                            float cx = hubX + 24.0f + sc * 64.0f;
-                            bool isAct = (std::abs(uiScale_ - scales[sc]) < 0.02f);
-                            drawRoundedRect(cx, contentY + 24.0f, 58.0f, 24.0f, 4.0f,
-                                           isAct ? theme.controlWell : theme.controlBackground);
-                            drawRoundedRectOutline(cx, contentY + 24.0f, 58.0f, 24.0f, 4.0f,
-                                                  isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 1.0f);
-                            drawVectorString(scaleLabels[sc], cx + 12.0f, contentY + 29.0f, 0.8f,
-                                             isAct ? theme.primaryAccent : theme.textSecondary);
+                        // UI Magnification / Scale Slider with 25% Increments (50% to 200%)
+                        drawVectorString("UI MAGNIFICATION / SCALE FACTOR (50% - 200%)", hubX + 28.0f, contentY + 10.0f, 0.65f, theme.textMuted);
+                        const float scales[7] = {0.50f, 0.75f, 1.0f, 1.25f, 1.50f, 1.75f, 2.0f};
+                        const char* scaleLabels[7] = {"50%", "75%", "100%", "125%", "150%", "175%", "200%"};
+
+                        // Slider Track
+                        float sliderX = hubX + 24.0f;
+                        float sliderW = hubW - 130.0f;
+                        float sliderY = contentY + 22.0f;
+                        float sliderH = 6.0f;
+                        float norm = std::clamp((uiScale_ - 0.50f) / 1.50f, 0.0f, 1.0f);
+
+                        // Track Background
+                        drawRoundedRect(sliderX, sliderY, sliderW, sliderH, 3.0f, theme.controlWell);
+                        drawRoundedRectOutline(sliderX, sliderY, sliderW, sliderH, 3.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+
+                        // Active track fill
+                        if (norm > 0.001f) {
+                            drawRoundedRect(sliderX, sliderY, sliderW * norm, sliderH, 3.0f, theme.primaryAccent.darken(0.20f));
+                        }
+
+                        // Tick marks for 25% increments (0..6)
+                        for (int i = 0; i < 7; ++i) {
+                            float tx = sliderX + (static_cast<float>(i) / 6.0f) * sliderW;
+                            bool isCur = (std::abs(uiScale_ - scales[i]) < 0.05f);
+                            const Color& tickCol = isCur ? theme.primaryAccent : theme.borderSubtle;
+                            drawLine(tx, sliderY - 2.5f, tx, sliderY + sliderH + 2.5f,
+                                     tickCol.r, tickCol.g, tickCol.b, isCur ? 1.0f : 0.5f, isCur ? 1.5f : 1.0f);
+                        }
+
+                        // Slider Thumb Knob
+                        float thumbX = sliderX + norm * sliderW;
+                        float thumbY = sliderY + sliderH * 0.5f;
+                        drawCircle(thumbX, thumbY + 1.0f, 7.5f, Color(0.04f, 0.05f, 0.07f, 0.50f));
+                        drawCircle(thumbX, thumbY, 6.5f, theme.primaryAccent);
+                        drawCircleOutline(thumbX, thumbY, 6.5f, Color(1.0f, 1.0f, 1.0f, 0.90f), 1.2f);
+
+                        // Digital Readout Pod on the right
+                        float podX = hubX + hubW - 96.0f;
+                        float podY = contentY + 13.0f;
+                        float podW = 72.0f;
+                        float podH = 22.0f;
+                        drawRoundedRect(podX, podY, podW, podH, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(podX, podY, podW, podH, 4.0f, theme.primaryAccent, 1.0f);
+                        int pct = static_cast<int>(std::round(uiScale_ * 100.0f));
+                        std::string pctStr = std::to_string(pct) + "%";
+                        drawVectorString(pctStr, podX + (pct >= 100 ? 18.0f : 24.0f), podY + 5.0f, 0.82f, theme.primaryAccent);
+
+                        // Discrete 25% increment chips below the track
+                        float chipY = contentY + 36.0f;
+                        float chipH = 16.0f;
+                        float chipGap = 5.0f;
+                        float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
+                        for (int sc = 0; sc < 7; ++sc) {
+                            float cx = hubX + 24.0f + sc * (chipW + chipGap);
+                            bool isAct = (std::abs(uiScale_ - scales[sc]) < 0.05f);
+                            drawRoundedRect(cx, chipY, chipW, chipH, 3.0f,
+                                           isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
+                            drawRoundedRectOutline(cx, chipY, chipW, chipH, 3.0f,
+                                                  isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.2f : 0.8f);
+                            drawVectorString(scaleLabels[sc], cx + (sc == 6 ? 17.0f : (sc >= 2 ? 17.0f : 21.0f)), chipY + 3.0f, 0.65f,
+                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
                         // Theme Engine Chips (5 Curated Eatsbeats Presets)
@@ -6760,7 +7025,7 @@ HitTestTrackInspectorResult GuiWindow::hitTestTrackPropertiesContainer(float mx,
             float fullBtnX = x + pW - fullBtnW - 6.0f;
             if (mx >= fullBtnX && mx <= fullBtnX + fullBtnW && my >= curY + 4.0f && my <= curY + 24.0f) {
                 res.hit = true;
-                res.area = TrackInspectorHitArea::TrackTab;
+                res.area = TrackInspectorHitArea::FullscreenDevice;
                 return res;
             }
             if (my >= curY + 28.0f) {
@@ -7292,11 +7557,26 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
             }
         } else if (projectHubSection_ == 2) {
             float contentStartY = drawerY;
-            if (y >= contentStartY + 24.0f && y <= contentStartY + 50.0f) {
-                const float scales[5] = {1.0f, 1.10f, 1.25f, 1.50f, 2.0f};
-                for (int sc = 0; sc < 5; ++sc) {
-                    float cx = hubX + 24.0f + sc * 64.0f;
-                    if (x >= cx && x <= cx + 58.0f) {
+            // 1. Slider track hit [contentStartY + 10.0f .. contentStartY + 34.0f]
+            float sliderX = hubX + 24.0f;
+            float sliderW = hubW - 130.0f;
+            if (y >= contentStartY + 10.0f && y <= contentStartY + 34.0f && x >= sliderX && x <= sliderX + sliderW + 8.0f) {
+                float norm = std::clamp((x - sliderX) / sliderW, 0.0f, 1.0f);
+                float rawScale = 0.50f + norm * 1.50f;
+                float snappedScale = std::round(rawScale / 0.25f) * 0.25f;
+                snappedScale = std::clamp(snappedScale, 0.50f, 2.00f);
+                res.action = ProjectHubAction::SetUiScale;
+                res.scaleValue = snappedScale;
+                return res;
+            }
+            // 2. Discrete 7 chips hit [contentStartY + 35.0f .. contentStartY + 56.0f]
+            if (y >= contentStartY + 35.0f && y <= contentStartY + 56.0f) {
+                const float scales[7] = {0.50f, 0.75f, 1.0f, 1.25f, 1.50f, 1.75f, 2.0f};
+                float chipGap = 5.0f;
+                float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
+                for (int sc = 0; sc < 7; ++sc) {
+                    float cx = hubX + 24.0f + sc * (chipW + chipGap);
+                    if (x >= cx && x <= cx + chipW) {
                         res.action = ProjectHubAction::SetUiScale;
                         res.scaleValue = scales[sc];
                         return res;
@@ -8111,6 +8391,9 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             break;
         case TrackInspectorHitArea::PresetNext:
             nextPreset();
+            break;
+        case TrackInspectorHitArea::FullscreenDevice:
+            openFullscreenDevice(inspHit.trackIndex);
             break;
         case TrackInspectorHitArea::TrackTab:
             syncTrackToPreset(inspHit.trackIndex);
@@ -10155,6 +10438,22 @@ HitTestArrangerResult GuiWindow::hitTestArranger(float x, float y) const noexcep
 }
 
 void GuiWindow::onMouseMove(float x, float y) {
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        mouseX_ = x;
+        mouseY_ = y;
+        fullscreenDeviceModal_.handlePointer(pev);
+        return;
+    }
+
     // Intercept if Plugin Search Modal Dialog is open
     PluginSearchDialog* activePluginDialog = nullptr;
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -10691,6 +10990,20 @@ void GuiWindow::onMouseMove(float x, float y) {
         }
     } else if (dragMode_ == DragMode::CrtTweakerSlider) {
         handleCrtTweakerDrag(x, y);
+    } else if (dragMode_ == DragMode::UiScaleSlider) {
+        DialogFrameConfig cfg;
+        cfg.width = 540.0f;
+        cfg.height = 580.0f;
+        float hubX = (static_cast<float>(width_) - cfg.width) * 0.5f;
+        float sliderX = hubX + 24.0f;
+        float sliderW = cfg.width - 130.0f;
+        float norm = std::clamp((x - sliderX) / sliderW, 0.0f, 1.0f);
+        float rawScale = 0.50f + norm * 1.50f;
+        float snappedScale = std::round(rawScale / 0.25f) * 0.25f;
+        snappedScale = std::clamp(snappedScale, 0.50f, 2.00f);
+        if (std::abs(uiScale_ - snappedScale) > 0.001f) {
+            setUiScale(snappedScale);
+        }
     }
 }
 
@@ -10716,6 +11029,19 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         if (commandPaletteDialog_.handlePointer(pev)) return;
+    }
+
+    // Intercept if Dedicated Full-Display Device GUI is open
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (fullscreenDeviceModal_.handlePointer(pev)) return;
     }
 
     if (audioToMidiDialog_.isOpen()) {
@@ -10884,6 +11210,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         break;
                     case ProjectHubAction::SetUiScale:
                         setUiScale(hubHit.scaleValue);
+                        dragMode_ = DragMode::UiScaleSlider;
                         break;
                     case ProjectHubAction::SelectTheme:
                         setActiveThemePreset(hubHit.themeIndex);
@@ -12274,6 +12601,19 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 }
 
 void GuiWindow::onMouseUp(int button, float x, float y) {
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        fullscreenDeviceModal_.handlePointer(pev);
+        return;
+    }
+
     if (projectHubOpen_) {
         projectHubScrollArea_.stopDragging();
     }
@@ -12645,10 +12985,47 @@ void GuiWindow::onFilesDropped(const std::vector<std::string>& filePaths, float 
 }
 
 void GuiWindow::onKeyDown(int key, int mods) {
+    bool isCtrl = (mods & 2) != 0;
+    bool isShift = (mods & 1) != 0;
+    bool isAlt = (mods & 4) != 0;
+
+    // F11 or Alt+Enter: Native Desktop Window Fullscreen ALWAYS works globally across the DAW
+    if (key == 300 || (isAlt && (key == 257 || key == 335))) {
+        toggleFullscreen();
+        return;
+    }
+
+    // Spacebar: Global DAW playback toggle
+    if (key == 32 && !isCtrl && !isAlt && !valueEditDialog_.isOpen()) {
+        if (engine_) {
+            if (engine_->getSequencer().isPlaying()) {
+                engine_->getSequencer().stop();
+            } else {
+                engine_->getSequencer().start();
+            }
+        }
+        return;
+    }
+
     // Intercept keyboard input if CRT Shader Tweaker is open (Escape dismisses)
     if (crtTweakerOpen_) {
         if (key == 256) { // GLFW_KEY_ESCAPE
             crtTweakerOpen_ = false;
+            return;
+        }
+    }
+
+    // Intercept keyboard input if Dedicated Full-Display Device GUI is open
+    if (fullscreenDeviceModal_.isOpen()) {
+        if (fullscreenDeviceModal_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+        if (key == 256) { // GLFW_KEY_ESCAPE
+            closeFullscreenDevice();
+            return;
+        }
+        if (isShift && !isCtrl && !isAlt && (key == 70 || key == 102)) { // Shift+F closes
+            closeFullscreenDevice();
             return;
         }
     }
@@ -12695,9 +13072,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    bool isCtrl = (mods & 2) != 0;
-    bool isShift = (mods & 1) != 0;
-    bool isAlt = (mods & 4) != 0;
 
     // Ctrl+M: Open Audio to MIDI Converter Modal Dialog
     if (isCtrl && (key == 77 || key == 109)) { // 'M'
@@ -12765,6 +13139,12 @@ void GuiWindow::onKeyDown(int key, int mods) {
     // Alt+F or F1: Toggle Project Hub & Settings Menu
     if ((isAlt && (key == 70 || key == 102)) || key == 290) { // 'F' or F1
         toggleProjectHub();
+        return;
+    }
+
+    // Shift+F: Toggle Dedicated Full-Display Device/FX GUI
+    if (isShift && !isCtrl && !isAlt && (key == 70 || key == 102)) { // 'F'
+        toggleFullscreenDevice();
         return;
     }
 

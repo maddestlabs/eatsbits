@@ -1400,6 +1400,7 @@ private:
                 @location(1) uv: vec2<f32>,
                 @location(2) color: u32,
                 @location(3) mode: u32,
+                @location(4) pad: vec2<f32>,
             };
 
             struct VertexOutput {
@@ -1407,6 +1408,9 @@ private:
                 @location(0) uv: vec2<f32>,
                 @location(1) color: vec4<f32>,
                 @location(2) @interpolate(flat) mode: u32,
+                @location(3) localPos: vec2<f32>,
+                @location(4) @interpolate(flat) halfSize: vec2<f32>,
+                @location(5) @interpolate(flat) radius: f32,
             };
 
             @vertex
@@ -1420,6 +1424,9 @@ private:
                 out.color = vec4<f32>(r, g, b, a);
                 out.uv = in.uv;
                 out.mode = in.mode;
+                out.localPos = in.pad;
+                out.halfSize = abs(in.pad);
+                out.radius = in.uv.x;
 
                 // Screen pixels to NDC [-1, 1] using dynamic viewport
                 let ndcX = (in.position.x / uniforms.viewport.x) * 2.0 - 1.0;
@@ -1432,6 +1439,14 @@ private:
             fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 if (in.mode == 1u) {
                     let alpha = textureSampleLevel(fontTexture, fontSampler, in.uv, 0.0).r;
+                    return vec4<f32>(in.color.rgb, in.color.a * alpha);
+                } else if (in.mode == 2u) {
+                    let q = abs(in.localPos) - in.halfSize + vec2<f32>(in.radius, in.radius);
+                    let dist = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - in.radius;
+                    let alpha = clamp(0.5 - dist, 0.0, 1.0);
+                    if (alpha <= 0.0) {
+                        discard;
+                    }
                     return vec4<f32>(in.color.rgb, in.color.a * alpha);
                 } else if (in.mode == 3u) {
                     let tex = textureSampleLevel(rgbaTexture, fontSampler, in.uv, 0.0);
@@ -1450,7 +1465,7 @@ private:
         WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &smDesc);
 
         // Vertex layout
-        WGPUVertexAttribute attribs[4]{};
+        WGPUVertexAttribute attribs[5]{};
         attribs[0].format = WGPUVertexFormat_Float32x2; // position
         attribs[0].offset = 0;
         attribs[0].shaderLocation = 0;
@@ -1467,10 +1482,14 @@ private:
         attribs[3].offset = offsetof(Vertex2D, mode);
         attribs[3].shaderLocation = 3;
 
+        attribs[4].format = WGPUVertexFormat_Float32x2; // pad / local coordinates
+        attribs[4].offset = offsetof(Vertex2D, pad);
+        attribs[4].shaderLocation = 4;
+
         WGPUVertexBufferLayout vbLayout{};
         vbLayout.arrayStride = sizeof(Vertex2D);
         vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-        vbLayout.attributeCount = 4;
+        vbLayout.attributeCount = 5;
         vbLayout.attributes = attribs;
 
         WGPURenderPipelineDescriptor plDesc{};
@@ -1714,6 +1733,8 @@ void BatchRenderer2D::endFrame() {
                     v.y *= renderScaleY_;
                     if (v.mode == 2) {
                         v.u *= renderScaleX_;
+                        v.pad[0] *= renderScaleX_;
+                        v.pad[1] *= renderScaleY_;
                     }
                 }
             }
@@ -1741,6 +1762,8 @@ void BatchRenderer2D::flush() {
             v.y *= renderScaleY_;
             if (v.mode == 2) {
                 v.u *= renderScaleX_;
+                v.pad[0] *= renderScaleX_;
+                v.pad[1] *= renderScaleY_;
             }
         }
     }
@@ -1836,11 +1859,14 @@ void BatchRenderer2D::drawRoundedRect(float x, float y, float w, float h, float 
         return;
     }
 
+    float halfW = w * 0.5f;
+    float halfH = h * 0.5f;
+
     uint32_t col = packColor(r, g, b, a);
-    Vertex2D v0{x, y, rad, 0.0f, col, 2, {0, 0}};
-    Vertex2D v1{x + w, y, rad, 0.0f, col, 2, {0, 0}};
-    Vertex2D v2{x + w, y + h, rad, 0.0f, col, 2, {0, 0}};
-    Vertex2D v3{x, y + h, rad, 0.0f, col, 2, {0, 0}};
+    Vertex2D v0{x, y, rad, 0.0f, col, 2, {-halfW, -halfH}};
+    Vertex2D v1{x + w, y, rad, 0.0f, col, 2, {halfW, -halfH}};
+    Vertex2D v2{x + w, y + h, rad, 0.0f, col, 2, {halfW, halfH}};
+    Vertex2D v3{x, y + h, rad, 0.0f, col, 2, {-halfW, halfH}};
 
     vertices_.push_back(v0);
     vertices_.push_back(v1);
@@ -1861,13 +1887,16 @@ void BatchRenderer2D::drawRoundedRectGradient(float x, float y, float w, float h
         return;
     }
 
+    float halfW = w * 0.5f;
+    float halfH = h * 0.5f;
+
     uint32_t col0 = packColor(r0, g0, b0, a);
     uint32_t col1 = packColor(r1, g1, b1, a);
 
-    Vertex2D v0{x, y, rad, 0.0f, col0, 2, {0, 0}};
-    Vertex2D v1{x + w, y, rad, 0.0f, col0, 2, {0, 0}};
-    Vertex2D v2{x + w, y + h, rad, 0.0f, col1, 2, {0, 0}};
-    Vertex2D v3{x, y + h, rad, 0.0f, col1, 2, {0, 0}};
+    Vertex2D v0{x, y, rad, 0.0f, col0, 2, {-halfW, -halfH}};
+    Vertex2D v1{x + w, y, rad, 0.0f, col0, 2, {halfW, -halfH}};
+    Vertex2D v2{x + w, y + h, rad, 0.0f, col1, 2, {halfW, halfH}};
+    Vertex2D v3{x, y + h, rad, 0.0f, col1, 2, {-halfW, halfH}};
 
     vertices_.push_back(v0);
     vertices_.push_back(v1);
@@ -1945,7 +1974,11 @@ void BatchRenderer2D::drawRgbaBitmap(float x, float y, float w, float h, const u
             for (auto& v : vertices_) {
                 v.x *= renderScaleX_;
                 v.y *= renderScaleY_;
-                if (v.mode == 2) v.u *= renderScaleX_;
+                if (v.mode == 2) {
+                    v.u *= renderScaleX_;
+                    v.pad[0] *= renderScaleX_;
+                    v.pad[1] *= renderScaleY_;
+                }
             }
         }
         backend_->renderBatch(vertices_);

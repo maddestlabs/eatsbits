@@ -127,6 +127,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/color_picker_dialog.cpp
     src/ui/widgets/space_visualizer_widget.cpp
     src/ui/widgets/ai_assistant_dialog.cpp
+    src/ui/widgets/fullscreen_device_modal.cpp
     src/ui/views/arranger_view.cpp
     src/ui/views/edit_view.cpp
     src/ui/views/track_inspector_view.cpp

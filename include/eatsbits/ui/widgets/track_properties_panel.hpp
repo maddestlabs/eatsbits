@@ -262,10 +262,13 @@ enum class TrackPropertiesHitArea {
     InstrumentNextPreset,
     InstrumentKnob,
     ChangeInstrument,
+    FullscreenInstrument,
     ChordFollowChip,
     BakeChords,
     AddMidiFx,
     AddAudioFx,
+    FullscreenMidiFx,
+    FullscreenAudioFx,
     ToggleMidiFx,
     ToggleAudioFx,
     RemoveMidiFx,
@@ -354,6 +357,9 @@ public:
     std::function<void(TrackPropertiesTab newTab)> onTabSelected;
     std::function<void(uint32_t trackIndex, int clipIndex)> onEditInPianoRoll;
     std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
+    std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
     std::function<void(uint32_t trackIndex)> onAddMidiFx;
     std::function<void(uint32_t trackIndex)> onAddAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveMidiFx;

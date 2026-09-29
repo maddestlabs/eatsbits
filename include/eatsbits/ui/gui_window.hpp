@@ -35,6 +35,7 @@
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
 #include "widgets/plugin_search_dialog.hpp"
+#include "widgets/fullscreen_device_modal.hpp"
 #include "widgets/scrollable_area.hpp"
 #include "input/pointer_event.hpp"
 
@@ -112,7 +113,8 @@ enum class DragMode {
     PianoRollScrollbarH,
     VirtualKeyboardGlissando,
     ProjectHubScroll,
-    CrtTweakerSlider
+    CrtTweakerSlider,
+    UiScaleSlider
 };
 
 enum class TransportAction {
@@ -359,6 +361,7 @@ struct ArrangerClip {
 enum class TrackInspectorHitArea {
     None,
     TrackTab,
+    FullscreenDevice,
     PresetPrev,
     PresetNext,
     CodeButton,
@@ -616,6 +619,16 @@ public:
     [[nodiscard]] bool isFullscreen() const noexcept { return isFullscreen_; }
     void toggleFullscreen() noexcept;
     void setFullscreen(bool enable) noexcept;
+
+    // Dedicated Full-Display Device GUI (Instruments & FX)
+    [[nodiscard]] bool isFullscreenDeviceOpen() const noexcept;
+    void openFullscreenDevice(uint32_t trackIndex = 0);
+    void openFullscreenFx(uint32_t trackIndex, int fxIndex = 0);
+    void openFullscreenMidiFx(uint32_t trackIndex, int fxIndex = 0);
+    void closeFullscreenDevice() noexcept;
+    void toggleFullscreenDevice() noexcept;
+    [[nodiscard]] FullscreenDeviceModal& getFullscreenDeviceModal() noexcept { return fullscreenDeviceModal_; }
+    [[nodiscard]] const FullscreenDeviceModal& getFullscreenDeviceModal() const noexcept { return fullscreenDeviceModal_; }
 
     // Workspace View Navigation
     [[nodiscard]] WorkspaceView getActiveView() const noexcept { return activeView_; }
@@ -1298,6 +1311,7 @@ private:
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;
+    FullscreenDeviceModal fullscreenDeviceModal_;
     KineticScroller kineticScroller_;
     GestureRecognizer gestureRecognizer_;
 

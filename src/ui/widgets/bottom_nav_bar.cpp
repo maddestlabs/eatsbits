@@ -101,10 +101,21 @@ void BottomNavBar::render(BatchRenderer2D& r, const ThemeTokens& theme, int acti
         // G. Chunky tactile label (illuminated amber legend if active, muted retro cream if inactive)
         std::string label = tabNames[i];
         float fontSize = isMobile ? 9.5f : 11.0f;
-        drawCenteredText(r, label, b.x, b.y + 8.0f, b.w, b.h - 8.0f, fontSize,
-                         isActive ? theme.primaryAccent.r : theme.textPrimary.r * 0.92f,
-                         isActive ? theme.primaryAccent.g : theme.textPrimary.g * 0.92f,
-                         isActive ? theme.primaryAccent.b : theme.textPrimary.b * 0.92f, 1.0f);
+        Color labelCol = isActive ? theme.primaryAccent : theme.textPrimary * 0.92f;
+
+        if (i == 4) { // DESIGN tab: render computer chip icon + DESIGN
+            float iconSize = isMobile ? 10.5f : 12.0f;
+            float textW = 40.0f;
+            float spacing = 5.0f;
+            float totalW = iconSize + spacing + textW;
+            float startX = b.x + (b.w - totalW) * 0.5f;
+            float iconY = b.y + (b.h - iconSize) * 0.5f + 4.0f;
+            drawDesignChipIcon(r, startX, iconY, iconSize, labelCol);
+            drawText(r, "DESIGN", startX + iconSize + spacing, b.y + (isMobile ? 12.0f : 10.5f), fontSize, labelCol);
+        } else {
+            drawCenteredText(r, label, b.x, b.y + 8.0f, b.w, b.h - 8.0f, fontSize,
+                             labelCol.r, labelCol.g, labelCol.b, 1.0f);
+        }
     }
 }
 

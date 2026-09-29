@@ -307,8 +307,14 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 Handler = CustomHandler
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(('', $Port), Handler) as httpd:
-    print('Serving HTTP on 0.0.0.0 port $Port with COOP/COEP headers...')
-    httpd.serve_forever()
+    print('Serving HTTP on 0.0.0.0 port $Port with COOP/COEP headers...', flush=True)
+    while True:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            pass
 "@
 
     $serverScriptPath = Join-Path $buildDir "serve.py"

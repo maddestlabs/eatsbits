@@ -450,11 +450,17 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     drawText(r, data.instrument, titleX, cy + (isWide ? 8.0f : 6.0f), isWide ? 12.0f : 11.0f, 0.0f, 0.95f, 1.0f, 1.0f);
     drawText(r, "HARDWARE SCRIPT INTERFACE", titleX, cy + (isWide ? 22.0f : 19.0f), 7.5f, 0.50f, 0.55f, 0.65f, 1.0f);
 
-    // [ ⇄ CHANGE INSTRUMENT ] Button
-    float chgW = isWide ? 140.0f : 80.0f;
-    float chgX = cx + cw - chgW - 8.0f;
+    // [ ⛶ FULL ] and [ ⇄ CHANGE INSTRUMENT ] Buttons
+    float fullBtnW = isWide ? 56.0f : 44.0f;
+    float fullBtnX = cx + cw - fullBtnW - 8.0f;
+    drawButton(r, Rect2D(fullBtnX, cy + 5.0f, fullBtnW, isWide ? 24.0f : 22.0f),
+               isWide ? "[ ⛶ FULL ]" : "[ ⛶ ]",
+               Color(0.12f, 0.22f, 0.32f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.0f, 3.0f, 1.0f);
+
+    float chgW = isWide ? 120.0f : 68.0f;
+    float chgX = fullBtnX - chgW - 6.0f;
     drawButton(r, Rect2D(chgX, cy + 5.0f, chgW, isWide ? 24.0f : 22.0f),
-               isWide ? "[ ⇄ CHANGE INSTRUMENT ]" : "[ ⇄ CHANGE ]",
+               isWide ? "[ ⇄ CHANGE ]" : "[ ⇄ ]",
                Color(0.16f, 0.20f, 0.28f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.0f, 3.0f, 1.0f);
 
     // Rotary Knobs Layout
@@ -682,13 +688,17 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
                      fx.enabled ? theme.textPrimary.b : theme.textMuted.b, 1.0f);
 
             // Status label
-            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 78.0f, itemY + 8.5f, 8.0f,
+            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 95.0f, itemY + 8.5f, 8.0f,
                      fx.enabled ? theme.primaryAccent.r : theme.textMuted.r,
                      fx.enabled ? theme.primaryAccent.g : theme.textMuted.g,
                      fx.enabled ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
 
+            // Fullscreen FX button [⛶]
+            drawText(r, "[⛶]", cx + cw - 50.0f, itemY + 8.0f, 9.0f,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.90f);
+
             // Delete button [X]
-            drawText(r, "[X]", cx + cw - 28.0f, itemY + 8.0f, 9.0f,
+            drawText(r, "[X]", cx + cw - 26.0f, itemY + 8.0f, 9.0f,
                      theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
         }
     }
@@ -744,13 +754,17 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
                      fx.enabled ? theme.textPrimary.b : theme.textMuted.b, 1.0f);
 
             // Status label
-            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 78.0f, itemY + 8.5f, 8.0f,
+            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 95.0f, itemY + 8.5f, 8.0f,
                      fx.enabled ? theme.secondaryAccent.r : theme.textMuted.r,
                      fx.enabled ? theme.secondaryAccent.g : theme.textMuted.g,
                      fx.enabled ? theme.secondaryAccent.b : theme.textMuted.b, 1.0f);
 
+            // Fullscreen FX button [⛶]
+            drawText(r, "[⛶]", cx + cw - 50.0f, itemY + 8.0f, 9.0f,
+                     theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.90f);
+
             // Delete button [X]
-            drawText(r, "[X]", cx + cw - 28.0f, itemY + 8.0f, 9.0f,
+            drawText(r, "[X]", cx + cw - 26.0f, itemY + 8.0f, 9.0f,
                      theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
         }
     }
@@ -1080,9 +1094,18 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
             return res;
         }
 
+        // Fullscreen Instrument button [cx + cw - fullBtnW - 8, cy + 4, fullBtnW, 26]
+        float fullBtnW = isWide ? 56.0f : 44.0f;
+        float fullBtnX = cx + cw - fullBtnW - 8.0f;
+        if (mx >= fullBtnX && mx <= fullBtnX + fullBtnW && my >= cy + 4.0f && my <= cy + 30.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::FullscreenInstrument;
+            return res;
+        }
+
         // Change instrument
-        float chgW = isWide ? 140.0f : 80.0f;
-        float chgX = cx + cw - chgW - 8.0f;
+        float chgW = isWide ? 120.0f : 68.0f;
+        float chgX = fullBtnX - chgW - 6.0f;
         if (mx >= chgX && mx <= chgX + chgW && my >= cy + 4.0f && my <= cy + 30.0f) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::ChangeInstrument;
@@ -1173,8 +1196,15 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 res.index = static_cast<int>(mi);
                 return res;
             }
+            // Fullscreen FX [⛶]
+            if (mx >= cx + cw - 60.0f && mx <= cx + cw - 34.0f && my >= itemY && my <= itemY + itemH) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::FullscreenMidiFx;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
             // Toggle / select item
-            if (mx >= cx + 10.0f && mx <= cx + cw - 36.0f && my >= itemY && my <= itemY + itemH) {
+            if (mx >= cx + 10.0f && mx <= cx + cw - 64.0f && my >= itemY && my <= itemY + itemH) {
                 res.hit = true;
                 res.area = TrackPropertiesHitArea::ToggleMidiFx;
                 res.index = static_cast<int>(mi);
@@ -1207,8 +1237,15 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 res.index = static_cast<int>(fi);
                 return res;
             }
+            // Fullscreen FX [⛶]
+            if (mx >= cx + cw - 60.0f && mx <= cx + cw - 34.0f && my >= itemY && my <= itemY + itemH) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::FullscreenAudioFx;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
             // Toggle / select item
-            if (mx >= cx + 10.0f && mx <= cx + cw - 36.0f && my >= itemY && my <= itemY + itemH) {
+            if (mx >= cx + 10.0f && mx <= cx + cw - 64.0f && my >= itemY && my <= itemY + itemH) {
                 res.hit = true;
                 res.area = TrackPropertiesHitArea::ToggleAudioFx;
                 res.index = static_cast<int>(fi);
@@ -1382,6 +1419,21 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
             if (hit.area == TrackPropertiesHitArea::InstrumentNextPreset) {
                 if (onNextPreset) onNextPreset();
+                return true;
+            }
+
+            if (hit.area == TrackPropertiesHitArea::FullscreenInstrument) {
+                if (onOpenFullscreenDevice) onOpenFullscreenDevice(data.trackIndex);
+                return true;
+            }
+
+            if (hit.area == TrackPropertiesHitArea::FullscreenMidiFx) {
+                if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(data.trackIndex, static_cast<size_t>(hit.index));
+                return true;
+            }
+
+            if (hit.area == TrackPropertiesHitArea::FullscreenAudioFx) {
+                if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(data.trackIndex, static_cast<size_t>(hit.index));
                 return true;
             }
 

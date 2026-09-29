@@ -1893,13 +1893,82 @@ void testProjectHubAndTopLeftMenu() {
     window.onMouseUp(0, switchRestoreX, switchRestoreY);
     REQUIRE(window.isAutoRestoreSession() == !initialRestore);
 
-    // 7. Test Section 2 (Display & Workspace)
+    // Test Section 2 (Display & Workspace)
     window.setProjectHubSection(2);
     REQUIRE(window.getProjectHubSection() == 2);
 
-    // Test Theme Switching across the 5 Eatsbeats presets
     float sec2NewY = hubY + 50.0f + 2.0f * 36.0f; // Sec 0 & 1 collapsed (36px each)
     float sec2ContentY = sec2NewY + 32.0f;
+
+    // Test UI Scale Slider (50% to 200% in 25% increments) and Quick-Preset Chips
+    auto getCurHub = [&]() {
+        float hx = std::max(12.0f, (static_cast<float>(window.getWidth()) - hubW) * 0.5f);
+        float hy = std::max(12.0f, (static_cast<float>(window.getHeight()) - hubH) * 0.5f);
+        float secY = hy + 50.0f + 2.0f * 36.0f;
+        float cY = secY + 32.0f;
+        return std::make_tuple(hx, hy, cY);
+    };
+
+    float chipGap = 5.0f;
+    float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
+    float uiSliderW = hubW - 130.0f;
+
+    // 1. Click Slider track at 50% (leftmost edge)
+    auto [h1X, h1Y, c1Y] = getCurHub();
+    float uiSlider1X = h1X + 24.0f;
+    float uiSlider1Y = c1Y + 22.0f;
+    auto scaleHit50 = window.hitTestProjectHub(uiSlider1X, uiSlider1Y);
+    REQUIRE(scaleHit50.hit);
+    REQUIRE(scaleHit50.action == ProjectHubAction::SetUiScale);
+    REQUIRE(std::abs(scaleHit50.scaleValue - 0.50f) < 0.001f);
+    window.onMouseDown(0, uiSlider1X, uiSlider1Y);
+    window.onMouseUp(0, uiSlider1X, uiSlider1Y);
+    REQUIRE(std::abs(window.getUiScale() - 0.50f) < 0.001f);
+    // At 50% UI scale on 1280x800 window, logical canvas expands 2x to 2560x1600
+    REQUIRE(window.getWidth() == 2560);
+    REQUIRE(window.getHeight() == 1600);
+    REQUIRE(std::abs(window.windowToLogicalX(100.0f) - 200.0f) < 0.01f);
+
+    // 2. Click Quick-Preset Chip for 75%
+    auto [h2X, h2Y, c2Y] = getCurHub();
+    float chip75X = h2X + 24.0f + 1 * (chipW + chipGap) + chipW * 0.5f;
+    float chip75Y = c2Y + 45.0f;
+    auto chipHit75 = window.hitTestProjectHub(chip75X, chip75Y);
+    REQUIRE(chipHit75.hit);
+    REQUIRE(chipHit75.action == ProjectHubAction::SetUiScale);
+    REQUIRE(std::abs(chipHit75.scaleValue - 0.75f) < 0.001f);
+    window.onMouseDown(0, chip75X, chip75Y);
+    window.onMouseUp(0, chip75X, chip75Y);
+    REQUIRE(std::abs(window.getUiScale() - 0.75f) < 0.001f);
+
+    // 3. Test Dragging UI Scale Slider to 200%
+    auto [h3X, h3Y, c3Y] = getCurHub();
+    float uiSlider3X = h3X + 24.0f;
+    float uiSlider3Y = c3Y + 22.0f;
+    window.onMouseDown(0, uiSlider3X + 20.0f, uiSlider3Y); // starts DragMode::UiScaleSlider
+    auto [hDragX, hDragY, cDragY] = getCurHub();
+    float dragSliderX = hDragX + 24.0f;
+    window.onMouseMove(dragSliderX + uiSliderW, cDragY + 22.0f); // drag to max 2.0x
+    window.onMouseUp(0, dragSliderX + uiSliderW, cDragY + 22.0f);
+    REQUIRE(std::abs(window.getUiScale() - 2.00f) < 0.001f);
+    REQUIRE(window.getWidth() == 640);
+    REQUIRE(window.getHeight() == 400);
+
+    // 4. Click Quick-Preset Chip for 100% to restore normal scale
+    auto [h4X, h4Y, c4Y] = getCurHub();
+    float chip100X = h4X + 24.0f + 2 * (chipW + chipGap) + chipW * 0.5f;
+    float chip100Y = c4Y + 45.0f;
+    auto chipHit100 = window.hitTestProjectHub(chip100X, chip100Y);
+    REQUIRE(chipHit100.hit);
+    REQUIRE(chipHit100.action == ProjectHubAction::SetUiScale);
+    REQUIRE(std::abs(chipHit100.scaleValue - 1.00f) < 0.001f);
+    window.onMouseDown(0, chip100X, chip100Y);
+    window.onMouseUp(0, chip100X, chip100Y);
+    REQUIRE(std::abs(window.getUiScale() - 1.00f) < 0.001f);
+    REQUIRE(window.getWidth() == 1280);
+    REQUIRE(window.getHeight() == 800);
+
+    // Test Theme Switching across the 5 Eatsbeats presets
     float themeChipY = sec2ContentY + 84.0f; // [contentY + 74..100]
 
     // Click Theme Chip 1: Midnight Bites
@@ -3224,6 +3293,100 @@ void testFullscreenAndLiveResize() {
     std::cout << "  [PASS] Fullscreen toggling & Live Resize tests passed." << std::endl;
 }
 
+void testFullscreenDeviceModal() {
+    std::cout << "[Test] Fullscreen Device & FX Dedicated Full-Display Mode (with DAW bypass optimization)..." << std::endl;
+
+    AudioEngine engine;
+    engine.initialize();
+    GuiWindow window(1280, 800, "Fullscreen Device Modal Test");
+    window.initialize(engine);
+
+    // Initial state: modal should be closed
+    REQUIRE(!window.isFullscreenDeviceOpen());
+
+    // 1. Open Fullscreen Device for Instrument on Track 0
+    window.openFullscreenDevice(0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Verify DAW Native Fullscreen (F11 / Alt+Enter) works while Fullscreen Device Modal is open
+    REQUIRE(!window.isFullscreen());
+    window.onKeyDown(300, 0); // F11 key
+    REQUIRE(window.isFullscreen());
+    REQUIRE(window.isFullscreenDeviceOpen()); // Modal stays open and active!
+
+    window.onKeyDown(257, 4); // Alt+Enter
+    REQUIRE(!window.isFullscreen());
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Verify Spacebar toggles DAW playback while modal is open
+    REQUIRE(!engine.getSequencer().isPlaying());
+    window.onKeyDown(32, 0); // Spacebar
+    REQUIRE(engine.getSequencer().isPlaying());
+    window.onKeyDown(32, 0); // Spacebar again
+    REQUIRE(!engine.getSequencer().isPlaying());
+
+    // Verify ESC closes the modal
+    window.onKeyDown(256, 0); // ESC key
+    REQUIRE(!window.isFullscreenDeviceOpen());
+
+    // 2. Open Fullscreen Audio FX
+    window.openFullscreenFx(0, 0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Verify closing via closeFullscreenDevice
+    window.closeFullscreenDevice();
+    REQUIRE(!window.isFullscreenDeviceOpen());
+
+    // 3. Open Fullscreen MIDI FX
+    window.openFullscreenMidiFx(0, 0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Verify Shift+F toggles it
+    window.onKeyDown(70, 1); // 'F' with Shift
+    REQUIRE(!window.isFullscreenDeviceOpen());
+    window.onKeyDown(70, 1); // 'F' with Shift again
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // 4. Test renderFrame runs cleanly with underlying views bypassed
+    window.renderFrame();
+
+    // 5. Test Interactive Knob Tweaking in Fullscreen Device Modal
+    // Knobs are laid out horizontally at bodyBounds_.y + 60 (around y ~ 180..220)
+    float knob1X = 24.0f + (1280.0f - 48.0f) / 12.0f; // Approx first knob center
+    float knob1Y = 44.0f + 16.0f + 120.0f;           // Approx knob center Y
+    window.onMouseDown(0, knob1X, knob1Y);            // Start drag
+    window.onMouseMove(knob1X, knob1Y - 60.0f);        // Drag upwards
+    window.onMouseUp(0, knob1X, knob1Y - 60.0f);          // Finish drag
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // 6. Test Preset Button Click (opens Preset Dialog)
+    float presetBtnX = 1280.0f - 28.0f - 14.0f - 92.0f - 10.0f;
+    float presetBtnY = 22.0f;
+    window.onMouseDown(0, presetBtnX + 20.0f, presetBtnY);
+    REQUIRE(window.isFullscreenDeviceOpen());
+    // ESC closes the open Preset Dialog while keeping Fullscreen Device open
+    window.onKeyDown(256, 0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // 7. Test Design Chip Icon Button Click (opens Design / Code Editor)
+    float designBtnX = presetBtnX - 28.0f - 10.0f;
+    float designBtnY = 22.0f;
+    window.onMouseDown(0, designBtnX + 14.0f, designBtnY);
+    // Clicking Design icon opens the code editor and closes the modal
+    REQUIRE(!window.isFullscreenDeviceOpen());
+    REQUIRE(window.getActiveView() == WorkspaceView::Design);
+
+    // 8. Re-open and test Universal Screw Close button
+    window.openFullscreenDevice(0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+    float closeX = static_cast<float>(window.getWidth()) - 24.0f;
+    float closeY = 22.0f;
+    window.onMouseDown(0, closeX, closeY);
+    REQUIRE(!window.isFullscreenDeviceOpen());
+
+    std::cout << "  [PASS] Fullscreen Device Modal tests passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 6 GUI Interaction Tests ===" << std::endl;
     testDawnBridgeLifecycle();
@@ -3253,6 +3416,7 @@ int main() {
     testWindowResizeAndUiScale();
     testProjectHubAndTopLeftMenu();
     testFullscreenAndLiveResize();
+    testFullscreenDeviceModal();
     std::cout << "=== All Phase 6 GUI Interaction Tests Passed! ===" << std::endl;
     return 0;
 }

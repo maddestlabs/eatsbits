@@ -182,4 +182,77 @@ void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color&
     drawLine(r, emptyX + emptyW - strokeW * 0.5f, barY, emptyX + emptyW - strokeW * 0.5f, barY + barH, c, 1.0f, strokeW);
 }
 
+void drawDesignChipIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c) {
+    float chipW = size * 0.74f;
+    float chipH = size * 0.86f;
+    float chipX = x + size * 0.06f;
+    float chipY = y + (size - chipH) * 0.5f;
+
+    // 1. Pins on right edge (3 pins projecting outward)
+    float pinW = size * 0.16f;
+    float pinH = size * 0.13f;
+    float pinX = chipX + chipW - 0.5f;
+    float pinY0 = chipY + chipH * 0.18f;
+    float pinY1 = chipY + chipH * 0.44f;
+    float pinY2 = chipY + chipH * 0.70f;
+
+    drawRoundedRect(r, pinX, pinY0, pinW, pinH, 1.5f, c);
+    drawRoundedRect(r, pinX, pinY1, pinW, pinH, 1.5f, c);
+    drawRoundedRect(r, pinX, pinY2, pinW, pinH, 1.5f, c);
+
+    // 2. Outer chip body
+    float cornerR = 2.8f;
+    float borderW = std::max(1.2f, size * 0.11f);
+    drawRoundedRectOutline(r, chipX, chipY, chipW, chipH, cornerR, c, 1.0f, borderW);
+
+    // 3. Four internal silicon die pads (2x2 grid separated by cross channel)
+    float innerMarginX = borderW + 1.2f;
+    float innerMarginY = borderW + 1.2f;
+    float innerW = chipW - (innerMarginX * 2.0f);
+    float innerH = chipH - (innerMarginY * 2.0f);
+    if (innerW > 3.0f && innerH > 3.0f) {
+        float gutter = std::max(1.0f, size * 0.09f);
+        float padW = (innerW - gutter) * 0.5f;
+        float padH = (innerH - gutter) * 0.5f;
+
+        float padX0 = chipX + innerMarginX;
+        float padX1 = padX0 + padW + gutter;
+        float padY0 = chipY + innerMarginY;
+        float padY1 = padY0 + padH + gutter;
+
+        drawRoundedRect(r, padX0, padY0, padW, padH, 1.0f, c);
+        drawRoundedRect(r, padX1, padY0, padW, padH, 1.0f, c);
+        drawRoundedRect(r, padX0, padY1, padW, padH, 1.0f, c);
+        drawRoundedRect(r, padX1, padY1, padW, padH, 1.0f, c);
+    }
+}
+
+void drawSlidersTuneIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c) {
+    float strokeW = std::max(1.0f, size * 0.10f);
+    float trackH = size * 0.80f;
+    float trackY0 = y + (size - trackH) * 0.5f;
+    float trackY1 = trackY0 + trackH;
+
+    float col0 = x + size * 0.22f;
+    float col1 = x + size * 0.50f;
+    float col2 = x + size * 0.78f;
+
+    // 3 vertical slider tracks
+    drawLine(r, col0, trackY0, col0, trackY1, c, 0.65f, strokeW);
+    drawLine(r, col1, trackY0, col1, trackY1, c, 0.65f, strokeW);
+    drawLine(r, col2, trackY0, col2, trackY1, c, 0.65f, strokeW);
+
+    // 3 slider thumb bars
+    float thumbW = size * 0.32f;
+    float thumbH = std::max(2.0f, size * 0.18f);
+
+    float t0Y = trackY0 + trackH * 0.65f - thumbH * 0.5f;
+    float t1Y = trackY0 + trackH * 0.28f - thumbH * 0.5f;
+    float t2Y = trackY0 + trackH * 0.50f - thumbH * 0.5f;
+
+    drawRoundedRect(r, col0 - thumbW * 0.5f, t0Y, thumbW, thumbH, 1.0f, c);
+    drawRoundedRect(r, col1 - thumbW * 0.5f, t1Y, thumbW, thumbH, 1.0f, c);
+    drawRoundedRect(r, col2 - thumbW * 0.5f, t2Y, thumbW, thumbH, 1.0f, c);
+}
+
 } // namespace eatsbits::ui

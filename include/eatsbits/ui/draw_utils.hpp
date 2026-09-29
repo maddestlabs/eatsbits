@@ -65,6 +65,10 @@ void drawScrewCloseButton(BatchRenderer2D& r, float cx, float cy, float radius, 
 
 void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color& c);
 
+void drawDesignChipIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c);
+
+void drawSlidersTuneIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c);
+
 void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
                   float red, float green, float blue, float alpha = 1.0f);
 
