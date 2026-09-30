@@ -102,7 +102,18 @@ public:
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onRemoveMidiFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onRemoveAudioFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleAudioFx;
+    std::function<void(uint32_t trackIdx, size_t fromIdx, size_t toIdx)> onReorderMidiFx;
+    std::function<void(uint32_t trackIdx, size_t fromIdx, size_t toIdx)> onReorderAudioFx;
+    std::function<void(uint32_t trackIdx)> onMidiFxChanged;
+    std::function<void(uint32_t trackIdx)> onAudioFxChanged;
     std::function<void(float scrollY)> onScrollChanged;
+    std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
 
     [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
     void setScrollY(float y) noexcept { panel_.setScrollY(y); }

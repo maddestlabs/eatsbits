@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -13,6 +14,18 @@
 
 using namespace eatsbits;
 using namespace eatsbits::audio;
+
+static std::string getSfPath() {
+    static const std::string candidates[] = {
+        "assets/soundfonts/super_small_font.sf2",
+        "../assets/soundfonts/super_small_font.sf2",
+        "../../assets/soundfonts/super_small_font.sf2"
+    };
+    for (const auto& c : candidates) {
+        if (std::filesystem::exists(c)) return c;
+    }
+    return "assets/soundfonts/super_small_font.sf2";
+}
 
 void testSoundFontDecoderValidation() {
     std::cout << "[Test 1] Testing SoundFontDecoder Header Validation & Rejection...\n";
@@ -42,7 +55,7 @@ void testSoundFontDecoderValidation() {
 void testDecodeBundledSuperSmallFont() {
     std::cout << "[Test 2] Decoding Bundled 'assets/soundfonts/super_small_font.sf2' Asset...\n";
 
-    auto sf = SoundFontDecoder::decodeFile("assets/soundfonts/super_small_font.sf2");
+    auto sf = SoundFontDecoder::decodeFile(getSfPath());
     assert(sf != nullptr);
     assert(!sf->pcmData.empty());
     assert(!sf->sampleHeaders.empty());
@@ -107,7 +120,7 @@ void testSoundFontNodeRealTimePlayback() {
     SoundFontNode sfNode("TestSF2");
     sfNode.prepare(44100.0, 128);
 
-    bool loaded = sfNode.loadSoundFontFile("assets/soundfonts/super_small_font.sf2");
+    bool loaded = sfNode.loadSoundFontFile(getSfPath());
     assert(loaded);
     (void)loaded;
 
@@ -155,7 +168,7 @@ void testSoundFontPolyphonyAndChords() {
 
     SoundFontNode sfNode("ChordSF2");
     sfNode.prepare(44100.0, 128);
-    sfNode.loadSoundFontFile("assets/soundfonts/super_small_font.sf2");
+    sfNode.loadSoundFontFile(getSfPath());
     sfNode.setPreset(0, 0);
 
     constexpr uint32_t kBlockSize = 128;
@@ -196,7 +209,7 @@ void testAudioGraphIntegration() {
     graph.prepare(44100.0, 128);
 
     auto sfNode = std::make_shared<SoundFontNode>("SoundFontSynth");
-    sfNode->loadSoundFontFile("assets/soundfonts/super_small_font.sf2");
+    sfNode->loadSoundFontFile(getSfPath());
     sfNode->setPreset(0, 0);
 
     NodeId sfId = graph.addNode(sfNode);
@@ -229,7 +242,7 @@ void testPerformanceBenchmark() {
 
     SoundFontNode sfNode("BenchSF2");
     sfNode.prepare(44100.0, 128);
-    sfNode.loadSoundFontFile("assets/soundfonts/super_small_font.sf2");
+    sfNode.loadSoundFontFile(getSfPath());
     sfNode.setPreset(0, 0);
 
     constexpr uint32_t kBlockSize = 128;

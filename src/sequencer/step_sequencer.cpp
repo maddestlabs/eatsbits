@@ -1,4 +1,5 @@
 #include "eatsbits/sequencer/step_sequencer.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 #include <stdexcept>
 
 namespace eatsbits::sequencer {
@@ -150,12 +151,68 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                 }
             }
 
+            int noteNum = std::clamp(static_cast<int>(step.note) + track.getTranspose(), 0, 127);
+            float vel = std::clamp(step.velocity * track.getVolume(), 0.0f, 1.0f);
+            std::vector<uint8_t> exNotes = step.extraNotes;
+
+            // Live MIDI FX Pipeline Processing
+            const auto& midiFx = track.getMidiFxRack();
+            if (!midiFx.empty()) {
+                for (const auto& fx : midiFx) {
+                    if (!fx.enabled) continue;
+                    if (fx.type == eatscript::MidiFxType::ScaleSnap) {
+                        int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : timeContext_.songKeyRoot;
+                        bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : timeContext_.isSongKeyMinor;
+                        noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                        for (auto& en : exNotes) {
+                            int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                            en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(enTrans, root, minor));
+                        }
+                    } else if (fx.type == eatscript::MidiFxType::Arpeggiator || fx.type == eatscript::MidiFxType::ChordArp) {
+                        int octaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : 2;
+                        int stepCycle = static_cast<int>(tick.stepIndex) % (octaves * 2);
+                        int octOffset = (stepCycle < octaves) ? stepCycle : ((octaves * 2 - 1) - stepCycle);
+                        noteNum = std::clamp(noteNum + octOffset * 12, 0, 127);
+                        if (!exNotes.empty()) {
+                            size_t noteIdx = tick.stepIndex % (exNotes.size() + 1);
+                            if (noteIdx > 0 && noteIdx - 1 < exNotes.size()) {
+                                noteNum = exNotes[noteIdx - 1];
+                            }
+                        }
+                    } else if (fx.type == eatscript::MidiFxType::ChordStabs) {
+                        if (exNotes.empty()) {
+                            bool isMinor = timeContext_.isSongKeyMinor;
+                            int third = isMinor ? 3 : 4;
+                            int fifth = 7;
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                        }
+                    } else if (fx.type == eatscript::MidiFxType::Transpose) {
+                        int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : 0;
+                        noteNum = std::clamp(noteNum + semi, 0, 127);
+                        for (auto& en : exNotes) {
+                            en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
+                        }
+                    } else if (fx.type == eatscript::MidiFxType::Humanize) {
+                        float velJitter = (nextRandomFloat() - 0.5f) * 0.20f;
+                        vel = std::clamp(vel + velJitter, 0.05f, 1.0f);
+                    } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
+                        theory::ChordEvent chEvent;
+                        chEvent.rootPitchClass = timeContext_.activeChordRoot;
+                        noteNum = theory::ChordTheory::remapPitchForChord(noteNum, chEvent, theory::ChordFollowMode::Chord);
+                        for (auto& en : exNotes) {
+                            int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                            en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, chEvent, theory::ChordFollowMode::Chord));
+                        }
+                    }
+                }
+            }
+
             // Note on dispatch
             AudioEvent noteEvent{};
             noteEvent.type = AudioEventType::NoteOn;
-            int noteNum = std::clamp(static_cast<int>(step.note) + track.getTranspose(), 0, 127);
             noteEvent.note = static_cast<uint8_t>(noteNum);
-            noteEvent.velocity = std::clamp(step.velocity * track.getVolume(), 0.0f, 1.0f);
+            noteEvent.velocity = vel;
             // Channel byte bit0 = slide, bit1 = accent
             noteEvent.channel = (step.slide ? 0x01 : 0x00) | (step.accent ? 0x02 : 0x00);
 
@@ -170,15 +227,15 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                 double duration = std::clamp(step.gateLength, 0.05f, 1.0f) * tick.stepDurationSamples;
                 uint32_t framesUntilOff = tick.frameOffset + static_cast<uint32_t>(duration);
                 scheduleNoteOff(track.getTargetNodeId(), noteEvent.note, framesUntilOff);
-                for (uint8_t exNote : step.extraNotes) {
-                    scheduleNoteOff(track.getTargetNodeId(), static_cast<uint8_t>(std::clamp(static_cast<int>(exNote) + track.getTranspose(), 0, 127)), framesUntilOff);
+                for (uint8_t exNote : exNotes) {
+                    scheduleNoteOff(track.getTargetNodeId(), exNote, framesUntilOff);
                 }
             }
 
             // Dispatch extra chord notes
-            for (uint8_t exNote : step.extraNotes) {
+            for (uint8_t exNote : exNotes) {
                 AudioEvent exEvent = noteEvent;
-                exEvent.note = static_cast<uint8_t>(std::clamp(static_cast<int>(exNote) + track.getTranspose(), 0, 127));
+                exEvent.note = exNote;
                 if (track.getTargetNodeId() != 0) {
                     graph.sendNodeEvent(track.getTargetNodeId(), exEvent);
                 } else {

@@ -295,30 +295,117 @@ ArrangerView::ArrangerView() {
                 }
             } else if (mode == PluginDialogMode::AddMidiFx) {
                 if (targetIdx < tracks_.size()) {
-                    tracks_[targetIdx].midiFx.push_back({entry.name, entry.engineTag, true});
-                    drawerData_.midiFx.push_back({entry.name, entry.engineTag, true});
+                    TrackMidiFxItem mfx;
+                    mfx.id = entry.id;
+                    mfx.name = entry.name;
+                    mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    mfx.enabled = true;
+                    mfx.isExpanded = true;
+                    mfx.ensureDefaultKnobs();
+                    tracks_[targetIdx].midiFx.push_back(mfx);
+                    drawerData_.midiFx.push_back(mfx);
+                    if (onMidiFxChanged) onMidiFxChanged(targetIdx);
                 }
             } else if (mode == PluginDialogMode::AddAudioFx) {
                 if (targetIdx < tracks_.size()) {
-                    tracks_[targetIdx].audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
-                    drawerData_.audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                    TrackAudioFxItem afx;
+                    afx.id = entry.id;
+                    afx.name = entry.name;
+                    afx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    afx.enabled = true;
+                    afx.isExpanded = true;
+                    afx.ensureDefaultKnobs();
+                    tracks_[targetIdx].audioFx.push_back(afx);
+                    drawerData_.audioFx.push_back(afx);
+                    if (onAudioFxChanged) onAudioFxChanged(targetIdx);
                 }
             }
         };
     propertiesDrawer_.onRemoveMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFx.size()) {
             tracks_[trackIdx].midiFx.erase(tracks_[trackIdx].midiFx.begin() + fxIdx);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
         }
     };
     propertiesDrawer_.onRemoveAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFx.size()) {
             tracks_[trackIdx].audioFx.erase(tracks_[trackIdx].audioFx.begin() + fxIdx);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onToggleMidiFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFx.size()) {
+            tracks_[trackIdx].midiFx[fxIdx].enabled = en;
+            if (onToggleMidiFx) onToggleMidiFx(trackIdx, fxIdx, en);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onToggleAudioFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFx.size()) {
+            tracks_[trackIdx].audioFx[fxIdx].enabled = en;
+            if (onToggleAudioFx) onToggleAudioFx(trackIdx, fxIdx, en);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onReorderAudioFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < tracks_.size()) {
+            auto& list = tracks_[trackIdx].audioFx;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                drawerData_.audioFx = list;
+                if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+            }
+        }
+    };
+    propertiesDrawer_.onReorderMidiFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < tracks_.size()) {
+            auto& list = tracks_[trackIdx].midiFx;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                drawerData_.midiFx = list;
+                if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+            }
+        }
+    };
+    propertiesDrawer_.onAudioFxChanged = [this](uint32_t trackIdx) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].audioFx = drawerData_.audioFx;
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onMidiFxChanged = [this](uint32_t trackIdx) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].midiFx = drawerData_.midiFx;
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onAudioFxParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+        if (onAudioFxParamChanged) {
+            onAudioFxParamChanged(trackIdx, 0, paramName, normVal);
         }
     };
     propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {
         if (trackIdx < tracks_.size()) {
             iconDialog_.open(tracks_[trackIdx].name, trackIdx, tracks_[trackIdx].iconRef);
         }
+    };
+    propertiesDrawer_.onOpenPresets = [this](uint32_t trackIdx) {
+        if (trackIdx < tracks_.size()) {
+            pluginDialog_.open(PluginDialogMode::SelectPreset, tracks_[trackIdx].name, trackIdx);
+        }
+    };
+    propertiesDrawer_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
+        if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
+    };
+    propertiesDrawer_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
+    };
+    propertiesDrawer_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
     };
     propertiesDrawer_.onTrackRenameWithText = [this](uint32_t trackIdx, const std::string& newName) {
         if (trackIdx < tracks_.size() && !newName.empty()) {
@@ -364,12 +451,14 @@ void ArrangerView::addTrack(const std::string& name, const std::string& instrume
 void ArrangerView::addMidiFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type) {
     if (trackIdx < tracks_.size()) {
         tracks_[trackIdx].midiFx.push_back({name, type, 0, 0, true});
+        if (onMidiFxChanged) onMidiFxChanged(trackIdx);
     }
 }
 
 void ArrangerView::addAudioFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type) {
     if (trackIdx < tracks_.size()) {
         tracks_[trackIdx].audioFx.push_back({name, type, 0.5f, 0.5f, true});
+        if (onAudioFxChanged) onAudioFxChanged(trackIdx);
     }
 }
 
@@ -750,6 +839,14 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 void ArrangerView::render(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
+
+    if (kineticScroller_.isGliding()) {
+        float dx = 0.0f, dy = 0.0f;
+        kineticScroller_.step(ctx.dt > 0.0f ? ctx.dt : 0.016f, dx, dy);
+        scrollX_ = (std::max)(0.0f, scrollX_ - dx);
+        float maxScrollY = (std::max)(0.0f, static_cast<float>(tracks_.size()) * trackRowHeight_ - gridBounds_.h);
+        scrollY_ = std::clamp(scrollY_ - dy, 0.0f, maxScrollY);
+    }
 
     // Follow playback if enabled
     if (followPlayback_ && ctx.audioEngine && ctx.audioEngine->getSequencer().isPlaying()) {
@@ -1178,48 +1275,16 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
         IconRegistry::instance().renderIcon(r, track.iconRef.empty() ? "preset:inst_synth" : track.iconRef,
                                             iconBoxX, iconBoxY, iconBoxSize, iconCol);
 
-        // Track Name
-        drawText(r, track.name, iconBoxX + iconBoxSize + 6.0f, rowY + 9.0f, 11.5f,
+        // Track Name (size 10.0f matching clip title text)
+        drawText(r, track.name, iconBoxX + iconBoxSize + 6.0f, rowY + 9.5f, 10.0f,
                  isActive ? theme.primaryAccent.r : theme.textPrimary.r,
                  isActive ? theme.primaryAccent.g : theme.textPrimary.g,
                  isActive ? theme.primaryAccent.b : theme.textPrimary.b, 1.0f);
 
-        // CHORD FOLLOW, MUTE, SOLO Buttons
+        // MUTE, SOLO Buttons
         float btnW = 16.0f;
         float btnH = 13.0f;
         float btnY = rowY + 8.0f;
-
-        // Chord Follow Mode Button Chip (Off, Chord, Bass, Scale, ColorLead)
-        float flwBtnW = 34.0f;
-        float flwBtnH = 13.0f;
-        float flwBtnX = tracksListBounds_.x + tracksListBounds_.w - 82.0f;
-        bool hasFollow = (track.chordFollowMode != theory::ChordFollowMode::Off);
-        const char* flwLabel = "OFF";
-        float flwR = 0.20f, flwG = 0.20f, flwB = 0.22f;
-        float flwTextR = theme.textMuted.r, flwTextG = theme.textMuted.g, flwTextB = theme.textMuted.b;
-        if (track.chordFollowMode == theory::ChordFollowMode::Chord) {
-            flwLabel = "CHRD";
-            flwR = 0.15f; flwG = 0.45f; flwB = 0.65f;
-            flwTextR = 0.30f; flwTextG = 0.85f; flwTextB = 1.0f;
-        } else if (track.chordFollowMode == theory::ChordFollowMode::Bass) {
-            flwLabel = "BASS";
-            flwR = 0.45f; flwG = 0.25f; flwB = 0.60f;
-            flwTextR = 0.85f; flwTextG = 0.60f; flwTextB = 1.0f;
-        } else if (track.chordFollowMode == theory::ChordFollowMode::Scale) {
-            flwLabel = "SCAL";
-            flwR = 0.15f; flwG = 0.50f; flwB = 0.35f;
-            flwTextR = 0.40f; flwTextG = 0.95f; flwTextB = 0.65f;
-        } else if (track.chordFollowMode == theory::ChordFollowMode::ColorLead) {
-            flwLabel = "LEAD";
-            flwR = 0.55f; flwG = 0.35f; flwB = 0.12f;
-            flwTextR = 1.0f; flwTextG = 0.80f; flwTextB = 0.30f;
-        }
-
-        drawRoundedRect(r, flwBtnX, btnY, flwBtnW, flwBtnH, 2.0f, flwR, flwG, flwB, 0.95f);
-        if (hasFollow) {
-            drawRoundedRectOutline(r, flwBtnX, btnY, flwBtnW, flwBtnH, 2.0f, flwTextR, flwTextG, flwTextB, 0.8f, 1.0f);
-        }
-        drawText(r, flwLabel, flwBtnX + 3.0f, btnY + 2.5f, 7.5f, flwTextR, flwTextG, flwTextB, 1.0f);
 
         // Mute
         drawRoundedRect(r, tracksListBounds_.x + tracksListBounds_.w - 42.0f, btnY, btnW, btnH, 2.0f,
@@ -1231,14 +1296,14 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
                         track.solo ? 0.95f : 0.20f, track.solo ? 0.80f : 0.20f, 0.10f, 0.95f);
         drawText(r, "S", tracksListBounds_.x + tracksListBounds_.w - 18.0f, btnY + 2.5f, 8.0f, 1.0f, 1.0f, 1.0f, 1.0f);
 
-        // Volume Horizontal Pill Slider (VOL 85%)
-        drawText(r, "VOL", tracksListBounds_.x + 14.0f, rowY + 30.0f, 8.5f,
+        // Volume Horizontal Pill Slider (VOL 85%) moved down by 10px
+        drawText(r, "VOL", tracksListBounds_.x + 14.0f, rowY + 40.0f, 8.5f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
         float sliderW = tracksListBounds_.w - 75.0f;
         float sliderH = 4.0f;
         float sliderX = tracksListBounds_.x + 36.0f;
-        float sliderY = rowY + 34.0f;
+        float sliderY = rowY + 44.0f;
 
         // Slider track
         drawRoundedRect(r, sliderX, sliderY, sliderW, sliderH, 2.0f,
@@ -1251,15 +1316,14 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
         float thumbX = sliderX + sliderW * normV;
         drawCircle(r, thumbX, sliderY + 2.0f, 5.0f, 0.85f, 0.85f, 0.90f, 1.0f);
 
-        // Pan Knob with center detent 'C' indicator on right
+        // Pan Knob with center detent indicator line (moved down by 10px, text readout removed)
         float knobX = tracksListBounds_.x + tracksListBounds_.w - 22.0f;
-        float knobY = rowY + 36.0f;
+        float knobY = rowY + 46.0f;
         drawCircle(r, knobX, knobY, 9.0f, 0.15f, 0.16f, 0.18f, 1.0f);
         drawCircle(r, knobX, knobY, 7.5f, 0.08f, 0.08f, 0.09f, 1.0f);
         float pAngle = -1.57f + track.pan * 2.2f;
         drawLine(r, knobX, knobY, knobX + std::cos(pAngle) * 6.5f, knobY + std::sin(pAngle) * 6.5f,
                  track.r, track.g, track.b, 1.0f, 1.5f);
-        drawText(r, "C", knobX - 3.0f, knobY + 11.0f, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
         drawLine(r, tracksListBounds_.x, rowY + trackRowHeight_, tracksListBounds_.x + tracksListBounds_.w, rowY + trackRowHeight_,
                  theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.45f, 1.0f);
@@ -1370,15 +1434,8 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
             drawerData_.clipTranspose = cl.transposeSemitones;
         }
 
-        drawerData_.midiFx.clear();
-        for (const auto& fx : track.midiFx) {
-            drawerData_.midiFx.push_back({fx.name, fx.type, fx.enabled});
-        }
-        drawerData_.audioFx.clear();
-        for (const auto& fx : track.audioFx) {
-            drawerData_.audioFx.push_back({fx.name, fx.type, fx.drive, fx.mix, fx.enabled});
-        }
-
+        drawerData_.midiFx = track.midiFx;
+        drawerData_.audioFx = track.audioFx;
         drawerData_.syncKnobsIfEmpty();
     }
 
@@ -1407,11 +1464,18 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return iconDialog_.handlePointer(ev);
     }
 
-    // 0b. Mouse Wheel scroll inside expanded Properties Drawer Sidebar
-    if (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y)) {
+    // 0a. Continuous active drag inside Properties Drawer (knobs, sliders, scrollbar)
+    if (propertiesDrawer_.isDragging()) {
         propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
-        inspectorOpen_ = propertiesDrawer_.isExpanded();
         return true;
+    }
+
+    // 0b. Interaction or Scroll inside expanded Properties Drawer Sidebar
+    if (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y)) {
+        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
+            inspectorOpen_ = propertiesDrawer_.isExpanded();
+            return true;
+        }
     }
 
     // 0c. Mouse Wheel / 2D Scroll on Arranger Grid
@@ -1564,6 +1628,9 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 std::sort(chordTrack_.begin(), chordTrack_.end(), [](const theory::ChordEvent& a, const theory::ChordEvent& b) {
                     return a.startBar < b.startBar;
                 });
+            }
+            if (dragMode_ == ClipDragMode::TouchPan) {
+                kineticScroller_.endDrag(ev.timestampMs);
             }
             dragMode_ = ClipDragMode::None;
             dragClipIdx_ = -1;
@@ -1734,19 +1801,14 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 float rowY = tracksListBounds_.y + static_cast<float>(clickedTrack) * trackRowHeight_ - scrollY_;
                 float btnY = rowY + 8.0f;
 
-                auto openTrackTitleAndIconEdit = [this, clickedTrack, &ctx]() {
+                auto openTrackTitleEdit = [this, clickedTrack, &ctx]() {
                     if (ctx.onOpenValueEdit) {
                         ValueEditRequest req;
                         req.title = "EDIT TRACK PROPERTIES";
                         req.paramName = "Track Name";
                         req.isTextMode = true;
                         req.initialText = tracks_[clickedTrack].name;
-                        req.currentIconRef = tracks_[clickedTrack].iconRef;
                         req.accentColor = Color(tracks_[clickedTrack].r, tracks_[clickedTrack].g, tracks_[clickedTrack].b, 1.0f);
-                        req.actionLinkLabel = "🎨 Choose Track Icon...";
-                        req.onActionLink = [this, clickedTrack]() {
-                            iconDialog_.open(tracks_[clickedTrack].name, clickedTrack, tracks_[clickedTrack].iconRef);
-                        };
                         req.onCommitText = [this, clickedTrack](const std::string& newName) {
                             if (!newName.empty()) {
                                 tracks_[clickedTrack].name = newName;
@@ -1763,32 +1825,8 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                     }
                 };
 
-                // Click on track icon glyph opens Title Edit Dialog with icon picker option
-                float iconBoxX = tracksListBounds_.x + 10.0f;
-                float iconBoxY = rowY + 7.5f;
-                float iconBoxSize = 15.0f;
-                Rect2D iconHitBox(iconBoxX - 3.0f, iconBoxY - 3.0f, iconBoxSize + 6.0f, iconBoxSize + 6.0f);
-                if (iconHitBox.contains(ev.x, ev.y)) {
-                    openTrackTitleAndIconEdit();
-                    return true;
-                }
-
                 Rect2D muteRect(tracksListBounds_.x + tracksListBounds_.w - 42.0f, btnY, 16.0f, 13.0f);
                 Rect2D soloRect(tracksListBounds_.x + tracksListBounds_.w - 22.0f, btnY, 16.0f, 13.0f);
-
-                // Chord Follow Mode Button Chip Click
-                float flwBtnW = 34.0f;
-                float flwBtnH = 13.0f;
-                float flwBtnX = tracksListBounds_.x + tracksListBounds_.w - 82.0f;
-                Rect2D flwBtnRect(flwBtnX, btnY, flwBtnW, flwBtnH);
-                if (flwBtnRect.contains(ev.x, ev.y)) {
-                    int nextMode = (static_cast<int>(tracks_[clickedTrack].chordFollowMode) + 1) % 5;
-                    tracks_[clickedTrack].chordFollowMode = static_cast<theory::ChordFollowMode>(nextMode);
-                    if (onTrackChordFollowChanged) {
-                        onTrackChordFollowChanged(clickedTrack, tracks_[clickedTrack].chordFollowMode);
-                    }
-                    return true;
-                }
 
                 if (muteRect.contains(ev.x, ev.y)) {
                     tracks_[clickedTrack].mute = !tracks_[clickedTrack].mute;
@@ -1800,16 +1838,21 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                     return true;
                 }
 
-                // Volume Slider
+                // Volume Slider (moved down by 10 pixels)
                 float sliderW = tracksListBounds_.w - 75.0f;
                 float sliderX = tracksListBounds_.x + 36.0f;
-                float sliderY = rowY + 34.0f;
-                Rect2D volBox(sliderX - 6.0f, sliderY - 8.0f, sliderW + 12.0f, 18.0f);
+                float sliderY = rowY + 44.0f;
+                Rect2D volBox(sliderX - 6.0f, sliderY - 6.0f, sliderW + 12.0f, 16.0f);
 
-                // Pan Knob
+                // Pan Knob (moved down by 10 pixels)
                 float knobX = tracksListBounds_.x + tracksListBounds_.w - 22.0f;
-                float knobY = rowY + 36.0f;
-                Rect2D panBox(knobX - 12.0f, knobY - 12.0f, 24.0f, 24.0f);
+                float knobY = rowY + 46.0f;
+                Rect2D panBox(knobX - 11.0f, knobY - 11.0f, 22.0f, 22.0f);
+
+                if (ev.button == PointerButton::Right && !volBox.contains(ev.x, ev.y) && !panBox.contains(ev.x, ev.y)) {
+                    openTrackTitleEdit();
+                    return true;
+                }
 
                 if (volBox.contains(ev.x, ev.y)) {
                     if (ev.button == PointerButton::Right) {
@@ -1873,7 +1916,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 }
 
                 if (ev.button == PointerButton::Right) {
-                    openTrackTitleAndIconEdit();
+                    openTrackTitleEdit();
                     return true;
                 }
 
@@ -1974,10 +2017,39 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 activeTrackIndex_ = static_cast<uint32_t>(clickedTrack);
                 inspectorTab_ = ArrangerInspectorTab::Track;
             }
+
+            if (ev.type == PointerType::Touch) {
+                dragMode_ = ClipDragMode::TouchGridPending;
+                touchDownPos_ = Point2D{ev.x, ev.y};
+                touchDownTimePoint_ = std::chrono::steady_clock::now();
+                touchPanCommitted_ = false;
+                dragStartPointerX_ = ev.x;
+                dragStartPointerY_ = ev.y;
+                dragStartScrollX_ = scrollX_;
+                dragStartScrollY_ = scrollY_;
+                kineticScroller_.reset();
+                kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+            }
             return true;
         }
 
         if (ev.action == PointerAction::Move) {
+            if (dragMode_ == ClipDragMode::TouchGridPending) {
+                float dist = std::hypot(ev.x - touchDownPos_.x, ev.y - touchDownPos_.y);
+                if (dist > 14.0f) {
+                    touchPanCommitted_ = true;
+                    dragMode_ = ClipDragMode::TouchPan;
+                    kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                }
+            }
+
+            if (dragMode_ == ClipDragMode::TouchPan) {
+                kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                scrollX_ = (std::max)(0.0f, dragStartScrollX_ - (ev.x - dragStartPointerX_));
+                float maxScrollY = (std::max)(0.0f, static_cast<float>(tracks_.size()) * trackRowHeight_ - gridBounds_.h);
+                scrollY_ = std::clamp(dragStartScrollY_ - (ev.y - dragStartPointerY_), 0.0f, maxScrollY);
+                return true;
+            }
             if (dragClipIdx_ >= 0 && dragOrigTrackIdx_ < tracks_.size()) {
                 float dx = ev.x - dragStartPointerX_;
                 float dy = ev.y - dragStartPointerY_;

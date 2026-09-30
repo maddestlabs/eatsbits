@@ -6,7 +6,10 @@
 #include <map>
 #include <cstdint>
 #include <algorithm>
-#include "../sequencer/step_sequencer.hpp"
+
+namespace eatsbits::sequencer {
+class SequencerTrack;
+}
 
 namespace eatsbits::eatscript {
 

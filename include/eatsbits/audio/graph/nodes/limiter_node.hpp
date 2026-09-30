@@ -35,6 +35,7 @@ public:
     }
 
     void setCeilingDb(float db) noexcept { limiter_.setCeilingDb(db); }
+    void setCeilingDbfs(float db) noexcept { limiter_.setCeilingDb(db); }
     [[nodiscard]] float getCeilingDb() const noexcept { return limiter_.getCeilingDb(); }
 
     void setRelease(float ms) noexcept { limiter_.setRelease(ms); }
@@ -80,7 +81,7 @@ public:
     }
 
 private:
-    dsp::LimiterCore limiter_;
+    ::eatsbits::dsp::LimiterCore limiter_;
 };
 
 } // namespace eatsbits::audio

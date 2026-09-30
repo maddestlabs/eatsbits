@@ -9,6 +9,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/W4 /O2 /permissive- /wd4244 /wd4267 /wd4324 /openmp)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+elseif(EMSCRIPTEN)
+    add_compile_options(-Wall -Wextra -O3 -fwasm-exceptions)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
     add_compile_options(-Wall -Wextra -O3 -fopenmp)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -67,6 +70,7 @@ add_library(eatsbits_core STATIC
     src/lyrics/lyric_track.cpp
     src/audio/graph/nodes/tts_synth_node.cpp
     src/project/eats_builtin_presets.cpp
+    src/project/preset_manager.cpp
 )
 
 # Core Platform Libraries (Audio Only)
@@ -105,6 +109,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/dawn_bridge.cpp
     src/ui/batch_renderer_2d.cpp
     src/ui/draw_utils.cpp
+    src/ui/gui_panel_def.cpp
     src/ui/svg_path.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_window.cpp
@@ -362,7 +367,7 @@ target_link_libraries(test_theme PRIVATE eatsbits_gui_core)
 add_test(NAME ThemeTest COMMAND test_theme)
 
 add_executable(test_ui_widgets tests/test_ui_widgets.cpp)
-target_link_libraries(test_ui_widgets PRIVATE eatsbits_core)
+target_link_libraries(test_ui_widgets PRIVATE eatsbits_gui_core eatsbits_core)
 add_test(NAME UiWidgetsTest COMMAND test_ui_widgets)
 
 add_executable(test_diff_history tests/test_diff_history.cpp)

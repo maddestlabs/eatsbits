@@ -6,6 +6,7 @@
 #include "../input/pointer_event.hpp"
 #include "track_properties_panel.hpp"
 #include "plugin_search_dialog.hpp"
+#include "../gui_panel_def.hpp"
 
 #include <string>
 #include <vector>
@@ -56,9 +57,13 @@ public:
 
     [[nodiscard]] const DeviceTarget& getTarget() const noexcept { return target_; }
     void setTarget(const DeviceTarget& target) noexcept { target_ = target; }
+    [[nodiscard]] const TrackPropertiesDrawerData& getTrackData() const noexcept { return trackData_; }
 
     void syncData(const TrackPropertiesDrawerData& data) noexcept;
     void setAudioScopeBuffer(const float* buffer, size_t count) noexcept;
+
+    [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
+    [[nodiscard]] GuiPanelDef& getGuiPanel() noexcept { return guiPanel_; }
 
     void layout(float screenW, float screenH) noexcept;
     void update(float dt) noexcept;
@@ -123,9 +128,16 @@ private:
     // Interactive Drag State
     bool isDraggingKnob_{false};
     int activeKnobIndex_{-1};
+    int draggingRow_{-1};
+    int draggingWidget_{-1};
     float dragStartY_{0.0f};
     float dragStartVal_{0.0f};
     float pulsePhase_{0.0f};
+
+    // Unified GUI system panel & oscilloscope bounds
+    GuiPanelDef guiPanel_{};
+    Rect2D oscBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    void syncGuiPanelFromTrackData() noexcept;
 };
 
 } // namespace eatsbits::ui

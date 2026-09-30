@@ -36,6 +36,7 @@ public:
     [[nodiscard]] bool isAnimating() const noexcept { return std::abs(animProgress_ - (isExpanded_ ? 1.0f : 0.0f)) > 0.001f; }
     [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (width_ * animProgress_); }
     [[nodiscard]] bool isPluginDialogOpen() const noexcept { return panel_.getPluginSearchDialog().isOpen(); }
+    [[nodiscard]] bool isDragging() const noexcept { return panel_.isDragging() || isResizing_; }
 
     [[nodiscard]] float getWidth() const noexcept { return width_; }
     void setWidth(float w) noexcept { width_ = std::clamp(w, minWidth_, maxWidth_); }
@@ -71,6 +72,9 @@ public:
     std::function<void(uint32_t trackIndex, float r, float g, float b)> onColorChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIndex)> onChangeInstrument;
+    std::function<void(uint32_t trackIndex)> onOpenDesign;
+    std::function<void(uint32_t trackIndex)> onOpenPresets;
+    std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
     std::function<void()> onPrevPreset;
     std::function<void()> onNextPreset;
     std::function<void(TrackPropertiesTab newTab)> onTabSelected;
@@ -80,6 +84,16 @@ public:
     std::function<void(uint32_t trackIndex)> onAddAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveMidiFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, bool enabled)> onToggleMidiFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, bool enabled)> onToggleAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fromIdx, size_t toIdx)> onReorderMidiFx;
+    std::function<void(uint32_t trackIndex, size_t fromIdx, size_t toIdx)> onReorderAudioFx;
+    std::function<void(uint32_t trackIndex)> onMidiFxChanged;
+    std::function<void(uint32_t trackIndex)> onAudioFxChanged;
+    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
 
 private:
     bool isExpanded_{true};

@@ -18,6 +18,12 @@
 #include "eatsbits/audio/graph/nodes/biquad_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
+#include "eatsbits/audio/graph/nodes/chorus_node.hpp"
+#include "eatsbits/audio/graph/nodes/compressor_node.hpp"
+#include "eatsbits/audio/graph/nodes/parametric_eq_node.hpp"
+#include "eatsbits/audio/graph/nodes/convolver_node.hpp"
+#include "eatsbits/audio/graph/nodes/limiter_node.hpp"
+#include "eatsbits/audio/graph/nodes/waveshaper_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/project/project_file.hpp"
 
@@ -150,7 +156,7 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
 
     // Track 4: DX7 Rhodes (PolySynth configured with warm EP/Rhodes parameters)
     auto dx7 = std::make_shared<PolySynthNode>("Dx7Rhodes");
-    dx7->setWaveform(dsp::Waveform::Triangle);
+    dx7->setWaveform(::eatsbits::dsp::Waveform::Triangle);
     dx7->setFilterCutoff(3400.0f);
     dx7->setFilterResonance(1.1f);
     dx7->setAdsr(0.015f, 1.8f, 0.55f, 0.8f);
@@ -159,7 +165,7 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
 
     // Track 5: Concert Grand (PolySynth with rich harmonic piano timbre)
     auto piano = std::make_shared<PolySynthNode>("ConcertGrand");
-    piano->setWaveform(dsp::Waveform::Saw);
+    piano->setWaveform(::eatsbits::dsp::Waveform::Saw);
     piano->setFilterCutoff(4200.0f);
     piano->setFilterResonance(1.0f);
     piano->setAdsr(0.008f, 2.4f, 0.35f, 1.0f);
@@ -208,6 +214,27 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
     // Route Track 5: ConcertGrand -> Track5_Gain -> MasterOut
     graph_.connect(pianoId, 0, pianoStripId, 0);
     graph_.connect(pianoStripId, 0, masterId, 0);
+
+    // Register Source Nodes & Default Insert FX Caches
+    trackSourceNodeCache_[0] = tbId;
+    trackFxNodeIds_[0] = {delayId};
+    trackFxConfigs_[0] = {{"AcidEcho", "DELAY", 0.35f, 0.30f, true}};
+
+    trackSourceNodeCache_[1] = drums808Id;
+    trackFxNodeIds_[1] = {};
+    trackFxConfigs_[1] = {};
+
+    trackSourceNodeCache_[2] = drums909Id;
+    trackFxNodeIds_[2] = {};
+    trackFxConfigs_[2] = {};
+
+    trackSourceNodeCache_[3] = dx7Id;
+    trackFxNodeIds_[3] = {};
+    trackFxConfigs_[3] = {};
+
+    trackSourceNodeCache_[4] = pianoId;
+    trackFxNodeIds_[4] = {};
+    trackFxConfigs_[4] = {};
 
     graph_.setOutputNode(masterId, 0);
     engineMode_ = SynthEngineMode::ModularGraph;
@@ -393,6 +420,196 @@ void AudioEngine::flushMeterFeedback() noexcept {
 
 void AudioEngine::invalidateTrackStripCache() noexcept {
     trackGainNodeCache_.clear();
+    trackSourceNodeCache_.clear();
+    trackFxNodeIds_.clear();
+    trackFxConfigs_.clear();
+}
+
+NodeId AudioEngine::getTrackSourceNodeId(uint32_t trackIndex) const {
+    auto it = trackSourceNodeCache_.find(trackIndex);
+    if (it != trackSourceNodeCache_.end() && it->second != INVALID_NODE_ID) {
+        if (graph_.getNode(it->second)) {
+            return it->second;
+        }
+    }
+
+    if (trackIndex < sequencer_.getNumTracks()) {
+        const auto* trk = sequencer_.getTrack(trackIndex);
+        if (trk && trk->getTargetNodeId() != 0 && graph_.getNode(trk->getTargetNodeId())) {
+            trackSourceNodeCache_[trackIndex] = trk->getTargetNodeId();
+            return trk->getTargetNodeId();
+        }
+    }
+
+    static const char* kDefaultSources[] = {
+        "Tb303", "Drums808", "Drums909", "Dx7Rhodes", "ConcertGrand"
+    };
+    if (trackIndex < 5) {
+        NodeId foundId = graph_.findNodeByName(kDefaultSources[trackIndex]);
+        if (foundId != INVALID_NODE_ID) {
+            trackSourceNodeCache_[trackIndex] = foundId;
+            return foundId;
+        }
+    }
+
+    return INVALID_NODE_ID;
+}
+
+bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<TrackAudioFxItem>& fxList) {
+    NodeId srcId = getTrackSourceNodeId(trackIndex);
+    NodeId gainId = getTrackGainNodeId(trackIndex);
+    if (srcId == INVALID_NODE_ID || gainId == INVALID_NODE_ID) {
+        return false;
+    }
+
+    // 1. Remove previous dynamic FX nodes for this track
+    auto fxIt = trackFxNodeIds_.find(trackIndex);
+    if (fxIt != trackFxNodeIds_.end()) {
+        for (NodeId oldId : fxIt->second) {
+            graph_.removeNode(oldId);
+        }
+        fxIt->second.clear();
+    }
+
+    // 2. Disconnect existing direct connection between srcId and gainId
+    graph_.disconnect(srcId, 0, gainId, 0);
+
+    // 3. Build new serialized chain between srcId and gainId
+    NodeId prevNode = srcId;
+    std::vector<NodeId> newFxNodeIds;
+
+    for (const auto& fx : fxList) {
+        if (!fx.enabled) continue; // true bypass: bypasses node connection
+
+        std::string searchKey = fx.type + " " + fx.name;
+        std::string tUpper;
+        tUpper.reserve(searchKey.size());
+        for (char c : searchKey) tUpper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+
+        std::shared_ptr<GraphNode> node;
+        if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
+            tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
+            auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
+            d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
+            d->setFeedback(std::clamp(fx.drive * 0.75f, 0.0f, 0.90f));
+            d->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+            node = d;
+        } else if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("REVERB") != std::string::npos ||
+                   tUpper.find("ZERO-LATENCY IR") != std::string::npos || tUpper.find("ROOM") != std::string::npos ||
+                   tUpper.find("HALL") != std::string::npos || tUpper.find("SPACE") != std::string::npos) {
+            auto conv = std::make_shared<ConvolverNode>(fx.name.empty() ? "ConvolverReverb" : fx.name);
+            conv->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+            conv->setDecay(0.4f + fx.drive * 3.6f);
+            conv->setRoomSize(0.5f + fx.drive * 0.9f);
+            node = conv;
+        } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos ||
+                   tUpper.find("BUCKET") != std::string::npos || tUpper.find("BBD") != std::string::npos) {
+            auto ch = std::make_shared<ChorusNode>(fx.name.empty() ? "ChorusFlanger" : fx.name);
+            ch->setRateHz(std::max(0.1f, fx.drive * 4.0f));
+            ch->setDepthMs(std::max(0.5f, fx.drive * 6.0f));
+            ch->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+            node = ch;
+        } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
+            auto comp = std::make_shared<CompressorNode>(fx.name.empty() ? "Compressor" : fx.name);
+            comp->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
+            comp->setRatio(1.5f + fx.drive * 6.0f);
+            comp->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+            node = comp;
+        } else if (tUpper.find("LIMIT") != std::string::npos) {
+            auto lim = std::make_shared<LimiterNode>(fx.name.empty() ? "BrickwallLimiter" : fx.name);
+            lim->setCeilingDbfs(-0.1f);
+            node = lim;
+        } else if (tUpper.find("EQ") != std::string::npos || tUpper.find("PARAMETRIC") != std::string::npos) {
+            auto eq = std::make_shared<ParametricEqNode>(fx.name.empty() ? "ParametricEQ" : fx.name);
+            node = eq;
+        } else if (tUpper.find("CRUSH") != std::string::npos || tUpper.find("BIT") != std::string::npos) {
+            auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "Bitcrusher" : fx.name);
+            ws->setDrive(1.5f + fx.drive * 6.0f);
+            ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+            node = ws;
+        } else { // DISTORTION / TUBE_DISTORTION / SHAPER / fallback
+            auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "TubeDistortion" : fx.name);
+            ws->setDrive(1.0f + fx.drive * 6.0f);
+            ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+            node = ws;
+        }
+
+        NodeId fxId = graph_.addNode(node);
+        newFxNodeIds.push_back(fxId);
+        graph_.connect(prevNode, 0, fxId, 0);
+        prevNode = fxId;
+    }
+
+    graph_.connect(prevNode, 0, gainId, 0);
+    trackFxNodeIds_[trackIndex] = std::move(newFxNodeIds);
+    trackFxConfigs_[trackIndex] = fxList;
+    graph_.compile();
+    return true;
+}
+
+bool AudioEngine::reorderTrackAudioFx(uint32_t trackIndex, size_t fromIdx, size_t toIdx) {
+    auto it = trackFxConfigs_.find(trackIndex);
+    if (it == trackFxConfigs_.end()) return false;
+    auto list = it->second;
+    if (fromIdx >= list.size() || toIdx >= list.size() || fromIdx == toIdx) return false;
+
+    auto item = list[fromIdx];
+    list.erase(list.begin() + fromIdx);
+    list.insert(list.begin() + toIdx, item);
+
+    return rebuildTrackAudioFx(trackIndex, list);
+}
+
+bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float value) {
+    auto it = trackFxNodeIds_.find(trackIndex);
+    if (it == trackFxNodeIds_.end() || fxIndex >= it->second.size()) return false;
+    NodeId fxId = it->second[fxIndex];
+    auto node = graph_.getNode(fxId);
+    if (!node) return false;
+
+    if (auto delay = std::dynamic_pointer_cast<DelayNode>(node)) {
+        if (paramName == "time" || paramName == "param1" || paramName == "rate") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
+        else if (paramName == "feedback" || paramName == "param2") delay->setFeedback(std::clamp(value * 0.75f, 0.0f, 0.90f));
+        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") delay->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        else if (paramName == "drive") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
+    } else if (auto conv = std::dynamic_pointer_cast<ConvolverNode>(node)) {
+        if (paramName == "mix" || paramName == "param4" || paramName == "wet") conv->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (paramName == "decay" || paramName == "time" || paramName == "param1" || paramName == "drive") conv->setDecay(0.3f + value * 4.0f);
+        else if (paramName == "predelay" || paramName == "param2") conv->setPreDelay(value * 200.0f);
+        else if (paramName == "roomsize" || paramName == "size" || paramName == "param3") conv->setRoomSize(0.5f + value * 1.0f);
+        else if (paramName == "damping" || paramName == "param5") conv->setDamping(value);
+    } else if (auto chorus = std::dynamic_pointer_cast<ChorusNode>(node)) {
+        if (paramName == "rate" || paramName == "param1" || paramName == "time") chorus->setRateHz(std::max(0.1f, value * 4.0f));
+        else if (paramName == "depth" || paramName == "param2" || paramName == "feedback") chorus->setDepthMs(std::max(0.5f, value * 6.0f));
+        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") chorus->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (paramName == "drive") chorus->setRateHz(std::max(0.1f, value * 4.0f));
+    } else if (auto comp = std::dynamic_pointer_cast<CompressorNode>(node)) {
+        if (paramName == "threshold" || paramName == "param1") comp->setThreshold(-30.0f + (1.0f - value) * 24.0f);
+        else if (paramName == "ratio" || paramName == "param2" || paramName == "drive") comp->setRatio(1.5f + value * 6.0f);
+        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") comp->setMix(std::clamp(value, 0.0f, 1.0f));
+    } else if (auto ws = std::dynamic_pointer_cast<WaveShaperNode>(node)) {
+        if (paramName == "drive" || paramName == "param1" || paramName == "param5" || paramName == "time") ws->setDrive(1.0f + value * 8.0f);
+        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") ws->setMix(std::clamp(value, 0.0f, 1.0f));
+    }
+
+    auto cfgIt = trackFxConfigs_.find(trackIndex);
+    if (cfgIt != trackFxConfigs_.end() && fxIndex < cfgIt->second.size()) {
+        if (paramName == "drive" || paramName == "param1" || paramName == "time" || paramName == "rate" || paramName == "decay") {
+            cfgIt->second[fxIndex].drive = value;
+        } else if (paramName == "mix" || paramName == "param4" || paramName == "wet") {
+            cfgIt->second[fxIndex].mix = value;
+        }
+    }
+
+    return true;
+}
+
+std::vector<AudioEngine::TrackAudioFxItem> AudioEngine::getTrackAudioFx(uint32_t trackIndex) const {
+    auto it = trackFxConfigs_.find(trackIndex);
+    if (it != trackFxConfigs_.end()) {
+        return it->second;
+    }
+    return {};
 }
 
 NodeId AudioEngine::getTrackGainNodeId(uint32_t trackIndex) const {

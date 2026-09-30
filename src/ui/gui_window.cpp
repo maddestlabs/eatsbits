@@ -359,6 +359,35 @@ void drawCircle(float cx, float cy, float radius, float r, float g, float b, flo
     }
 }
 
+void drawCircleRadialGradient(float cx, float cy, float radius,
+                              float innerR, float innerG, float innerB, float innerA,
+                              float outerR, float outerG, float outerB, float outerA,
+                              float offX = 0.0f, float offY = 0.0f, int segments = 36) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawCircleRadialGradient(cx, cy, radius, innerR, innerG, innerB, innerA, outerR, outerG, outerB, outerA, offX, offY, segments);
+    }
+}
+
+void drawCircleRadial3StopGradient(float cx, float cy, float radius,
+                                   float innerR, float innerG, float innerB, float innerA,
+                                   float midR, float midG, float midB, float midA,
+                                   float outerR, float outerG, float outerB, float outerA,
+                                   float offX = 0.0f, float offY = 0.0f, float midStop = 0.50f,
+                                   int segments = 36) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawCircleRadial3StopGradient(cx, cy, radius, innerR, innerG, innerB, innerA, midR, midG, midB, midA, outerR, outerG, outerB, outerA, offX, offY, midStop, segments);
+    }
+}
+
+void drawCircleLinearGradient(float cx, float cy, float radius,
+                              float r0, float g0, float b0, float a0,
+                              float r1, float g1, float b1, float a1,
+                              float angleRad = 1.5707963f, int segments = 36) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawCircleLinearGradient(cx, cy, radius, r0, g0, b0, a0, r1, g1, b1, a1, angleRad, segments);
+    }
+}
+
 void drawCircleOutline(float cx, float cy, float radius, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f, int segments = 36) {
     if (g_activeBatchRenderer) {
         g_activeBatchRenderer->drawCircleOutline(cx, cy, radius, r, g, b, a, lineWidth, segments);
@@ -1474,15 +1503,18 @@ inline void renderTb303Knob(float cx, float cy, float kRad, float normVal,
                     1.0f, 1.0f, 1.0f,     // Specular glint
                     0.13f, 0.14f, 0.17f); // Deep fluted groove shadow
 
-    // 5. Center Rotor Cap
+    // 5. Center Rotor Cap (with authentic 3D Lathe & Specular Radial Gradient)
     float capR = kRad * 0.75f;
-    // Align top cap gradient with directional light
-    float capDiffuse = 0.5f + 0.5f * std::clamp(-lDir.y, -1.0f, 1.0f);
-    float cTop = 0.88f + 0.08f * capDiffuse;
-    drawCircle(cx, cy, capR, cTop * 0.96f, cTop * 0.98f, cTop * 1.0f, 1.0f, 32);
+    float offX = lDir.x * capR * 0.35f;
+    float offY = lDir.y * capR * 0.35f;
+    drawCircleRadial3StopGradient(cx, cy, capR,
+                                  0.98f, 0.99f, 1.0f, 1.0f,   // Specular peak highlight
+                                  0.78f, 0.80f, 0.85f, 1.0f,   // Satin metallic base
+                                  0.45f, 0.47f, 0.54f, 1.0f,   // Outer bevel shadow
+                                  offX, offY, 0.50f, 32);
     // Beveled rim edge of the top face
-    drawCircleOutline(cx, cy, capR, 0.40f, 0.44f, 0.52f, 1.0f, 1.2f, 32);
-    drawCircleOutline(cx, cy, capR * 0.55f, 0.82f, 0.85f, 0.90f, 0.35f, 0.8f, 24);
+    drawCircleOutline(cx, cy, capR, 0.35f, 0.38f, 0.45f, 1.0f, 1.2f, 32);
+    drawCircleOutline(cx, cy, capR * 0.55f, 0.88f, 0.90f, 0.95f, 0.35f, 0.8f, 24);
 
     // 6. Inlaid Indicator Needle Cutout (Molded groove extending across cap and knurls)
     float sa = std::sin(currentAngle);
@@ -2114,17 +2146,32 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
             data.knobs.push_back(k);
         }
     }
+    if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+        const auto& trk = modularArrangerView_->getTracks()[tIdx];
+        data.audioFx = trk.audioFx;
+        data.midiFx = trk.midiFx;
+    } else if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+        const auto& ch = modularMixerView_->getChannels()[tIdx];
+        data.audioFx = ch.audioFx;
+        data.midiFx = ch.midiFx;
+    } else if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+        const auto& insp = modularTrackInspectorView_->getTracks()[tIdx];
+        data.audioFx = insp.audioFxList;
+        data.midiFx = insp.midiFxList;
+    }
     data.syncKnobsIfEmpty();
-    fullscreenDeviceModal_.syncData(data);
-    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
 
     DeviceTarget target;
     target.type = DeviceTargetType::Instrument;
     target.trackIndex = tIdx;
     target.fxIndex = -1;
     target.deviceName = data.instrument;
+    lastFocusedDevice_ = target;
 
     fullscreenDeviceModal_.open(target);
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
     setStatusMessage("Device Full-Display: " + data.instrument + " (Esc to exit)");
 }
 
@@ -2145,26 +2192,39 @@ void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
     data.activePresetIdx = activePresetIndex_;
     data.totalPresets = presets_.size();
 
-    data.knobs = {
-        {"fx_param1", "TIME / RATE", 0.45f, "450 ms"},
-        {"fx_param2", "FEEDBACK", 0.60f, "60%"},
-        {"fx_param3", "TONE / DAMP", 0.50f, "50%"},
-        {"fx_param4", "DRY / WET", 0.35f, "35%"},
-        {"fx_param5", "DRIVE", 0.25f, "25%"},
-        {"fx_param6", "OUTPUT", 0.80f, "80%"}
-    };
+    if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+        const auto& trk = modularArrangerView_->getTracks()[tIdx];
+        data.audioFx = trk.audioFx;
+        data.midiFx = trk.midiFx;
+    } else if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+        const auto& ch = modularMixerView_->getChannels()[tIdx];
+        data.audioFx = ch.audioFx;
+        data.midiFx = ch.midiFx;
+    } else if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+        const auto& insp = modularTrackInspectorView_->getTracks()[tIdx];
+        data.audioFx = insp.audioFxList;
+        data.midiFx = insp.midiFxList;
+    }
+    data.syncKnobsIfEmpty();
 
-    fullscreenDeviceModal_.syncData(data);
-    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+    std::string fxTitle = "Audio FX Insert Rack";
+    if (fxIndex >= 0 && static_cast<size_t>(fxIndex) < data.audioFx.size()) {
+        fxTitle = data.audioFx[fxIndex].name;
+        data.knobs = data.audioFx[fxIndex].knobs;
+    }
 
     DeviceTarget target;
     target.type = DeviceTargetType::AudioFx;
     target.trackIndex = tIdx;
     target.fxIndex = fxIndex;
-    target.deviceName = "Audio FX Insert Rack";
+    target.deviceName = fxTitle;
+    lastFocusedDevice_ = target;
 
     fullscreenDeviceModal_.open(target);
-    setStatusMessage("Device Full-Display: Audio FX Rack (Esc to exit)");
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
+    setStatusMessage("Device Full-Display: " + fxTitle + " (Esc to exit)");
 }
 
 void GuiWindow::openFullscreenMidiFx(uint32_t trackIndex, int fxIndex) {
@@ -2184,26 +2244,39 @@ void GuiWindow::openFullscreenMidiFx(uint32_t trackIndex, int fxIndex) {
     data.activePresetIdx = activePresetIndex_;
     data.totalPresets = presets_.size();
 
-    data.knobs = {
-        {"midi_rate", "RATE", 0.50f, "1/16"},
-        {"midi_octaves", "OCTAVES", 0.40f, "2 Oct"},
-        {"midi_gate", "GATE", 0.85f, "85%"},
-        {"midi_swing", "SWING", 0.50f, "50%"},
-        {"midi_jitter", "HUMANIZE", 0.30f, "30%"},
-        {"midi_vel", "VEL SCALE", 0.90f, "90%"}
-    };
+    if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+        const auto& trk = modularArrangerView_->getTracks()[tIdx];
+        data.audioFx = trk.audioFx;
+        data.midiFx = trk.midiFx;
+    } else if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+        const auto& ch = modularMixerView_->getChannels()[tIdx];
+        data.audioFx = ch.audioFx;
+        data.midiFx = ch.midiFx;
+    } else if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+        const auto& insp = modularTrackInspectorView_->getTracks()[tIdx];
+        data.audioFx = insp.audioFxList;
+        data.midiFx = insp.midiFxList;
+    }
+    data.syncKnobsIfEmpty();
 
-    fullscreenDeviceModal_.syncData(data);
-    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+    std::string mfxTitle = "MIDI FX Processor";
+    if (fxIndex >= 0 && static_cast<size_t>(fxIndex) < data.midiFx.size()) {
+        mfxTitle = data.midiFx[fxIndex].name;
+        data.knobs = data.midiFx[fxIndex].knobs;
+    }
 
     DeviceTarget target;
     target.type = DeviceTargetType::MidiFx;
     target.trackIndex = tIdx;
     target.fxIndex = fxIndex;
-    target.deviceName = "MIDI FX Processor";
+    target.deviceName = mfxTitle;
+    lastFocusedDevice_ = target;
 
     fullscreenDeviceModal_.open(target);
-    setStatusMessage("Device Full-Display: MIDI FX Rack (Esc to exit)");
+    fullscreenDeviceModal_.syncData(data);
+    fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+
+    setStatusMessage("Device Full-Display: " + mfxTitle + " (Esc to exit)");
 }
 
 void GuiWindow::closeFullscreenDevice() noexcept {
@@ -2215,7 +2288,13 @@ void GuiWindow::toggleFullscreenDevice() noexcept {
     if (fullscreenDeviceModal_.isOpen()) {
         closeFullscreenDevice();
     } else {
-        openFullscreenDevice(selectedTrackIndex_);
+        if (lastFocusedDevice_.type == DeviceTargetType::AudioFx && lastFocusedDevice_.fxIndex >= 0) {
+            openFullscreenFx(lastFocusedDevice_.trackIndex, lastFocusedDevice_.fxIndex);
+        } else if (lastFocusedDevice_.type == DeviceTargetType::MidiFx && lastFocusedDevice_.fxIndex >= 0) {
+            openFullscreenMidiFx(lastFocusedDevice_.trackIndex, lastFocusedDevice_.fxIndex);
+        } else {
+            openFullscreenDevice(selectedTrackIndex_);
+        }
     }
 }
 
@@ -2555,30 +2634,35 @@ void hitTestCompactNodeRecursive(const project::GuiLayoutNode& node, float local
 } // namespace
 
 void GuiWindow::loadPresets() {
+    // 1. Initialize PresetManager catalog
+    project::PresetManager::instance().initialize();
+
+    // 2. Start with baseline builtin presets for test compatibility
     presets_ = project::PresetLoader::getBuiltinPresets();
 
-    // Scan for external presets in eatsbeats folder if present
-    const std::string candidatePaths[] = {
-        "c:/git/eatsbeats/presets/instruments/eats_303.eats",
-        "c:/git/eatsbeats/presets/drums/analog_808_kick.eats",
-        "c:/git/eatsbeats/presets/drums/analog_909_snare.eats",
-        "c:/git/eatsbeats/presets/audio_fx/stereo_delay.eats",
-        "c:/git/eatsbeats/presets/audio_fx/bitcrusher.eats"
-    };
-
-    for (const auto& path : candidatePaths) {
-        project::PresetDefinition loaded{};
-        if (project::PresetLoader::loadFromFile(path, loaded)) {
-            bool replaced = false;
-            for (auto& existing : presets_) {
-                if (existing.metadata.id == loaded.metadata.id) {
-                    existing = loaded;
-                    replaced = true;
-                    break;
+    // 3. Enrich and append all presets from PresetManager catalog
+    const auto& catalog = project::PresetManager::instance().getAllPresets();
+    for (const auto& item : catalog) {
+        bool replaced = false;
+        for (auto& existing : presets_) {
+            if (existing.metadata.id == item.id) {
+                if (existing.rawScript.empty() && !item.rawScript.empty()) {
+                    existing.rawScript = item.rawScript;
                 }
+                replaced = true;
+                break;
             }
-            if (!replaced) {
-                presets_.push_back(loaded);
+        }
+        if (!replaced) {
+            project::PresetDefinition def{};
+            try {
+                if (project::PresetManager::instance().loadPresetDefinition(item, def)) {
+                    presets_.push_back(std::move(def));
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[GuiWindow] Warning: Skipping preset '" << item.id << "': " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "[GuiWindow] Warning: Unknown error loading preset '" << item.id << "'" << std::endl;
             }
         }
     }
@@ -2588,6 +2672,7 @@ void GuiWindow::loadPresets() {
             pr.compactGuiRoot = pr.guiRoot;
             project::PresetLoader::computeLayoutBounds(pr.compactGuiRoot, 0.0f, 0.0f, 520.0f, 210.0f);
         }
+        if (activePresetIndex_ >= presets_.size()) activePresetIndex_ = 0;
         project::PresetLoader::computeLayoutBounds(presets_[activePresetIndex_].guiRoot,
                                                    40.0f, 98.0f,
                                                    static_cast<float>(width_) - 80.0f,
@@ -2975,6 +3060,60 @@ void GuiWindow::syncArrangerFromSequencer() {
 
     mixerStrips_.clear();
     updateMixerStrips();
+}
+
+void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
+    if (!engine_ || !modularArrangerView_) return;
+    const auto& tracks = modularArrangerView_->getTracks();
+    if (trackIdx >= tracks.size()) return;
+
+    const auto& trk = tracks[trackIdx];
+    std::vector<eatsbits::audio::AudioEngine::TrackAudioFxItem> engineFxList;
+    engineFxList.reserve(trk.audioFx.size());
+    for (const auto& fx : trk.audioFx) {
+        eatsbits::audio::AudioEngine::TrackAudioFxItem item;
+        item.name = fx.name;
+        item.type = fx.type;
+        item.drive = fx.drive;
+        item.mix = fx.mix;
+        item.enabled = fx.enabled;
+        engineFxList.push_back(item);
+    }
+    engine_->rebuildTrackAudioFx(trackIdx, engineFxList);
+}
+
+void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
+    if (!engine_ || !modularArrangerView_) return;
+    const auto& tracks = modularArrangerView_->getTracks();
+    if (trackIdx >= tracks.size()) return;
+
+    auto* seqTrack = engine_->getSequencer().getTrack(trackIdx);
+    if (!seqTrack) return;
+
+    const auto& trk = tracks[trackIdx];
+    std::vector<eatsbits::eatscript::MidiFxInsert> rack;
+    rack.reserve(trk.midiFx.size());
+    for (size_t i = 0; i < trk.midiFx.size(); ++i) {
+        const auto& fx = trk.midiFx[i];
+        eatsbits::eatscript::MidiFxInsert insert;
+        insert.id = "mfx_" + std::to_string(i);
+        insert.name = fx.name;
+        insert.enabled = fx.enabled;
+        insert.type = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+        insert.params["rootKey"] = static_cast<float>(fx.rootKey);
+        insert.params["scaleMode"] = static_cast<float>(fx.scaleMode);
+        rack.push_back(std::move(insert));
+    }
+    seqTrack->setMidiFxRack(std::move(rack));
+}
+
+void GuiWindow::syncAllTracksFxToEngine() {
+    if (!engine_ || !modularArrangerView_) return;
+    const auto& tracks = modularArrangerView_->getTracks();
+    for (uint32_t i = 0; i < tracks.size(); ++i) {
+        syncTrackAudioFxToEngine(i);
+        syncTrackMidiFxToEngine(i);
+    }
 }
 
 void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
@@ -3474,6 +3613,69 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (engine_) engine_->postNoteOff(60);
     };
 
+    // Configure Top-Level Reusable PresetSearchDialog
+    presetSearchDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex) {
+        if (mode == PluginDialogMode::SelectPreset || mode == PluginDialogMode::AddInstrument || mode == PluginDialogMode::AddDrums) {
+            uint32_t targetIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
+            setSelectedTrackIndex(targetIdx);
+
+            const auto* pItem = project::PresetManager::instance().findPreset(entry.id);
+            if (pItem) {
+                project::PresetDefinition def{};
+                if (project::PresetManager::instance().loadPresetDefinition(*pItem, def)) {
+                    size_t foundIdx = presets_.size();
+                    for (size_t i = 0; i < presets_.size(); ++i) {
+                        if (presets_[i].metadata.id == def.metadata.id) {
+                            foundIdx = i;
+                            break;
+                        }
+                    }
+                    if (foundIdx >= presets_.size()) {
+                        presets_.push_back(def);
+                        foundIdx = presets_.size() - 1;
+                    }
+                    loadPresetToSelectedTrack(foundIdx);
+                }
+            }
+
+            if (targetIdx < mixerStrips_.size()) {
+                mixerStrips_[targetIdx].name = entry.name;
+            }
+            if (targetIdx < arrangerTracks_.size()) {
+                arrangerTracks_[targetIdx].name = entry.name;
+                arrangerTracks_[targetIdx].type = entry.engineTag.empty() ? entry.category : entry.engineTag;
+                arrangerTracks_[targetIdx].r = entry.r;
+                arrangerTracks_[targetIdx].g = entry.g;
+                arrangerTracks_[targetIdx].b = entry.b;
+            }
+            if (modularArrangerView_ && targetIdx < modularArrangerView_->getTracks().size()) {
+                auto& trk = modularArrangerView_->getTracks()[targetIdx];
+                trk.name = entry.name;
+                trk.instrument = entry.name;
+                trk.instrumentEngine = entry.engineTag;
+                trk.r = entry.r;
+                trk.g = entry.g;
+                trk.b = entry.b;
+            }
+            setStatusMessage("Loaded Preset: " + entry.name + " to Track " + std::to_string(targetIdx + 1));
+        } else if (mode == PluginDialogMode::AddAudioFx) {
+            if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[trackIndex].audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                syncTrackAudioFxToEngine(trackIndex);
+            }
+            setStatusMessage("Added Audio FX: " + entry.name);
+        } else if (mode == PluginDialogMode::AddMidiFx) {
+            if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[trackIndex].midiFx.push_back({entry.name, entry.engineTag, 0, 0, true});
+                syncTrackMidiFxToEngine(trackIndex);
+            }
+            setStatusMessage("Added MIDI FX: " + entry.name);
+        }
+    };
+    presetSearchDialog_.onClose = [this]() {
+        presetSearchDialog_.close();
+    };
+
     // Register Default Universal Quick Commands into CommandPaletteDialog
     commandPaletteDialog_.clearCommands();
     commandPaletteDialog_.registerCommand({
@@ -3554,6 +3756,22 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     commandPaletteDialog_.registerCommand({
         "action.toggle_fullscreen_device", "Toggle Fullscreen Instrument / FX GUI", "Dedicated full-display view for active instrument or FX rack",
         CommandCategory::Action, "Shift+F", [this]() { toggleFullscreenDevice(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.browse_dialog", "Browse Presets (Preset Dialog)", "Open Preset Search and Library Dialog",
+        CommandCategory::Preset, "Shift+P", [this]() { openPresetDialog(PluginDialogMode::SelectPreset, selectedTrackIndex_); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.add_instrument", "Add / Change Instrument", "Browse all synthesized & physical instruments",
+        CommandCategory::Preset, "", [this]() { openPresetDialog(PluginDialogMode::AddInstrument, selectedTrackIndex_); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.add_audio_fx", "Add Audio Effect", "Browse audio DSP effects & spaces",
+        CommandCategory::Preset, "", [this]() { openPresetDialog(PluginDialogMode::AddAudioFx, selectedTrackIndex_); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "preset.add_midi_fx", "Add MIDI Effect", "Browse MIDI processors & arpeggiators",
+        CommandCategory::Preset, "", [this]() { openPresetDialog(PluginDialogMode::AddMidiFx, selectedTrackIndex_); }
     });
     commandPaletteDialog_.registerCommand({
         "preset.303_acid", "TB-303 Acid Bass", "Resonant acid squelch synth preset",
@@ -3669,6 +3887,23 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 #endif
             return {};
         });
+        modularArrangerView_->onAudioFxChanged = [this](uint32_t idx) {
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularArrangerView_->onMidiFxChanged = [this](uint32_t idx) {
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularArrangerView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularArrangerView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularArrangerView_->onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
+            if (engine_) {
+                engine_->setTrackAudioFxParam(idx, fxIdx, paramName, normVal);
+            }
+        };
     }
 
     valueEditDialog_.onCopyToClipboard = [this](const std::string& text) {
@@ -3755,8 +3990,59 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             (void)idx;
             dispatchHardwareParam(paramName, normVal);
         };
+        modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+            if (engine_) {
+                engine_->setTrackAudioFxParam(idx, 0, paramName, normVal);
+            }
+            dispatchHardwareParam(paramName, normVal);
+        };
+        modularTrackInspectorView_->onAddMidiFx = [this](uint32_t idx) {
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onAddAudioFx = [this](uint32_t idx) {
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            (void)fxIdx; (void)en;
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            (void)fxIdx; (void)en;
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
+            (void)fromIdx; (void)toIdx;
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onReorderMidiFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
+            (void)fromIdx; (void)toIdx;
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onRemoveAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            (void)fxIdx;
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onRemoveMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            (void)fxIdx;
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onAudioFxChanged = [this](uint32_t idx) {
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularTrackInspectorView_->onMidiFxChanged = [this](uint32_t idx) {
+            syncTrackMidiFxToEngine(idx);
+        };
         modularTrackInspectorView_->onScrollChanged = [this](float sY) {
             trackInspectorScrollY_ = sY;
+        };
+        modularTrackInspectorView_->onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularTrackInspectorView_->onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularTrackInspectorView_->onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
         };
         modularTrackInspectorView_->getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
@@ -3770,6 +4056,24 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     }
 
     if (modularArrangerView_) {
+        modularArrangerView_->onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularArrangerView_->onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularArrangerView_->onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+        modularArrangerView_->getPropertiesDrawer().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularArrangerView_->getPropertiesDrawer().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
@@ -3787,27 +4091,62 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     };
     fullscreenDeviceModal_.onPrevPreset = [this]() {
         prevPreset();
-        openFullscreenDevice(selectedTrackIndex_);
+        const auto& tgt = fullscreenDeviceModal_.getTarget();
+        if (tgt.type == DeviceTargetType::AudioFx && tgt.fxIndex >= 0) {
+            openFullscreenFx(tgt.trackIndex, tgt.fxIndex);
+        } else if (tgt.type == DeviceTargetType::MidiFx && tgt.fxIndex >= 0) {
+            openFullscreenMidiFx(tgt.trackIndex, tgt.fxIndex);
+        } else {
+            openFullscreenDevice(selectedTrackIndex_);
+        }
     };
     fullscreenDeviceModal_.onNextPreset = [this]() {
         nextPreset();
-        openFullscreenDevice(selectedTrackIndex_);
+        const auto& tgt = fullscreenDeviceModal_.getTarget();
+        if (tgt.type == DeviceTargetType::AudioFx && tgt.fxIndex >= 0) {
+            openFullscreenFx(tgt.trackIndex, tgt.fxIndex);
+        } else if (tgt.type == DeviceTargetType::MidiFx && tgt.fxIndex >= 0) {
+            openFullscreenMidiFx(tgt.trackIndex, tgt.fxIndex);
+        } else {
+            openFullscreenDevice(selectedTrackIndex_);
+        }
     };
     fullscreenDeviceModal_.onOpenCodeEditor = [this](uint32_t idx) {
         (void)idx;
         setActiveView(WorkspaceView::Design);
         setDesignSubView(DesignSubView::Eatscript);
+        if (modularDesignView_) {
+            const auto& tgt = fullscreenDeviceModal_.getTarget();
+            if (tgt.type == DeviceTargetType::AudioFx) {
+                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::AudioFx);
+            } else if (tgt.type == DeviceTargetType::MidiFx) {
+                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::MidiFx);
+            } else if (tgt.type == DeviceTargetType::Instrument) {
+                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::TrackDsp);
+            }
+        }
     };
     fullscreenDeviceModal_.onOpenPresetDialog = [this](uint32_t idx) {
-        (void)idx;
-        setStatusMessage("Preset Selection Dialog Opened");
+        const std::string& pTitle = fullscreenDeviceModal_.getTrackData().presetTitle;
+        for (size_t i = 0; i < presets_.size(); ++i) {
+            if (presets_[i].metadata.name == pTitle || presets_[i].metadata.id == pTitle) {
+                loadPresetToSelectedTrack(i);
+                break;
+            }
+        }
+        setStatusMessage("Applied Preset: " + pTitle);
     };
     fullscreenDeviceModal_.onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
         (void)idx;
         dispatchHardwareParam(paramName, normVal);
     };
     fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-        (void)idx;
+        if (engine_) {
+            int fxIdx = fullscreenDeviceModal_.getTarget().fxIndex;
+            if (fxIdx >= 0) {
+                engine_->setTrackAudioFxParam(idx, static_cast<size_t>(fxIdx), paramName, normVal);
+            }
+        }
         dispatchHardwareParam(paramName, normVal);
     };
     fullscreenDeviceModal_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
@@ -3843,6 +4182,65 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 modularArrangerView_->getIconSearchDialog().open(trk.name, idx, trk.iconRef);
             }
         };
+        modularMixerView_->onAudioFxChanged = [this](uint32_t idx) {
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size() &&
+                idx < modularMixerView_->getChannels().size()) {
+                modularArrangerView_->getTracks()[idx].audioFx = modularMixerView_->getChannels()[idx].audioFx;
+            }
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularMixerView_->onMidiFxChanged = [this](uint32_t idx) {
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size() &&
+                idx < modularMixerView_->getChannels().size()) {
+                modularArrangerView_->getTracks()[idx].midiFx = modularMixerView_->getChannels()[idx].midiFx;
+            }
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularMixerView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            (void)fxIdx;
+            (void)en;
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size() &&
+                idx < modularMixerView_->getChannels().size()) {
+                modularArrangerView_->getTracks()[idx].audioFx = modularMixerView_->getChannels()[idx].audioFx;
+            }
+            syncTrackAudioFxToEngine(idx);
+        };
+        modularMixerView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
+            (void)fxIdx;
+            (void)en;
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size() &&
+                idx < modularMixerView_->getChannels().size()) {
+                modularArrangerView_->getTracks()[idx].midiFx = modularMixerView_->getChannels()[idx].midiFx;
+            }
+            syncTrackMidiFxToEngine(idx);
+        };
+        modularMixerView_->onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularMixerView_->onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->getPropertiesDrawer().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->getPropertiesDrawer().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
+            openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
     }
 
     if (modularEditView_) {
@@ -3869,9 +4267,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     }
 
     syncArrangerToSequencer();
+    syncAllTracksFxToEngine();
     syncActiveClipToEditView(0, 0);
 
     if (modularDesignView_) {
+        modularDesignView_->onParamChanged = [this](const std::string& targetId, const std::string& paramName, float val) {
+            (void)targetId;
+            dispatchHardwareParam(paramName, val);
+        };
         modularDesignView_->onCompileScript = [this](const std::string& targetId, const std::string& code) {
             setScriptCode(code);
             compileActiveScript();
@@ -4772,6 +5175,15 @@ void GuiWindow::renderFrame() {
                 showMixerMeters_, showMixerAutomation_, showMixerReadouts_,
                 browserOpen_, trackInspectorScrollY_
             );
+            if (modularArrangerView_) {
+                const auto& arrTracks = modularArrangerView_->getTracks();
+                auto& mixChannels = modularMixerView_->getChannels();
+                for (size_t i = 0; i < mixChannels.size() && i < arrTracks.size(); ++i) {
+                    mixChannels[i].audioFx = arrTracks[i].audioFx;
+                    mixChannels[i].midiFx = arrTracks[i].midiFx;
+                    mixChannels[i].instrument = arrTracks[i].instrument;
+                }
+            }
             modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
             modularMixerView_->render(ctx);
         }
@@ -5519,9 +5931,11 @@ void GuiWindow::renderFrame() {
             }
         }
 
-        // 7b. REUSABLE MODAL PLUGIN / FX SEARCH DIALOG (Full-Screen Backdrop)
+        // 7b. REUSABLE MODAL PLUGIN / FX / PRESET SEARCH DIALOG (Full-Screen Backdrop)
         PluginSearchDialog* activePluginDialog = nullptr;
-        if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (presetSearchDialog_.isOpen()) {
+            activePluginDialog = &presetSearchDialog_;
+        } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
             if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
                 activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
             } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
@@ -10454,9 +10868,11 @@ void GuiWindow::onMouseMove(float x, float y) {
         return;
     }
 
-    // Intercept if Plugin Search Modal Dialog is open
+    // Intercept if Plugin / Preset Search Modal Dialog is open
     PluginSearchDialog* activePluginDialog = nullptr;
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+    if (presetSearchDialog_.isOpen()) {
+        activePluginDialog = &presetSearchDialog_;
+    } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
             activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
         } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
@@ -10639,7 +11055,7 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.dy = y - mouseY_;
         modularMixerView_->handlePointer(pev, ctx);
     }
-    if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
+    if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_ && dragMode_ == DragMode::None) {
         ViewContext ctx = createViewContext();
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -11121,6 +11537,20 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             panStartScrollY_ = pianoRollScrollY_;
             return;
         }
+    }
+
+    // Modal Preset Search Dialog intercepts clicks
+    if (presetSearchDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (presetSearchDialog_.handlePointer(pev)) return;
+        return; // Absorb events behind modal
     }
 
     // Modal Plugin Search Dialog intercepts clicks in Arranger and Mixer Views
@@ -12394,6 +12824,26 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
         // Design interactions (Modular Rack, Eatscript, Split, or GUI Designer)
         if (activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) {
+            // Direct active audio-graph rack interactions (knob tweaks & cable patching)
+            auto jack = hitTestJack(x, y);
+            if (jack.hit && jack.isOutput) {
+                dragMode_ = DragMode::PatchCable;
+                dragCableSrcNode_ = jack.nodeId;
+                dragCableSrcPort_ = jack.portIndex;
+                dragCableSrcPos_ = jack.position;
+                return;
+            }
+
+            auto knob = hitTestKnob(x, y);
+            if (knob.hit) {
+                dragMode_ = DragMode::Knob;
+                activeKnobNode_ = knob.nodeId;
+                activeKnobIndex_ = knob.knobIndex;
+                dragStartY_ = y;
+                dragStartValue_ = getKnobValue(knob.nodeId, knob.knobIndex);
+                return;
+            }
+
             if (modularDesignView_) {
                 ViewContext ctx = createViewContext();
                 PointerEvent pev;
@@ -12455,28 +12905,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             }
 
             if (designSubView_ == DesignSubView::Eatscript) {
-                return;
-            }
-
-            // ModularRack interactions
-            // Check Jack hit
-            auto jack = hitTestJack(x, y);
-            if (jack.hit && jack.isOutput) {
-                dragMode_ = DragMode::PatchCable;
-                dragCableSrcNode_ = jack.nodeId;
-                dragCableSrcPort_ = jack.portIndex;
-                dragCableSrcPos_ = jack.position;
-                return;
-            }
-
-            // Check Knob hit
-            auto knob = hitTestKnob(x, y);
-            if (knob.hit) {
-                dragMode_ = DragMode::Knob;
-                activeKnobNode_ = knob.nodeId;
-                activeKnobIndex_ = knob.knobIndex;
-                dragStartY_ = y;
-                dragStartValue_ = getKnobValue(knob.nodeId, knob.knobIndex);
                 return;
             }
 
@@ -12561,6 +12989,23 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             pev.rawY = y;
             if (modularTrackInspectorView_->handlePointer(pev, ctx)) return;
         }
+        if (activeView_ == WorkspaceView::ModularRack || activeView_ == WorkspaceView::Design) {
+            auto jack = hitTestJack(x, y);
+            if (jack.hit && engine_) {
+                const auto conns = engine_->getGraph().getConnections();
+                for (const auto& c : conns) {
+                    if ((jack.isOutput && c.srcNode == jack.nodeId && c.srcPort == jack.portIndex) ||
+                        (!jack.isOutput && c.dstNode == jack.nodeId && c.dstPort == jack.portIndex)) {
+                        engine_->getGraph().disconnect(c.srcNode, c.srcPort, c.dstNode, c.dstPort);
+                    }
+                }
+                engine_->getGraph().compile();
+                canvas_.updateRackLayout(engine_->getGraph());
+                initDefaultKnobValues();
+                return;
+            }
+        }
+
         if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
             ViewContext ctx = createViewContext();
             PointerEvent pev;
@@ -12580,21 +13025,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 // Right-click on vertical piano key: select all notes on active track matching this pitch (from Eatsbeats)
                 selectPianoRollNotesByPitch(keyHit.pitch, isShiftPressed());
                 return;
-            }
-        }
-        if (activeView_ == WorkspaceView::ModularRack || activeView_ == WorkspaceView::Design) {
-            auto jack = hitTestJack(x, y);
-            if (jack.hit && engine_) {
-                const auto conns = engine_->getGraph().getConnections();
-                for (const auto& c : conns) {
-                    if ((jack.isOutput && c.srcNode == jack.nodeId && c.srcPort == jack.portIndex) ||
-                        (!jack.isOutput && c.dstNode == jack.nodeId && c.dstPort == jack.portIndex)) {
-                        engine_->getGraph().disconnect(c.srcNode, c.srcPort, c.dstNode, c.dstPort);
-                    }
-                }
-                engine_->getGraph().compile();
-                canvas_.updateRackLayout(engine_->getGraph());
-                initDefaultKnobValues();
             }
         }
     }
@@ -12619,7 +13049,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
     }
 
     PluginSearchDialog* activePluginDialog = nullptr;
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+    if (presetSearchDialog_.isOpen()) {
+        activePluginDialog = &presetSearchDialog_;
+    } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
             activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
         } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
@@ -12737,7 +13169,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        modularDesignView_->handlePointer(pev, ctx);
+        if (modularDesignView_->handlePointer(pev, ctx) && dragMode_ == DragMode::None) {
+            return;
+        }
     }
     if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
         ViewContext ctx = createViewContext();
@@ -12834,6 +13268,10 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
         return;
     }
     if (audioToMidiDialog_.isOpen()) {
+        return;
+    }
+    if (presetSearchDialog_.isOpen()) {
+        presetSearchDialog_.handlePointer(pev);
         return;
     }
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -13058,6 +13496,14 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
+    // Intercept keyboard input if Preset Search Modal Dialog is open
+    if (presetSearchDialog_.isOpen()) {
+        if (presetSearchDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+        return; // Absorb keys while modal is open
+    }
+
     // Intercept keyboard input if Plugin Search Modal Dialog is open
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
@@ -13072,7 +13518,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-
     // Ctrl+M: Open Audio to MIDI Converter Modal Dialog
     if (isCtrl && (key == 77 || key == 109)) { // 'M'
         openAudioToMidiConverter();
@@ -13082,6 +13527,16 @@ void GuiWindow::onKeyDown(int key, int mods) {
     // Ctrl+P or Ctrl+K: Toggle Universal Quick Command Palette
     if (isCtrl && (key == 80 || key == 112 || key == 75 || key == 107)) { // 'P' or 'K'
         toggleCommandPalette();
+        return;
+    }
+
+    // Shift+P or F3: Toggle Preset Librarian & Script Search Dialog
+    if (((mods & 1) != 0 && (key == 80 || key == 112)) || key == 292) { // Shift+P or F3
+        if (!isPresetDialogOpen()) {
+            openPresetDialog(PluginDialogMode::SelectPreset, selectedTrackIndex_);
+        } else {
+            closePresetDialog();
+        }
         return;
     }
 
@@ -13492,9 +13947,19 @@ void GuiWindow::onKeyDown(int key, int mods) {
     else if (key == 66) {
         toggleBrowser();
     }
-    // Escape (256): Close Browser if open, otherwise Panic Stop
+    // 'P' (80): Toggle Preset Dialog
+    else if (key == 80) {
+        if (!isPresetDialogOpen()) {
+            openPresetDialog(PluginDialogMode::SelectPreset, selectedTrackIndex_);
+        } else {
+            closePresetDialog();
+        }
+    }
+    // Escape (256): Close Preset Dialog or Browser if open, otherwise Panic Stop
     else if (key == 256) {
-        if (browserOpen_) {
+        if (presetSearchDialog_.isOpen()) {
+            presetSearchDialog_.close();
+        } else if (browserOpen_) {
             browserOpen_ = false;
         } else {
             engine_->getSequencer().stop();
@@ -13615,6 +14080,10 @@ bool GuiWindow::isCommandPaletteOpen() const noexcept {
 }
 
 void GuiWindow::onChar(unsigned int codepoint) {
+    if (presetSearchDialog_.isOpen()) {
+        presetSearchDialog_.handleKey(static_cast<int>(codepoint), 0, 1, 0);
+        return;
+    }
     if (commandPaletteDialog_.isOpen()) {
         commandPaletteDialog_.handleChar(codepoint);
         return;
@@ -13636,6 +14105,25 @@ void GuiWindow::closeAudioToMidiConverter() noexcept {
 
 bool GuiWindow::isAudioToMidiDialogOpen() const noexcept {
     return audioToMidiDialog_.isOpen();
+}
+
+void GuiWindow::openPresetDialog(PluginDialogMode mode, uint32_t trackIndex) {
+    presetSearchDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+    std::string trkName = "";
+    if (trackIndex < mixerStrips_.size()) {
+        trkName = mixerStrips_[trackIndex].name;
+    } else if (trackIndex < arrangerTracks_.size()) {
+        trkName = arrangerTracks_[trackIndex].name;
+    }
+    presetSearchDialog_.open(mode, trkName, trackIndex);
+}
+
+void GuiWindow::closePresetDialog() noexcept {
+    presetSearchDialog_.close();
+}
+
+bool GuiWindow::isPresetDialogOpen() const noexcept {
+    return presetSearchDialog_.isOpen();
 }
 
 void GuiWindow::renderCrtTweakerModal() {

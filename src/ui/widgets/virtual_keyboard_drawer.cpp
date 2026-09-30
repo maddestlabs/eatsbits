@@ -277,8 +277,8 @@ bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEn
         }
     }
 
-    // 5. Piano Keys Interaction & Multi-Touch Glissando
-    if (keysBounds_.contains(ev.x, ev.y) || isDraggingKeys_) {
+    // 5. Piano Keys Interaction & Multi-Touch Polyphonic Glissando
+    if (keysBounds_.contains(ev.x, ev.y) || !activeTouches_.empty()) {
         int numWhiteKeys = 3 * 7 + 1;
         float whiteKeyWidth = keysBounds_.w / static_cast<float>(numWhiteKeys);
         float blackKeyWidth = whiteKeyWidth * 0.62f;
@@ -320,29 +320,29 @@ bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEn
         if (ev.action == PointerAction::Down) {
             int hitPitch = getPitchAt(ev.x, ev.y);
             if (hitPitch != -1) {
-                isDraggingKeys_ = true;
-                lastGlissandoPitch_ = hitPitch;
-                triggerNoteOn(hitPitch, 0.85f, engine);
+                float vel = (ev.pressure > 0.05f) ? ev.pressure : 0.85f;
+                activeTouches_[ev.id] = {hitPitch, vel};
+                triggerNoteOn(hitPitch, vel, engine);
                 return true;
             }
-        } else if (ev.action == PointerAction::Move && isDraggingKeys_) {
-            int hitPitch = getPitchAt(ev.x, ev.y);
-            if (hitPitch != -1 && hitPitch != lastGlissandoPitch_) {
-                if (lastGlissandoPitch_ != -1) {
-                    triggerNoteOff(lastGlissandoPitch_, engine);
+        } else if (ev.action == PointerAction::Move) {
+            auto it = activeTouches_.find(ev.id);
+            if (it != activeTouches_.end()) {
+                int hitPitch = getPitchAt(ev.x, ev.y);
+                if (hitPitch != -1 && hitPitch != it->second.pitch) {
+                    triggerNoteOff(it->second.pitch, engine);
+                    it->second.pitch = hitPitch;
+                    triggerNoteOn(hitPitch, it->second.velocity, engine);
                 }
-                lastGlissandoPitch_ = hitPitch;
-                triggerNoteOn(hitPitch, 0.85f, engine);
                 return true;
             }
-        } else if (ev.action == PointerAction::Up && isDraggingKeys_) {
-            isDraggingKeys_ = false;
-            if (lastGlissandoPitch_ != -1) {
-                triggerNoteOff(lastGlissandoPitch_, engine);
-                lastGlissandoPitch_ = -1;
+        } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+            auto it = activeTouches_.find(ev.id);
+            if (it != activeTouches_.end()) {
+                triggerNoteOff(it->second.pitch, engine);
+                activeTouches_.erase(it);
+                return true;
             }
-            releaseAllNotes(engine);
-            return true;
         }
     }
 
@@ -368,6 +368,7 @@ void VirtualKeyboardDrawer::releaseAllNotes(audio::AudioEngine& engine) {
         engine.postNoteOff(static_cast<uint8_t>(p), static_cast<int>(activeTrackIndex_));
     }
     activePitches_.clear();
+    activeTouches_.clear();
 }
 
 } // namespace eatsbits::ui

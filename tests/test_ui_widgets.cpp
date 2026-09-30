@@ -5,6 +5,8 @@
 #include "eatsbits/ui/widgets/glowing_nixie.hpp"
 #include "eatsbits/ui/widgets/vu_meter.hpp"
 #include "eatsbits/ui/widgets/scrollable_area.hpp"
+#include "eatsbits/ui/widgets/drum_pad_grid_widget.hpp"
+#include "eatsbits/ui/input/pointer_event.hpp"
 
 #include <iostream>
 #include <cassert>
@@ -334,6 +336,78 @@ void testScrollableArea() {
     std::cout << "  [PASS] ScrollableArea tests passed." << std::endl;
 }
 
+void testMultiTouchAndKineticTouch() {
+    std::cout << "[Test] Multi-touch polyphony and kinetic momentum scroller..." << std::endl;
+
+    // 1. Test KineticScroller
+    KineticScroller scroller;
+    assert(!scroller.isGliding());
+    scroller.addSample(100.0f, 200.0f, 0.0);
+    scroller.addSample(100.0f, 150.0f, 50.0);
+    scroller.addSample(100.0f, 100.0f, 100.0);
+    scroller.endDrag(100.0);
+    assert(scroller.isGliding());
+
+    float dx = 0.0f, dy = 0.0f;
+    scroller.step(0.016f, dx, dy);
+    assert(dy != 0.0f);
+    assert(std::abs(dy) > 0.01f);
+
+    // 2. Test DrumPadGridWidget multi-touch polyphony
+    DrumPadGridWidget drumGrid;
+    drumGrid.layout(Rect2D{0.0f, 0.0f, 320.0f, 240.0f});
+
+    std::vector<uint8_t> triggeredNotes;
+    std::vector<uint8_t> releasedNotes;
+    drumGrid.onPadTrigger = [&](uint8_t note, float [[maybe_unused]] vel) {
+        triggeredNotes.push_back(note);
+    };
+    drumGrid.onPadRelease = [&](uint8_t note) {
+        releasedNotes.push_back(note);
+    };
+
+    const auto& pads = drumGrid.getActivePads();
+    assert(pads.size() >= 4);
+
+    // Finger 1 touches Pad 0 (id = 1)
+    PointerEvent touch1;
+    touch1.id = 1;
+    touch1.type = PointerType::Touch;
+    touch1.action = PointerAction::Down;
+    touch1.x = pads[0].bounds.center().x;
+    touch1.y = pads[0].bounds.center().y;
+    touch1.pressure = 0.90f;
+    drumGrid.handlePointer(touch1);
+
+    // Finger 2 touches Pad 1 (id = 2) simultaneously!
+    PointerEvent touch2;
+    touch2.id = 2;
+    touch2.type = PointerType::Touch;
+    touch2.action = PointerAction::Down;
+    touch2.x = pads[1].bounds.center().x;
+    touch2.y = pads[1].bounds.center().y;
+    touch2.pressure = 0.80f;
+    drumGrid.handlePointer(touch2);
+
+    assert(triggeredNotes.size() == 2);
+    assert(triggeredNotes[0] == pads[0].note);
+    assert(triggeredNotes[1] == pads[1].note);
+
+    // Release Finger 1
+    touch1.action = PointerAction::Up;
+    drumGrid.handlePointer(touch1);
+    assert(releasedNotes.size() == 1);
+    assert(releasedNotes[0] == pads[0].note);
+
+    // Release Finger 2
+    touch2.action = PointerAction::Up;
+    drumGrid.handlePointer(touch2);
+    assert(releasedNotes.size() == 2);
+    assert(releasedNotes[1] == pads[1].note);
+
+    std::cout << "  [PASS] Multi-touch and kinetic momentum tests passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits UI Geometry & Widgets Tests ===" << std::endl;
     testRectGeometry();
@@ -343,6 +417,7 @@ int main() {
     testNixieAndVuMeter();
     testContextualLightingAndTb303();
     testScrollableArea();
+    testMultiTouchAndKineticTouch();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }

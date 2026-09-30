@@ -1,4 +1,6 @@
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
+#include "eatsbits/sequencer/step_sequencer.hpp"
+#include "eatsbits/audio/graph/audio_graph.hpp"
 #include <cassert>
 #include <iostream>
 #include <cmath>
@@ -135,6 +137,37 @@ void testSequencerTrackInterop() {
     std::cout << "  Passed." << std::endl;
 }
 
+void testStepSequencerLiveMidiFxPipeline() {
+    std::cout << "[Test 7] StepSequencer Live MIDI FX Processing...\n";
+    StepSequencer seq;
+    seq.setBpm(135.0);
+    seq.addTrack("Lead", 1, 16);
+
+    auto* track = seq.getTrack(0);
+    assert(track != nullptr);
+
+    // Note 61 (C#4)
+    StepData sd;
+    sd.active = true;
+    sd.note = 61;
+    sd.velocity = 0.8f;
+    track->setStep(0, sd);
+
+    // Add ScaleSnap MIDI FX (C Major: snap to 60 or 62)
+    std::vector<MidiFxInsert> rack = {
+        {"mfx_snap", "Scale Snap", true, MidiFxType::ScaleSnap, "", {{"rootKey", 0.0f}, {"scaleMode", 0.0f}}}
+    };
+    track->setMidiFxRack(rack);
+    assert(track->getMidiFxRack().size() == 1);
+
+    // Execute processBlock with AudioGraph
+    eatsbits::audio::AudioGraph graph;
+    seq.start();
+    seq.processBlock(256, graph);
+
+    std::cout << "  Passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running MIDI FX Pipeline Tests ===" << std::endl;
     testMidiFxTypeDetection();
@@ -143,6 +176,7 @@ int main() {
     testChordFollowAndVoicings();
     testHumanizeAndTranspose();
     testSequencerTrackInterop();
+    testStepSequencerLiveMidiFxPipeline();
     std::cout << "All MIDI FX Pipeline Tests Passed Successfully!" << std::endl;
     return 0;
 }

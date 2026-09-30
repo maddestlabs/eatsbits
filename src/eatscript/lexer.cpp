@@ -327,6 +327,45 @@ void Lexer::scanIdentifierOrKeyword() {
 }
 
 void Lexer::scanNumber() {
+    // Check for hex (0x / 0X) or binary (0b / 0B) literal
+    if (source_[start_] == '0' && !isAtEnd()) {
+        char next = peek();
+        if (next == 'x' || next == 'X') {
+            advance(); // consume 'x' or 'X'
+            while (!isAtEnd() && std::isxdigit(static_cast<unsigned char>(peek()))) {
+                advance();
+            }
+            std::string text = source_.substr(start_, current_ - start_);
+            double val = static_cast<double>(std::strtoull(text.c_str(), nullptr, 16));
+            Token t;
+            t.type = TokenType::Number;
+            t.text = std::move(text);
+            t.numberValue = val;
+            t.line = line_;
+            t.column = column_;
+            tokens_.push_back(t);
+            return;
+        } else if (next == 'b' || next == 'B') {
+            advance(); // consume 'b' or 'B'
+            while (!isAtEnd() && (peek() == '0' || peek() == '1')) {
+                advance();
+            }
+            std::string text = source_.substr(start_, current_ - start_);
+            double val = 0.0;
+            if (text.size() > 2) {
+                val = static_cast<double>(std::strtoull(text.c_str() + 2, nullptr, 2));
+            }
+            Token t;
+            t.type = TokenType::Number;
+            t.text = std::move(text);
+            t.numberValue = val;
+            t.line = line_;
+            t.column = column_;
+            tokens_.push_back(t);
+            return;
+        }
+    }
+
     while (!isAtEnd() && std::isdigit(peek())) {
         advance();
     }

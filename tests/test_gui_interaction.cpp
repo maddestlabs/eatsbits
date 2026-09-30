@@ -2317,18 +2317,21 @@ void testTrackInspectorInteraction() {
     auto hwKnobHit = window.hitTestHardwareKnob(100.0f, curY + 120.0f, 40.0f, curY, 0.70f);
     // Even generic check: hit test track inspector anywhere on the faceplate knob area
     bool foundKnob = false;
-    for (float testX = 50.0f; testX < 500.0f; testX += 20.0f) {
-        auto kh = window.hitTestTrackInspector(testX, curY + 130.0f);
-        if (kh.hit && kh.area == TrackInspectorHitArea::HardwareKnob) {
-            foundKnob = true;
-            // Test turning knob via mouse drag
-            float startVal = kh.normVal;
-            (void)startVal;
-            window.onMouseDown(0, testX, curY + 130.0f);
-            window.onMouseMove(testX, curY + 50.0f); // drag up to increase
-            window.onMouseUp(0, testX, curY + 50.0f);
-            break;
+    for (float testY = curY + 60.0f; testY <= curY + 230.0f; testY += 15.0f) {
+        for (float testX = 50.0f; testX < 500.0f; testX += 20.0f) {
+            auto kh = window.hitTestTrackInspector(testX, testY);
+            if (kh.hit && kh.area == TrackInspectorHitArea::HardwareKnob) {
+                foundKnob = true;
+                // Test turning knob via mouse drag
+                float startVal = kh.normVal;
+                (void)startVal;
+                window.onMouseDown(0, testX, testY);
+                window.onMouseMove(testX, testY - 60.0f); // drag up to increase
+                window.onMouseUp(0, testX, testY - 60.0f);
+                break;
+            }
         }
+        if (foundKnob) break;
     }
     REQUIRE(foundKnob);
 
@@ -3332,6 +3335,8 @@ void testFullscreenDeviceModal() {
     // 2. Open Fullscreen Audio FX
     window.openFullscreenFx(0, 0);
     REQUIRE(window.isFullscreenDeviceOpen());
+    REQUIRE(window.getFullscreenDeviceModal().getTarget().type == DeviceTargetType::AudioFx);
+    REQUIRE(window.getFullscreenDeviceModal().getGuiPanel().title == "Tube Distortion");
 
     // Verify closing via closeFullscreenDevice
     window.closeFullscreenDevice();
@@ -3340,12 +3345,15 @@ void testFullscreenDeviceModal() {
     // 3. Open Fullscreen MIDI FX
     window.openFullscreenMidiFx(0, 0);
     REQUIRE(window.isFullscreenDeviceOpen());
+    REQUIRE(window.getFullscreenDeviceModal().getTarget().type == DeviceTargetType::MidiFx);
+    REQUIRE(window.getFullscreenDeviceModal().getGuiPanel().title == "Scale Snap");
 
-    // Verify Shift+F toggles it
+    // Verify Shift+F toggles it contextually
     window.onKeyDown(70, 1); // 'F' with Shift
     REQUIRE(!window.isFullscreenDeviceOpen());
     window.onKeyDown(70, 1); // 'F' with Shift again
     REQUIRE(window.isFullscreenDeviceOpen());
+    REQUIRE(window.getFullscreenDeviceModal().getTarget().type == DeviceTargetType::MidiFx);
 
     // 4. Test renderFrame runs cleanly with underlying views bypassed
     window.renderFrame();

@@ -1,10 +1,23 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/icon_registry.hpp"
+#include "eatsbits/ui/gui_window.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 #include <iomanip>
+
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
 
 namespace eatsbits::ui {
 
@@ -19,6 +32,66 @@ static const float kQuickPalette[8][3] = {
     {0.20f, 0.60f, 1.0f }  // Sky Blue
 };
 
+static float computeMidiFxRackHeight(const TrackPropertiesDrawerData& data) {
+    float h = 42.0f; // Header
+    if (data.midiFx.empty()) {
+        h += 38.0f;
+    } else {
+        for (const auto& fx : data.midiFx) {
+            h += (fx.isExpanded ? 180.0f : 42.0f) + 8.0f;
+        }
+    }
+    return h + 4.0f;
+}
+
+static float computeAudioFxRackHeight(const TrackPropertiesDrawerData& data) {
+    float h = 42.0f; // Header
+    if (data.audioFx.empty()) {
+        h += 38.0f;
+    } else {
+        for (const auto& fx : data.audioFx) {
+            h += (fx.isExpanded ? 180.0f : 42.0f) + 8.0f;
+        }
+    }
+    return h + 4.0f;
+}
+
+static void drawModernPillSwitch(BatchRenderer2D& r, float x, float y, bool enabled, const Color& activeColor) {
+    float w = 15.0f;
+    float h = 26.0f;
+    float rad = 7.5f;
+
+    // Outer dark pill housing shadow
+    drawRoundedRect(r, x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, rad + 1.0f, 0.05f, 0.06f, 0.09f, 0.6f);
+
+    // Pill body
+    if (enabled) {
+        drawRoundedRect(r, x, y, w, h, rad, activeColor.r, activeColor.g, activeColor.b, 1.0f);
+        drawRoundedRectOutline(r, x, y, w, h, rad, activeColor.r * 1.2f, activeColor.g * 1.2f, activeColor.b * 1.2f, 0.9f, 1.0f);
+    } else {
+        drawRoundedRect(r, x, y, w, h, rad, 0.16f, 0.18f, 0.22f, 1.0f);
+        drawRoundedRectOutline(r, x, y, w, h, rad, 0.25f, 0.28f, 0.35f, 0.8f, 1.0f);
+    }
+
+    // Circular metallic slider thumb
+    float thumbR = 5.8f;
+    float thumbCx = x + 7.5f;
+    float thumbCy = enabled ? (y + 7.5f) : (y + h - 7.5f);
+
+    // Drop shadow
+    drawCircle(r, thumbCx, thumbCy + 1.0f, thumbR + 0.8f, 0.04f, 0.05f, 0.07f, 0.65f);
+
+    // 3-stop metallic radial gradient
+    drawCircleRadial3StopGradient(r, thumbCx, thumbCy, thumbR,
+                                  Color(0.98f, 0.98f, 1.0f, 1.0f),
+                                  Color(0.75f, 0.78f, 0.84f, 1.0f),
+                                  Color(0.38f, 0.40f, 0.46f, 1.0f),
+                                  -1.5f, -1.5f, 0.50f, 20);
+
+    // Metallic rim outline
+    drawCircleOutline(r, thumbCx, thumbCy, thumbR, 0.28f, 0.30f, 0.36f, 0.95f, 1.0f);
+}
+
 TrackPropertiesPanel::TrackPropertiesPanel() {
     // Configure embedded PluginSearchDialog
     pluginDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex) {
@@ -30,6 +103,90 @@ TrackPropertiesPanel::TrackPropertiesPanel() {
             if (onAddAudioFx) onAddAudioFx(trackIndex);
         }
     };
+}
+
+void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data) {
+    guiPanel_.title = data.presetTitle.empty() ? data.instrument : data.presetTitle;
+    guiPanel_.subtitle = data.presetSubtitle.empty() ? (data.trackName + " • " + data.instrument) : data.presetSubtitle;
+    guiPanel_.accentColor = Color(data.r, data.g, data.b, 1.0f);
+    guiPanel_.woodCheeks = true;
+    guiPanel_.cornerRadius = 6.0f;
+
+    const std::string& eng = data.instrumentEngine;
+    if (eng == "tb303") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Silver;
+    } else if (eng == "tr808" || eng == "tr909") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
+    } else if (eng == "dx7") {
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+    } else if (eng == "snes") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+    } else if (eng == "c64") {
+        guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+    } else if (eng == "convolver") {
+        guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
+    } else {
+        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+    }
+
+    size_t numKnobs = data.knobs.size();
+    if (numKnobs == 0) return;
+    size_t displayKnobs = std::min(numKnobs, size_t{6});
+
+    if (guiPanel_.rows.empty() || guiPanel_.rows[0].widgets.size() != displayKnobs) {
+        guiPanel_.rows.clear();
+        GuiRowDef r1;
+        for (size_t i = 0; i < displayKnobs; ++i) {
+            const auto& k = data.knobs[i];
+            GuiKnobStyle kStyle = GuiKnobStyle::Standard;
+            if (eng == "tb303") {
+                if (i == 0) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 1) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
+                else kStyle = GuiKnobStyle::Standard;
+            } else if (eng == "tr808" || eng == "tr909") {
+                if (i == 0) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 1) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
+                else kStyle = GuiKnobStyle::Standard;
+            } else if (eng == "dx7") {
+                if (i == 0) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 1) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 2) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 3) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 4) kStyle = GuiKnobStyle::Standard;
+                else kStyle = GuiKnobStyle::Tb303Halo;
+            } else {
+                kStyle = static_cast<GuiKnobStyle>(i % 5);
+            }
+
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label;
+            w.param = k.name;
+            w.knobStyle = kStyle;
+            w.size = 52.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = "";
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
+        guiPanel_.rows.push_back(r1);
+    } else {
+        for (size_t i = 0; i < displayKnobs && i < guiPanel_.rows[0].widgets.size(); ++i) {
+            guiPanel_.rows[0].widgets[i].currentVal = data.knobs[i].value;
+            guiPanel_.rows[0].widgets[i].label = data.knobs[i].label;
+            guiPanel_.rows[0].widgets[i].param = data.knobs[i].name;
+            guiPanel_.rows[0].widgets[i].accentColor = guiPanel_.accentColor;
+        }
+    }
 }
 
 void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) {
@@ -61,10 +218,8 @@ void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) 
     colorCardBounds_ = Rect2D(bounds_.x + padding, curY, contentW, colorH);
     curY += colorH + 8.0f;
 
-    // 3. Channel Mixer Quick Controls Card (Vol slider + Pan knob)
-    float mixerH = isWide ? 68.0f : 60.0f;
-    mixerCardBounds_ = Rect2D(bounds_.x + padding, curY, contentW, mixerH);
-    curY += mixerH + 8.0f;
+    // 3. Channel Mixer Quick Controls Card (Volume & Pan removed from sidebar)
+    mixerCardBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
 
     // 4. 3-Band Parametric EQ Card (available when mixer mode is active)
     float eqH = 138.0f;
@@ -72,7 +227,7 @@ void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) 
     // Note: only advances curY during render if eq is active
 
     // 5. Dynamic Instrument Hardware Faceplate Card
-    float faceplateH = isWide ? 265.0f : 215.0f;
+    float faceplateH = isWide ? 260.0f : 240.0f;
     faceplateBounds_ = Rect2D(bounds_.x + padding, curY, contentW, faceplateH);
     curY += faceplateH + 8.0f;
 
@@ -103,8 +258,21 @@ void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) 
                          ctx.logicalHeight > 0.0f ? ctx.logicalHeight : 800.0f);
 }
 
+void TrackPropertiesPanel::update(float dt) noexcept {
+    if (scroller_.isGliding()) {
+        float dx = 0.0f, dy = 0.0f;
+        scroller_.step(dt, dx, dy);
+        float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
+        scrollY_ = std::clamp(scrollY_ - dy, 0.0f, maxScroll);
+        if (onScrollChanged) onScrollChanged(scrollY_);
+    }
+}
+
 void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
                                   float mouseX, float mouseY) {
+    if (scroller_.isGliding()) {
+        update(1.0f / 60.0f);
+    }
     data.syncKnobsIfEmpty();
 
     float padding = (bounds_.w >= 560.0f) ? 14.0f : 8.0f;
@@ -131,19 +299,48 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
         renderTrackSelectorRibbon(r, theme, data);
     }
 
-    // Render Cards in order: Header -> Color Palette -> Mixer Controls -> ...
-    renderHeaderCard(r, theme, data, headerCardBounds_.x, headerCardBounds_.y, headerCardBounds_.w, isWide, mouseX, mouseY);
-    renderColorPalette(r, theme, data, colorCardBounds_.x, colorCardBounds_.y, colorCardBounds_.w);
-    renderMixerControlsCard(r, theme, data, mixerCardBounds_.x, mixerCardBounds_.y, mixerCardBounds_.w, isWide);
-
-    if (data.isMixerMode) {
-        renderEqCard(r, theme, data, eqCardBounds_.x, eqCardBounds_.y, eqCardBounds_.w);
+    float curCardY = bounds_.y + 8.0f - scrollY_;
+    if (showTrackRibbon_) {
+        renderTrackSelectorRibbon(r, theme, data);
+        curCardY += ribbonBounds_.h + 6.0f;
     }
 
+    float headH = isWide ? 40.0f : 36.0f;
+    headerCardBounds_ = Rect2D(contentX, curCardY, contentW, headH);
+    renderHeaderCard(r, theme, data, headerCardBounds_.x, headerCardBounds_.y, headerCardBounds_.w, isWide, mouseX, mouseY);
+    curCardY += headH + 8.0f;
+
+    colorCardBounds_ = Rect2D(contentX, curCardY, contentW, 36.0f);
+    renderColorPalette(r, theme, data, colorCardBounds_.x, colorCardBounds_.y, colorCardBounds_.w);
+    curCardY += 36.0f + 8.0f;
+
+    if (data.isMixerMode) {
+        eqCardBounds_ = Rect2D(contentX, curCardY, contentW, 138.0f);
+        renderEqCard(r, theme, data, eqCardBounds_.x, eqCardBounds_.y, eqCardBounds_.w);
+        curCardY += 138.0f + 8.0f;
+    }
+
+    float faceplateH = data.instrumentExpanded ? (isWide ? 260.0f : 240.0f) : 38.0f;
+    faceplateBounds_ = Rect2D(contentX, curCardY, contentW, faceplateH);
     renderFaceplateCard(r, theme, data, faceplateBounds_.x, faceplateBounds_.y, faceplateBounds_.w, isWide);
+    curCardY += faceplateH + 8.0f;
+
+    chordFollowBounds_ = Rect2D(contentX, curCardY, contentW, 88.0f);
     renderChordFollowCard(r, theme, data, chordFollowBounds_.x, chordFollowBounds_.y, chordFollowBounds_.w);
+    curCardY += 88.0f + 8.0f;
+
+    float mfxH = computeMidiFxRackHeight(data);
+    midiFxBounds_ = Rect2D(contentX, curCardY, contentW, mfxH);
     renderMidiFxCard(r, theme, data, midiFxBounds_.x, midiFxBounds_.y, midiFxBounds_.w, isWide);
+    curCardY += mfxH + 8.0f;
+
+    float afxH = computeAudioFxRackHeight(data);
+    audioFxBounds_ = Rect2D(contentX, curCardY, contentW, afxH);
     renderAudioFxCard(r, theme, data, audioFxBounds_.x, audioFxBounds_.y, audioFxBounds_.w, isWide);
+    curCardY += afxH + 12.0f;
+
+    totalContentHeight_ = (curCardY + scrollY_) - (bounds_.y + 8.0f);
+    needScrollbar_ = (totalContentHeight_ > bounds_.h);
 
     if (needScrollbar_) {
         renderScrollbar(r, theme);
@@ -189,7 +386,7 @@ void TrackPropertiesPanel::renderTrackSelectorRibbon(BatchRenderer2D& r, const T
 void TrackPropertiesPanel::renderHeaderCard(BatchRenderer2D& r, const ThemeTokens& theme,
                                             TrackPropertiesDrawerData& data, float cx, float cy, float cw, bool isWide,
                                             float mouseX, float mouseY) {
-    float h = isWide ? 42.0f : 38.0f;
+    float h = isWide ? 40.0f : 36.0f;
     if (cy + h < bounds_.y || cy > bounds_.y + bounds_.h) return;
 
     drawRoundedRect(r, cx, cy, cw, h, 6.0f,
@@ -197,70 +394,37 @@ void TrackPropertiesPanel::renderHeaderCard(BatchRenderer2D& r, const ThemeToken
     drawRoundedRectOutline(r, cx, cy, cw, h, 6.0f,
                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
 
-    // Accent Pill
-    drawRoundedRect(r, cx + 8.0f, cy + 7.0f, 4.0f, h - 14.0f, 2.0f, data.r, data.g, data.b, 1.0f);
-
-    // Right-aligned button cluster: [ Edit (pencil icon) ] [ M ] [ S ] (and [F], [CODE] if wide)
-    float btnW = 24.0f;
-    float btnH = 24.0f;
-    float btnY = cy + (h - btnH) * 0.5f;
-
-    float fzX = 0.0f;
-    float soloX = 0.0f;
-    float muteX = 0.0f;
-    float editBtnX = 0.0f;
-    float codeX = 0.0f;
-    float codeW = 54.0f;
-
-    if (isWide) {
-        fzX = cx + cw - 8.0f - btnW;
-        soloX = fzX - 5.0f - btnW;
-        muteX = soloX - 5.0f - btnW;
-        editBtnX = muteX - 5.0f - btnW;
-        codeX = editBtnX - 8.0f - codeW;
-
-        // Freeze button [F]
-        Color fzBg = data.freeze ? Color(0.12f, 0.75f, 0.85f, 0.95f) : Color(0.12f, 0.14f, 0.18f, 0.85f);
-        Color fzBorder = data.freeze ? Color(0.2f, 0.9f, 1.0f, 0.8f) : theme.borderSubtle;
-        Color fzText = data.freeze ? Color(0.05f, 0.08f, 0.10f, 1.0f) : theme.textSecondary;
-        drawButton(r, Rect2D(fzX, btnY, btnW, btnH), "F", fzBg, fzBorder, fzText, 10.0f, 4.0f, 1.0f);
-
-        // [ CODE ] button
-        drawButton(r, Rect2D(codeX, btnY, codeW, btnH), "[ CODE ]",
-                   Color(0.14f, 0.16f, 0.22f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.5f, 4.0f, 1.0f);
-    } else {
-        soloX = cx + cw - 8.0f - btnW;
-        muteX = soloX - 5.0f - btnW;
-        editBtnX = muteX - 5.0f - btnW;
+    // Track icon button prior to title (clickable to open track icon dialog)
+    float iconBtnX = cx + 8.0f;
+    float iconBtnW = 24.0f;
+    float iconBtnH = 24.0f;
+    float iconBtnY = cy + (h - iconBtnH) * 0.5f;
+    bool iconHov = (mouseX >= iconBtnX && mouseX <= iconBtnX + iconBtnW &&
+                    mouseY >= iconBtnY && mouseY <= iconBtnY + iconBtnH);
+    if (iconHov) {
+        drawRoundedRect(r, iconBtnX, iconBtnY, iconBtnW, iconBtnH, 4.0f, 1.0f, 1.0f, 1.0f, 0.08f);
     }
+    float iconSize = 16.0f;
+    float iconX = iconBtnX + (iconBtnW - iconSize) * 0.5f;
+    float iconY = iconBtnY + (iconBtnH - iconSize) * 0.5f;
+    IconRegistry::instance().renderIcon(r, data.iconRef.empty() ? "preset:inst_synth" : data.iconRef,
+                                        iconX, iconY, iconSize, Color(data.r, data.g, data.b, 1.0f));
 
-    // Solo button [S]
-    Color soloBg = data.solo ? Color(0.95f, 0.75f, 0.10f, 0.95f) : Color(0.12f, 0.14f, 0.18f, 0.85f);
-    Color soloBorder = data.solo ? Color(1.0f, 0.85f, 0.2f, 0.9f) : theme.borderSubtle;
-    Color soloText = data.solo ? Color(0.05f, 0.08f, 0.10f, 1.0f) : theme.textSecondary;
-    drawButton(r, Rect2D(soloX, btnY, btnW, btnH), "S", soloBg, soloBorder, soloText, 10.0f, 4.0f, 1.0f);
-
-    // Mute button [M]
-    Color muteBg = data.mute ? Color(0.85f, 0.22f, 0.15f, 0.95f) : Color(0.12f, 0.14f, 0.18f, 0.85f);
-    Color muteBorder = data.mute ? Color(1.0f, 0.35f, 0.3f, 0.9f) : theme.borderSubtle;
-    Color muteText = data.mute ? Color(1.0f, 1.0f, 1.0f, 1.0f) : theme.textSecondary;
-    drawButton(r, Rect2D(muteX, btnY, btnW, btnH), "M", muteBg, muteBorder, muteText, 10.0f, 4.0f, 1.0f);
-
-    // Edit button [Edit (pencil icon)]
-    bool editHov = (mouseX >= editBtnX && mouseX <= editBtnX + btnW &&
-                    mouseY >= btnY && mouseY <= btnY + btnH);
-    Color editBg = editHov ? Color(theme.primaryAccent.r * 0.25f, theme.primaryAccent.g * 0.25f, theme.primaryAccent.b * 0.25f, 0.95f)
-                           : Color(theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.6f);
-    Color editBdr = editHov ? theme.primaryAccent : Color(theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f);
-    drawRoundedRect(r, editBtnX, btnY, btnW, btnH, 4.0f, editBg.r, editBg.g, editBg.b, editBg.a);
-    drawRoundedRectOutline(r, editBtnX, btnY, btnW, btnH, 4.0f, editBdr.r, editBdr.g, editBdr.b, editBdr.a, editHov ? 1.3f : 1.0f);
+    // Right-aligned Edit icon (pencil icon, same size as title text 10.0f, NO border around it)
+    float editSize = 10.0f;
+    float editBtnW = 20.0f;
+    float editBtnH = 20.0f;
+    float editBtnX = cx + cw - 12.0f - editBtnW;
+    float editBtnY = cy + (h - editBtnH) * 0.5f;
+    bool editHov = (mouseX >= editBtnX - 4.0f && mouseX <= editBtnX + editBtnW + 4.0f &&
+                    mouseY >= cy && mouseY <= cy + h);
     Color editColor = editHov ? theme.primaryAccent : theme.textSecondary;
-    drawIconEdit(r, editBtnX + btnW * 0.5f, btnY + btnH * 0.5f, 11.0f, editColor);
+    drawIconEdit(r, editBtnX + (editBtnW - editSize) * 0.5f, editBtnY + (editBtnH - editSize) * 0.5f, editSize, editColor);
 
-    // Reclaimed full horizontal space for Track Name (vertically centered on single line)
-    float titleX = cx + 18.0f;
-    float titleY = cy + (h - 13.0f) * 0.5f;
-    drawText(r, data.trackName, titleX, titleY, isWide ? 13.5f : 12.5f,
+    // Track Title (vertically centered on single line, size 10.0f matching clip title text)
+    float titleX = iconBtnX + iconBtnW + 6.0f;
+    float titleY = cy + (h - 10.0f) * 0.5f;
+    drawText(r, data.trackName, titleX, titleY, 10.0f,
              theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 }
 
@@ -402,184 +566,92 @@ void TrackPropertiesPanel::renderEqCard(BatchRenderer2D& r, const ThemeTokens& t
 
 void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTokens& theme,
                                               TrackPropertiesDrawerData& data, float cx, float cy, float cw, bool isWide) {
-    float faceH = isWide ? 265.0f : 215.0f;
+    float faceH = data.instrumentExpanded ? (isWide ? 260.0f : 240.0f) : 38.0f;
     if (cy + faceH < bounds_.y || cy > bounds_.y + bounds_.h) return;
 
-    bool isLight = (data.instrumentEngine == "tb303");
+    // Outer card container background (matching Eatsbeats original instrument layout)
+    drawRoundedRect(r, cx, cy, cw, faceH, 8.0f, 0.11f, 0.12f, 0.14f, 0.98f);
+    drawRoundedRectOutline(r, cx, cy, cw, faceH, 8.0f, 0.24f, 0.26f, 0.32f, 0.7f, 1.0f);
 
-    // Chassis background & styling based on instrumentEngine
-    if (data.instrumentEngine == "tb303") {
-        drawRoundedRect(r, cx, cy, cw, faceH, 6.0f, 0.82f, 0.82f, 0.80f, 1.0f);
-        drawRoundedRectOutline(r, cx, cy, cw, faceH, 6.0f, 0.45f, 0.45f, 0.45f, 1.0f, 2.0f);
-    } else if (data.instrumentEngine == "dx7") {
-        drawRoundedRect(r, cx, cy, cw, faceH, 6.0f, 0.12f, 0.13f, 0.15f, 1.0f);
-        drawRoundedRectOutline(r, cx, cy, cw, faceH, 6.0f, 0.0f, 0.66f, 0.53f, 1.0f, 2.0f);
-    } else if (data.instrumentEngine == "tr808" || data.instrumentEngine == "tr909") {
-        drawRoundedRect(r, cx, cy, cw, faceH, 6.0f, 0.18f, 0.19f, 0.22f, 1.0f);
-        drawRoundedRectOutline(r, cx, cy, cw, faceH, 6.0f, 0.85f, 0.35f, 0.15f, 1.0f, 2.0f);
+    // 1. Top Instrument Header
+    float dotX = cx + 16.0f;
+    float dotY = cy + 18.0f;
+    float dotR = 5.0f;
+    drawCircle(r, dotX, dotY, dotR + 3.0f, data.r, data.g, data.b, 0.30f);
+    drawCircle(r, dotX, dotY, dotR, data.r, data.g, data.b, 1.0f);
+
+    float fullBtnW = 54.0f;
+    float fullBtnH = 22.0f;
+    float fullBtnX = cx + cw - 10.0f - fullBtnW;
+    float fullBtnY = cy + 7.0f;
+
+    float presetBtnW = 76.0f;
+    float presetBtnH = 22.0f;
+    float presetBtnX = fullBtnX - 6.0f - presetBtnW;
+    float presetBtnY = cy + 7.0f;
+
+    float designBtnW = 26.0f;
+    float designBtnH = 22.0f;
+    float designBtnX = presetBtnX - 6.0f - designBtnW;
+    float designBtnY = cy + 7.0f;
+
+    // Design icon button (links to Design section)
+    drawRoundedRect(r, designBtnX, designBtnY, designBtnW, designBtnH, 4.0f, 0.13f, 0.14f, 0.18f, 0.95f);
+    drawRoundedRectOutline(r, designBtnX, designBtnY, designBtnW, designBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
+    drawDesignChipIcon(r, designBtnX + 5.0f, designBtnY + 3.0f, 16.0f, Color(0.95f, 0.65f, 0.15f, 1.0f));
+
+    // Preset button (opens Preset dialog)
+    drawRoundedRect(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.13f, 0.14f, 0.18f, 0.95f);
+    drawRoundedRectOutline(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
+    drawSlidersTuneIcon(r, presetBtnX + 7.0f, presetBtnY + 5.0f, 12.0f, theme.textSecondary);
+    drawText(r, "PRESETS", presetBtnX + 23.0f, presetBtnY + 6.0f, 9.0f, theme.textSecondary);
+
+    // Fullscreen icon button (triggers Fullscreen Device modal)
+    Color fullGold(0.95f, 0.62f, 0.10f, 1.0f);
+    drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, 0.14f, 0.12f, 0.10f, 0.95f);
+    drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, fullGold.r, fullGold.g, fullGold.b, 0.85f, 1.2f);
+    drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 5.0f, 11.0f, fullGold, 1.4f);
+    drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.5f, 9.0f, fullGold);
+
+    // Instrument Title in uppercase bold with dropdown chevron
+    std::string instTitle = data.presetTitle.empty() ? data.instrument : data.presetTitle;
+    for (char& ch : instTitle) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    float availTitleW = designBtnX - (dotX + 13.0f) - 22.0f;
+    int maxChars = std::max(6, static_cast<int>(availTitleW / 7.2f));
+    if (static_cast<int>(instTitle.length()) > maxChars) {
+        instTitle = instTitle.substr(0, maxChars - 3) + "...";
+    }
+    float titleX = dotX + 13.0f;
+    drawText(r, instTitle, titleX, cy + 12.0f, 11.5f, 0.96f, 0.97f, 0.99f, 1.0f);
+
+    float chevX = titleX + static_cast<float>(instTitle.length()) * 6.5f + 8.0f;
+    float chevY = cy + 18.0f;
+    Color trackAccent(data.r, data.g, data.b, 1.0f);
+    if (data.instrumentExpanded) {
+        drawChevronUp(r, chevX, chevY, 7.0f, trackAccent, 1.6f);
     } else {
-        drawRoundedRect(r, cx, cy, cw, faceH, 6.0f, 0.13f, 0.15f, 0.18f, 1.0f);
-        drawRoundedRectOutline(r, cx, cy, cw, faceH, 6.0f, data.r * 0.7f, data.g * 0.7f, data.b * 0.7f, 1.0f, 1.8f);
+        drawChevronDown(r, chevX, chevY, 7.0f, trackAccent, 1.6f);
     }
 
-    // Corner mounting hex bolts
-    drawCircle(r, cx + 10.0f, cy + 10.0f, 3.0f, 0.35f, 0.38f, 0.45f, 1.0f);
-    drawCircle(r, cx + cw - 10.0f, cy + 10.0f, 3.0f, 0.35f, 0.38f, 0.45f, 1.0f);
-    drawCircle(r, cx + 10.0f, cy + faceH - 10.0f, 3.0f, 0.35f, 0.38f, 0.45f, 1.0f);
-    drawCircle(r, cx + cw - 10.0f, cy + faceH - 10.0f, 3.0f, 0.35f, 0.38f, 0.45f, 1.0f);
+    if (data.instrumentExpanded) {
+        // 2. Unified Hardware Faceplate with authentic wood cheeks, 3D radial gradients, and matching controls
+        float guiX = cx + 8.0f;
+        float guiY = cy + 34.0f;
+        float guiW = cw - 16.0f;
+        float guiH = faceH - 34.0f - 38.0f;
 
-    // Top Banner Plate
-    float banH = isWide ? 36.0f : 32.0f;
-    drawRoundedRect(r, cx, cy, cw, banH, 6.0f, 0.08f, 0.09f, 0.12f, 0.95f);
-    drawLine(r, cx, cy + banH, cx + cw, cy + banH, 0.25f, 0.28f, 0.36f, 1.0f, 1.2f);
+        syncGuiPanelFromTrackData(data);
+        Rect2D fpRect(guiX, guiY, guiW, guiH);
+        drawGuiFaceplate(r, guiPanel_, fpRect, theme, data.scopeBuffer, data.scopeBufferCount, draggingRow_, draggingWidget_);
 
-    // < PREV and NEXT > Buttons
-    drawButton(r, Rect2D(cx + 8.0f, cy + 5.0f, isWide ? 56.0f : 46.0f, isWide ? 24.0f : 22.0f), "< PREV",
-               Color(0.16f, 0.18f, 0.24f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.5f, 3.0f, 1.0f);
-    drawButton(r, Rect2D(cx + (isWide ? 70.0f : 58.0f), cy + 5.0f, isWide ? 56.0f : 46.0f, isWide ? 24.0f : 22.0f), "NEXT >",
-               Color(0.16f, 0.18f, 0.24f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.5f, 3.0f, 1.0f);
-
-    // Preset Counter
-    if (isWide) {
-        std::string pCounter = std::to_string(data.activePresetIdx + 1) + "/" + std::to_string(data.totalPresets);
-        drawText(r, pCounter, cx + 135.0f, cy + 11.0f, 9.5f, 0.55f, 0.60f, 0.70f, 1.0f);
-    }
-
-    // Instrument Title & Subtitle
-    float titleX = isWide ? (cx + 185.0f) : (cx + 112.0f);
-    drawText(r, data.instrument, titleX, cy + (isWide ? 8.0f : 6.0f), isWide ? 12.0f : 11.0f, 0.0f, 0.95f, 1.0f, 1.0f);
-    drawText(r, "HARDWARE SCRIPT INTERFACE", titleX, cy + (isWide ? 22.0f : 19.0f), 7.5f, 0.50f, 0.55f, 0.65f, 1.0f);
-
-    // [ ⛶ FULL ] and [ ⇄ CHANGE INSTRUMENT ] Buttons
-    float fullBtnW = isWide ? 56.0f : 44.0f;
-    float fullBtnX = cx + cw - fullBtnW - 8.0f;
-    drawButton(r, Rect2D(fullBtnX, cy + 5.0f, fullBtnW, isWide ? 24.0f : 22.0f),
-               isWide ? "[ ⛶ FULL ]" : "[ ⛶ ]",
-               Color(0.12f, 0.22f, 0.32f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.0f, 3.0f, 1.0f);
-
-    float chgW = isWide ? 120.0f : 68.0f;
-    float chgX = fullBtnX - chgW - 6.0f;
-    drawButton(r, Rect2D(chgX, cy + 5.0f, chgW, isWide ? 24.0f : 22.0f),
-               isWide ? "[ ⇄ CHANGE ]" : "[ ⇄ ]",
-               Color(0.16f, 0.20f, 0.28f, 1.0f), theme.borderSubtle, theme.primaryAccent, 8.0f, 3.0f, 1.0f);
-
-    // Rotary Knobs Layout
-    size_t knobCount = std::min(data.knobs.size(), static_cast<size_t>(6));
-
-    if (isWide) {
-        // Wide Layout: 1 row of up to 6 knobs on left, CRT Oscilloscope on right
-        float knobAreaW = cw - 230.0f; // Leave 210px for oscilloscope on the right
-        float kStep = knobAreaW / static_cast<float>(std::max(size_t{1}, knobCount));
-        float kRadius = 18.0f;
-
-        for (size_t k = 0; k < knobCount; ++k) {
-            float kcx = cx + 18.0f + static_cast<float>(k) * kStep + (kStep * 0.5f);
-            float kcy = cy + banH + 75.0f;
-
-            const auto& knob = data.knobs[k];
-            bool isDragging = (dragMode_ == DragMode::InstrumentKnob && activeKnobIndex_ == static_cast<int>(k));
-
-            // Collet well & drop shadow
-            drawCircle(r, kcx, kcy + 2.0f, kRadius + 2.0f, 0.08f, 0.09f, 0.11f, 0.40f);
-            drawCircle(r, kcx, kcy, kRadius, isLight ? 0.28f : 0.16f, isLight ? 0.28f : 0.18f, isLight ? 0.30f : 0.22f, 1.0f);
-            drawCircle(r, kcx, kcy, kRadius - 2.5f, isLight ? 0.75f : 0.22f, isLight ? 0.75f : 0.24f, isLight ? 0.74f : 0.28f, 1.0f);
-            drawCircleOutline(r, kcx, kcy, kRadius, isDragging ? theme.highlight.r : 0.45f,
-                              isDragging ? theme.highlight.g : 0.48f, isDragging ? theme.highlight.b : 0.55f, 1.0f, 1.2f);
-
-            // Needle
-            constexpr float minA = -2.35619449f;
-            constexpr float maxA = 2.35619449f;
-            float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
-            float indX = kcx + std::sin(curA) * (kRadius - 4.0f);
-            float indY = kcy - std::cos(curA) * (kRadius - 4.0f);
-            drawLine(r, kcx, kcy, indX, indY,
-                     isDragging ? theme.highlight.r : (isLight ? 0.90f : data.r),
-                     isDragging ? theme.highlight.g : (isLight ? 0.20f : data.g),
-                     isDragging ? theme.highlight.b : (isLight ? 0.15f : data.b), 1.0f, 2.0f);
-            drawCircle(r, kcx, kcy, 4.0f, 0.20f, 0.22f, 0.25f, 1.0f);
-
-            // Label and display
-            drawCenteredText(r, knob.label, kcx - 35.0f, kcy + kRadius + 6.0f, 70.0f, 12.0f, 8.5f,
-                             isDragging ? theme.highlight.r : (isLight ? 0.12f : 0.85f),
-                             isDragging ? theme.highlight.g : (isLight ? 0.12f : 0.88f),
-                             isDragging ? theme.highlight.b : (isLight ? 0.12f : 0.95f), 1.0f);
-            drawCenteredText(r, knob.display, kcx - 35.0f, kcy + kRadius + 18.0f, 70.0f, 12.0f, 8.0f,
-                             isDragging ? theme.highlight.r : (isLight ? 0.30f : 0.55f),
-                             isDragging ? theme.highlight.g : (isLight ? 0.30f : 0.60f),
-                             isDragging ? theme.highlight.b : (isLight ? 0.30f : 0.70f), 1.0f);
-        }
-
-        // Live Real-Time CRT Audio Oscilloscope Display
-        float oscW = 195.0f;
-        float oscH = 160.0f;
-        float oscX = cx + cw - oscW - 14.0f;
-        float oscY = cy + banH + 16.0f;
-
-        drawRoundedRect(r, oscX, oscY, oscW, oscH, 6.0f, 0.02f, 0.05f, 0.03f, 1.0f);
-        drawRoundedRectOutline(r, oscX, oscY, oscW, oscH, 6.0f, 0.15f, 0.85f, 0.35f, 0.8f, 1.4f);
-        drawText(r, "OSCILLOSCOPE • LIVE OUTPUT", oscX + 10.0f, oscY + 8.0f, 8.5f, 0.20f, 0.95f, 0.40f, 1.0f);
-
-        // CRT Phosphor Grid Lines
-        float midY = oscY + oscH * 0.55f;
-        drawLine(r, oscX + 6.0f, midY, oscX + oscW - 6.0f, midY, 0.10f, 0.45f, 0.20f, 0.45f, 1.0f);
-        drawLine(r, oscX + 6.0f, midY - 30.0f, oscX + oscW - 6.0f, midY - 30.0f, 0.10f, 0.35f, 0.18f, 0.30f, 0.8f);
-        drawLine(r, oscX + 6.0f, midY + 30.0f, oscX + oscW - 6.0f, midY + 30.0f, 0.10f, 0.35f, 0.18f, 0.30f, 0.8f);
-        drawLine(r, oscX + oscW * 0.5f, oscY + 24.0f, oscX + oscW * 0.5f, oscY + oscH - 8.0f, 0.10f, 0.45f, 0.20f, 0.45f, 1.0f);
-
-        // Waveform polyline from buffer
-        if (data.scopeBuffer && data.scopeBufferCount > 0) {
-            constexpr int kPts = 48;
-            float prevX = oscX + 8.0f;
-            float prevY = midY - data.scopeBuffer[0] * 38.0f;
-            for (int i = 1; i < kPts; ++i) {
-                size_t sIdx = (static_cast<size_t>(i) * data.scopeBufferCount) / static_cast<size_t>(kPts);
-                float curX = oscX + 8.0f + (static_cast<float>(i) / static_cast<float>(kPts - 1)) * (oscW - 16.0f);
-                float curYPoint = midY - data.scopeBuffer[sIdx] * 38.0f;
-                drawLine(r, prevX, prevY, curX, curYPoint, 0.20f, 1.0f, 0.45f, 0.95f, 1.8f);
-                prevX = curX;
-                prevY = curYPoint;
-            }
-        }
-    } else {
-        // Compact Layout: 2 rows of 3 knobs
-        float colW = cw / 3.0f;
-        float kRadius = 14.5f;
-
-        for (size_t k = 0; k < knobCount; ++k) {
-            int row = static_cast<int>(k / 3);
-            int col = static_cast<int>(k % 3);
-            float kcx = cx + static_cast<float>(col) * colW + (colW * 0.5f);
-            float kcy = cy + banH + 34.0f + static_cast<float>(row) * 72.0f;
-
-            const auto& knob = data.knobs[k];
-            bool isDragging = (dragMode_ == DragMode::InstrumentKnob && activeKnobIndex_ == static_cast<int>(k));
-
-            drawCircle(r, kcx, kcy + 2.0f, kRadius + 2.0f, 0.08f, 0.09f, 0.11f, 0.40f);
-            drawCircle(r, kcx, kcy, kRadius, isLight ? 0.28f : 0.16f, isLight ? 0.28f : 0.18f, isLight ? 0.30f : 0.22f, 1.0f);
-            drawCircle(r, kcx, kcy, kRadius - 2.5f, isLight ? 0.75f : 0.22f, isLight ? 0.75f : 0.24f, isLight ? 0.74f : 0.28f, 1.0f);
-            drawCircleOutline(r, kcx, kcy, kRadius, isDragging ? theme.highlight.r : 0.45f,
-                              isDragging ? theme.highlight.g : 0.48f, isDragging ? theme.highlight.b : 0.55f, 1.0f, 1.2f);
-
-            constexpr float minA = -2.35619449f;
-            constexpr float maxA = 2.35619449f;
-            float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
-            float indX = kcx + std::sin(curA) * (kRadius - 4.0f);
-            float indY = kcy - std::cos(curA) * (kRadius - 4.0f);
-            drawLine(r, kcx, kcy, indX, indY,
-                     isDragging ? theme.highlight.r : (isLight ? 0.90f : data.r),
-                     isDragging ? theme.highlight.g : (isLight ? 0.20f : data.g),
-                     isDragging ? theme.highlight.b : (isLight ? 0.15f : data.b), 1.0f, 2.0f);
-            drawCircle(r, kcx, kcy, 4.0f, 0.20f, 0.22f, 0.25f, 1.0f);
-
-            drawCenteredText(r, knob.label, kcx - 35.0f, kcy + kRadius + 3.0f, 70.0f, 12.0f, 8.5f,
-                             isDragging ? theme.highlight.r : (isLight ? 0.12f : 0.85f),
-                             isDragging ? theme.highlight.g : (isLight ? 0.12f : 0.88f),
-                             isDragging ? theme.highlight.b : (isLight ? 0.12f : 0.95f), 1.0f);
-            drawCenteredText(r, knob.display, kcx - 35.0f, kcy + kRadius + 15.0f, 70.0f, 12.0f, 8.0f,
-                             isDragging ? theme.highlight.r : (isLight ? 0.30f : 0.55f),
-                             isDragging ? theme.highlight.g : (isLight ? 0.30f : 0.60f),
-                             isDragging ? theme.highlight.b : (isLight ? 0.30f : 0.70f), 1.0f);
-        }
+        // 3. Below the GUI, right-aligned 'Change Instrument' option
+        float chgBtnW = 145.0f;
+        float chgBtnH = 24.0f;
+        float chgBtnX = cx + cw - 8.0f - chgBtnW;
+        float chgBtnY = guiY + guiH + 7.0f;
+        drawRoundedRect(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.12f, 0.14f, 0.18f, 0.95f);
+        drawRoundedRectOutline(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.28f, 0.32f, 0.40f, 0.85f, 1.0f);
+        drawText(r, "⇄  CHANGE INSTRUMENT", chgBtnX + 11.0f, chgBtnY + 7.0f, 8.5f, theme.textSecondary);
     }
 }
 
@@ -640,133 +712,366 @@ void TrackPropertiesPanel::renderChordFollowCard(BatchRenderer2D& r, const Theme
 
 void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeTokens& theme,
                                             TrackPropertiesDrawerData& data, float cx, float cy, float cw, bool isWide) {
-    float h = isWide ? 120.0f : 106.0f;
+    (void)isWide;
+    float h = computeMidiFxRackHeight(data);
     if (cy + h < bounds_.y || cy > bounds_.y + bounds_.h) return;
 
+    // Rack outer container
     drawRoundedRect(r, cx, cy, cw, h, 6.0f,
                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
     drawRoundedRectOutline(r, cx, cy, cw, h, 6.0f,
                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
 
-    drawText(r, "MIDI FX RACK (" + std::to_string(data.midiFx.size()) + ")", cx + 12.0f, cy + 10.0f, 10.5f,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+    Color accent = theme.primaryAccent;
 
+    // Signal/MIDI icon glyph (3 vertical rounded bars)
+    float iconX = cx + 12.0f;
+    float iconY = cy + 12.0f;
+    drawLine(r, iconX, iconY + 5.0f, iconX, iconY + 13.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+    drawLine(r, iconX + 4.0f, iconY + 2.0f, iconX + 4.0f, iconY + 16.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+    drawLine(r, iconX + 8.0f, iconY + 6.0f, iconX + 8.0f, iconY + 12.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+
+    // Header Title
+    drawText(r, "MIDI FX RACK (" + std::to_string(data.midiFx.size()) + ")", cx + 28.0f, cy + 11.0f, 10.5f,
+             accent.r, accent.g, accent.b, 1.0f);
+
+    // + ADD MIDI FX Button
     float addBtnW = 95.0f;
+    float addBtnH = 22.0f;
     float addBtnX = cx + cw - addBtnW - 10.0f;
-    drawButton(r, Rect2D(addBtnX, cy + 6.0f, addBtnW, 20.0f), "+ ADD MIDI FX",
-               theme.primaryAccent * 0.25f, theme.primaryAccent, theme.primaryAccent, 8.5f, 3.0f, 1.0f);
+    drawRoundedRect(r, addBtnX, cy + 8.0f, addBtnW, addBtnH, 4.0f, 0.12f, 0.15f, 0.20f, 0.95f);
+    drawRoundedRectOutline(r, addBtnX, cy + 8.0f, addBtnW, addBtnH, 4.0f, accent.r, accent.g, accent.b, 0.85f, 1.0f);
+    drawCenteredText(r, "+ ADD MIDI FX", addBtnX, cy + 8.0f, addBtnW, addBtnH, 8.5f, accent.r, accent.g, accent.b, 1.0f);
 
     if (data.midiFx.empty()) {
-        float phY = cy + 34.0f;
-        drawRoundedRect(r, cx + 10.0f, phY, cw - 20.0f, 30.0f, 4.0f, 0.08f, 0.09f, 0.12f, 0.65f);
-        drawRoundedRectOutline(r, cx + 10.0f, phY, cw - 20.0f, 30.0f, 4.0f,
+        float phY = cy + 38.0f;
+        drawRoundedRect(r, cx + 10.0f, phY, cw - 20.0f, 32.0f, 4.0f, 0.08f, 0.09f, 0.12f, 0.65f);
+        drawRoundedRectOutline(r, cx + 10.0f, phY, cw - 20.0f, 32.0f, 4.0f,
                                theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.40f, 1.0f);
-        drawText(r, "No MIDI FX loaded. Click + ADD MIDI FX to insert.", cx + 22.0f, phY + 9.0f, 9.0f,
+        drawText(r, "No MIDI FX loaded. Click + ADD MIDI FX to insert.", cx + 22.0f, phY + 10.0f, 9.0f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.80f);
-    } else {
-        float itemH = 28.0f;
-        float itemGap = 5.0f;
-        size_t maxItems = isWide ? 2 : 2;
-        for (size_t mi = 0; mi < data.midiFx.size() && mi < maxItems; ++mi) {
-            float itemY = cy + 32.0f + static_cast<float>(mi) * (itemH + itemGap);
-            const auto& fx = data.midiFx[mi];
+        return;
+    }
 
-            drawRoundedRect(r, cx + 10.0f, itemY, cw - 20.0f, itemH, 4.0f,
-                            theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.90f);
-            drawRoundedRectOutline(r, cx + 10.0f, itemY, cw - 20.0f, itemH, 4.0f,
-                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.50f, 1.0f);
+    float itemY = cy + 38.0f;
+    float itemW = cw - 16.0f;
+    float itemX = cx + 8.0f;
 
-            // Left Power/Status indicator dot
-            drawCircle(r, cx + 22.0f, itemY + itemH * 0.5f, 3.5f,
-                       theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b,
-                       fx.enabled ? 1.0f : 0.35f);
+    for (size_t mi = 0; mi < data.midiFx.size(); ++mi) {
+        auto& fx = data.midiFx[mi];
+        fx.ensureDefaultKnobs();
 
-            // FX Name
-            drawText(r, fx.name, cx + 32.0f, itemY + 8.0f, 10.0f,
-                     fx.enabled ? theme.textPrimary.r : theme.textMuted.r,
-                     fx.enabled ? theme.textPrimary.g : theme.textMuted.g,
-                     fx.enabled ? theme.textPrimary.b : theme.textMuted.b, 1.0f);
+        float itemH = fx.isExpanded ? 180.0f : 42.0f;
+        bool isFirst = (mi == 0);
+        bool isLast = (mi == data.midiFx.size() - 1);
 
-            // Status label
-            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 95.0f, itemY + 8.5f, 8.0f,
-                     fx.enabled ? theme.primaryAccent.r : theme.textMuted.r,
-                     fx.enabled ? theme.primaryAccent.g : theme.textMuted.g,
-                     fx.enabled ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
+        // Card Container
+        drawRoundedRect(r, itemX, itemY, itemW, itemH, 6.0f, 0.13f, 0.14f, 0.17f, 0.98f);
+        drawRoundedRectOutline(r, itemX, itemY, itemW, itemH, 6.0f,
+                               fx.enabled ? accent.r : 0.20f,
+                               fx.enabled ? accent.g : 0.22f,
+                               fx.enabled ? accent.b : 0.28f,
+                               fx.enabled ? 0.75f : 0.40f, 1.0f);
 
-            // Fullscreen FX button [⛶]
-            drawText(r, "[⛶]", cx + cw - 50.0f, itemY + 8.0f, 9.0f,
-                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.90f);
+        // 1. Vertical modern pill switch
+        float swX = itemX + 10.0f;
+        float swY = itemY + 8.0f;
+        drawModernPillSwitch(r, swX, swY, fx.enabled, accent);
 
-            // Delete button [X]
-            drawText(r, "[X]", cx + cw - 26.0f, itemY + 8.0f, 9.0f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+        // 2. Uppercase title
+        std::string upperName = fx.name;
+        for (char& c : upperName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        float titleX = itemX + 32.0f;
+        float titleY = itemY + 13.0f;
+        drawText(r, upperName, titleX, titleY, 11.0f,
+                 fx.enabled ? 0.96f : 0.55f,
+                 fx.enabled ? 0.97f : 0.58f,
+                 fx.enabled ? 0.99f : 0.65f, 1.0f);
+
+        // 3. Chevron next to title
+        float textW = static_cast<float>(upperName.length()) * 6.8f;
+        float chevX = titleX + textW + 8.0f;
+        float chevY = itemY + 20.0f;
+        if (fx.isExpanded) {
+            drawChevronUp(r, chevX, chevY, 7.0f, accent, 1.6f);
+        } else {
+            drawChevronDown(r, chevX, chevY, 7.0f, accent, 1.6f);
         }
+
+        // 4. Action buttons on right: Fullscreen (⛶), Move Up (^), Move Down (v), Trash (delete)
+        float fullX = itemX + itemW - 90.0f;
+        float upX = itemX + itemW - 68.0f;
+        float downX = itemX + itemW - 46.0f;
+        float delX = itemX + itemW - 20.0f;
+        float btnCenterY = itemY + 20.0f;
+
+        Color arrowCol = Color(0.55f, 0.60f, 0.68f, 0.85f);
+        Color dimmedArrow = Color(0.30f, 0.32f, 0.38f, 0.35f);
+
+        drawFullscreenIcon(r, fullX - 5.5f, btnCenterY - 5.5f, 11.0f, accent, 1.4f);
+        drawChevronUp(r, upX, btnCenterY, 8.5f, isFirst ? dimmedArrow : arrowCol, 1.6f);
+        drawChevronDown(r, downX, btnCenterY, 8.5f, isLast ? dimmedArrow : arrowCol, 1.6f);
+        drawTrashIcon(r, delX, btnCenterY, 13.0f, Color(0.55f, 0.60f, 0.68f, 0.85f), 1.3f);
+
+        // 5. If expanded: Fullscreen button + Inset Faceplate
+        if (fx.isExpanded) {
+            // Fullscreen button
+            float fullBtnW = 54.0f;
+            float fullBtnH = 20.0f;
+            float fullBtnX = itemX + itemW - fullBtnW - 10.0f;
+            float fullBtnY = itemY + 36.0f;
+            drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, 0.12f, 0.16f, 0.22f, 0.95f);
+            drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, accent.r, accent.g, accent.b, 0.65f, 1.0f);
+            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 4.5f, 11.0f, accent, 1.4f);
+            drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.0f, 8.5f, accent);
+
+            // Inset Hardware Faceplate
+            float fpX = itemX + 10.0f;
+            float fpY = itemY + 60.0f;
+            float fpW = itemW - 20.0f;
+            float fpH = 108.0f;
+
+            drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, 0.13f, 0.15f, 0.19f, 1.0f);
+            drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
+
+            // Knobs inside faceplate
+            size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+            if (knobCount > 0) {
+                float colW = fpW / static_cast<float>(knobCount);
+                for (size_t ki = 0; ki < knobCount; ++ki) {
+                    const auto& knob = fx.knobs[ki];
+                    float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
+                    float kcy = fpY + 36.0f;
+                    float kRad = 15.0f;
+
+                    drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
+                    drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                  Color(0.85f, 0.88f, 0.92f, 1.0f),
+                                                  Color(0.40f, 0.44f, 0.50f, 1.0f),
+                                                  Color(0.18f, 0.20f, 0.24f, 1.0f),
+                                                  -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                    drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
+
+                    constexpr float minA = -2.35619449f;
+                    constexpr float maxA = 2.35619449f;
+                    float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
+                    drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
+                             accent.r, accent.g, accent.b, 1.0f, 1.8f);
+
+                    float lblY = fpY + 58.0f;
+                    drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
+                                     0.70f, 0.75f, 0.85f, 1.0f);
+
+                    float pillW = 42.0f;
+                    float pillH = 15.0f;
+                    float pillX = kcx - (pillW * 0.5f);
+                    float pillY = fpY + 76.0f;
+                    drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
+                    drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
+                    drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                }
+            }
+        }
+
+        itemY += itemH + 8.0f;
     }
 }
 
 void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeTokens& theme,
                                              TrackPropertiesDrawerData& data, float cx, float cy, float cw, bool isWide) {
-    float h = isWide ? 120.0f : 106.0f;
+    (void)isWide;
+    float h = computeAudioFxRackHeight(data);
     if (cy + h < bounds_.y || cy > bounds_.y + bounds_.h) return;
 
+    // Rack outer container
     drawRoundedRect(r, cx, cy, cw, h, 6.0f,
                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
     drawRoundedRectOutline(r, cx, cy, cw, h, 6.0f,
                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
 
-    drawText(r, "AUDIO FX INSERT RACK (" + std::to_string(data.audioFx.size()) + ")", cx + 12.0f, cy + 10.0f, 10.5f,
-             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
+    // Audio FX Blue Accent (matches Eatsbeats reference image #1A73E8 / Sky Blue)
+    Color accent = Color(0.20f, 0.60f, 1.0f, 1.0f);
 
+    // Signal/waveform icon glyph (3 vertical rounded bars)
+    float iconX = cx + 12.0f;
+    float iconY = cy + 12.0f;
+    drawLine(r, iconX, iconY + 5.0f, iconX, iconY + 13.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+    drawLine(r, iconX + 4.0f, iconY + 2.0f, iconX + 4.0f, iconY + 16.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+    drawLine(r, iconX + 8.0f, iconY + 6.0f, iconX + 8.0f, iconY + 12.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
+
+    // Header Title
+    drawText(r, "AUDIO FX RACK (" + std::to_string(data.audioFx.size()) + ")", cx + 28.0f, cy + 11.0f, 10.5f,
+             accent.r, accent.g, accent.b, 1.0f);
+
+    // + ADD FX Button
     float addBtnW = 85.0f;
+    float addBtnH = 22.0f;
     float addBtnX = cx + cw - addBtnW - 10.0f;
-    drawButton(r, Rect2D(addBtnX, cy + 6.0f, addBtnW, 20.0f), "+ ADD FX",
-               theme.secondaryAccent * 0.25f, theme.secondaryAccent, theme.secondaryAccent, 8.5f, 3.0f, 1.0f);
+    drawRoundedRect(r, addBtnX, cy + 8.0f, addBtnW, addBtnH, 4.0f, 0.12f, 0.15f, 0.20f, 0.95f);
+    drawRoundedRectOutline(r, addBtnX, cy + 8.0f, addBtnW, addBtnH, 4.0f, accent.r, accent.g, accent.b, 0.85f, 1.0f);
+    drawCenteredText(r, "+ ADD FX", addBtnX, cy + 8.0f, addBtnW, addBtnH, 9.0f, accent.r, accent.g, accent.b, 1.0f);
 
     if (data.audioFx.empty()) {
-        float phY = cy + 34.0f;
-        drawRoundedRect(r, cx + 10.0f, phY, cw - 20.0f, 30.0f, 4.0f, 0.08f, 0.09f, 0.12f, 0.65f);
-        drawRoundedRectOutline(r, cx + 10.0f, phY, cw - 20.0f, 30.0f, 4.0f,
+        float phY = cy + 38.0f;
+        drawRoundedRect(r, cx + 10.0f, phY, cw - 20.0f, 32.0f, 4.0f, 0.08f, 0.09f, 0.12f, 0.65f);
+        drawRoundedRectOutline(r, cx + 10.0f, phY, cw - 20.0f, 32.0f, 4.0f,
                                theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.35f, 1.0f);
-        drawText(r, "No audio effects inserted. Click + ADD FX to insert.", cx + 22.0f, phY + 9.0f, 9.0f,
+        drawText(r, "No audio effects inserted. Click + ADD FX to insert.", cx + 22.0f, phY + 10.0f, 9.0f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
-    } else {
-        float itemH = 28.0f;
-        float itemGap = 5.0f;
-        size_t maxItems = isWide ? 2 : 2;
-        for (size_t fi = 0; fi < data.audioFx.size() && fi < maxItems; ++fi) {
-            float itemY = cy + 32.0f + static_cast<float>(fi) * (itemH + itemGap);
-            const auto& fx = data.audioFx[fi];
+        return;
+    }
 
-            drawRoundedRect(r, cx + 10.0f, itemY, cw - 20.0f, itemH, 4.0f,
-                            theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.90f);
-            drawRoundedRectOutline(r, cx + 10.0f, itemY, cw - 20.0f, itemH, 4.0f,
-                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.50f, 1.0f);
+    float itemY = cy + 38.0f;
+    float itemW = cw - 16.0f;
+    float itemX = cx + 8.0f;
 
-            // Left Power/Status indicator dot
-            drawCircle(r, cx + 22.0f, itemY + itemH * 0.5f, 3.5f,
-                       theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b,
-                       fx.enabled ? 1.0f : 0.35f);
+    for (size_t fi = 0; fi < data.audioFx.size(); ++fi) {
+        auto& fx = data.audioFx[fi];
+        fx.ensureDefaultKnobs();
 
-            // FX Name
-            drawText(r, fx.name, cx + 32.0f, itemY + 8.0f, 10.0f,
-                     fx.enabled ? theme.textPrimary.r : theme.textMuted.r,
-                     fx.enabled ? theme.textPrimary.g : theme.textMuted.g,
-                     fx.enabled ? theme.textPrimary.b : theme.textMuted.b, 1.0f);
+        float itemH = fx.isExpanded ? 180.0f : 42.0f;
+        bool isFirst = (fi == 0);
+        bool isLast = (fi == data.audioFx.size() - 1);
 
-            // Status label
-            drawText(r, fx.enabled ? "ACTIVE" : "BYPASS", cx + cw - 95.0f, itemY + 8.5f, 8.0f,
-                     fx.enabled ? theme.secondaryAccent.r : theme.textMuted.r,
-                     fx.enabled ? theme.secondaryAccent.g : theme.textMuted.g,
-                     fx.enabled ? theme.secondaryAccent.b : theme.textMuted.b, 1.0f);
+        // Card Container
+        drawRoundedRect(r, itemX, itemY, itemW, itemH, 6.0f, 0.13f, 0.14f, 0.17f, 0.98f);
+        drawRoundedRectOutline(r, itemX, itemY, itemW, itemH, 6.0f,
+                               fx.enabled ? accent.r : 0.20f,
+                               fx.enabled ? accent.g : 0.22f,
+                               fx.enabled ? accent.b : 0.28f,
+                               fx.enabled ? 0.75f : 0.40f, 1.0f);
 
-            // Fullscreen FX button [⛶]
-            drawText(r, "[⛶]", cx + cw - 50.0f, itemY + 8.0f, 9.0f,
-                     theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.90f);
+        // 1. Vertical modern pill switch
+        float swX = itemX + 10.0f;
+        float swY = itemY + 8.0f;
+        drawModernPillSwitch(r, swX, swY, fx.enabled, accent);
 
-            // Delete button [X]
-            drawText(r, "[X]", cx + cw - 26.0f, itemY + 8.0f, 9.0f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+        // 2. Uppercase title
+        std::string upperName = fx.name;
+        for (char& c : upperName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        float titleX = itemX + 32.0f;
+        float titleY = itemY + 13.0f;
+        drawText(r, upperName, titleX, titleY, 11.0f,
+                 fx.enabled ? 0.96f : 0.55f,
+                 fx.enabled ? 0.97f : 0.58f,
+                 fx.enabled ? 0.99f : 0.65f, 1.0f);
+
+        // 3. Chevron next to title
+        float textW = static_cast<float>(upperName.length()) * 6.8f;
+        float chevX = titleX + textW + 8.0f;
+        float chevY = itemY + 20.0f;
+        if (fx.isExpanded) {
+            drawChevronUp(r, chevX, chevY, 7.0f, accent, 1.6f);
+        } else {
+            drawChevronDown(r, chevX, chevY, 7.0f, accent, 1.6f);
         }
+
+        // 4. Action buttons on right: Fullscreen (⛶), Move Up (^), Move Down (v), Trash (delete)
+        float fullX = itemX + itemW - 90.0f;
+        float upX = itemX + itemW - 68.0f;
+        float downX = itemX + itemW - 46.0f;
+        float delX = itemX + itemW - 20.0f;
+        float btnCenterY = itemY + 20.0f;
+
+        Color arrowCol = Color(0.55f, 0.60f, 0.68f, 0.85f);
+        Color dimmedArrow = Color(0.30f, 0.32f, 0.38f, 0.35f);
+
+        drawFullscreenIcon(r, fullX - 5.5f, btnCenterY - 5.5f, 11.0f, accent, 1.4f);
+        drawChevronUp(r, upX, btnCenterY, 8.5f, isFirst ? dimmedArrow : arrowCol, 1.6f);
+        drawChevronDown(r, downX, btnCenterY, 8.5f, isLast ? dimmedArrow : arrowCol, 1.6f);
+        drawTrashIcon(r, delX, btnCenterY, 13.0f, Color(0.55f, 0.60f, 0.68f, 0.85f), 1.3f);
+
+        // 5. If expanded: Fullscreen button + Inset Faceplate
+        if (fx.isExpanded) {
+            // Fullscreen button
+            float fullBtnW = 54.0f;
+            float fullBtnH = 20.0f;
+            float fullBtnX = itemX + itemW - fullBtnW - 10.0f;
+            float fullBtnY = itemY + 36.0f;
+            drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, 0.12f, 0.16f, 0.22f, 0.95f);
+            drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, accent.r, accent.g, accent.b, 0.65f, 1.0f);
+            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 4.5f, 11.0f, accent, 1.4f);
+            drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.0f, 8.5f, accent);
+
+            // Inset Hardware Faceplate
+            float fpX = itemX + 10.0f;
+            float fpY = itemY + 60.0f;
+            float fpW = itemW - 20.0f;
+            float fpH = 108.0f;
+
+            bool isSnes = (fx.background == "snes");
+            bool isGrunge = (fx.background == "grunge");
+            bool isSilver = (fx.background == "silver");
+
+            float bgR = isSnes ? 0.85f : (isGrunge ? 0.19f : (isSilver ? 0.78f : 0.13f));
+            float bgG = isSnes ? 0.84f : (isGrunge ? 0.16f : (isSilver ? 0.80f : 0.15f));
+            float bgB = isSnes ? 0.81f : (isGrunge ? 0.14f : (isSilver ? 0.82f : 0.18f));
+
+            drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, bgR, bgG, bgB, 1.0f);
+            drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
+
+            // Knobs inside faceplate
+            size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+            if (knobCount > 0) {
+                float colW = fpW / static_cast<float>(knobCount);
+                for (size_t ki = 0; ki < knobCount; ++ki) {
+                    const auto& knob = fx.knobs[ki];
+                    float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
+                    float kcy = fpY + 36.0f;
+                    float kRad = 15.0f;
+
+                    drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
+
+                    if (isSnes) {
+                        drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                      Color(0.98f, 0.97f, 0.95f, 1.0f),
+                                                      Color(0.85f, 0.83f, 0.79f, 1.0f),
+                                                      Color(0.55f, 0.53f, 0.49f, 1.0f),
+                                                      -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                        drawCircleOutline(r, kcx, kcy, kRad, 0.45f, 0.43f, 0.40f, 0.9f, 1.0f);
+                    } else {
+                        drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                      Color(0.85f, 0.88f, 0.92f, 1.0f),
+                                                      Color(0.40f, 0.44f, 0.50f, 1.0f),
+                                                      Color(0.18f, 0.20f, 0.24f, 1.0f),
+                                                      -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                        drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
+                    }
+
+                    constexpr float minA = -2.35619449f;
+                    constexpr float maxA = 2.35619449f;
+                    float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
+                    float needleR = isSnes ? 0.38f : accent.r;
+                    float needleG = isSnes ? 0.28f : accent.g;
+                    float needleB = isSnes ? 0.65f : accent.b;
+                    drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
+                             needleR, needleG, needleB, 1.0f, 1.8f);
+
+                    float lblY = fpY + 58.0f;
+                    float lblR = isSnes ? 0.42f : 0.70f;
+                    float lblG = isSnes ? 0.35f : 0.75f;
+                    float lblB = isSnes ? 0.75f : 0.85f;
+                    drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
+                                     lblR, lblG, lblB, 1.0f);
+
+                    float pillW = 42.0f;
+                    float pillH = 15.0f;
+                    float pillX = kcx - (pillW * 0.5f);
+                    float pillY = fpY + 76.0f;
+                    if (isSnes) {
+                        drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.22f, 0.24f, 0.28f, 0.25f);
+                        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.35f, 0.38f, 0.44f, 0.35f, 1.0f);
+                        drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.30f, 0.32f, 0.38f, 1.0f);
+                    } else {
+                        drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
+                        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
+                        drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                    }
+                }
+            }
+        }
+
+        itemY += itemH + 8.0f;
     }
 }
 
@@ -903,9 +1208,9 @@ void TrackPropertiesPanel::renderClipSection(BatchRenderer2D& r, const ThemeToke
 
 void TrackPropertiesPanel::renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawRoundedRect(r, scrollbarBounds_.x, scrollbarBounds_.y, scrollbarBounds_.w, scrollbarBounds_.h, 2.5f,
-                    0.06f, 0.07f, 0.09f, 0.85f);
+                    Color(0.06f, 0.07f, 0.09f, 0.85f));
 
-    float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
+    float maxScroll = (std::max)(0.0f, totalContentHeight_ - bounds_.h);
     if (maxScroll <= 0.0f) return;
 
     float thumbRatio = std::clamp(bounds_.h / totalContentHeight_, 0.15f, 0.90f);
@@ -914,11 +1219,9 @@ void TrackPropertiesPanel::renderScrollbar(BatchRenderer2D& r, const ThemeTokens
     float thumbY = scrollbarBounds_.y + normScroll * (scrollbarBounds_.h - thumbH);
 
     bool isDragging = (dragMode_ == DragMode::Scrollbar);
+    Color thumbColor = isDragging ? theme.primaryAccent : Color(0.40f, 0.45f, 0.55f, 0.70f);
     drawRoundedRect(r, scrollbarBounds_.x, thumbY, scrollbarBounds_.w, thumbH, 2.5f,
-                    isDragging ? theme.primaryAccent.r : 0.40f,
-                    isDragging ? theme.primaryAccent.g : 0.45f,
-                    isDragging ? theme.primaryAccent.b : 0.55f,
-                    isDragging ? 1.0f : 0.70f);
+                    thumbColor, isDragging ? 1.0f : 0.70f);
 }
 
 TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept {
@@ -947,73 +1250,37 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         }
     }
 
-    // Header Card Hits
+    // Header Card Hits: [Icon] [Title] [EDIT]
     if (headerCardBounds_.contains(mx, my)) {
         float cx = headerCardBounds_.x;
         float cy = headerCardBounds_.y;
         float cw = headerCardBounds_.w;
         bool isWide = (bounds_.w >= 560.0f);
-        float h = isWide ? 42.0f : 38.0f;
-        float btnW = 24.0f;
-        float btnH = 24.0f;
-        float btnY = cy + (h - btnH) * 0.5f;
+        float h = isWide ? 40.0f : 36.0f;
 
-        if (isWide) {
-            float fzX = cx + cw - 8.0f - btnW;
-            float soloX = fzX - 5.0f - btnW;
-            float muteX = soloX - 5.0f - btnW;
-            float editBtnX = muteX - 5.0f - btnW;
-            float codeW = 54.0f;
-            float codeX = editBtnX - 8.0f - codeW;
-
-            if (mx >= fzX && mx <= fzX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::FreezeButton;
-                return res;
-            }
-            if (mx >= soloX && mx <= soloX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::SoloButton;
-                return res;
-            }
-            if (mx >= muteX && mx <= muteX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::MuteButton;
-                return res;
-            }
-            if (mx >= editBtnX && mx <= editBtnX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::RenameButton;
-                return res;
-            }
-            if (mx >= codeX && mx <= codeX + codeW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::CodeButton;
-                return res;
-            }
-        } else {
-            float soloX = cx + cw - 8.0f - btnW;
-            float muteX = soloX - 5.0f - btnW;
-            float editBtnX = muteX - 5.0f - btnW;
-
-            if (mx >= soloX && mx <= soloX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::SoloButton;
-                return res;
-            }
-            if (mx >= muteX && mx <= muteX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::MuteButton;
-                return res;
-            }
-            if (mx >= editBtnX && mx <= editBtnX + btnW && my >= btnY && my <= btnY + btnH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::RenameButton;
-                return res;
-            }
+        // 1. Track icon button on left
+        float iconBtnX = cx + 8.0f;
+        float iconBtnW = 24.0f;
+        float iconBtnH = 24.0f;
+        float iconBtnY = cy + (h - iconBtnH) * 0.5f;
+        if (mx >= iconBtnX && mx <= iconBtnX + iconBtnW && my >= iconBtnY && my <= iconBtnY + iconBtnH) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::TrackIcon;
+            return res;
         }
 
-        // Clicking anywhere on track title or header background also triggers track rename / properties dialog
+        // 2. Edit icon button on right
+        float editBtnW = 20.0f;
+        float editBtnH = 20.0f;
+        float editBtnX = cx + cw - 12.0f - editBtnW;
+        float editBtnY = cy + (h - editBtnH) * 0.5f;
+        if (mx >= editBtnX - 4.0f && mx <= editBtnX + editBtnW + 4.0f && my >= cy && my <= cy + h) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::RenameButton;
+            return res;
+        }
+
+        // Clicking anywhere on track title text also triggers track rename / properties dialog
         res.hit = true;
         res.area = TrackPropertiesHitArea::RenameButton;
         return res;
@@ -1039,106 +1306,116 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         }
     }
 
-    // Mixer Card Hits
-    if (mixerCardBounds_.contains(mx, my)) {
-        float cx = mixerCardBounds_.x;
-        float cy = mixerCardBounds_.y;
-        float cw = mixerCardBounds_.w;
-        bool isWide = (bounds_.w >= 560.0f);
-        float h = isWide ? 68.0f : 60.0f;
-        float sY = cy + (isWide ? 25.0f : 21.0f);
-        float sH = isWide ? 18.0f : 16.0f;
-
-        // Volume slider
-        float vLabelX = cx + 14.0f;
-        float vTrackX = vLabelX + (isWide ? 38.0f : 32.0f);
-        float panAreaW = isWide ? 85.0f : 74.0f;
-        float vTrackW = (cx + cw - panAreaW - 55.0f) - vTrackX;
-        if (vTrackW < 50.0f) vTrackW = 50.0f;
-
-        if (mx >= vTrackX - 6.0f && mx <= vTrackX + vTrackW + 6.0f && my >= sY - 6.0f && my <= sY + sH + 6.0f) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::VolumeSlider;
-            res.normVal = std::clamp((mx - vTrackX) / vTrackW, 0.0f, 1.0f);
-            return res;
-        }
-
-        // Pan rotary knob
-        float panKcx = cx + cw - (isWide ? 40.0f : 34.0f);
-        float panKcy = cy + (h * 0.5f) - (isWide ? 2.0f : 1.0f);
-        float kPanRadius = isWide ? 13.5f : 12.0f;
-        if (std::hypot(mx - panKcx, my - panKcy) <= kPanRadius + 6.0f) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::PanKnob;
-            return res;
-        }
-    }
-
-    // Faceplate Hits
+    // Faceplate Hits (Eatsbeats Original Instrument Layout)
     if (faceplateBounds_.contains(mx, my)) {
         float cx = faceplateBounds_.x;
         float cy = faceplateBounds_.y;
         float cw = faceplateBounds_.w;
         bool isWide = (bounds_.w >= 560.0f);
+        float faceH = isWide ? 260.0f : 240.0f;
 
-        // Prev & Next preset
-        if (mx >= cx + 8.0f && mx <= cx + 64.0f && my >= cy + 4.0f && my <= cy + 30.0f) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::InstrumentPrevPreset;
-            return res;
-        }
-        float nextX = cx + (isWide ? 70.0f : 58.0f);
-        if (mx >= nextX && mx <= nextX + (isWide ? 56.0f : 46.0f) && my >= cy + 4.0f && my <= cy + 30.0f) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::InstrumentNextPreset;
-            return res;
-        }
+        float fullBtnW = 54.0f;
+        float fullBtnH = 22.0f;
+        float fullBtnX = cx + cw - 10.0f - fullBtnW;
+        float fullBtnY = cy + 7.0f;
 
-        // Fullscreen Instrument button [cx + cw - fullBtnW - 8, cy + 4, fullBtnW, 26]
-        float fullBtnW = isWide ? 56.0f : 44.0f;
-        float fullBtnX = cx + cw - fullBtnW - 8.0f;
-        if (mx >= fullBtnX && mx <= fullBtnX + fullBtnW && my >= cy + 4.0f && my <= cy + 30.0f) {
+        float presetBtnW = 76.0f;
+        float presetBtnH = 22.0f;
+        float presetBtnX = fullBtnX - 6.0f - presetBtnW;
+        float presetBtnY = cy + 7.0f;
+
+        float designBtnW = 26.0f;
+        float designBtnH = 22.0f;
+        float designBtnX = presetBtnX - 6.0f - designBtnW;
+        float designBtnY = cy + 7.0f;
+
+        // Fullscreen button
+        if (mx >= fullBtnX && mx <= fullBtnX + fullBtnW && my >= fullBtnY && my <= fullBtnY + fullBtnH) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::FullscreenInstrument;
             return res;
         }
 
-        // Change instrument
-        float chgW = isWide ? 120.0f : 68.0f;
-        float chgX = fullBtnX - chgW - 6.0f;
-        if (mx >= chgX && mx <= chgX + chgW && my >= cy + 4.0f && my <= cy + 30.0f) {
+        // Preset button
+        if (mx >= presetBtnX && mx <= presetBtnX + presetBtnW && my >= presetBtnY && my <= presetBtnY + presetBtnH) {
             res.hit = true;
-            res.area = TrackPropertiesHitArea::ChangeInstrument;
+            res.area = TrackPropertiesHitArea::PresetButton;
             return res;
         }
 
-        // Knobs
-        size_t knobCount = std::min(data.knobs.size(), static_cast<size_t>(6));
-        if (isWide) {
-            float knobAreaW = cw - 230.0f;
-            float kStep = knobAreaW / static_cast<float>(std::max(size_t{1}, knobCount));
-            for (size_t k = 0; k < knobCount; ++k) {
-                float kcx = cx + 18.0f + static_cast<float>(k) * kStep + (kStep * 0.5f);
-                float kcy = cy + 36.0f + 75.0f;
-                if (std::hypot(mx - kcx, my - kcy) <= 24.0f) {
-                    res.hit = true;
-                    res.area = TrackPropertiesHitArea::InstrumentKnob;
-                    res.index = static_cast<int>(k);
-                    return res;
+        // Design button
+        if (mx >= designBtnX && mx <= designBtnX + designBtnW && my >= designBtnY && my <= designBtnY + designBtnH) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::DesignButton;
+            return res;
+        }
+
+        // Toggle Instrument Collapse / Expand by clicking title/chevron/dot
+        if (mx >= cx && mx <= designBtnX - 4.0f && my >= cy && my <= cy + 34.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::ToggleInstrumentExpand;
+            return res;
+        }
+
+        if (data.instrumentExpanded) {
+            // Change instrument button below GUI
+            float guiX = cx + 8.0f;
+            float guiY = cy + 34.0f;
+            float guiW = cw - 16.0f;
+            float guiH = faceH - 34.0f - 38.0f;
+
+            float chgBtnW = 145.0f;
+            float chgBtnH = 24.0f;
+            float chgBtnX = cx + cw - 8.0f - chgBtnW;
+            float chgBtnY = guiY + guiH + 7.0f;
+            if (mx >= chgBtnX && mx <= chgBtnX + chgBtnW && my >= chgBtnY && my <= chgBtnY + chgBtnH) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::ChangeInstrument;
+                return res;
+            }
+
+            // Knobs - first test guiPanel_ widget bounds if populated
+            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+                const auto& row = guiPanel_.rows[rIdx];
+                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                    const auto& w = row.widgets[wIdx];
+                    if (w.bounds.contains(mx, my)) {
+                        res.hit = true;
+                        res.area = TrackPropertiesHitArea::InstrumentKnob;
+                        res.index = static_cast<int>(rIdx * 6 + wIdx);
+                        res.normVal = w.currentVal;
+                        return res;
+                    }
                 }
             }
-        } else {
-            float colW = cw / 3.0f;
-            for (size_t k = 0; k < knobCount; ++k) {
-                int row = static_cast<int>(k / 3);
-                int col = static_cast<int>(k % 3);
-                float kcx = cx + static_cast<float>(col) * colW + (colW * 0.5f);
-                float kcy = cy + 32.0f + 34.0f + static_cast<float>(row) * 72.0f;
-                if (std::hypot(mx - kcx, my - kcy) <= 20.0f) {
-                    res.hit = true;
-                    res.area = TrackPropertiesHitArea::InstrumentKnob;
-                    res.index = static_cast<int>(k);
-                    return res;
+
+            size_t knobCount = std::min(data.knobs.size(), static_cast<size_t>(6));
+            if (isWide) {
+                float knobAreaW = guiW - 210.0f;
+                float kStep = knobAreaW / static_cast<float>(std::max(size_t{1}, knobCount));
+                for (size_t k = 0; k < knobCount; ++k) {
+                    float kcx = guiX + static_cast<float>(k) * kStep + (kStep * 0.5f);
+                    float kcy = guiY + guiH * 0.5f - 8.0f;
+                    if (std::hypot(mx - kcx, my - kcy) <= 22.0f) {
+                        res.hit = true;
+                        res.area = TrackPropertiesHitArea::InstrumentKnob;
+                        res.index = static_cast<int>(k);
+                        return res;
+                    }
+                }
+            } else {
+                float colW = guiW / 3.0f;
+                for (size_t k = 0; k < knobCount; ++k) {
+                    int row = static_cast<int>(k / 3);
+                    int col = static_cast<int>(k % 3);
+                    float kcx = guiX + static_cast<float>(col) * colW + (colW * 0.5f);
+                    float kcy = guiY + 28.0f + static_cast<float>(row) * 64.0f;
+                    if (std::hypot(mx - kcx, my - kcy) <= 20.0f) {
+                        res.hit = true;
+                        res.area = TrackPropertiesHitArea::InstrumentKnob;
+                        res.index = static_cast<int>(k);
+                        return res;
+                    }
                 }
             }
         }
@@ -1173,43 +1450,111 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
     }
 
     // MIDI FX Hits
+    float curCardY = chordFollowBounds_.y + chordFollowBounds_.h + 8.0f;
+    float mfxH = computeMidiFxRackHeight(data);
+    const_cast<TrackPropertiesPanel*>(this)->midiFxBounds_ = Rect2D(bounds_.x + 8.0f, curCardY, bounds_.w - 16.0f, mfxH);
+    curCardY += mfxH + 8.0f;
+
+    float afxH = computeAudioFxRackHeight(data);
+    const_cast<TrackPropertiesPanel*>(this)->audioFxBounds_ = Rect2D(bounds_.x + 8.0f, curCardY, bounds_.w - 16.0f, afxH);
+
     if (midiFxBounds_.contains(mx, my)) {
         float cx = midiFxBounds_.x;
         float cy = midiFxBounds_.y;
         float cw = midiFxBounds_.w;
         float addBtnW = 95.0f;
         float addBtnX = cx + cw - addBtnW - 10.0f;
-        if (mx >= addBtnX && mx <= addBtnX + addBtnW && my >= cy + 4.0f && my <= cy + 28.0f) {
+        if (mx >= addBtnX && mx <= addBtnX + addBtnW && my >= cy + 6.0f && my <= cy + 30.0f) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::AddMidiFx;
             return res;
         }
 
-        float itemH = 28.0f;
-        float itemGap = 5.0f;
-        for (size_t mi = 0; mi < data.midiFx.size() && mi < 2; ++mi) {
-            float itemY = cy + 32.0f + static_cast<float>(mi) * (itemH + itemGap);
-            // Delete button [X]
-            if (mx >= cx + cw - 32.0f && mx <= cx + cw - 10.0f && my >= itemY && my <= itemY + itemH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::RemoveMidiFx;
-                res.index = static_cast<int>(mi);
-                return res;
-            }
-            // Fullscreen FX [⛶]
-            if (mx >= cx + cw - 60.0f && mx <= cx + cw - 34.0f && my >= itemY && my <= itemY + itemH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::FullscreenMidiFx;
-                res.index = static_cast<int>(mi);
-                return res;
-            }
-            // Toggle / select item
-            if (mx >= cx + 10.0f && mx <= cx + cw - 64.0f && my >= itemY && my <= itemY + itemH) {
+        float itemY = cy + 38.0f;
+        float itemW = cw - 16.0f;
+        float itemX = cx + 8.0f;
+        for (size_t mi = 0; mi < data.midiFx.size(); ++mi) {
+            const auto& fx = data.midiFx[mi];
+            float itemH = fx.isExpanded ? 180.0f : 42.0f;
+
+            // Power switch toggle
+            if (mx >= itemX + 6.0f && mx <= itemX + 30.0f && my >= itemY + 4.0f && my <= itemY + 36.0f) {
                 res.hit = true;
                 res.area = TrackPropertiesHitArea::ToggleMidiFx;
                 res.index = static_cast<int>(mi);
                 return res;
             }
+
+            // Move Up (^)
+            if (mx >= itemX + itemW - 74.0f && mx <= itemX + itemW - 54.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::MoveMidiFxUp;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
+
+            // Move Down (v)
+            if (mx >= itemX + itemW - 53.0f && mx <= itemX + itemW - 34.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::MoveMidiFxDown;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
+
+            // Delete trash can
+            if (mx >= itemX + itemW - 32.0f && mx <= itemX + itemW - 6.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::RemoveMidiFx;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
+
+            // Fullscreen in header
+            if (mx >= itemX + itemW - 102.0f && mx <= itemX + itemW - 74.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::FullscreenMidiFx;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
+
+            // Title or Chevron (toggle expand/collapse)
+            if (mx >= itemX + 30.0f && mx <= itemX + itemW - 105.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::ToggleMidiFxExpand;
+                res.index = static_cast<int>(mi);
+                return res;
+            }
+
+            if (fx.isExpanded) {
+                // Fullscreen button
+                if (mx >= itemX + itemW - 70.0f && mx <= itemX + itemW - 6.0f && my >= itemY + 34.0f && my <= itemY + 58.0f) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::FullscreenMidiFx;
+                    res.index = static_cast<int>(mi);
+                    return res;
+                }
+
+                // Inset Knobs
+                float fpX = itemX + 10.0f;
+                float fpY = itemY + 60.0f;
+                float fpW = itemW - 20.0f;
+                if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
+                    size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+                    if (knobCount > 0) {
+                        float colW = fpW / static_cast<float>(knobCount);
+                        int kIdx = static_cast<int>((mx - fpX) / colW);
+                        if (kIdx >= 0 && kIdx < static_cast<int>(knobCount)) {
+                            res.hit = true;
+                            res.area = TrackPropertiesHitArea::MidiFxKnob;
+                            res.index = static_cast<int>(mi * 10 + kIdx);
+                            res.normVal = fx.knobs[kIdx].value;
+                            return res;
+                        }
+                    }
+                }
+            }
+
+            itemY += itemH + 8.0f;
         }
     }
 
@@ -1220,41 +1565,343 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         float cw = audioFxBounds_.w;
         float addBtnW = 85.0f;
         float addBtnX = cx + cw - addBtnW - 10.0f;
-        if (mx >= addBtnX && mx <= addBtnX + addBtnW && my >= cy + 4.0f && my <= cy + 28.0f) {
+        if (mx >= addBtnX && mx <= addBtnX + addBtnW && my >= cy + 6.0f && my <= cy + 30.0f) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::AddAudioFx;
             return res;
         }
 
-        float itemH = 28.0f;
-        float itemGap = 5.0f;
-        for (size_t fi = 0; fi < data.audioFx.size() && fi < 2; ++fi) {
-            float itemY = cy + 32.0f + static_cast<float>(fi) * (itemH + itemGap);
-            // Delete button [X]
-            if (mx >= cx + cw - 32.0f && mx <= cx + cw - 10.0f && my >= itemY && my <= itemY + itemH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::RemoveAudioFx;
-                res.index = static_cast<int>(fi);
-                return res;
-            }
-            // Fullscreen FX [⛶]
-            if (mx >= cx + cw - 60.0f && mx <= cx + cw - 34.0f && my >= itemY && my <= itemY + itemH) {
-                res.hit = true;
-                res.area = TrackPropertiesHitArea::FullscreenAudioFx;
-                res.index = static_cast<int>(fi);
-                return res;
-            }
-            // Toggle / select item
-            if (mx >= cx + 10.0f && mx <= cx + cw - 64.0f && my >= itemY && my <= itemY + itemH) {
+        float itemY = cy + 38.0f;
+        float itemW = cw - 16.0f;
+        float itemX = cx + 8.0f;
+        for (size_t fi = 0; fi < data.audioFx.size(); ++fi) {
+            const auto& fx = data.audioFx[fi];
+            float itemH = fx.isExpanded ? 180.0f : 42.0f;
+
+            // Power switch toggle
+            if (mx >= itemX + 6.0f && mx <= itemX + 30.0f && my >= itemY + 4.0f && my <= itemY + 36.0f) {
                 res.hit = true;
                 res.area = TrackPropertiesHitArea::ToggleAudioFx;
                 res.index = static_cast<int>(fi);
                 return res;
             }
+
+            // Move Up (^)
+            if (mx >= itemX + itemW - 74.0f && mx <= itemX + itemW - 54.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::MoveAudioFxUp;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
+
+            // Move Down (v)
+            if (mx >= itemX + itemW - 53.0f && mx <= itemX + itemW - 34.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::MoveAudioFxDown;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
+
+            // Delete trash can
+            if (mx >= itemX + itemW - 32.0f && mx <= itemX + itemW - 6.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::RemoveAudioFx;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
+
+            // Fullscreen in header
+            if (mx >= itemX + itemW - 102.0f && mx <= itemX + itemW - 74.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::FullscreenAudioFx;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
+
+            // Title or Chevron (toggle expand/collapse)
+            if (mx >= itemX + 30.0f && mx <= itemX + itemW - 105.0f && my >= itemY + 4.0f && my <= itemY + 34.0f) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::ToggleAudioFxExpand;
+                res.index = static_cast<int>(fi);
+                return res;
+            }
+
+            if (fx.isExpanded) {
+                // Fullscreen button
+                if (mx >= itemX + itemW - 70.0f && mx <= itemX + itemW - 6.0f && my >= itemY + 34.0f && my <= itemY + 58.0f) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::FullscreenAudioFx;
+                    res.index = static_cast<int>(fi);
+                    return res;
+                }
+
+                // Inset Knobs
+                float fpX = itemX + 10.0f;
+                float fpY = itemY + 60.0f;
+                float fpW = itemW - 20.0f;
+                if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
+                    size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+                    if (knobCount > 0) {
+                        float colW = fpW / static_cast<float>(knobCount);
+                        int kIdx = static_cast<int>((mx - fpX) / colW);
+                        if (kIdx >= 0 && kIdx < static_cast<int>(knobCount)) {
+                            res.hit = true;
+                            res.area = TrackPropertiesHitArea::AudioFxKnob;
+                            res.index = static_cast<int>(fi * 10 + kIdx);
+                            res.normVal = fx.knobs[kIdx].value;
+                            return res;
+                        }
+                    }
+                }
+            }
+
+            itemY += itemH + 8.0f;
         }
     }
 
     return res;
+}
+
+bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
+                                             TrackPropertiesDrawerData& data,
+                                             const ViewContext& ctx) {
+    if (showTrackRibbon_ && hit.area == TrackPropertiesHitArea::None) {
+        if (onTrackSelected) onTrackSelected(static_cast<uint32_t>(hit.index));
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::TrackIcon) {
+        if (onChooseTrackIcon) onChooseTrackIcon(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::RenameButton) {
+        if (ctx.onOpenValueEdit) {
+            ValueEditRequest req;
+            req.title = "EDIT TRACK PROPERTIES";
+            req.paramName = "Track Name";
+            req.isTextMode = true;
+            req.initialText = data.trackName;
+            req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+            req.onCommitText = [this, &data, trackIdx = data.trackIndex](const std::string& newName) {
+                if (!newName.empty()) {
+                    data.trackName = newName;
+                    if (trackIdx < data.allTrackNames.size()) {
+                        data.allTrackNames[trackIdx] = newName;
+                    }
+                    if (onTrackRenameWithText) {
+                        onTrackRenameWithText(trackIdx, newName);
+                    }
+                }
+            };
+            ctx.onOpenValueEdit(req);
+        }
+        if (onTrackRename) onTrackRename(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ColorSwatch) {
+        if (hit.index >= 0 && hit.index < 8) {
+            data.r = kQuickPalette[hit.index][0];
+            data.g = kQuickPalette[hit.index][1];
+            data.b = kQuickPalette[hit.index][2];
+            if (onColorChanged) onColorChanged(data.trackIndex, data.r, data.g, data.b);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::CodeButton) {
+        if (onOpenCodeEditor) onOpenCodeEditor(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MuteButton) {
+        data.mute = !data.mute;
+        if (onMuteToggled) onMuteToggled(data.trackIndex, data.mute);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::SoloButton) {
+        data.solo = !data.solo;
+        if (onSoloToggled) onSoloToggled(data.trackIndex, data.solo);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::FreezeButton) {
+        data.freeze = !data.freeze;
+        if (onFreezeToggled) onFreezeToggled(data.trackIndex, data.freeze);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::DesignButton) {
+        if (onOpenDesign) onOpenDesign(data.trackIndex);
+        if (ctx.onNavigateTab) ctx.onNavigateTab(WorkspaceView::Design);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::PresetButton) {
+        pluginDialog_.open(PluginDialogMode::SelectPreset, data.trackName, data.trackIndex);
+        if (onOpenPresets) onOpenPresets(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::InstrumentPrevPreset) {
+        if (onPrevPreset) onPrevPreset();
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::InstrumentNextPreset) {
+        if (onNextPreset) onNextPreset();
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::FullscreenInstrument) {
+        if (onOpenFullscreenDevice) onOpenFullscreenDevice(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ToggleInstrumentExpand) {
+        data.instrumentExpanded = !data.instrumentExpanded;
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::FullscreenMidiFx) {
+        if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(data.trackIndex, static_cast<size_t>(hit.index));
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::FullscreenAudioFx) {
+        if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(data.trackIndex, static_cast<size_t>(hit.index));
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ChangeInstrument) {
+        pluginDialog_.open(PluginDialogMode::AddInstrument, data.trackName, data.trackIndex);
+        if (onChangeInstrument) onChangeInstrument(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ToggleAudioFxExpand) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.audioFx.size())) {
+            data.audioFx[hit.index].isExpanded = !data.audioFx[hit.index].isExpanded;
+            if (onAudioFxChanged) onAudioFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ToggleMidiFxExpand) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.midiFx.size())) {
+            data.midiFx[hit.index].isExpanded = !data.midiFx[hit.index].isExpanded;
+            if (onMidiFxChanged) onMidiFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MoveAudioFxUp) {
+        if (hit.index > 0 && hit.index < static_cast<int>(data.audioFx.size())) {
+            size_t fromIdx = static_cast<size_t>(hit.index);
+            size_t toIdx = fromIdx - 1;
+            std::swap(data.audioFx[fromIdx], data.audioFx[toIdx]);
+            if (onReorderAudioFx) onReorderAudioFx(data.trackIndex, fromIdx, toIdx);
+            if (onAudioFxChanged) onAudioFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MoveAudioFxDown) {
+        if (hit.index >= 0 && hit.index + 1 < static_cast<int>(data.audioFx.size())) {
+            size_t fromIdx = static_cast<size_t>(hit.index);
+            size_t toIdx = fromIdx + 1;
+            std::swap(data.audioFx[fromIdx], data.audioFx[toIdx]);
+            if (onReorderAudioFx) onReorderAudioFx(data.trackIndex, fromIdx, toIdx);
+            if (onAudioFxChanged) onAudioFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MoveMidiFxUp) {
+        if (hit.index > 0 && hit.index < static_cast<int>(data.midiFx.size())) {
+            size_t fromIdx = static_cast<size_t>(hit.index);
+            size_t toIdx = fromIdx - 1;
+            std::swap(data.midiFx[fromIdx], data.midiFx[toIdx]);
+            if (onReorderMidiFx) onReorderMidiFx(data.trackIndex, fromIdx, toIdx);
+            if (onMidiFxChanged) onMidiFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MoveMidiFxDown) {
+        if (hit.index >= 0 && hit.index + 1 < static_cast<int>(data.midiFx.size())) {
+            size_t fromIdx = static_cast<size_t>(hit.index);
+            size_t toIdx = fromIdx + 1;
+            std::swap(data.midiFx[fromIdx], data.midiFx[toIdx]);
+            if (onReorderMidiFx) onReorderMidiFx(data.trackIndex, fromIdx, toIdx);
+            if (onMidiFxChanged) onMidiFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ChordFollowChip) {
+        ChordFollowMode modes[5] = {ChordFollowMode::Off, ChordFollowMode::Chord, ChordFollowMode::Bass, ChordFollowMode::Scale, ChordFollowMode::ColorLead};
+        if (hit.index >= 0 && hit.index < 5) {
+            data.chordFollowMode = modes[hit.index];
+            if (onChordFollowChanged) onChordFollowChanged(data.trackIndex, data.chordFollowMode);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::BakeChords) {
+        if (onBakeChords) onBakeChords(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::AddMidiFx) {
+        pluginDialog_.open(PluginDialogMode::AddMidiFx, data.trackName, data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::AddAudioFx) {
+        pluginDialog_.open(PluginDialogMode::AddAudioFx, data.trackName, data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::RemoveMidiFx) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.midiFx.size())) {
+            if (onRemoveMidiFx) onRemoveMidiFx(data.trackIndex, static_cast<size_t>(hit.index));
+            data.midiFx.erase(data.midiFx.begin() + hit.index);
+            if (onMidiFxChanged) onMidiFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::RemoveAudioFx) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.audioFx.size())) {
+            if (onRemoveAudioFx) onRemoveAudioFx(data.trackIndex, static_cast<size_t>(hit.index));
+            data.audioFx.erase(data.audioFx.begin() + hit.index);
+            if (onAudioFxChanged) onAudioFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ToggleMidiFx) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.midiFx.size())) {
+            data.midiFx[hit.index].enabled = !data.midiFx[hit.index].enabled;
+            if (onToggleMidiFx) onToggleMidiFx(data.trackIndex, static_cast<size_t>(hit.index), data.midiFx[hit.index].enabled);
+            if (onMidiFxChanged) onMidiFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ToggleAudioFx) {
+        if (hit.index >= 0 && hit.index < static_cast<int>(data.audioFx.size())) {
+            data.audioFx[hit.index].enabled = !data.audioFx[hit.index].enabled;
+            if (onToggleAudioFx) onToggleAudioFx(data.trackIndex, static_cast<size_t>(hit.index), data.audioFx[hit.index].enabled);
+            if (onAudioFxChanged) onAudioFxChanged(data.trackIndex);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data,
@@ -1277,6 +1924,8 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
     // Pointer Down
     if (ev.action == PointerAction::Down) {
+        scroller_.stop();
+
         // Check Scrollbar Hit
         if (scrollbarBounds_.contains(ev.x, ev.y)) {
             dragMode_ = DragMode::Scrollbar;
@@ -1287,77 +1936,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
         auto hit = hitTest(ev.x, ev.y, data);
         if (hit.hit) {
-            if (showTrackRibbon_ && hit.area == TrackPropertiesHitArea::None) {
-                // Ribbon tab selection
-                if (onTrackSelected) onTrackSelected(static_cast<uint32_t>(hit.index));
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::RenameButton) {
-                if (ctx.onOpenValueEdit) {
-                    ValueEditRequest req;
-                    req.title = "EDIT TRACK PROPERTIES";
-                    req.paramName = "Track Name";
-                    req.isTextMode = true;
-                    req.initialText = data.trackName;
-                    req.currentIconRef = data.iconRef;
-                    req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-                    if (onChooseTrackIcon) {
-                        req.actionLinkLabel = "🎨 Choose Track Icon...";
-                        req.onActionLink = [this, trackIdx = data.trackIndex]() {
-                            if (onChooseTrackIcon) onChooseTrackIcon(trackIdx);
-                        };
-                    }
-                    req.onCommitText = [this, &data, trackIdx = data.trackIndex](const std::string& newName) {
-                        if (!newName.empty()) {
-                            data.trackName = newName;
-                            if (trackIdx < data.allTrackNames.size()) {
-                                data.allTrackNames[trackIdx] = newName;
-                            }
-                            if (onTrackRenameWithText) {
-                                onTrackRenameWithText(trackIdx, newName);
-                            }
-                        }
-                    };
-                    ctx.onOpenValueEdit(req);
-                }
-                if (onTrackRename) onTrackRename(data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::ColorSwatch) {
-                if (hit.index >= 0 && hit.index < 8) {
-                    data.r = kQuickPalette[hit.index][0];
-                    data.g = kQuickPalette[hit.index][1];
-                    data.b = kQuickPalette[hit.index][2];
-                    if (onColorChanged) onColorChanged(data.trackIndex, data.r, data.g, data.b);
-                }
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::CodeButton) {
-                if (onOpenCodeEditor) onOpenCodeEditor(data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::MuteButton) {
-                data.mute = !data.mute;
-                if (onMuteToggled) onMuteToggled(data.trackIndex, data.mute);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::SoloButton) {
-                data.solo = !data.solo;
-                if (onSoloToggled) onSoloToggled(data.trackIndex, data.solo);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::FreezeButton) {
-                data.freeze = !data.freeze;
-                if (onFreezeToggled) onFreezeToggled(data.trackIndex, data.freeze);
-                return true;
-            }
-
+            // Check continuous drag controls:
             if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
                 if (ev.button == PointerButton::Right) {
                     if (ctx.onOpenValueEdit) {
@@ -1412,36 +1991,6 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 return true;
             }
 
-            if (hit.area == TrackPropertiesHitArea::InstrumentPrevPreset) {
-                if (onPrevPreset) onPrevPreset();
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::InstrumentNextPreset) {
-                if (onNextPreset) onNextPreset();
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::FullscreenInstrument) {
-                if (onOpenFullscreenDevice) onOpenFullscreenDevice(data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::FullscreenMidiFx) {
-                if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(data.trackIndex, static_cast<size_t>(hit.index));
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::FullscreenAudioFx) {
-                if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(data.trackIndex, static_cast<size_t>(hit.index));
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::ChangeInstrument) {
-                pluginDialog_.open(PluginDialogMode::AddInstrument, data.trackName, data.trackIndex);
-                return true;
-            }
-
             if (hit.area == TrackPropertiesHitArea::InstrumentKnob) {
                 dragMode_ = DragMode::InstrumentKnob;
                 activeKnobIndex_ = hit.index;
@@ -1449,67 +1998,95 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 dragStartVal_ = (activeKnobIndex_ < static_cast<int>(data.knobs.size()))
                                     ? data.knobs[activeKnobIndex_].value
                                     : 0.5f;
+                draggingRow_ = activeKnobIndex_ / 6;
+                draggingWidget_ = activeKnobIndex_ % 6;
                 return true;
             }
 
-            if (hit.area == TrackPropertiesHitArea::ChordFollowChip) {
-                ChordFollowMode modes[5] = {ChordFollowMode::Off, ChordFollowMode::Chord, ChordFollowMode::Bass, ChordFollowMode::Scale, ChordFollowMode::ColorLead};
-                if (hit.index >= 0 && hit.index < 5) {
-                    data.chordFollowMode = modes[hit.index];
-                    if (onChordFollowChanged) onChordFollowChanged(data.trackIndex, data.chordFollowMode);
+            if (hit.area == TrackPropertiesHitArea::AudioFxKnob) {
+                dragMode_ = DragMode::AudioFxKnob;
+                activeFxIndex_ = static_cast<size_t>(hit.index / 10);
+                activeKnobIndex_ = hit.index % 10;
+                dragStartY_ = ev.y;
+                if (activeFxIndex_ < data.audioFx.size() &&
+                    static_cast<size_t>(activeKnobIndex_) < data.audioFx[activeFxIndex_].knobs.size()) {
+                    dragStartVal_ = data.audioFx[activeFxIndex_].knobs[activeKnobIndex_].value;
+                } else {
+                    dragStartVal_ = 0.5f;
                 }
                 return true;
             }
 
-            if (hit.area == TrackPropertiesHitArea::BakeChords) {
-                if (onBakeChords) onBakeChords(data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::AddMidiFx) {
-                pluginDialog_.open(PluginDialogMode::AddMidiFx, data.trackName, data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::AddAudioFx) {
-                pluginDialog_.open(PluginDialogMode::AddAudioFx, data.trackName, data.trackIndex);
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::RemoveMidiFx) {
-                if (hit.index >= 0 && hit.index < static_cast<int>(data.midiFx.size())) {
-                    if (onRemoveMidiFx) onRemoveMidiFx(data.trackIndex, static_cast<size_t>(hit.index));
-                    data.midiFx.erase(data.midiFx.begin() + hit.index);
+            if (hit.area == TrackPropertiesHitArea::MidiFxKnob) {
+                dragMode_ = DragMode::MidiFxKnob;
+                activeFxIndex_ = static_cast<size_t>(hit.index / 10);
+                activeKnobIndex_ = hit.index % 10;
+                dragStartY_ = ev.y;
+                if (activeFxIndex_ < data.midiFx.size() &&
+                    static_cast<size_t>(activeKnobIndex_) < data.midiFx[activeFxIndex_].knobs.size()) {
+                    dragStartVal_ = data.midiFx[activeFxIndex_].knobs[activeKnobIndex_].value;
+                } else {
+                    dragStartVal_ = 0.5f;
                 }
                 return true;
             }
 
-            if (hit.area == TrackPropertiesHitArea::RemoveAudioFx) {
-                if (hit.index >= 0 && hit.index < static_cast<int>(data.audioFx.size())) {
-                    if (onRemoveAudioFx) onRemoveAudioFx(data.trackIndex, static_cast<size_t>(hit.index));
-                    data.audioFx.erase(data.audioFx.begin() + hit.index);
-                }
+            // Clickable button / chip / swatch targets:
+            if (ev.type == PointerType::Touch) {
+                // Touch: queue hit as pending; if user drags to scroll, cancel it
+                pendingHitResult_ = hit;
+                touchStartY_ = ev.y;
+                touchStartX_ = ev.x;
+                touchStartScrollY_ = scrollY_;
+                touchDragCommitted_ = false;
+                touchStartTimeMs_ = ev.timestampMs;
+                scroller_.reset();
+                scroller_.addSample(ev.x, ev.y, ev.timestampMs);
                 return true;
+            } else {
+                // Desktop Mouse: crisp immediate trigger
+                return executeHitAction(hit, data, ctx);
             }
+        }
 
-            if (hit.area == TrackPropertiesHitArea::ToggleMidiFx) {
-                if (hit.index >= 0 && hit.index < static_cast<int>(data.midiFx.size())) {
-                    data.midiFx[hit.index].enabled = !data.midiFx[hit.index].enabled;
-                }
-                return true;
-            }
-
-            if (hit.area == TrackPropertiesHitArea::ToggleAudioFx) {
-                if (hit.index >= 0 && hit.index < static_cast<int>(data.audioFx.size())) {
-                    data.audioFx[hit.index].enabled = !data.audioFx[hit.index].enabled;
-                }
-                return true;
-            }
+        // Hit empty area of panel: allow drag to scroll directly!
+        if (bounds_.contains(ev.x, ev.y)) {
+            pendingHitResult_ = TrackPropertiesHitResult{};
+            touchStartY_ = ev.y;
+            touchStartX_ = ev.x;
+            touchStartScrollY_ = scrollY_;
+            touchDragCommitted_ = (ev.type != PointerType::Touch);
+            dragMode_ = DragMode::TouchScroll;
+            scroller_.reset();
+            scroller_.addSample(ev.x, ev.y, ev.timestampMs);
+            return true;
         }
     }
 
     // Pointer Move
     if (ev.action == PointerAction::Move) {
+        if (dragMode_ == DragMode::TouchScroll) {
+            float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
+            scrollY_ = std::clamp(touchStartScrollY_ - (ev.y - touchStartY_), 0.0f, maxScroll);
+            scroller_.addSample(ev.x, ev.y, ev.timestampMs);
+            if (onScrollChanged) onScrollChanged(scrollY_);
+            return true;
+        }
+
+        if (pendingHitResult_.hit && !touchDragCommitted_) {
+            float dy = std::abs(ev.y - touchStartY_);
+            float slop = (ev.type == PointerType::Touch) ? 14.0f : 4.0f;
+            if (dy > slop) {
+                touchDragCommitted_ = true;
+                dragMode_ = DragMode::TouchScroll;
+                float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
+                scrollY_ = std::clamp(touchStartScrollY_ - (ev.y - touchStartY_), 0.0f, maxScroll);
+                scroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                if (onScrollChanged) onScrollChanged(scrollY_);
+                return true;
+            }
+        }
+
         if (dragMode_ == DragMode::Scrollbar) {
             float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
             if (maxScroll > 0.0f) {
@@ -1550,18 +2127,133 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             float newVal = std::clamp(dragStartVal_ + (dy / 150.0f), 0.0f, 1.0f);
             data.knobs[activeKnobIndex_].value = newVal;
             data.knobs[activeKnobIndex_].display = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
+            if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
+                draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
+                guiPanel_.rows[draggingRow_].widgets[draggingWidget_].currentVal = newVal;
+            }
             if (onParamChanged) {
                 onParamChanged(data.trackIndex, data.knobs[activeKnobIndex_].name, newVal);
             }
             return true;
         }
+
+        if (dragMode_ == DragMode::AudioFxKnob && activeFxIndex_ < data.audioFx.size()) {
+            auto& fx = data.audioFx[activeFxIndex_];
+            if (activeKnobIndex_ >= 0 && static_cast<size_t>(activeKnobIndex_) < fx.knobs.size()) {
+                float dy = dragStartY_ - ev.y;
+                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f), 0.0f, 1.0f);
+                fx.knobs[activeKnobIndex_].value = newVal;
+
+                const auto& kname = fx.knobs[activeKnobIndex_].name;
+                if (kname == "BITS" || kname == "bits") {
+                    int b = 4 + static_cast<int>(std::round(newVal * 12.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(b) + " bit";
+                } else if (kname == "CRUSH" || kname == "crush") {
+                    int c = 1 + static_cast<int>(std::round(newVal * 31.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(c) + "x";
+                } else if (kname == "DRIVE" || kname == "drive") {
+                    float d = 1.0f + newVal * 9.0f;
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.1f x", d);
+                    fx.knobs[activeKnobIndex_].display = buf;
+                    fx.drive = newVal;
+                } else if (kname == "MIX" || kname == "mix") {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.1f", newVal);
+                    fx.knobs[activeKnobIndex_].display = buf;
+                    fx.mix = newVal;
+                } else if (kname == "TIME" || kname == "time") {
+                    int ms = 10 + static_cast<int>(std::round(newVal * 990.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(ms) + " ms";
+                } else if (kname == "FEEDBACK" || kname == "feedback" || kname == "FDBK") {
+                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(pct) + "%";
+                } else if (kname == "RATE" || kname == "rate") {
+                    float hz = 0.1f + newVal * 9.9f;
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.1f Hz", hz);
+                    fx.knobs[activeKnobIndex_].display = buf;
+                } else if (kname == "DEPTH" || kname == "depth") {
+                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(pct) + "%";
+                } else {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.2f", newVal);
+                    fx.knobs[activeKnobIndex_].display = buf;
+                }
+
+                if (activeKnobIndex_ == 0 && fx.knobs.size() == 2) fx.drive = newVal;
+
+                if (onAudioFxParamChanged) {
+                    onAudioFxParamChanged(data.trackIndex, kname, newVal);
+                }
+                if (onAudioFxChanged) {
+                    onAudioFxChanged(data.trackIndex);
+                }
+                return true;
+            }
+        }
+
+        if (dragMode_ == DragMode::MidiFxKnob && activeFxIndex_ < data.midiFx.size()) {
+            auto& fx = data.midiFx[activeFxIndex_];
+            if (activeKnobIndex_ >= 0 && static_cast<size_t>(activeKnobIndex_) < fx.knobs.size()) {
+                float dy = dragStartY_ - ev.y;
+                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f), 0.0f, 1.0f);
+                fx.knobs[activeKnobIndex_].value = newVal;
+
+                const auto& kname = fx.knobs[activeKnobIndex_].name;
+                if (kname == "RATE" || kname == "rate") {
+                    int div = static_cast<int>(4 * std::pow(2.0f, std::round(newVal * 3.0f)));
+                    fx.knobs[activeKnobIndex_].display = "1/" + std::to_string(div);
+                } else if (kname == "STEPS" || kname == "steps") {
+                    int s = 1 + static_cast<int>(std::round(newVal * 15.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(s);
+                } else if (kname == "OCTAVES" || kname == "octaves") {
+                    int oct = 1 + static_cast<int>(std::round(newVal * 3.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(oct);
+                } else if (kname == "GATE" || kname == "gate" || kname == "SWING" || kname == "swing" ||
+                           kname == "CHANCE" || kname == "chance") {
+                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                    fx.knobs[activeKnobIndex_].display = std::to_string(pct) + "%";
+                } else {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.2f", newVal);
+                    fx.knobs[activeKnobIndex_].display = buf;
+                }
+
+                if (onMidiFxParamChanged) {
+                    onMidiFxParamChanged(data.trackIndex, kname, newVal);
+                }
+                if (onMidiFxChanged) {
+                    onMidiFxChanged(data.trackIndex);
+                }
+                return true;
+            }
+        }
     }
 
     // Pointer Up or Cancel
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (dragMode_ == DragMode::TouchScroll) {
+            dragMode_ = DragMode::None;
+            scroller_.endDrag(ev.timestampMs);
+            return true;
+        }
+
+        if (pendingHitResult_.hit) {
+            TrackPropertiesHitResult hitToExec = pendingHitResult_;
+            pendingHitResult_ = TrackPropertiesHitResult{};
+            if (!touchDragCommitted_ && ev.action == PointerAction::Up) {
+                return executeHitAction(hitToExec, data, ctx);
+            }
+            return true;
+        }
+
         if (dragMode_ != DragMode::None) {
             dragMode_ = DragMode::None;
             activeKnobIndex_ = -1;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
             return true;
         }
     }

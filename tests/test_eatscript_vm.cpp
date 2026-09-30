@@ -38,7 +38,19 @@ def process(time, freq, note, params):
     assert(foundDef);
     assert(foundIndent);
     assert(foundReturn);
-    std::cout << "  -> Passed: Correctly identified keywords, indentation blocks, and string literals." << std::endl;
+
+    // Test hexadecimal and binary numbers
+    Lexer hexLexer("color = 0xFF00FF66\nmask = 0b101010\n");
+    auto hexTokens = hexLexer.tokenize();
+    assert(hexTokens.size() >= 5);
+    assert(hexTokens[2].type == TokenType::Number);
+    assert(hexTokens[2].numberValue == static_cast<double>(0xFF00FF66ULL));
+    assert(hexTokens[2].text == "0xFF00FF66");
+    assert(hexTokens[5].type == TokenType::Number);
+    assert(hexTokens[5].numberValue == 42.0);
+    assert(hexTokens[5].text == "0b101010");
+
+    std::cout << "  -> Passed: Correctly identified keywords, indentation blocks, hex/binary numbers, and string literals." << std::endl;
 }
 
 void testParser() {

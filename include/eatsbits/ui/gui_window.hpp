@@ -17,6 +17,7 @@
 #include "score/score_layout_engine.hpp"
 #include "../audio/audio_engine.hpp"
 #include "../project/preset_loader.hpp"
+#include "../project/preset_manager.hpp"
 #include "../project/diff_history_manager.hpp"
 #include "widgets/note_selection_sidebar.hpp"
 #include "widgets/piano_keyboard.hpp"
@@ -629,6 +630,8 @@ public:
     void toggleFullscreenDevice() noexcept;
     [[nodiscard]] FullscreenDeviceModal& getFullscreenDeviceModal() noexcept { return fullscreenDeviceModal_; }
     [[nodiscard]] const FullscreenDeviceModal& getFullscreenDeviceModal() const noexcept { return fullscreenDeviceModal_; }
+    [[nodiscard]] const DeviceTarget& getLastFocusedDevice() const noexcept { return lastFocusedDevice_; }
+    void setLastFocusedDevice(const DeviceTarget& target) noexcept { lastFocusedDevice_ = target; }
 
     // Workspace View Navigation
     [[nodiscard]] WorkspaceView getActiveView() const noexcept { return activeView_; }
@@ -861,6 +864,11 @@ public:
     void setBrowserTab(BrowserTab tab) noexcept { browserTab_ = tab; }
     void setBrowserCategory(const std::string& cat) noexcept { browserCategory_ = cat; }
     [[nodiscard]] const std::string& getBrowserCategory() const noexcept { return browserCategory_; }
+    void openPresetDialog(PluginDialogMode mode = PluginDialogMode::SelectPreset, uint32_t trackIndex = 0);
+    void closePresetDialog() noexcept;
+    [[nodiscard]] bool isPresetDialogOpen() const noexcept;
+    [[nodiscard]] PresetSearchDialog& getPresetSearchDialog() noexcept { return presetSearchDialog_; }
+    [[nodiscard]] const PresetSearchDialog& getPresetSearchDialog() const noexcept { return presetSearchDialog_; }
     void loadPresetToSelectedTrack(size_t presetIndex);
     void runMacro(size_t macroIndex);
     bool saveProjectToFile(const std::string& filePath = "project.eats");
@@ -893,6 +901,9 @@ public:
     void syncActiveClipToEditView(uint32_t trackIdx, int clipIdx = -1);
     void syncArrangerToSequencer();
     void syncArrangerFromSequencer();
+    void syncTrackAudioFxToEngine(uint32_t trackIdx);
+    void syncTrackMidiFxToEngine(uint32_t trackIdx);
+    void syncAllTracksFxToEngine();
     [[nodiscard]] int getPreviewingPitch() const noexcept { return previewingPitch_; }
     [[nodiscard]] float getPreviewingVelocity() const noexcept { return previewingVelocity_; }
     void setPreviewingVelocity(float vel) noexcept { previewingVelocity_ = std::clamp(vel, 0.0f, 1.0f); }
@@ -1311,7 +1322,9 @@ private:
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;
+    PresetSearchDialog presetSearchDialog_;
     FullscreenDeviceModal fullscreenDeviceModal_;
+    DeviceTarget lastFocusedDevice_{DeviceTargetType::Instrument, 0, -1, ""};
     KineticScroller kineticScroller_;
     GestureRecognizer gestureRecognizer_;
 

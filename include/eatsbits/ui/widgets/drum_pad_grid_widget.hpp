@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <unordered_map>
 #include <functional>
 #include "../geometry.hpp"
 #include "../theme.hpp"
@@ -90,7 +91,7 @@ private:
     std::vector<DrumPadDef> corePads_;
     std::vector<DrumPadDef> percPads_;
 
-    int activePointerPadIndex_{-1};
+    std::unordered_map<int, int> activePadPointers_; // ev.id -> padIndex
 };
 
 } // namespace eatsbits::ui

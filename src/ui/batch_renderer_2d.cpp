@@ -1967,6 +1967,149 @@ void BatchRenderer2D::drawCircle(float cx, float cy, float radius, float r, floa
     drawRoundedRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, radius, r, g, b, a);
 }
 
+void BatchRenderer2D::drawCircleRadialGradient(float cx, float cy, float radius,
+                                               float innerR, float innerG, float innerB, float innerA,
+                                               float outerR, float outerG, float outerB, float outerA,
+                                               float offX, float offY, int segments) {
+    if (radius <= 0.0f) return;
+
+    // 1. Draw solid anti-aliased base circle underneath using mode 2 analytical SDF.
+    // This seals the silhouette and prevents underlying chassis/halo colors from bleeding through
+    // internal mesh edges during 4x MSAA subpixel rasterization.
+    drawCircle(cx, cy, radius, outerR, outerG, outerB, outerA);
+
+    int segs = std::clamp(segments, 8, 128);
+    uint32_t colInner = packColor(innerR, innerG, innerB, innerA);
+    uint32_t colOuter = packColor(outerR, outerG, outerB, outerA);
+
+    float fx = cx + offX;
+    float fy = cy + offY;
+    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 0, {0, 0}};
+    applyTransform(centerV.x, centerV.y);
+
+    const float step = 6.28318530718f / static_cast<float>(segs);
+    for (int i = 0; i < segs; ++i) {
+        float theta0 = static_cast<float>(i) * step;
+        float theta1 = static_cast<float>(i + 1) * step;
+
+        Vertex2D p0{cx + radius * std::cos(theta0), cy + radius * std::sin(theta0), 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        Vertex2D p1{cx + radius * std::cos(theta1), cy + radius * std::sin(theta1), 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        applyTransform(p0.x, p0.y);
+        applyTransform(p1.x, p1.y);
+
+        vertices_.push_back(centerV);
+        vertices_.push_back(p0);
+        vertices_.push_back(p1);
+    }
+}
+
+void BatchRenderer2D::drawCircleRadial3StopGradient(float cx, float cy, float radius,
+                                                   float innerR, float innerG, float innerB, float innerA,
+                                                   float midR, float midG, float midB, float midA,
+                                                   float outerR, float outerG, float outerB, float outerA,
+                                                   float offX, float offY, float midStop,
+                                                   int segments) {
+    if (radius <= 0.0f) return;
+
+    // 1. Draw solid anti-aliased base circle underneath using mode 2 analytical SDF.
+    // This seals the silhouette and prevents underlying chassis/halo colors from bleeding through
+    // internal mesh edges during 4x MSAA subpixel rasterization.
+    drawCircle(cx, cy, radius, midR, midG, midB, outerA);
+
+    int segs = std::clamp(segments, 8, 128);
+    float clampedMidStop = std::clamp(midStop, 0.05f, 0.95f);
+    float midRad = radius * clampedMidStop;
+
+    uint32_t colInner = packColor(innerR, innerG, innerB, innerA);
+    uint32_t colMid = packColor(midR, midG, midB, midA);
+    uint32_t colOuter = packColor(outerR, outerG, outerB, outerA);
+
+    float fx = cx + offX;
+    float fy = cy + offY;
+    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 0, {0, 0}};
+    applyTransform(centerV.x, centerV.y);
+
+    // Mid ring center interpolates smoothly from focal point towards circle center
+    float midCx = fx + (cx - fx) * clampedMidStop;
+    float midCy = fy + (cy - fy) * clampedMidStop;
+
+    const float step = 6.28318530718f / static_cast<float>(segs);
+    for (int i = 0; i < segs; ++i) {
+        float theta0 = static_cast<float>(i) * step;
+        float theta1 = static_cast<float>(i + 1) * step;
+
+        float c0 = std::cos(theta0), s0 = std::sin(theta0);
+        float c1 = std::cos(theta1), s1 = std::sin(theta1);
+
+        Vertex2D m0{midCx + midRad * c0, midCy + midRad * s0, 0.0f, 0.0f, colMid, 0, {0, 0}};
+        Vertex2D m1{midCx + midRad * c1, midCy + midRad * s1, 0.0f, 0.0f, colMid, 0, {0, 0}};
+        applyTransform(m0.x, m0.y);
+        applyTransform(m1.x, m1.y);
+
+        Vertex2D p0{cx + radius * c0, cy + radius * s0, 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        Vertex2D p1{cx + radius * c1, cy + radius * s1, 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        applyTransform(p0.x, p0.y);
+        applyTransform(p1.x, p1.y);
+
+        // Inner fan (inner -> mid)
+        vertices_.push_back(centerV);
+        vertices_.push_back(m0);
+        vertices_.push_back(m1);
+
+        // Outer ring quad (mid -> outer)
+        vertices_.push_back(m0);
+        vertices_.push_back(p0);
+        vertices_.push_back(p1);
+
+        vertices_.push_back(m0);
+        vertices_.push_back(p1);
+        vertices_.push_back(m1);
+    }
+}
+
+void BatchRenderer2D::drawCircleLinearGradient(float cx, float cy, float radius,
+                                              float r0, float g0, float b0, float a0,
+                                              float r1, float g1, float b1, float a1,
+                                              float angleRad, int segments) {
+    if (radius <= 0.0f) return;
+
+    // 1. Draw solid anti-aliased base circle underneath using mode 2 analytical SDF
+    drawCircle(cx, cy, radius, (r0 + r1) * 0.5f, (g0 + g1) * 0.5f, (b0 + b1) * 0.5f, (a0 + a1) * 0.5f);
+
+    int segs = std::clamp(segments, 8, 128);
+
+    float dx = std::cos(angleRad);
+    float dy = std::sin(angleRad);
+
+    uint32_t colCenter = packColor((r0 + r1) * 0.5f, (g0 + g1) * 0.5f, (b0 + b1) * 0.5f, (a0 + a1) * 0.5f);
+    Vertex2D centerV{cx, cy, 0.0f, 0.0f, colCenter, 0, {0, 0}};
+    applyTransform(centerV.x, centerV.y);
+
+    const float step = 6.28318530718f / static_cast<float>(segs);
+    for (int i = 0; i < segs; ++i) {
+        float theta0 = static_cast<float>(i) * step;
+        float theta1 = static_cast<float>(i + 1) * step;
+
+        float c0 = std::cos(theta0), s0 = std::sin(theta0);
+        float c1 = std::cos(theta1), s1 = std::sin(theta1);
+
+        float t0 = std::clamp(0.5f + 0.5f * (c0 * dx + s0 * dy), 0.0f, 1.0f);
+        float t1 = std::clamp(0.5f + 0.5f * (c1 * dx + s1 * dy), 0.0f, 1.0f);
+
+        uint32_t col0 = packColor(r0 + (r1 - r0) * t0, g0 + (g1 - g0) * t0, b0 + (b1 - b0) * t0, a0 + (a1 - a0) * t0);
+        uint32_t col1 = packColor(r0 + (r1 - r0) * t1, g0 + (g1 - g0) * t1, b0 + (b1 - b0) * t1, a0 + (a1 - a0) * t1);
+
+        Vertex2D p0{cx + radius * c0, cy + radius * s0, 0.0f, 0.0f, col0, 0, {0, 0}};
+        Vertex2D p1{cx + radius * c1, cy + radius * s1, 0.0f, 0.0f, col1, 0, {0, 0}};
+        applyTransform(p0.x, p0.y);
+        applyTransform(p1.x, p1.y);
+
+        vertices_.push_back(centerV);
+        vertices_.push_back(p0);
+        vertices_.push_back(p1);
+    }
+}
+
 void BatchRenderer2D::drawRgbaBitmap(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) {
     if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
     if (backend_ && !vertices_.empty()) {

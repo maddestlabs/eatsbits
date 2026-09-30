@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <unordered_map>
 #include "../geometry.hpp"
 #include "../theme.hpp"
 #include "../batch_renderer_2d.hpp"
@@ -98,9 +99,13 @@ private:
     int baseOctave_{3}; // Default C3
     PianoKeyboard keyboard_;
     DrumPadGridWidget drumPadGrid_;
+
+    struct ActiveKeyTouch {
+        int pitch{-1};
+        float velocity{0.85f};
+    };
+    std::unordered_map<int, ActiveKeyTouch> activeTouches_;
     std::set<int> activePitches_;
-    int lastGlissandoPitch_{-1};
-    bool isDraggingKeys_{false};
 };
 
 } // namespace eatsbits::ui

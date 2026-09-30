@@ -672,6 +672,32 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 }
 
 void EditView::render(const ViewContext& ctx) {
+    if (kineticScroller_.isGliding()) {
+        float dx = 0.0f, dy = 0.0f;
+        kineticScroller_.step(ctx.dt > 0.0f ? ctx.dt : 0.016f, dx, dy);
+        if (subView_ == EditSubViewMode::PianoRoll) {
+            scrollX_ = (std::max)(0.0f, scrollX_ - dx);
+            float maxScrollY = (std::max)(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
+            scrollY_ = std::clamp(scrollY_ - dy, 0.0f, maxScrollY);
+        } else if (subView_ == EditSubViewMode::Score) {
+            scoreScrollX_ = (std::max)(0.0f, scoreScrollX_ - dx);
+        } else if (subView_ == EditSubViewMode::Tracker) {
+            trackerScrollY_ = (std::max)(0.0f, trackerScrollY_ - dy);
+        }
+    }
+
+    if (dragMode_ == DragMode::TouchGridPending && !touchPanCommitted_ && !touchLongPressArmed_) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
+        if (elapsedMs >= 400) {
+            touchLongPressArmed_ = true;
+            dragMode_ = DragMode::MarqueeSelect;
+            dragStartPoint_ = touchDownPos_;
+            marqueeCurrentPoint_ = touchDownPos_;
+            clearSelection();
+        }
+    }
+
     renderSubNavHeader(ctx);
 
     switch (subView_) {
@@ -1731,7 +1757,20 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     }
                 }
 
-                if (ev.button == PointerButton::Left) {
+                if (ev.type == PointerType::Touch) {
+                    dragMode_ = DragMode::TouchGridPending;
+                    touchDownPos_ = Point2D{ev.x, ev.y};
+                    touchDownTimeMs_ = ev.timestampMs;
+                    touchDownTimePoint_ = std::chrono::steady_clock::now();
+                    touchLongPressArmed_ = false;
+                    touchPanCommitted_ = false;
+                    dragStartPoint_ = Point2D{ev.x, ev.y};
+                    panStartScrollX_ = scrollX_;
+                    panStartScrollY_ = scrollY_;
+                    kineticScroller_.reset();
+                    kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                    return true;
+                } else if (ev.button == PointerButton::Left) {
                     clearSelection();
                     dragMode_ = DragMode::MarqueeSelect;
                     dragStartPoint_ = Point2D{ev.x, ev.y};
@@ -1818,8 +1857,21 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     }
                 }
 
-                // If empty staff area clicked, start marquee drag selection
-                if (ev.button == PointerButton::Left) {
+                // If empty staff area clicked, start marquee drag selection or touch pan
+                if (ev.type == PointerType::Touch) {
+                    dragMode_ = DragMode::TouchGridPending;
+                    touchDownPos_ = Point2D{ev.x, ev.y};
+                    touchDownTimeMs_ = ev.timestampMs;
+                    touchDownTimePoint_ = std::chrono::steady_clock::now();
+                    touchLongPressArmed_ = false;
+                    touchPanCommitted_ = false;
+                    dragStartPoint_ = Point2D{ev.x, ev.y};
+                    panStartScrollX_ = scoreScrollX_;
+                    panStartScrollY_ = 0.0f;
+                    kineticScroller_.reset();
+                    kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                    return true;
+                } else if (ev.button == PointerButton::Left) {
                     clearSelection();
                     dragMode_ = DragMode::MarqueeSelect;
                     dragStartPoint_ = Point2D{ev.x, ev.y};
@@ -1840,9 +1892,41 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (dragMode_ == DragMode::TouchGridPending) {
+            float dist = std::hypot(ev.x - touchDownPos_.x, ev.y - touchDownPos_.y);
+            auto now = std::chrono::steady_clock::now();
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
+            if (elapsedMs >= 380 && dist <= 14.0f) {
+                touchLongPressArmed_ = true;
+                dragMode_ = DragMode::MarqueeSelect;
+                dragStartPoint_ = touchDownPos_;
+                marqueeCurrentPoint_ = Point2D{ev.x, ev.y};
+                clearSelection();
+                return true;
+            } else if (dist > 14.0f) {
+                touchPanCommitted_ = true;
+                dragMode_ = DragMode::TouchPan;
+                kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+            }
+        }
+
+        if (dragMode_ == DragMode::TouchPan) {
+            kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+            if (subView_ == EditSubViewMode::PianoRoll) {
+                scrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
+                float maxScrollY = (std::max)(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
+                scrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
+            } else if (subView_ == EditSubViewMode::Score) {
+                scoreScrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
+            } else if (subView_ == EditSubViewMode::Tracker) {
+                trackerScrollY_ = (std::max)(0.0f, panStartScrollY_ - (ev.y - dragStartPoint_.y));
+            }
+            return true;
+        }
+
         if (dragMode_ == DragMode::MiddlePan) {
-            scrollX_ = std::max(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
-            float maxScrollY = std::max(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
+            scrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
+            float maxScrollY = (std::max)(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
             scrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
             return true;
         }
@@ -1909,7 +1993,43 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             notes_[activeDragNoteIdx_].durationSteps = std::clamp(activeDragInitialDur_ + durDelta, 0.25f, 16.0f);
             return true;
         }
-    } else if (ev.action == PointerAction::Up) {
+    } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (dragMode_ == DragMode::TouchPan) {
+            kineticScroller_.endDrag(ev.timestampMs);
+            dragMode_ = DragMode::None;
+            return true;
+        }
+
+        if (dragMode_ == DragMode::TouchGridPending) {
+            dragMode_ = DragMode::None;
+            if (ev.action == PointerAction::Up) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGridClickTime_).count();
+                float clickDist = std::hypot(ev.x - lastGridClickPos_.x, ev.y - lastGridClickPos_.y);
+
+                if (subView_ == EditSubViewMode::PianoRoll && gridBounds_.contains(ev.x, ev.y)) {
+                    if (elapsedMs < 350 && clickDist < 20.0f) {
+                        float step = std::floor((ev.x - gridBounds_.x + scrollX_) / stepWidth_);
+                        int pitch = maxPitch_ - static_cast<int>((ev.y - gridBounds_.y + scrollY_) / semitoneHeight_);
+                        if (step >= 0.0f && step < 128.0f && pitch >= minPitch_ && pitch <= maxPitch_) {
+                            addNote(static_cast<uint8_t>(pitch), step, 1.0f, 0.85f);
+                            if (!notes_.empty()) {
+                                notes_.back().isSelected = true;
+                            }
+                            auditionPitch(pitch, 0.85f, ctx);
+                            if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
+                        }
+                        lastGridClickTime_ = std::chrono::steady_clock::time_point{};
+                    } else {
+                        clearSelection();
+                        lastGridClickTime_ = now;
+                        lastGridClickPos_ = Point2D{ev.x, ev.y};
+                    }
+                }
+            }
+            return true;
+        }
+
         if (dragMode_ == DragMode::MarqueeSelect) {
             float dist = std::hypot(ev.x - dragStartPoint_.x, ev.y - dragStartPoint_.y);
             if (dist < 4.0f) {

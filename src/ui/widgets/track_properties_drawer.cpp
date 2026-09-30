@@ -22,6 +22,9 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onColorChanged = [this](uint32_t idx, float cr, float cg, float cb) { if (onColorChanged) onColorChanged(idx, cr, cg, cb); };
     panel_.onParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onParamChanged) onParamChanged(idx, p, v); };
     panel_.onChangeInstrument = [this](uint32_t idx) { if (onChangeInstrument) onChangeInstrument(idx); };
+    panel_.onOpenDesign = [this](uint32_t idx) { if (onOpenDesign) onOpenDesign(idx); };
+    panel_.onOpenPresets = [this](uint32_t idx) { if (onOpenPresets) onOpenPresets(idx); };
+    panel_.onOpenFullscreenDevice = [this](uint32_t idx) { if (onOpenFullscreenDevice) onOpenFullscreenDevice(idx); };
     panel_.onPrevPreset = [this]() { if (onPrevPreset) onPrevPreset(); };
     panel_.onNextPreset = [this]() { if (onNextPreset) onNextPreset(); };
     panel_.onTabSelected = [this](TrackPropertiesTab t) { if (onTabSelected) onTabSelected(t); };
@@ -31,6 +34,16 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onAddAudioFx = [this](uint32_t idx) { if (onAddAudioFx) onAddAudioFx(idx); };
     panel_.onRemoveMidiFx = [this](uint32_t idx, size_t fi) { if (onRemoveMidiFx) onRemoveMidiFx(idx, fi); };
     panel_.onRemoveAudioFx = [this](uint32_t idx, size_t fi) { if (onRemoveAudioFx) onRemoveAudioFx(idx, fi); };
+    panel_.onToggleMidiFx = [this](uint32_t idx, size_t fi, bool en) { if (onToggleMidiFx) onToggleMidiFx(idx, fi, en); };
+    panel_.onToggleAudioFx = [this](uint32_t idx, size_t fi, bool en) { if (onToggleAudioFx) onToggleAudioFx(idx, fi, en); };
+    panel_.onReorderMidiFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) { if (onReorderMidiFx) onReorderMidiFx(idx, fromIdx, toIdx); };
+    panel_.onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) { if (onReorderAudioFx) onReorderAudioFx(idx, fromIdx, toIdx); };
+    panel_.onMidiFxChanged = [this](uint32_t idx) { if (onMidiFxChanged) onMidiFxChanged(idx); };
+    panel_.onAudioFxChanged = [this](uint32_t idx) { if (onAudioFxChanged) onAudioFxChanged(idx); };
+    panel_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onAudioFxParamChanged) onAudioFxParamChanged(idx, p, v); };
+    panel_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onMidiFxParamChanged) onMidiFxParamChanged(idx, p, v); };
+    panel_.onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(idx, fi); };
+    panel_.onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(idx, fi); };
 }
 
 void TrackPropertiesDrawer::update(float dt) noexcept {
@@ -246,6 +259,11 @@ bool TrackPropertiesDrawer::handlePointer(const PointerEvent& ev, TrackPropertie
             isResizing_ = false;
             return true;
         }
+    }
+
+    // 1b. Active Continuous Dragging forward (knobs, sliders, scrollbar)
+    if (panel_.isDragging()) {
+        return panel_.handlePointer(ev, data, ctx);
     }
 
     // 2. Drawer Interaction

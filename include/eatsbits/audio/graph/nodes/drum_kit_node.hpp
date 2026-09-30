@@ -131,18 +131,18 @@ public:
     }
 
     // Direct access to sub-engines for fine parameter tweaking
-    dsp::Analog808Kick& get808Kick() noexcept { return kick808_; }
-    dsp::Analog909Kick& get909Kick() noexcept { return kick909_; }
-    dsp::Analog808Snare& get808Snare() noexcept { return snare808_; }
-    dsp::Analog808HiHat& get808HiHat() noexcept { return hihat808_; }
+    ::eatsbits::dsp::Analog808Kick& get808Kick() noexcept { return kick808_; }
+    ::eatsbits::dsp::Analog909Kick& get909Kick() noexcept { return kick909_; }
+    ::eatsbits::dsp::Analog808Snare& get808Snare() noexcept { return snare808_; }
+    ::eatsbits::dsp::Analog808HiHat& get808HiHat() noexcept { return hihat808_; }
 
 private:
-    dsp::Analog808Kick kick808_;
-    dsp::Analog909Kick kick909_;
-    dsp::Analog808Snare snare808_;
-    dsp::Analog808HiHat hihat808_;
-    dsp::Analog808Clap clap808_;
-    dsp::Analog808Cowbell cowbell808_;
+    ::eatsbits::dsp::Analog808Kick kick808_;
+    ::eatsbits::dsp::Analog909Kick kick909_;
+    ::eatsbits::dsp::Analog808Snare snare808_;
+    ::eatsbits::dsp::Analog808HiHat hihat808_;
+    ::eatsbits::dsp::Analog808Clap clap808_;
+    ::eatsbits::dsp::Analog808Cowbell cowbell808_;
 
     float masterGain_{1.0f};
     float tune_{0.5f};

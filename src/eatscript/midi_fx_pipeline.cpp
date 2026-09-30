@@ -1,4 +1,5 @@
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
+#include "eatsbits/sequencer/step_sequencer.hpp"
 #include <cmath>
 #include <random>
 #include <sstream>
@@ -36,28 +37,38 @@ MidiFxType MidiPipelineEngine::detectMidiFxType(const std::string& code, const s
     }
     if (lowerCode.find("scale_snap") != std::string::npos ||
         lowerCode.find("scale") != std::string::npos ||
-        lowerName.find("scale") != std::string::npos) {
+        lowerName.find("scale") != std::string::npos ||
+        lowerName.find("quantize") != std::string::npos ||
+        lowerName.find("pitch quantizer") != std::string::npos) {
         return MidiFxType::ScaleSnap;
     }
     if (lowerCode.find("arpeggiator") != std::string::npos ||
         lowerCode.find("arpeggiat") != std::string::npos ||
         lowerCode.find("arp") != std::string::npos ||
         lowerName.find("arpeggiator") != std::string::npos ||
-        lowerName.find("arp") != std::string::npos) {
+        lowerName.find("arp") != std::string::npos ||
+        lowerName.find("multi-octave") != std::string::npos) {
         return MidiFxType::Arpeggiator;
     }
     if (lowerCode.find("humanize") != std::string::npos ||
-        lowerName.find("humanize") != std::string::npos) {
+        lowerName.find("humanize") != std::string::npos ||
+        lowerName.find("groove") != std::string::npos ||
+        lowerName.find("drift") != std::string::npos ||
+        lowerName.find("timing") != std::string::npos) {
         return MidiFxType::Humanize;
     }
     if (lowerCode.find("chord_stabs") != std::string::npos ||
         lowerCode.find("voicing") != std::string::npos ||
         lowerName.find("voicing") != std::string::npos ||
+        lowerName.find("voicer") != std::string::npos ||
+        lowerName.find("chord") != std::string::npos ||
+        lowerName.find("inversion") != std::string::npos ||
         lowerName.find("stabs") != std::string::npos) {
         return MidiFxType::ChordStabs;
     }
     if (lowerCode.find("transpose") != std::string::npos ||
-        lowerName.find("transpose") != std::string::npos) {
+        lowerName.find("transpose") != std::string::npos ||
+        lowerName.find("pitch transposer") != std::string::npos) {
         return MidiFxType::Transpose;
     }
 

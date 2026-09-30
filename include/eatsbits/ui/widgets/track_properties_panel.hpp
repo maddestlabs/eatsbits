@@ -3,6 +3,7 @@
 #include "../geometry.hpp"
 #include "../views/view_base.hpp"
 #include "plugin_search_dialog.hpp"
+#include "../gui_panel_def.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 
 #include <string>
@@ -22,30 +23,148 @@ enum class TrackPropertiesTab {
     Master
 };
 
-struct TrackMidiFxItem {
-    std::string name{"Scale Snap"};
-    std::string type{"SCALE_SNAP"};
-    int rootKey{0};
-    int scaleMode{0}; // 0 = Major, 1 = Natural Minor, etc.
-    bool enabled{true};
-};
-
-struct TrackAudioFxItem {
-    std::string name{"Tube Distortion"};
-    std::string type{"TUBE_DISTORTION"};
-    float drive{0.5f};
-    float mix{0.8f};
-    bool enabled{true};
-};
-
 struct TrackPropertiesKnob {
     std::string name;
     std::string label;
     float value{0.5f};
     std::string display{"50%"};
+    std::string unit{""};
 };
 
 using InspectorKnobDef = TrackPropertiesKnob;
+
+struct TrackMidiFxItem {
+    std::string id{"scale_snap"};
+    std::string name{"Scale Snap"};
+    std::string type{"SCALE_SNAP"};
+    int rootKey{0};
+    int scaleMode{0}; // 0 = Major, 1 = Natural Minor, etc.
+    bool enabled{true};
+    bool isExpanded{true};
+    std::string background{"dark"};
+    float accentR{1.0f}, accentG{0.75f}, accentB{0.2f};
+    std::vector<TrackPropertiesKnob> knobs;
+
+    TrackMidiFxItem() = default;
+    TrackMidiFxItem(std::string n, std::string t, bool en = true)
+        : id(t), name(std::move(n)), type(std::move(t)), enabled(en) {
+        ensureDefaultKnobs();
+    }
+    TrackMidiFxItem(std::string n, std::string t, int rk, int sm, bool en = true)
+        : id(t), name(std::move(n)), type(std::move(t)), rootKey(rk), scaleMode(sm), enabled(en) {
+        ensureDefaultKnobs();
+    }
+
+    void ensureDefaultKnobs() {
+        if (!knobs.empty()) return;
+        std::string tUpper = type + " " + name;
+        for (char& c : tUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (tUpper.find("ARP") != std::string::npos) {
+            knobs = {
+                {"rate", "RATE", 0.5f, "1/16", ""},
+                {"pattern", "PATTERN", 0.0f, "UP", ""},
+                {"octaves", "OCTAVES", 0.33f, "2", "oct"},
+                {"gate", "GATE", 0.75f, "75%", ""}
+            };
+        } else if (tUpper.find("HUMANIZE") != std::string::npos) {
+            knobs = {
+                {"timing", "TIMING", 0.25f, "15 ms", "ms"},
+                {"velocity", "VELOCITY", 0.35f, "20%", "%"},
+                {"swing", "SWING", 0.50f, "50%", "%"},
+                {"chance", "CHANCE", 1.0f, "100%", "%"}
+            };
+        } else { // SCALE_SNAP / generic
+            knobs = {
+                {"root", "ROOT", static_cast<float>(rootKey) / 11.0f, "C", ""},
+                {"scale", "SCALE", static_cast<float>(scaleMode) / 6.0f, "Minor", ""},
+                {"snap", "SNAP", 1.0f, "100%", "%"},
+                {"transpose", "TRANS", 0.5f, "0 st", "st"}
+            };
+        }
+    }
+};
+
+struct TrackAudioFxItem {
+    std::string id{"bitcrusher"};
+    std::string name{"8-Bit Crusher"};
+    std::string type{"BITCRUSHER"};
+    float drive{0.5f};
+    float mix{0.8f};
+    bool enabled{true};
+    bool isExpanded{true};
+    std::string background{"snes"}; // "snes", "dark", "grunge", "silver", "minimal_white"
+    float accentR{0.13f}, accentG{0.75f}, accentB{1.0f};
+    std::vector<TrackPropertiesKnob> knobs;
+
+    TrackAudioFxItem() = default;
+    TrackAudioFxItem(std::string n, std::string t, float d = 0.5f, float m = 0.8f, bool en = true)
+        : id(t), name(std::move(n)), type(std::move(t)), drive(d), mix(m), enabled(en) {
+        ensureDefaultKnobs();
+    }
+
+    void ensureDefaultKnobs() {
+        if (!knobs.empty()) return;
+        std::string tUpper = type + " " + name;
+        for (char& c : tUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (tUpper.find("CRUSH") != std::string::npos || tUpper.find("8-BIT") != std::string::npos || tUpper.find("BITCRUSHER") != std::string::npos) {
+            background = "snes";
+            knobs = {
+                {"Bits", "BITS", (8.0f - 1.0f) / 15.0f, "8 bit", "bit"},
+                {"Downsample", "CRUSH", 0.0f, "1x", "x"},
+                {"Drive", "DRIVE", (1.0f - 0.5f) / 3.5f, "1.0 x", "x"},
+                {"Mix", "MIX", mix, "1.0", ""}
+            };
+        } else if (tUpper.find("CAB") != std::string::npos) {
+            background = "grunge";
+            knobs = {
+                {"Width", "WIDTH", 0.5f, "0.76 m", "m"},
+                {"Length", "LENGTH", 0.5f, "0.76 m", "m"},
+                {"DryLevel", "DRY", 0.0f, "0.0", ""},
+                {"WetLevel", "WET", 0.8f, "1.0", ""}
+            };
+        } else if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos) {
+            background = "silver";
+            knobs = {
+                {"time", "TIME", drive, "375 ms", "ms"},
+                {"feedback", "FEEDBK", 0.45f, "45%", "%"},
+                {"filter", "DAMP", 0.30f, "3.2 kHz", "kHz"},
+                {"mix", "MIX", mix, "30%", "%"}
+            };
+        } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos) {
+            background = "snes";
+            knobs = {
+                {"rate", "RATE", 0.35f, "1.2 Hz", "Hz"},
+                {"depth", "DEPTH", drive, "40%", "%"},
+                {"feedback", "FEEDBK", 0.20f, "20%", "%"},
+                {"mix", "MIX", mix, "35%", "%"}
+            };
+        } else if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("REVERB") != std::string::npos) {
+            background = "dark";
+            knobs = {
+                {"size", "SIZE", drive, "Medium", ""},
+                {"decay", "DECAY", 0.5f, "2.4 s", "s"},
+                {"predelay", "PREDLY", 0.2f, "25 ms", "ms"},
+                {"mix", "MIX", mix, "35%", "%"}
+            };
+        } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
+            background = "dark";
+            knobs = {
+                {"thresh", "THRESH", 0.65f, "-18 dB", "dB"},
+                {"ratio", "RATIO", 0.45f, "4:1", ""},
+                {"attack", "ATTACK", 0.20f, "12 ms", "ms"},
+                {"gain", "GAIN", mix, "+2.5 dB", "dB"}
+            };
+        } else { // DISTORTION / TUBE_DISTORTION / generic
+            background = "grunge";
+            knobs = {
+                {"drive", "DRIVE", drive, "50%", "%"},
+                {"tone", "TONE", 0.60f, "60%", "%"},
+                {"bias", "BIAS", 0.40f, "40%", "%"},
+                {"mix", "MIX", mix, "80%", "%"}
+            };
+        }
+    }
+};
 
 struct TrackMidiFxData {
     bool arpEnabled{true};
@@ -128,6 +247,7 @@ struct TrackPropertiesDrawerData {
     size_t totalPresets{1};
     std::string presetTitle{"TB-303 Acid Bassline"};
     std::string presetSubtitle{"Diode Ladder Synthesizer"};
+    bool instrumentExpanded{true};
 
     // Harmonic Chord Track Follow
     ChordFollowMode chordFollowMode{ChordFollowMode::Off};
@@ -185,6 +305,9 @@ struct TrackPropertiesDrawerData {
     std::vector<Color> allTrackColors;
 
     void syncKnobsIfEmpty() {
+        for (auto& fx : audioFx) fx.ensureDefaultKnobs();
+        for (auto& fx : midiFx) fx.ensureDefaultKnobs();
+        for (auto& fx : masterAudioFx) fx.ensureDefaultKnobs();
         if (!knobs.empty()) return;
         if (instrumentEngine == "tb303") {
             knobs = {
@@ -245,6 +368,9 @@ enum class TrackPropertiesHitArea {
     SoloButton,
     FreezeButton,
     RenameButton,
+    TrackIcon,
+    DesignButton,
+    PresetButton,
     VolumeSlider,
     PanKnob,
     PanSlider = PanKnob,
@@ -263,6 +389,7 @@ enum class TrackPropertiesHitArea {
     InstrumentKnob,
     ChangeInstrument,
     FullscreenInstrument,
+    ToggleInstrumentExpand,
     ChordFollowChip,
     BakeChords,
     AddMidiFx,
@@ -271,8 +398,16 @@ enum class TrackPropertiesHitArea {
     FullscreenAudioFx,
     ToggleMidiFx,
     ToggleAudioFx,
+    ToggleAudioFxExpand,
+    MoveAudioFxUp,
+    MoveAudioFxDown,
+    ToggleMidiFxExpand,
+    MoveMidiFxUp,
+    MoveMidiFxDown,
     RemoveMidiFx,
     RemoveAudioFx,
+    AudioFxKnob,
+    MidiFxKnob,
     ReorderLeft,
     ReorderRight,
     MasterEqSubCut,
@@ -330,6 +465,11 @@ public:
 
     [[nodiscard]] const Rect2D& getBounds() const noexcept { return bounds_; }
     [[nodiscard]] const Rect2D& getHeaderCardBounds() const noexcept { return headerCardBounds_; }
+    [[nodiscard]] bool isDragging() const noexcept { return dragMode_ != DragMode::None; }
+
+    void syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data);
+    [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
+    [[nodiscard]] GuiPanelDef& getGuiPanel() noexcept { return guiPanel_; }
 
     // Embedded PluginSearchDialog modal overlay
     [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return pluginDialog_; }
@@ -350,6 +490,8 @@ public:
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIndex)> onChangeInstrument;
+    std::function<void(uint32_t trackIndex)> onOpenDesign;
+    std::function<void(uint32_t trackIndex)> onOpenPresets;
     std::function<void()> onPrevPreset;
     std::function<void()> onNextPreset;
     std::function<void(uint32_t trackIndex, ChordFollowMode mode)> onChordFollowChanged;
@@ -364,6 +506,12 @@ public:
     std::function<void(uint32_t trackIndex)> onAddAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveMidiFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onRemoveAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, bool enabled)> onToggleMidiFx;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, bool enabled)> onToggleAudioFx;
+    std::function<void(uint32_t trackIndex, size_t fromIdx, size_t toIdx)> onReorderMidiFx;
+    std::function<void(uint32_t trackIndex, size_t fromIdx, size_t toIdx)> onReorderAudioFx;
+    std::function<void(uint32_t trackIndex)> onMidiFxChanged;
+    std::function<void(uint32_t trackIndex)> onAudioFxChanged;
     std::function<void(float scrollY)> onScrollChanged;
 
 private:
@@ -389,6 +537,8 @@ private:
     void renderClipSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
                            float cx, float cy, float cw, float mouseX, float mouseY);
     void renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme);
+    bool executeHitAction(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data, const ViewContext& ctx);
+    void update(float dt) noexcept;
 
     enum class DragMode {
         None,
@@ -397,8 +547,19 @@ private:
         PanSlider = PanKnob,
         InstrumentKnob,
         EqKnob,
-        Scrollbar
+        AudioFxKnob,
+        MidiFxKnob,
+        Scrollbar,
+        TouchScroll
     } dragMode_{DragMode::None};
+
+    KineticScroller scroller_;
+    float touchStartY_{0.0f};
+    float touchStartX_{0.0f};
+    float touchStartScrollY_{0.0f};
+    bool touchDragCommitted_{false};
+    double touchStartTimeMs_{0.0};
+    TrackPropertiesHitResult pendingHitResult_;
 
     bool showTrackRibbon_{false};
     Rect2D bounds_{0.0f, 0.0f, 0.0f, 0.0f};
@@ -427,6 +588,12 @@ private:
     float dragStartScrollY_{0.0f};
     int activeKnobIndex_{-1};
     std::string activeParamName_{""};
+    size_t activeFxIndex_{0};
+    std::string activeFxParam_{""};
+
+    GuiPanelDef guiPanel_;
+    int draggingRow_{-1};
+    int draggingWidget_{-1};
 
     PluginSearchDialog pluginDialog_;
 };

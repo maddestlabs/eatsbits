@@ -79,15 +79,72 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onRemoveMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFxList.size()) {
             tracks_[trackIdx].midiFxList.erase(tracks_[trackIdx].midiFxList.begin() + fxIdx);
+            if (onRemoveMidiFx) onRemoveMidiFx(trackIdx, fxIdx);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
         }
     };
     panel_.onRemoveAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFxList.size()) {
             tracks_[trackIdx].audioFxList.erase(tracks_[trackIdx].audioFxList.begin() + fxIdx);
+            if (onRemoveAudioFx) onRemoveAudioFx(trackIdx, fxIdx);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
         }
+    };
+    panel_.onToggleMidiFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFxList.size()) {
+            tracks_[trackIdx].midiFxList[fxIdx].enabled = en;
+            if (onToggleMidiFx) onToggleMidiFx(trackIdx, fxIdx, en);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    panel_.onToggleAudioFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFxList.size()) {
+            tracks_[trackIdx].audioFxList[fxIdx].enabled = en;
+            if (onToggleAudioFx) onToggleAudioFx(trackIdx, fxIdx, en);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    panel_.onReorderAudioFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < tracks_.size()) {
+            auto& list = tracks_[trackIdx].audioFxList;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                if (onReorderAudioFx) onReorderAudioFx(trackIdx, fromIdx, toIdx);
+                if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+            }
+        }
+    };
+    panel_.onReorderMidiFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < tracks_.size()) {
+            auto& list = tracks_[trackIdx].midiFxList;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                if (onReorderMidiFx) onReorderMidiFx(trackIdx, fromIdx, toIdx);
+                if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+            }
+        }
+    };
+    panel_.onMidiFxChanged = [this](uint32_t trackIdx) {
+        if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+    };
+    panel_.onAudioFxChanged = [this](uint32_t trackIdx) {
+        if (onAudioFxChanged) onAudioFxChanged(trackIdx);
     };
     panel_.onScrollChanged = [this](float sY) {
         if (onScrollChanged) onScrollChanged(sY);
+    };
+    panel_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
+        if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
+    };
+    panel_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
+    };
+    panel_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
     };
 
     // Configure embedded PluginSearchDialog callback to sync track identity
@@ -103,17 +160,33 @@ TrackInspectorView::TrackInspectorView() {
                 syncKnobsForTrack(trk);
                 if (onChangeInstrument) onChangeInstrument(trackIndex);
             } else if (mode == PluginDialogMode::AddMidiFx) {
-                trk.midiFxList.push_back({entry.name, entry.engineTag, true});
+                TrackMidiFxItem mfx;
+                mfx.id = entry.id;
+                mfx.name = entry.name;
+                mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                mfx.enabled = true;
+                mfx.isExpanded = true;
+                mfx.ensureDefaultKnobs();
+                trk.midiFxList.push_back(mfx);
                 trk.midiFx.arpEnabled = true;
                 if (onAddMidiFx) onAddMidiFx(trackIndex);
+                if (onMidiFxChanged) onMidiFxChanged(trackIndex);
             } else if (mode == PluginDialogMode::AddAudioFx) {
-                trk.audioFxList.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                TrackAudioFxItem afx;
+                afx.id = entry.id;
+                afx.name = entry.name;
+                afx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                afx.enabled = true;
+                afx.isExpanded = true;
+                afx.ensureDefaultKnobs();
+                trk.audioFxList.push_back(afx);
                 if (entry.engineTag == "delay") trk.audioFx.delayEnabled = true;
                 else if (entry.engineTag == "chorus") trk.audioFx.chorusEnabled = true;
                 else if (entry.engineTag == "convolver") trk.audioFx.convolverEnabled = true;
                 else if (entry.engineTag == "eq") trk.audioFx.eqEnabled = true;
                 else if (entry.engineTag == "comp") trk.audioFx.compEnabled = true;
                 if (onAddAudioFx) onAddAudioFx(trackIndex);
+                if (onAudioFxChanged) onAudioFxChanged(trackIndex);
             }
         }
     };

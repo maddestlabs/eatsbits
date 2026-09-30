@@ -98,6 +98,21 @@ public:
     void setupDefaultPolyGraph();
     void setupDefaultAcidBeatGraph();
 
+    // Track Audio FX Inserts
+    struct TrackAudioFxItem {
+        std::string name{"Effect"};
+        std::string type{"DELAY"}; // "DELAY", "CHORUS", "COMPRESSOR", "DISTORTION", "EQ", "CONVOLVER", "LIMITER"
+        float drive{0.5f};
+        float mix{0.8f};
+        bool enabled{true};
+    };
+
+    bool rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<TrackAudioFxItem>& fxList);
+    bool reorderTrackAudioFx(uint32_t trackIndex, size_t fromIdx, size_t toIdx);
+    bool setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float value);
+    [[nodiscard]] std::vector<TrackAudioFxItem> getTrackAudioFx(uint32_t trackIndex) const;
+    [[nodiscard]] NodeId getTrackSourceNodeId(uint32_t trackIndex) const;
+
     // Step Sequencer
     sequencer::StepSequencer& getSequencer() noexcept { return sequencer_; }
     const sequencer::StepSequencer& getSequencer() const noexcept { return sequencer_; }
@@ -150,6 +165,9 @@ private:
     // Modular Audio Graph Engine
     AudioGraph graph_;
     mutable std::unordered_map<uint32_t, NodeId> trackGainNodeCache_;
+    mutable std::unordered_map<uint32_t, NodeId> trackSourceNodeCache_;
+    mutable std::unordered_map<uint32_t, std::vector<NodeId>> trackFxNodeIds_;
+    mutable std::unordered_map<uint32_t, std::vector<TrackAudioFxItem>> trackFxConfigs_;
 
     // Sample-Accurate Step Sequencer
     sequencer::StepSequencer sequencer_;

@@ -1,5 +1,6 @@
 #include "eatsbits/ui/widgets/project_browser_drawer.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/project/preset_manager.hpp"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -48,26 +49,37 @@ void ProjectBrowserDrawer::initData() {
         {"macro_song", "Procedural Song Architect", "MACRO", "Generates complete multi-track song arrangement", "Macro / Generative"}
     };
 
-    // Tab 3: Sound Patches, Spaces & Cabs
-    patches_ = {
-        {"acid_303", "Acid Odyssey 303", "BASS", "TB-303", "Authentic Roland TB-303 Diode Ladder", "Roland Diode Ladder"},
-        {"sub_808", "Sub Resonance 808", "BASS", "TR-808", "Bridged-T Sine Sub Bass with analog punch", "Bridged-T Sine"},
-        {"upright_growl", "Upright Double Bass", "BASS", "PHYSICAL", "Ebony Fingerboard Collision Growl", "Physical String"},
-        {"sid_lead", "C64 SID Space Arp", "LEAD", "SID", "MOS 6581 3-Voice 23-bit Noise Arp", "MOS 6581 Chiptune"},
-        {"genesis_lead", "Genesis Thunder FM", "LEAD", "YM2612", "OPN2 4-Op Logarithmic Feedback Lead", "OPN2 4-Op FM"},
-        {"grand_piano", "Concert Grand Piano", "PLUCK", "PHYSICAL", "Bank-Bensa Commuted Waveguide Resonator", "Acoustic Piano"},
-        {"spanish_nylon", "Spanish Classical Guitar", "PLUCK", "PHYSICAL", "Torres Body Resonator with nylon strings", "Acoustic Guitar"},
-        {"steel_acoustic", "Steel String Acoustic", "PLUCK", "PHYSICAL", "Plectrum Multi-Tap Comb Resonator", "Acoustic Guitar"},
-        {"dx7_rhodes", "DX7 Electric Piano", "PLUCK", "DX7", "Algorithm 5 Dual Bus FM Electric Piano", "FM 6-Operator"},
-        {"snes_pad", "SNES Chrono Echo Pad", "PAD", "SNES", "SPC700 16-Bit S-DSP 8-Tap FIR Echo", "16-Bit S-DSP"},
-        {"tr909_tech", "TR-909 Techno Kit", "DRUMS", "TR-909", "Punchy 909 Kick, Snare, Clap, and Hats", "Analog 909 Kit"},
-        {"tr808_kit", "TR-808 Classic Kit", "DRUMS", "TR-808", "Deep analog 808 kick, congas, cowbell", "Analog 808 Kit"},
-        {"cathedral_verb", "Stone Cathedral Reverb", "SPACE", "CONVOLVER", "Zero-Latency Procedural Convolution", "RT60: 4.8s • 45m x 22m"},
-        {"studio_room", "Acoustic Studio Room", "SPACE", "CONVOLVER", "Tight wood panel studio chamber", "RT60: 1.1s • 12m x 8m"},
-        {"plate_140", "Vintage Plate 140", "SPACE", "CONVOLVER", "Warm vintage steel plate reverb", "RT60: 2.2s • Steel Plate"},
-        {"cab_4x12_v30", "4x12 Vintage 30 Cab", "CAB", "CONVOLVER", "Celestion V30 speaker cabinet impulse", "Celestion V30 • Mic: 5cm"},
-        {"cab_2x12_tweed", "2x12 Tweed Cab", "CAB", "CONVOLVER", "Vintage Alnico Blue open-back cab", "Alnico Blue • Mic: 12cm"}
-    };
+    // Tab 3: Sound Patches, Spaces & Cabs (Populated from PresetManager catalog)
+    project::PresetManager::instance().initialize();
+    const auto& catalog = project::PresetManager::instance().getAllPresets();
+    if (!catalog.empty()) {
+        patches_.clear();
+        for (const auto& item : catalog) {
+            BrowserSoundPatchItem p;
+            p.id = item.id;
+            p.name = item.name;
+            p.category = item.category;
+            p.engineTag = item.engineTag;
+            p.description = item.description;
+            p.meta = (item.author.empty() || item.author == "Eatsbeats / Eatsbits") ? item.engineTag : item.author;
+            patches_.push_back(p);
+        }
+    } else {
+        patches_ = {
+            {"acid_303", "Acid Odyssey 303", "BASS", "TB-303", "Authentic Roland TB-303 Diode Ladder", "Roland Diode Ladder"},
+            {"sub_808", "Sub Resonance 808", "BASS", "TR-808", "Bridged-T Sine Sub Bass with analog punch", "Bridged-T Sine"},
+            {"upright_growl", "Upright Double Bass", "BASS", "PHYSICAL", "Ebony Fingerboard Collision Growl", "Physical String"},
+            {"sid_lead", "C64 SID Space Arp", "LEAD", "SID", "MOS 6581 3-Voice 23-bit Noise Arp", "MOS 6581 Chiptune"},
+            {"genesis_lead", "Genesis Thunder FM", "LEAD", "YM2612", "OPN2 4-Op Logarithmic Feedback Lead", "OPN2 4-Op FM"},
+            {"grand_piano", "Concert Grand Piano", "PLUCK", "PHYSICAL", "Bank-Bensa Commuted Waveguide Resonator", "Acoustic Piano"},
+            {"spanish_nylon", "Spanish Classical Guitar", "PLUCK", "PHYSICAL", "Torres Body Resonator with nylon strings", "Acoustic Guitar"},
+            {"steel_acoustic", "Steel String Acoustic", "PLUCK", "PHYSICAL", "Plectrum Multi-Tap Comb Resonator", "Acoustic Guitar"},
+            {"dx7_rhodes", "DX7 Electric Piano", "PLUCK", "DX7", "Algorithm 5 Dual Bus FM Electric Piano", "FM 6-Operator"},
+            {"snes_pad", "SNES Chrono Echo Pad", "PAD", "SNES", "SPC700 16-Bit S-DSP 8-Tap FIR Echo", "16-Bit S-DSP"},
+            {"tr909_tech", "TR-909 Techno Kit", "DRUMS", "TR-909", "Punchy 909 Kick, Snare, Clap, and Hats", "Analog 909 Kit"},
+            {"tr808_kit", "TR-808 Classic Kit", "DRUMS", "TR-808", "Deep analog 808 kick, congas, cowbell", "Analog 808 Kit"}
+        };
+    }
 
     // Tab 4: Expansion Packs
     packs_ = {

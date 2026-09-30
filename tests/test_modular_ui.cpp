@@ -19,6 +19,7 @@
 #include "eatsbits/ui/widgets/value_edit_dialog.hpp"
 #include "eatsbits/ui/widgets/command_palette_dialog.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
+#include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/gui_window.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
@@ -426,7 +427,7 @@ void testMixerView() {
 }
 
 void testDesignView() {
-    std::cout << "[Test 6/11] DesignView..." << std::endl;
+    std::cout << "[Test 6/11] DesignView (Modular Rack & Visual GUI Designer)..." << std::endl;
 
     DesignView design;
     assert(design.getSubMode() == DesignSubMode::ModularRack);
@@ -434,9 +435,139 @@ void testDesignView() {
     design.setSubMode(DesignSubMode::Eatscript);
     assert(design.getSubMode() == DesignSubMode::Eatscript);
 
+    // Initial patch cords
     assert(design.getPatchCords().size() >= 2);
     const auto& c1 = design.getPatchCords()[0];
     assert(c1.r > 0.0f || c1.g > 0.0f || c1.b > 0.0f);
+
+    // 1. Test Modular Rack Layout & Interactive Knob Dragging
+    design.setSubMode(DesignSubMode::ModularRack);
+    assert(design.getModules().size() == 4);
+
+    const ThemeTokens& themeTokens = Theme::current();
+    BatchRenderer2D renderer;
+    ViewContext ctx;
+    ctx.renderer = &renderer;
+    ctx.theme = &themeTokens;
+    ctx.isMobile = false;
+
+    design.layout(Rect2D{0.0f, 56.0f, 1280.0f, 700.0f}, ctx);
+
+    std::string changedParamName;
+    float changedParamVal = -1.0f;
+    design.onParamChanged = [&](const std::string&, const std::string& pName, float val) {
+        changedParamName = pName;
+        changedParamVal = val;
+    };
+
+    // Grab OSC 1 TUNE knob
+    const auto& oscMod = design.getModules()[0];
+    float knobX = oscMod.x + 40.0f;
+    float knobY = oscMod.y + 65.0f;
+    float origTuneVal = oscMod.knobs[0].value;
+
+    PointerEvent pDown = makePointer(knobX, knobY, PointerAction::Down);
+    bool handledDown = design.handlePointer(pDown, ctx);
+    assert(handledDown);
+
+    // Drag knob upwards
+    PointerEvent pMove = makePointer(knobX, knobY - 30.0f, PointerAction::Move);
+    bool handledMove = design.handlePointer(pMove, ctx);
+    assert(handledMove);
+    assert(design.getModules()[0].knobs[0].value > origTuneVal);
+    assert(changedParamName == "TUNE");
+
+    PointerEvent pUp = makePointer(knobX, knobY - 30.0f, PointerAction::Up);
+    bool handledUp = design.handlePointer(pUp, ctx);
+    assert(handledUp);
+
+    // 2. Test Interactive Patch Cable Dragging & Connection
+    // Start dragging from OSC 1 OUT jack
+    float outJackX = oscMod.x + oscMod.w - 30.0f;
+    float outJackY = oscMod.y + oscMod.h - 45.0f;
+    PointerEvent pJackDown = makePointer(outJackX, outJackY, PointerAction::Down);
+    bool handledJackDown = design.handlePointer(pJackDown, ctx);
+    assert(handledJackDown);
+
+    // Move cable to VCF AUDIO IN
+    const auto& vcfMod = design.getModules()[1];
+    float inJackX = vcfMod.x + 30.0f;
+    float inJackY = vcfMod.y + vcfMod.h - 45.0f;
+
+    PointerEvent pJackMove = makePointer(inJackX, inJackY, PointerAction::Move);
+    bool handledJackMove = design.handlePointer(pJackMove, ctx);
+    assert(handledJackMove);
+
+    size_t cordsBefore = design.getPatchCords().size();
+    PointerEvent pJackUp = makePointer(inJackX, inJackY, PointerAction::Up);
+    bool handledJackUp = design.handlePointer(pJackUp, ctx);
+    assert(handledJackUp);
+
+    // 3. Test Modular Rack Reset Patch & Add Module
+    design.addModule({"LFO MODULATOR", "LFO", 0.0f, 0.0f, 200.0f, 320.0f, 0.2f, 0.2f, 0.2f,
+                      {{"RATE", 0.5f, 0.1f, 20.0f, "Hz"}}, {"SYNC"}, {"TRI"}});
+    assert(design.getModules().size() == 5);
+
+    design.resetPatch();
+    assert(design.getPatchCords().size() == 2);
+
+    // 4. Test Visual GUI Designer
+    design.setSubMode(DesignSubMode::GuiDesigner);
+    assert(design.getSubMode() == DesignSubMode::GuiDesigner);
+
+    const auto& panel = design.getGuiPanel();
+    assert(!panel.rows.empty());
+    assert(panel.rows[0].widgets.size() >= 3);
+
+    // Test Design Mode vs Live Interaction Mode
+    design.setGuiDesignMode(true);
+    assert(design.isGuiDesignMode());
+
+    // Add a new row
+    size_t rowsBefore = design.getGuiPanel().rows.size();
+    design.addGuiRow();
+    assert(design.getGuiPanel().rows.size() == rowsBefore + 1);
+
+    // Add widgets from palette to row
+    size_t widgetsBefore = design.getGuiPanel().rows.back().widgets.size();
+    design.addGuiWidget(GuiWidgetType::Knob, GuiKnobStyle::CreamFluted, "PITCH DIAL", "Cutoff");
+    assert(design.getGuiPanel().rows.back().widgets.size() == widgetsBefore + 1);
+
+    // Add hardware slider and nixie display
+    design.addGuiWidget(GuiWidgetType::Slider, GuiKnobStyle::Standard, "FINE TUNE", "Tuning");
+    design.addGuiWidget(GuiWidgetType::NixieDisplay, GuiKnobStyle::Standard, "BPM DISPLAY", "Tempo");
+    assert(design.getGuiPanel().rows.back().widgets.size() == widgetsBefore + 3);
+
+    // Test widget selection and inspector property edits
+    design.selectDesignerWidget(static_cast<int>(design.getGuiPanel().rows.size()) - 1, 0);
+    assert(design.getSelectedDesignerRow() == static_cast<int>(design.getGuiPanel().rows.size()) - 1);
+    assert(design.getSelectedDesignerWidget() == 0);
+
+    // Duplicate selected widget
+    size_t rowWidgetsCount = design.getGuiPanel().rows.back().widgets.size();
+    design.duplicateSelectedGuiWidget();
+    assert(design.getGuiPanel().rows.back().widgets.size() == rowWidgetsCount + 1);
+
+    // Delete selected widget
+    design.deleteSelectedGuiWidget();
+    assert(design.getGuiPanel().rows.back().widgets.size() == rowWidgetsCount);
+
+    // Select chassis and change theme
+    design.selectDesignerChassis();
+    assert(design.isChassisSelected());
+    design.getGuiPanel().chassisStyle = GuiChassisStyle::PcbGreen;
+    assert(design.getGuiPanel().chassisStyle == GuiChassisStyle::PcbGreen);
+
+    // Verify script serialization contains GUI definition
+    assert(design.getScriptCode().find("# --- Hardware GUI Layout ---") != std::string::npos);
+
+    // Switch to Live Interaction Mode and verify widget tweaking
+    design.setGuiDesignMode(false);
+    assert(!design.isGuiDesignMode());
+
+    // Layout and render without crashing
+    design.layout(Rect2D{0.0f, 56.0f, 1280.0f, 700.0f}, ctx);
+    design.render(ctx);
 
     std::cout << "  [PASS] DesignView validated." << std::endl;
 }
@@ -1111,23 +1242,18 @@ void testValueEditDialogAndBackdropBlur() {
         drawerData.solo = false;
 
         float btnY = headerBounds.y + (38.0f - 24.0f) * 0.5f;
-        // Solo button: right-most button
-        auto hitSolo = panel.hitTest(headerBounds.x + headerBounds.w - 15.0f, btnY + 12.0f, drawerData);
-        assert(hitSolo.hit);
-        assert(hitSolo.area == TrackPropertiesHitArea::SoloButton);
+        // Track icon button: left side
+        auto hitIcon = panel.hitTest(headerBounds.x + 15.0f, btnY + 12.0f, drawerData);
+        assert(hitIcon.hit);
+        assert(hitIcon.area == TrackPropertiesHitArea::TrackIcon);
 
-        // Mute button: just to the left of Solo
-        auto hitMute = panel.hitTest(headerBounds.x + headerBounds.w - 42.0f, btnY + 12.0f, drawerData);
-        assert(hitMute.hit);
-        assert(hitMute.area == TrackPropertiesHitArea::MuteButton);
-
-        // Edit button: just to the left of Mute
-        auto hitEdit = panel.hitTest(headerBounds.x + headerBounds.w - 70.0f, btnY + 12.0f, drawerData);
+        // Edit button: right-most button
+        auto hitEdit = panel.hitTest(headerBounds.x + headerBounds.w - 15.0f, btnY + 12.0f, drawerData);
         assert(hitEdit.hit);
         assert(hitEdit.area == TrackPropertiesHitArea::RenameButton);
 
         // Header background click / right-click
-        auto hitHeader = panel.hitTest(headerBounds.x + 50.0f, btnY + 12.0f, drawerData);
+        auto hitHeader = panel.hitTest(headerBounds.x + 80.0f, btnY + 12.0f, drawerData);
         assert(hitHeader.hit);
         assert(hitHeader.area == TrackPropertiesHitArea::RenameButton);
     }
@@ -1155,14 +1281,14 @@ void testValueEditDialogAndBackdropBlur() {
         assert(aEditOpened);
         assert(aReq.isTextMode);
         assert(aReq.paramName == "Track Name");
-        assert(!aReq.actionLinkLabel.empty());
+        assert(aReq.actionLinkLabel.empty());
 
         // Click track 0 icon glyph (iconBox at x = tracksList.x + 10 = 10, y = 84 + 7.5 = 91.5)
+        // Icon click functionality removed from arranger track listing
         PointerEvent peIconClick = makePointer(12.0f, 92.0f, PointerAction::Down);
         aEditOpened = false;
         arranger.handlePointer(peIconClick, aCtx);
-        assert(aEditOpened);
-        assert(aReq.isTextMode);
+        assert(!aEditOpened);
     }
 
     std::cout << "  [PASS] ValueEditDialog, Right-Click Editing & Backdrop Blur validated." << std::endl;
@@ -1431,6 +1557,49 @@ void testFileDragAndDrop() {
     std::cout << "  [PASS] Cross-Platform File Drag and Drop Subsystem validated." << std::endl;
 }
 
+void testCircularGradients() {
+    std::cout << "[Test 16/16] Circular & Radial Gradient Tessellation..." << std::endl;
+
+    BatchRenderer2D r;
+    assert(r.getVertexCount() == 0);
+
+    // 1. Two-stop radial gradient with off-center specular focal point
+    r.drawCircleRadialGradient(100.0f, 100.0f, 20.0f,
+                               1.0f, 1.0f, 1.0f, 1.0f,
+                               0.1f, 0.1f, 0.1f, 1.0f,
+                               -5.0f, -5.0f, 36);
+    // 6 vertices (analytical base disc) + 36 fan segments * 3 = 114 vertices
+    assert(r.getVertexCount() == 114);
+
+    // 2. Three-stop radial gradient with concentric ring tessellation
+    r.drawCircleRadial3StopGradient(100.0f, 100.0f, 20.0f,
+                                   1.0f, 1.0f, 1.0f, 1.0f,  // inner specular
+                                   0.5f, 0.5f, 0.5f, 1.0f,  // mid body
+                                   0.1f, 0.1f, 0.1f, 1.0f,  // outer shadow
+                                   -4.0f, -4.0f, 0.50f, 36);
+    // 6 (base disc) + 108 (inner fan) + 216 (outer quad strip: 36 * 6) = 330 vertices
+    assert(r.getVertexCount() == 114 + 330);
+
+    // 3. Linear gradient across circle
+    r.drawCircleLinearGradient(100.0f, 100.0f, 20.0f,
+                               1.0f, 0.0f, 0.0f, 1.0f,
+                               0.0f, 0.0f, 1.0f, 1.0f,
+                               1.5707963f, 36);
+    // 6 (base disc) + 108 (fan) = 114 vertices
+    assert(r.getVertexCount() == 114 + 330 + 114);
+
+    // 4. draw_utils convenience wrappers
+    drawRectGradient(r, 0.0f, 0.0f, 50.0f, 50.0f, Color(1, 0, 0, 1), Color(0, 1, 0, 1));
+    drawRoundedRectGradient(r, 0.0f, 0.0f, 50.0f, 50.0f, 8.0f, Color(1, 0, 0, 1), Color(0, 1, 0, 1));
+    drawCircleRadialGradient(r, 50.0f, 50.0f, 15.0f, Color(1, 1, 1, 1), Color(0, 0, 0, 1), -2.0f, -2.0f);
+    drawCircleRadial3StopGradient(r, 50.0f, 50.0f, 15.0f,
+                                  Color(1, 1, 1, 1), Color(0.5f, 0.5f, 0.5f, 1), Color(0, 0, 0, 1),
+                                  -2.0f, -2.0f, 0.5f);
+    drawCircleLinearGradient(r, 50.0f, 50.0f, 15.0f, Color(1, 1, 1, 1), Color(0, 0, 0, 1));
+
+    std::cout << "  [PASS] Circular & Radial Gradient Tessellation validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -1451,7 +1620,8 @@ int main() {
     testValueEditDialogAndBackdropBlur();
     testCommandPaletteDialog();
     testFileDragAndDrop();
+    testCircularGradients();
 
-    std::cout << "\n>>> ALL 15 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 16 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }

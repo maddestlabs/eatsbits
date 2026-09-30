@@ -1,6 +1,7 @@
 #pragma once
 
 #include "view_base.hpp"
+#include "../gui_panel_def.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -74,6 +75,9 @@ struct ModularModuleDef {
     std::vector<std::string> outputs;
 };
 
+// --- GUI Designer Types are declared in eatsbits/ui/gui_panel_def.hpp ---
+
+
 /**
  * DesignView: High-fidelity Design Workbench for Eatsbits.
  * Aligned with original Eatsbeats: Code Editor with Live Parameters & Oscilloscope,
@@ -93,15 +97,36 @@ public:
     void setSubMode(DesignSubMode mode) noexcept;
     [[nodiscard]] DesignSubMode getSubMode() const noexcept { return mode_; }
     [[nodiscard]] const std::vector<PatchCord>& getPatchCords() const noexcept { return patchCords_; }
+    [[nodiscard]] const std::vector<ModularModuleDef>& getModules() const noexcept { return modules_; }
+    void addModule(const ModularModuleDef& mod);
+    void resetPatch();
 
     // Target Selection & Script Management
     void selectTargetByIndex(int index);
     void selectTargetById(const std::string& id);
+    void selectTargetByTrackAndType(int trackIndex, ScriptTargetType type);
     [[nodiscard]] const ScriptTarget& getActiveTarget() const;
     [[nodiscard]] const std::vector<ScriptTarget>& getAllTargets() const noexcept { return allTargets_; }
     [[nodiscard]] const std::string& getScriptCode() const noexcept { return currentScriptCode_; }
     void setScriptCode(const std::string& code);
     void compileCurrentScript(const ViewContext& ctx);
+
+    // GUI Designer methods
+    [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
+    [[nodiscard]] GuiPanelDef& getGuiPanel() noexcept { return guiPanel_; }
+    void setGuiDesignMode(bool designMode) noexcept { isGuiDesignMode_ = designMode; }
+    [[nodiscard]] bool isGuiDesignMode() const noexcept { return isGuiDesignMode_; }
+    void addGuiRow();
+    void deleteGuiRow(int rowIndex);
+    void addGuiWidget(GuiWidgetType type, GuiKnobStyle knobStyle = GuiKnobStyle::CreamFluted,
+                      const std::string& label = "", const std::string& param = "");
+    void deleteSelectedGuiWidget();
+    void duplicateSelectedGuiWidget();
+    void selectDesignerWidget(int row, int widget);
+    void selectDesignerChassis();
+    [[nodiscard]] int getSelectedDesignerRow() const noexcept { return selectedDesignerRow_; }
+    [[nodiscard]] int getSelectedDesignerWidget() const noexcept { return selectedDesignerWidget_; }
+    [[nodiscard]] bool isChassisSelected() const noexcept { return isChassisSelected_; }
 
     // Callbacks to host window/engine
     std::function<void(const std::string& targetId, const std::string& paramName, float val)> onParamChanged;
@@ -113,6 +138,8 @@ public:
 private:
     void initDefaultTargetsAndCode();
     void updateActiveTargetCodeAndParams();
+    void initDefaultGuiPanel();
+    void syncGuiPanelToScript();
 
     void renderSubNavHeader(const ViewContext& ctx);
     void renderExplorerSidebar(const ViewContext& ctx);
@@ -190,26 +217,59 @@ private:
     // Scope audio waveform
     std::vector<float> scopeSamples_;
 
-    // Modular rack state
+    // Modular rack state & toolbar
     std::vector<ModularModuleDef> modules_;
     std::vector<PatchCord> patchCords_;
+    Rect2D modularToolbarBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnModularResetPatch_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnModularAddModule_{0.0f, 0.0f, 0.0f, 0.0f};
     bool isDraggingCord_{false};
     int dragCordSrcMod_{-1};
     int dragCordSrcJack_{-1};
+    bool dragCordSrcIsOutput_{true};
     float cordStartX_{0.0f};
     float cordStartY_{0.0f};
     float cordCurrentX_{0.0f};
     float cordCurrentY_{0.0f};
+    float dragCordR_{1.0f}, dragCordG_{0.55f}, dragCordB_{0.0f};
     int draggingModuleKnobMod_{-1};
     int draggingModuleKnobIdx_{-1};
     float knobDragStartY_{0.0f};
     float knobDragStartVal_{0.0f};
+    int hoveredJackMod_{-1};
+    int hoveredJackIdx_{-1};
+    bool hoveredJackIsOutput_{false};
 
-    // GUI Designer state
+    // GUI Designer state & components
+    GuiPanelDef guiPanel_;
+    bool isPaletteOpen_{true};
+    bool isInspectorOpen_{true};
+    bool isChassisSelected_{false};
     int selectedDesignerRow_{-1};
     int selectedDesignerWidget_{-1};
+    int draggingGuiWidgetRow_{-1};
+    int draggingGuiWidgetIdx_{-1};
+    float guiDragStartY_{0.0f};
+    float guiDragStartVal_{0.0f};
+
+    // GUI Designer Toolbars & Buttons
+    Rect2D designerToolbarBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnTogglePalette_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnToggleInspector_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnAddRow_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D btnRemoveRow_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnDeleteRow_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnDuplicateWidget_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnDeleteWidget_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    std::vector<PaletteItemDef> paletteItems_;
+    std::vector<std::pair<GuiChassisStyle, Rect2D>> inspectorThemeBtns_;
+    std::vector<std::pair<Color, Rect2D>> inspectorAccentBtns_;
+    Rect2D inspectorWoodCheeksBtn_{0.0f, 0.0f, 0.0f, 0.0f};
+    std::vector<std::pair<std::string, Rect2D>> inspectorParamBtns_;
+    std::vector<std::pair<GuiKnobStyle, Rect2D>> inspectorKnobStyleBtns_;
+    std::vector<std::pair<float, Rect2D>> inspectorSizeBtns_;
+    Rect2D inspectorDeleteBtn_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D inspectorDuplicateBtn_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Target Dropdown Item Rects
     std::vector<Rect2D> targetDropdownItemBounds_;

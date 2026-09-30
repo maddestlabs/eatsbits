@@ -19,21 +19,8 @@ enum class ArrangerInspectorTab {
     Clip
 };
 
-struct ArrangerMidiFxCard {
-    std::string name{"Scale Snap"};
-    std::string type{"SCALE_SNAP"};
-    int rootKey{0};
-    int scaleMode{0}; // 0 = Major, 1 = Natural Minor, etc.
-    bool enabled{true};
-};
-
-struct ArrangerAudioFxCard {
-    std::string name{"Tube Distortion"};
-    std::string type{"TUBE_DISTORTION"};
-    float drive{0.5f};
-    float mix{0.8f};
-    bool enabled{true};
-};
+using ArrangerMidiFxCard = TrackMidiFxItem;
+using ArrangerAudioFxCard = TrackAudioFxItem;
 
 struct ArrangerClipNote {
     uint8_t pitch{60};
@@ -200,6 +187,14 @@ public:
     std::function<void(uint32_t trackIdx, int clipIdx)> onEditClipInPianoRoll;
     std::function<void(uint32_t trackIdx, const std::string& newName)> onTrackRename;
     std::function<void(uint32_t trackIdx, const std::string& iconRef)> onTrackIconChanged;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleAudioFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;
+    std::function<void(uint32_t trackIdx)> onAudioFxChanged;
+    std::function<void(uint32_t trackIdx)> onMidiFxChanged;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
+    std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
 
 private:
     void renderGrid(const ViewContext& ctx);
@@ -243,6 +238,8 @@ private:
         LoopResize,
         PlayheadScrub,
         ViewportPan,
+        TouchPan,
+        TouchGridPending,
         MinimapScrub,
         TrackVolume,
         TrackPan,
@@ -252,6 +249,11 @@ private:
         ChordMove,
         ChordResize
     } dragMode_{ClipDragMode::None};
+
+    KineticScroller kineticScroller_;
+    Point2D touchDownPos_{0.0f, 0.0f};
+    std::chrono::steady_clock::time_point touchDownTimePoint_{};
+    bool touchPanCommitted_{false};
 
     float dragStartPointerX_{0.0f};
     float dragStartPointerY_{0.0f};

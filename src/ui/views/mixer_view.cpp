@@ -102,11 +102,104 @@ MixerView::MixerView() {
                 drawerData_.g = entry.g;
                 drawerData_.b = entry.b;
             } else if (mode == PluginDialogMode::AddMidiFx) {
-                drawerData_.midiFx.push_back({entry.name, entry.engineTag, true});
+                if (targetIdx < channels_.size()) {
+                    TrackMidiFxItem mfx;
+                    mfx.id = entry.id;
+                    mfx.name = entry.name;
+                    mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    mfx.enabled = true;
+                    mfx.isExpanded = true;
+                    mfx.ensureDefaultKnobs();
+                    channels_[targetIdx].midiFx.push_back(mfx);
+                    drawerData_.midiFx.push_back(mfx);
+                    if (onMidiFxChanged) onMidiFxChanged(targetIdx);
+                }
             } else if (mode == PluginDialogMode::AddAudioFx) {
-                drawerData_.audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                if (targetIdx < channels_.size()) {
+                    TrackAudioFxItem afx;
+                    afx.id = entry.id;
+                    afx.name = entry.name;
+                    afx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    afx.enabled = true;
+                    afx.isExpanded = true;
+                    afx.ensureDefaultKnobs();
+                    channels_[targetIdx].audioFx.push_back(afx);
+                    drawerData_.audioFx.push_back(afx);
+                    if (onAudioFxChanged) onAudioFxChanged(targetIdx);
+                }
             }
         };
+    propertiesDrawer_.onRemoveMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (trackIdx < channels_.size() && fxIdx < channels_[trackIdx].midiFx.size()) {
+            channels_[trackIdx].midiFx.erase(channels_[trackIdx].midiFx.begin() + fxIdx);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onRemoveAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (trackIdx < channels_.size() && fxIdx < channels_[trackIdx].audioFx.size()) {
+            channels_[trackIdx].audioFx.erase(channels_[trackIdx].audioFx.begin() + fxIdx);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onToggleMidiFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < channels_.size() && fxIdx < channels_[trackIdx].midiFx.size()) {
+            channels_[trackIdx].midiFx[fxIdx].enabled = en;
+            if (onToggleMidiFx) onToggleMidiFx(trackIdx, fxIdx, en);
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onToggleAudioFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
+        if (trackIdx < channels_.size() && fxIdx < channels_[trackIdx].audioFx.size()) {
+            channels_[trackIdx].audioFx[fxIdx].enabled = en;
+            if (onToggleAudioFx) onToggleAudioFx(trackIdx, fxIdx, en);
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onReorderAudioFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < channels_.size()) {
+            auto& list = channels_[trackIdx].audioFx;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                drawerData_.audioFx = list;
+                if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+            }
+        }
+    };
+    propertiesDrawer_.onReorderMidiFx = [this](uint32_t trackIdx, size_t fromIdx, size_t toIdx) {
+        if (trackIdx < channels_.size()) {
+            auto& list = channels_[trackIdx].midiFx;
+            if (fromIdx < list.size() && toIdx < list.size() && fromIdx != toIdx) {
+                auto item = list[fromIdx];
+                list.erase(list.begin() + fromIdx);
+                list.insert(list.begin() + toIdx, item);
+                drawerData_.midiFx = list;
+                if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+            }
+        }
+    };
+    propertiesDrawer_.onAudioFxChanged = [this](uint32_t trackIdx) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].audioFx = drawerData_.audioFx;
+            if (onAudioFxChanged) onAudioFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onMidiFxChanged = [this](uint32_t trackIdx) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].midiFx = drawerData_.midiFx;
+            if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
+        if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
+    };
+    propertiesDrawer_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
+    };
+    propertiesDrawer_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
+        if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
+    };
 }
 
 void MixerView::setPreset(ModularMixerPreset preset) noexcept {
@@ -736,6 +829,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 activeFaderIndex_ = -1;
                 dragStartY_ = ev.y;
                 initialFaderVal_ = masterChannel_.fader;
+                activeFaderSessions_[ev.id] = {-1, ev.y, masterChannel_.fader};
                 char buf[64];
                 std::snprintf(buf, sizeof(buf), "Master Volume: %.2f", masterChannel_.fader);
                 tooltipText_ = buf;
@@ -745,6 +839,20 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 return true;
             }
         } else if (ev.action == PointerAction::Move) {
+            auto it = activeFaderSessions_.find(ev.id);
+            if (it != activeFaderSessions_.end() && it->second.faderIndex == -1) {
+                float dy = it->second.dragStartY - ev.y;
+                float newFader = std::clamp(it->second.initialFaderVal + (dy / 200.0f), 0.0f, 1.5f);
+                masterChannel_.fader = newFader;
+                if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(newFader);
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Master Volume: %.2f", newFader);
+                tooltipText_ = buf;
+                tooltipX_ = mX + 60.0f;
+                tooltipY_ = ev.y;
+                showTooltip_ = true;
+                return true;
+            }
             if (activeFaderIndex_ == -1) {
                 float dy = dragStartY_ - ev.y;
                 float newFader = std::clamp(initialFaderVal_ + (dy / 200.0f), 0.0f, 1.5f);
@@ -900,6 +1008,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     activeFaderIndex_ = static_cast<int>(i);
                     dragStartY_ = ev.y;
                     initialFaderVal_ = channels_[i].fader;
+                    activeFaderSessions_[ev.id] = {static_cast<int>(i), ev.y, channels_[i].fader};
                     char buf[64];
                     std::snprintf(buf, sizeof(buf), "%s Volume: %.2f", channels_[i].name.c_str(), channels_[i].fader);
                     tooltipText_ = buf;
@@ -913,10 +1022,25 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 propertiesDrawer_.setExpanded(true);
                 return true;
             } else if (ev.action == PointerAction::Move) {
+                auto sessionIt = activeFaderSessions_.find(ev.id);
+                if (sessionIt != activeFaderSessions_.end() && sessionIt->second.faderIndex == static_cast<int>(i)) {
+                    float dy = sessionIt->second.dragStartY - ev.y;
+                    float newFader = std::clamp(sessionIt->second.initialFaderVal + (dy / 200.0f), 0.0f, 1.5f);
+                    channels_[i].fader = newFader;
+                    if (ctx.audioEngine) ctx.audioEngine->setTrackVolume(static_cast<uint32_t>(i), newFader);
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%s Volume: %.2f", channels_[i].name.c_str(), newFader);
+                    tooltipText_ = buf;
+                    tooltipX_ = cx + 45.0f;
+                    tooltipY_ = ev.y;
+                    showTooltip_ = true;
+                    return true;
+                }
                 if (activeFaderIndex_ == static_cast<int>(i)) {
                     float dy = dragStartY_ - ev.y;
                     float newFader = std::clamp(initialFaderVal_ + (dy / 200.0f), 0.0f, 1.5f);
                     channels_[i].fader = newFader;
+                    if (ctx.audioEngine) ctx.audioEngine->setTrackVolume(static_cast<uint32_t>(i), newFader);
                     char buf[64];
                     std::snprintf(buf, sizeof(buf), "%s Volume: %.2f", channels_[i].name.c_str(), newFader);
                     tooltipText_ = buf;
@@ -935,10 +1059,20 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     }
 
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        auto it = activeFaderSessions_.find(ev.id);
+        if (it != activeFaderSessions_.end()) {
+            activeFaderSessions_.erase(it);
+            if (activeFaderSessions_.empty()) {
+                activeFaderIndex_ = -2;
+                showTooltip_ = false;
+            }
+            return true;
+        }
         if (activeFaderIndex_ != -2 || activePanIndex_ != -2 || showTooltip_) {
             activeFaderIndex_ = -2;
             activePanIndex_ = -2;
             showTooltip_ = false;
+            activeFaderSessions_.clear();
             return true;
         }
     }

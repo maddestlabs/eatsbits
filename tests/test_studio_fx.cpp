@@ -17,6 +17,7 @@
 #include "eatsbits/audio/graph/nodes/compressor_node.hpp"
 #include "eatsbits/audio/graph/nodes/chorus_node.hpp"
 #include "eatsbits/audio/graph/nodes/limiter_node.hpp"
+#include "eatsbits/audio/audio_engine.hpp"
 
 using namespace eatsbits;
 using namespace eatsbits::audio;
@@ -321,6 +322,51 @@ void testBenchmarkFullChannelStrip() {
     std::cout << "  -> PASSED\n";
 }
 
+void testAudioEngineDynamicFxRouting() {
+    std::cout << "[Test 8] Testing AudioEngine Dynamic Audio FX Insert & Parameter Modulation...\n";
+    AudioEngineConfig cfg;
+    cfg.sampleRate = 44100;
+    cfg.bufferFrameSize = 256;
+    AudioEngine engine;
+    engine.initialize(cfg);
+    engine.setupDefaultAcidBeatGraph();
+
+    // Verify initial state has Track 0 FX
+    auto fx0 = engine.getTrackAudioFx(0);
+    TEST_ASSERT(fx0.size() >= 1);
+
+    // Rebuild with 2 inserts: Tube Distortion and Studio Dynamics
+    std::vector<AudioEngine::TrackAudioFxItem> newFx = {
+        {"Acid Distortion", "TUBE_DISTORTION", 0.75f, 0.90f, true},
+        {"Acid Dynamics", "DYNAMICS_COMP", 0.50f, 0.80f, true}
+    };
+    bool ok = engine.rebuildTrackAudioFx(0, newFx);
+    TEST_ASSERT(ok);
+
+    auto updatedFx = engine.getTrackAudioFx(0);
+    TEST_ASSERT(updatedFx.size() == 2);
+    TEST_ASSERT(updatedFx[0].name == "Acid Distortion");
+    TEST_ASSERT(updatedFx[1].name == "Acid Dynamics");
+
+    // Modulate parameters in-place without glitching
+    bool pOk1 = engine.setTrackAudioFxParam(0, 0, "drive", 0.85f);
+    bool pOk2 = engine.setTrackAudioFxParam(0, 0, "mix", 0.60f);
+    TEST_ASSERT(pOk1 && pOk2);
+
+    // Bypass first FX
+    newFx[0].enabled = false;
+    bool bypassOk = engine.rebuildTrackAudioFx(0, newFx);
+    TEST_ASSERT(bypassOk);
+    TEST_ASSERT(!engine.getTrackAudioFx(0)[0].enabled);
+
+    // Process a block through graph
+    std::vector<float> bufL(256, 0.0f);
+    std::vector<float> bufR(256, 0.0f);
+    engine.getGraph().process(bufL.data(), bufR.data(), 256);
+
+    std::cout << "  -> PASSED\n";
+}
+
 int main() {
     std::cout << "====================================================\n";
     std::cout << "   EATSBITS STUDIO DYNAMICS & INSERT FX SUITE TESTS \n";
@@ -333,9 +379,10 @@ int main() {
     testChorusQuadratureModulation();
     testAudioGraphChannelStripProcessing();
     testBenchmarkFullChannelStrip();
+    testAudioEngineDynamicFxRouting();
 
     std::cout << "====================================================\n";
-    std::cout << " ALL 7 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
+    std::cout << " ALL 8 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
     std::cout << "====================================================\n";
     return 0;
 }

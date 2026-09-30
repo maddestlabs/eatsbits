@@ -609,11 +609,31 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **HiDPI / RenderScale Synchronization**: Passed `renderScale` through to [renderCrtScene](file:///c:/git/eatsbits/src/ui/dawn_bridge.cpp) and synchronized `topCut` and `bottomCut` calculations across standard and Retina/HiDPI resolutions, preventing boundary drift between the transport bar, DAW area, and bottom chin.
     - **Dynamic Diegetic Offset Tracking**: Integrated real-time tracking of `rumbleOffset` (audio-reactive sub-bass chassis shake) and `hWave` (horizontal sync raster scan wave) into `DawnBridge`, keeping hit detection synchronized with active visual displacements.
     - **Automated Verification**: Added comprehensive unit test suite `testCrtMouseCoordinateRemapping()` in [test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp) validating 1:1 rectilinear pass-through, transport/chin boundary protection, and exact center/off-center mapping.
+- **Comprehensive Touch & Multi-Touch Support (Flutter Eatsbeats Parity)**:
+  - **TrackPropertiesPanel Kinetic Touch Drag-to-Scroll**:
+    - Integrated `KineticScroller` with 14px touch slop deadzone distinguishing intended taps on track property controls from vertical scroll gestures.
+    - Implemented smooth exponential deceleration glide (`friction = 0.92f`) and inertia momentum tracking on touch release.
+    - Added reactive scrollbar indicator with active dragging feedback and smooth track clamping.
+  - **Piano Roll & Arranger Grid Touch Panning & Desktop Selection Parity**:
+    - Preserved instant desktop mouse left-click drag marquee selection without delay.
+    - On touchscreens (`PointerType::Touch`), touch-down on empty grid space begins in pending state; moving beyond 14px commits immediately to smooth kinetic 2D panning (`TouchPan`).
+    - Stationary hold on touchscreens for >= 380-400ms seamlessly arms `MarqueeSelect` box selection mode with haptic visual cues, matching Eatsbeats mobile UX.
+  - **VirtualKeyboardDrawer Multi-Touch Polyphony**:
+    - Migrated single-touch tracking to `std::unordered_map<int, ActiveKeyTouch> activeTouches_` keyed by `ev.id`.
+    - Enables simultaneous multi-finger chords, independent finger glissando, and selective note release without dropping held chords.
+  - **DrumPadGridWidget Multi-Touch Matrix**:
+    - Replaced single-pointer pad state with `std::unordered_map<int, int> activePadPointers_` keyed by `ev.id`.
+    - Allows simultaneous multi-finger finger-drumming across the 4x4 MPC/SP-1200 pad matrix with vertical velocity dynamics per finger.
+  - **MixerView Multi-Fader Simultaneous Mixing**:
+    - Implemented `std::unordered_map<int, ActiveFaderSession> activeFaderSessions_` keyed by `ev.id`.
+    - Supports multi-finger volume fader adjustments across channel strips and master fader simultaneously.
 - **Validation**:
-  - MSVC 17 Release build clean with zero errors.
-  - 100% pass on [test_ui_widgets.exe](file:///c:/git/eatsbits/tests/test_ui_widgets.cpp) and [test_gui_interaction.exe](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp) running on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti.
+  - MSVC 17 Release build clean with zero warnings/errors.
+  - 100% pass on [test_ui_widgets.exe](file:///c:/git/eatsbits/tests/test_ui_widgets.cpp) testing `KineticScroller` momentum glide and `DrumPadGridWidget` multi-touch polyphony.
+  - 100% pass across all 37 test suites in CTest (113.54s execution) on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
 
 ---
+
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
 

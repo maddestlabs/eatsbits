@@ -101,7 +101,7 @@ void DrumPadGridWidget::releaseAllPads() noexcept {
             if (onPadRelease) onPadRelease(pad.note);
         }
     }
-    activePointerPadIndex_ = -1;
+    activePadPointers_.clear();
 }
 
 void DrumPadGridWidget::layout(const Rect2D& bounds) noexcept {
@@ -272,28 +272,30 @@ bool DrumPadGridWidget::handlePointer(const PointerEvent& ev) noexcept {
             return true;
         }
 
-        // 2. Pad Grid Hit-Testing
+        // 2. Pad Grid Hit-Testing (Multi-Touch Polyphony)
         auto& pads = (activeBank_ == DrumKitBank::CoreKit) ? corePads_ : percPads_;
         for (size_t i = 0; i < pads.size() && i < 16; ++i) {
             if (pads[i].bounds.contains(ev.x, ev.y)) {
-                activePointerPadIndex_ = static_cast<int>(i);
+                activePadPointers_[ev.id] = static_cast<int>(i);
 
                 // Y-axis velocity sensitivity:
                 // Touching top of pad gives velocity ~ 1.0; bottom gives ~ 0.65
                 float relY = (ev.y - pads[i].bounds.y) / std::max(1.0f, pads[i].bounds.h);
-                float velocity = std::clamp(1.0f - relY * 0.35f, 0.55f, 1.0f);
+                float velocity = (ev.pressure > 0.05f) ? ev.pressure : std::clamp(1.0f - relY * 0.35f, 0.55f, 1.0f);
 
                 triggerPad(pads[i].note, velocity);
                 return true;
             }
         }
-    } else if (ev.action == PointerAction::Up) {
-        if (activePointerPadIndex_ >= 0) {
+    } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        auto it = activePadPointers_.find(ev.id);
+        if (it != activePadPointers_.end()) {
+            int padIdx = it->second;
+            activePadPointers_.erase(it);
             auto& pads = (activeBank_ == DrumKitBank::CoreKit) ? corePads_ : percPads_;
-            if (activePointerPadIndex_ < static_cast<int>(pads.size())) {
-                releasePad(pads[activePointerPadIndex_].note);
+            if (padIdx >= 0 && padIdx < static_cast<int>(pads.size())) {
+                releasePad(pads[padIdx].note);
             }
-            activePointerPadIndex_ = -1;
             return true;
         }
     }

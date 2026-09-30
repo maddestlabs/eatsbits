@@ -69,6 +69,14 @@ void drawDesignChipIcon(BatchRenderer2D& r, float x, float y, float size, const 
 
 void drawSlidersTuneIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c);
 
+void drawFullscreenIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c, float thickness = 1.5f);
+
+void drawChevronUp(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness = 1.6f);
+
+void drawChevronDown(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness = 1.6f);
+
+void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness = 1.4f);
+
 void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
                   float red, float green, float blue, float alpha = 1.0f);
 
@@ -87,6 +95,16 @@ inline void drawRect(BatchRenderer2D& r, float x, float y, float w, float h,
     r.drawRect(x, y, w, h, col.r, col.g, col.b, alpha * col.a);
 }
 
+inline void drawRectGradient(BatchRenderer2D& r, float x, float y, float w, float h,
+                             float r0, float g0, float b0, float r1, float g1, float b1, float a = 1.0f) {
+    r.drawRectGradient(x, y, w, h, r0, g0, b0, r1, g1, b1, a);
+}
+
+inline void drawRectGradient(BatchRenderer2D& r, float x, float y, float w, float h,
+                             const Color& c0, const Color& c1) {
+    r.drawRectGradient(x, y, w, h, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.a);
+}
+
 inline void drawRoundedRect(BatchRenderer2D& r, float x, float y, float w, float h, float radius,
                             float red, float green, float blue, float alpha = 1.0f) {
     r.drawRoundedRect(x, y, w, h, radius, red, green, blue, alpha);
@@ -95,6 +113,16 @@ inline void drawRoundedRect(BatchRenderer2D& r, float x, float y, float w, float
 inline void drawRoundedRect(BatchRenderer2D& r, float x, float y, float w, float h, float radius,
                             const Color& col, float alpha = 1.0f) {
     r.drawRoundedRect(x, y, w, h, radius, col.r, col.g, col.b, alpha * col.a);
+}
+
+inline void drawRoundedRectGradient(BatchRenderer2D& r, float x, float y, float w, float h, float radius,
+                                    float r0, float g0, float b0, float r1, float g1, float b1, float a = 1.0f) {
+    r.drawRoundedRectGradient(x, y, w, h, radius, r0, g0, b0, r1, g1, b1, a);
+}
+
+inline void drawRoundedRectGradient(BatchRenderer2D& r, float x, float y, float w, float h, float radius,
+                                    const Color& c0, const Color& c1) {
+    r.drawRoundedRectGradient(x, y, w, h, radius, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.a);
 }
 
 inline void drawRoundedRectOutline(BatchRenderer2D& r, float x, float y, float w, float h, float radius,
@@ -125,6 +153,36 @@ inline void drawCircle(BatchRenderer2D& r, float cx, float cy, float radius,
 inline void drawCircle(BatchRenderer2D& r, float cx, float cy, float radius,
                        const Color& col, float alpha = 1.0f) {
     r.drawCircle(cx, cy, radius, col.r, col.g, col.b, alpha * col.a);
+}
+
+inline void drawCircleRadialGradient(BatchRenderer2D& r, float cx, float cy, float radius,
+                                     float innerR, float innerG, float innerB, float innerA,
+                                     float outerR, float outerG, float outerB, float outerA,
+                                     float offX = 0.0f, float offY = 0.0f, int segments = 36) {
+    r.drawCircleRadialGradient(cx, cy, radius, innerR, innerG, innerB, innerA, outerR, outerG, outerB, outerA, offX, offY, segments);
+}
+
+inline void drawCircleRadialGradient(BatchRenderer2D& r, float cx, float cy, float radius,
+                                     const Color& innerCol, const Color& outerCol,
+                                     float offX = 0.0f, float offY = 0.0f, int segments = 36) {
+    r.drawCircleRadialGradient(cx, cy, radius, innerCol.r, innerCol.g, innerCol.b, innerCol.a,
+                               outerCol.r, outerCol.g, outerCol.b, outerCol.a, offX, offY, segments);
+}
+
+inline void drawCircleRadial3StopGradient(BatchRenderer2D& r, float cx, float cy, float radius,
+                                          const Color& innerCol, const Color& midCol, const Color& outerCol,
+                                          float offX = 0.0f, float offY = 0.0f, float midStop = 0.50f, int segments = 36) {
+    r.drawCircleRadial3StopGradient(cx, cy, radius,
+                                    innerCol.r, innerCol.g, innerCol.b, innerCol.a,
+                                    midCol.r, midCol.g, midCol.b, midCol.a,
+                                    outerCol.r, outerCol.g, outerCol.b, outerCol.a,
+                                    offX, offY, midStop, segments);
+}
+
+inline void drawCircleLinearGradient(BatchRenderer2D& r, float cx, float cy, float radius,
+                                     const Color& c0, const Color& c1,
+                                     float angleRad = 1.5707963f, int segments = 36) {
+    r.drawCircleLinearGradient(cx, cy, radius, c0.r, c0.g, c0.b, c0.a, c1.r, c1.g, c1.b, c1.a, angleRad, segments);
 }
 
 inline void drawCircleOutline(BatchRenderer2D& r, float cx, float cy, float radius,

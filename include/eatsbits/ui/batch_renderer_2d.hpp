@@ -93,6 +93,20 @@ public:
     void drawRoundedRectGradient(float x, float y, float w, float h, float radius, float r0, float g0, float b0, float r1, float g1, float b1, float a = 1.0f, int cornerSegments = 8);
     void drawRoundedRectOutline(float x, float y, float w, float h, float radius, float r, float g, float b, float a = 1.0f, float lineWidth = 1.0f, int cornerSegments = 8);
     void drawCircle(float cx, float cy, float radius, float r, float g, float b, float a = 1.0f, int segments = 36);
+    void drawCircleRadialGradient(float cx, float cy, float radius,
+                                  float innerR, float innerG, float innerB, float innerA,
+                                  float outerR, float outerG, float outerB, float outerA,
+                                  float offX = 0.0f, float offY = 0.0f, int segments = 36);
+    void drawCircleRadial3StopGradient(float cx, float cy, float radius,
+                                       float innerR, float innerG, float innerB, float innerA,
+                                       float midR, float midG, float midB, float midA,
+                                       float outerR, float outerG, float outerB, float outerA,
+                                       float offX = 0.0f, float offY = 0.0f, float midStop = 0.50f,
+                                       int segments = 36);
+    void drawCircleLinearGradient(float cx, float cy, float radius,
+                                  float r0, float g0, float b0, float a0,
+                                  float r1, float g1, float b1, float a1,
+                                  float angleRad = 1.5707963f, int segments = 36);
     void drawCircleOutline(float cx, float cy, float radius, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f, int segments = 36);
     void drawArc(float cx, float cy, float radius, float startAngle, float endAngle, float r, float g, float b, float a = 1.0f, float lineWidth = 2.0f, int segments = 36);
     void drawLine(float x0, float y0, float x1, float y1, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f);

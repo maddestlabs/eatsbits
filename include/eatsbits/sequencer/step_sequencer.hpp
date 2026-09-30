@@ -11,6 +11,7 @@
 #include "../audio/graph/audio_graph.hpp"
 #include "../audio/graph/graph_node.hpp"
 #include "eatsbits/lyrics/lyric_track.hpp"
+#include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 
 namespace eatsbits::sequencer {
 
@@ -80,6 +81,11 @@ public:
 
     [[nodiscard]] const std::string& getEatscriptCode() const noexcept { return eatscriptCode_; }
     void setEatscriptCode(std::string code) { eatscriptCode_ = std::move(code); }
+
+    // --- MIDI FX Rack ---
+    [[nodiscard]] const std::vector<eatscript::MidiFxInsert>& getMidiFxRack() const noexcept { return midiFxRack_; }
+    std::vector<eatscript::MidiFxInsert>& getMidiFxRack() noexcept { return midiFxRack_; }
+    void setMidiFxRack(std::vector<eatscript::MidiFxInsert> rack) { midiFxRack_ = std::move(rack); }
 
     // --- Track Freeze ---
     [[nodiscard]] bool isFrozen() const noexcept { return isFrozen_; }
@@ -207,6 +213,9 @@ private:
     // Synchronized Lyric Cues
     std::vector<lyrics::LyricCue> lyrics_{};
 
+    // MIDI FX Rack
+    std::vector<eatscript::MidiFxInsert> midiFxRack_{};
+
     // Track Freeze state & baked audio buffers
     bool isFrozen_{false};
     std::string frozenContentHash_{""};
@@ -266,6 +275,11 @@ public:
     const SequencerTrack* getTrack(size_t trackIdx) const noexcept;
     size_t addTrack(const std::string& name, audio::NodeId targetNodeId, uint32_t numSteps = 16);
 
+    // Musical time context for live MIDI FX transformations
+    void setTimeContext(const eatscript::TimeContext& ctx) noexcept { timeContext_ = ctx; }
+    [[nodiscard]] const eatscript::TimeContext& getTimeContext() const noexcept { return timeContext_; }
+    [[nodiscard]] eatscript::TimeContext& getTimeContext() noexcept { return timeContext_; }
+
     // Real-Time Audio Callback Processing (strictly zero-allocation)
     void processBlock(uint32_t numFrames, audio::AudioGraph& graph) noexcept;
 
@@ -301,6 +315,8 @@ private:
         rngState_ ^= (rngState_ << 5);
         return static_cast<float>(rngState_) * (1.0f / 4294967296.0f);
     }
+
+    eatscript::TimeContext timeContext_{};
 };
 
 } // namespace eatsbits::sequencer

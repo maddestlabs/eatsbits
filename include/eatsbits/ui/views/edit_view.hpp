@@ -198,6 +198,8 @@ private:
         ResizeNotes,
         MarqueeSelect,
         MiddlePan,
+        TouchPan,
+        TouchGridPending,
         VelocityDrag,
         GhostSlider,
         SidebarPositionSlider,
@@ -206,6 +208,13 @@ private:
         TrackerBlockSelect
     };
     DragMode dragMode_{DragMode::None};
+
+    KineticScroller kineticScroller_;
+    Point2D touchDownPos_{0.0f, 0.0f};
+    double touchDownTimeMs_{0.0};
+    std::chrono::steady_clock::time_point touchDownTimePoint_{};
+    bool touchLongPressArmed_{false};
+    bool touchPanCommitted_{false};
 
     Point2D dragStartPoint_{0.0f, 0.0f};
     Point2D marqueeCurrentPoint_{0.0f, 0.0f};

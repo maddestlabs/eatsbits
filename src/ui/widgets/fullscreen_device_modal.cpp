@@ -26,9 +26,12 @@ FullscreenDeviceModal::FullscreenDeviceModal() {
         trackData_.knobs.clear();
         trackData_.syncKnobsIfEmpty();
         knobSlots_.clear();
+        guiPanel_.rows.clear();
+        syncGuiPanelFromTrackData();
         pluginDialog_.close();
         if (onOpenPresetDialog) onOpenPresetDialog(trackIndex);
     };
+    syncGuiPanelFromTrackData();
     pluginDialog_.onClose = [this]() {
         pluginDialog_.close();
     };
@@ -40,6 +43,7 @@ void FullscreenDeviceModal::open(const DeviceTarget& target) noexcept {
     isDraggingKnob_ = false;
     activeKnobIndex_ = -1;
     pluginDialog_.close();
+    syncGuiPanelFromTrackData();
 }
 
 void FullscreenDeviceModal::close() noexcept {
@@ -63,6 +67,236 @@ void FullscreenDeviceModal::toggle(const DeviceTarget& target) noexcept {
 void FullscreenDeviceModal::syncData(const TrackPropertiesDrawerData& data) noexcept {
     trackData_ = data;
     trackData_.syncKnobsIfEmpty();
+    syncGuiPanelFromTrackData();
+}
+
+void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
+    trackData_.syncKnobsIfEmpty();
+
+    if (target_.type == DeviceTargetType::AudioFx) {
+        TrackAudioFxItem fx;
+        if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.audioFx.size()) {
+            fx = trackData_.audioFx[target_.fxIndex];
+        } else {
+            fx.name = target_.deviceName.empty() ? "Audio FX Insert" : target_.deviceName;
+            fx.type = "AUDIO_FX";
+            fx.ensureDefaultKnobs();
+        }
+        fx.ensureDefaultKnobs();
+
+        guiPanel_.title = fx.name;
+        guiPanel_.subtitle = "Studio DSP Insert Effect • " + fx.type + " • Unit " + std::to_string(std::max(1, target_.fxIndex + 1));
+
+        if (fx.background == "snes") {
+            guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+        } else if (fx.background == "grunge") {
+            guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
+        } else if (fx.background == "silver") {
+            guiPanel_.chassisStyle = GuiChassisStyle::Silver;
+        } else if (fx.background == "dark") {
+            guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+        } else if (fx.background == "minimal_white") {
+            guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+        } else {
+            guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
+        }
+
+        if (fx.accentR > 0.01f || fx.accentG > 0.01f || fx.accentB > 0.01f) {
+            guiPanel_.accentColor = Color(fx.accentR, fx.accentG, fx.accentB, 1.0f);
+        } else {
+            guiPanel_.accentColor = Color(0.15f, 0.85f, 0.95f, 1.0f);
+        }
+        guiPanel_.woodCheeks = true;
+        guiPanel_.cornerRadius = 8.0f;
+
+        guiPanel_.rows.clear();
+        GuiRowDef r1;
+
+        trackData_.knobs = fx.knobs;
+        for (size_t i = 0; i < fx.knobs.size(); ++i) {
+            const auto& k = fx.knobs[i];
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label;
+            w.param = k.name;
+            w.knobStyle = static_cast<GuiKnobStyle>(i % 5);
+            w.size = 64.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = k.unit;
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
+        guiPanel_.rows.push_back(r1);
+        return;
+    }
+
+    if (target_.type == DeviceTargetType::MidiFx) {
+        TrackMidiFxItem fx;
+        if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
+            fx = trackData_.midiFx[target_.fxIndex];
+        } else {
+            fx.name = target_.deviceName.empty() ? "MIDI FX Processor" : target_.deviceName;
+            fx.type = "MIDI_FX";
+            fx.ensureDefaultKnobs();
+        }
+        fx.ensureDefaultKnobs();
+
+        guiPanel_.title = fx.name;
+        guiPanel_.subtitle = "MIDI Real-Time Transform Processor • " + fx.type + " • Unit " + std::to_string(std::max(1, target_.fxIndex + 1));
+        guiPanel_.accentColor = Color(0.95f, 0.60f, 0.15f, 1.0f);
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+        guiPanel_.woodCheeks = true;
+        guiPanel_.cornerRadius = 8.0f;
+
+        guiPanel_.rows.clear();
+        GuiRowDef r1;
+
+        trackData_.knobs = fx.knobs;
+        for (size_t i = 0; i < fx.knobs.size(); ++i) {
+            const auto& k = fx.knobs[i];
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label;
+            w.param = k.name;
+            w.knobStyle = static_cast<GuiKnobStyle>((i + 1) % 5);
+            w.size = 64.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = k.unit;
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
+        guiPanel_.rows.push_back(r1);
+        return;
+    }
+
+    guiPanel_.title = trackData_.presetTitle.empty() ? trackData_.instrument : trackData_.presetTitle;
+    guiPanel_.subtitle = trackData_.presetSubtitle.empty() ? (trackData_.trackName + " • " + trackData_.instrument) : trackData_.presetSubtitle;
+    guiPanel_.accentColor = Color(trackData_.r, trackData_.g, trackData_.b, 1.0f);
+    guiPanel_.woodCheeks = true;
+    guiPanel_.cornerRadius = 8.0f;
+
+    const std::string& eng = trackData_.instrumentEngine;
+    if (eng == "tb303") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Silver;
+    } else if (eng == "tr808" || eng == "tr909") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
+    } else if (eng == "dx7") {
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+    } else if (eng == "snes") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+    } else if (eng == "c64") {
+        guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+    } else if (eng == "convolver") {
+        guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
+    } else {
+        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+    }
+
+    size_t numKnobs = trackData_.knobs.size();
+    if (numKnobs == 0) {
+        trackData_.knobs = {
+            {"cutoff", "CUTOFF", 0.65f, "65%"},
+            {"resonance", "RESON", 0.50f, "50%"},
+            {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
+            {"decay", "DECAY", 0.45f, "225 ms"},
+            {"accent", "ACCENT", 0.70f, "70%"},
+            {"tuning", "TUNING", 0.50f, "440 Hz"}
+        };
+        numKnobs = trackData_.knobs.size();
+    }
+
+    size_t displayKnobs = std::min(numKnobs, size_t{6});
+
+    if (guiPanel_.rows.empty() || guiPanel_.rows[0].widgets.size() != displayKnobs) {
+        guiPanel_.rows.clear();
+        GuiRowDef r1;
+        for (size_t i = 0; i < displayKnobs; ++i) {
+            const auto& k = trackData_.knobs[i];
+            GuiKnobStyle kStyle = GuiKnobStyle::Standard;
+            if (eng == "tb303") {
+                if (i == 0) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 1) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
+                else kStyle = GuiKnobStyle::Standard;
+            } else if (eng == "tr808" || eng == "tr909") {
+                if (i == 0) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 1) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
+                else kStyle = GuiKnobStyle::Standard;
+            } else if (eng == "dx7") {
+                if (i == 0) kStyle = GuiKnobStyle::AnodizedKnurled;
+                else if (i == 1) kStyle = GuiKnobStyle::TwoToneStepped;
+                else if (i == 2) kStyle = GuiKnobStyle::BakeliteSkirt;
+                else if (i == 3) kStyle = GuiKnobStyle::CreamFluted;
+                else if (i == 4) kStyle = GuiKnobStyle::Standard;
+                else kStyle = GuiKnobStyle::Tb303Halo;
+            } else {
+                kStyle = static_cast<GuiKnobStyle>(i % 5);
+            }
+
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label;
+            w.param = k.name;
+            w.knobStyle = kStyle;
+            w.size = 64.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = "";
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
+        guiPanel_.rows.push_back(r1);
+
+        if (numKnobs > 6) {
+            GuiRowDef r2;
+            for (size_t i = 6; i < numKnobs && i < 12; ++i) {
+                const auto& k = trackData_.knobs[i];
+                GuiWidgetDef w;
+                w.id = "w_" + k.name;
+                w.type = GuiWidgetType::Knob;
+                w.label = k.label;
+                w.param = k.name;
+                w.knobStyle = static_cast<GuiKnobStyle>(i % 5);
+                w.size = 56.0f;
+                w.currentVal = k.value;
+                w.minVal = 0.0f;
+                w.maxVal = 1.0f;
+                w.unit = "";
+                w.accentColor = guiPanel_.accentColor;
+                r2.widgets.push_back(w);
+            }
+            guiPanel_.rows.push_back(r2);
+        }
+    } else {
+        // Sync values to existing widgets
+        for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+            for (size_t wIdx = 0; wIdx < guiPanel_.rows[rIdx].widgets.size(); ++wIdx) {
+                size_t kIdx = rIdx * 6 + wIdx;
+                if (kIdx < trackData_.knobs.size()) {
+                    auto& w = guiPanel_.rows[rIdx].widgets[wIdx];
+                    if (!isDraggingKnob_ || draggingRow_ != static_cast<int>(rIdx) || draggingWidget_ != static_cast<int>(wIdx)) {
+                        w.currentVal = trackData_.knobs[kIdx].value;
+                        w.label = trackData_.knobs[kIdx].label;
+                        w.param = trackData_.knobs[kIdx].name;
+                        w.accentColor = guiPanel_.accentColor;
+                    }
+                }
+            }
+        }
+    }
 }
 
 void FullscreenDeviceModal::setAudioScopeBuffer(const float* buffer, size_t count) noexcept {
@@ -80,7 +314,6 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     float headerH = 44.0f;
     headerBounds_ = Rect2D{0.0f, 0.0f, screenWidth_, headerH};
 
-    // Right-aligned elements matching user screenshot:
     // 1. Universal Close Button (rotated screw icon, rightmost)
     float closeBtnSize = 28.0f;
     float closeX = screenWidth_ - closeBtnSize - 14.0f;
@@ -108,48 +341,51 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     float bodyW = screenWidth_ - (marginX * 2.0f);
     bodyBounds_ = Rect2D{marginX, bodyY, bodyW, bodyH};
 
-    // Ensure trackData_ has knobs initialized
-    trackData_.syncKnobsIfEmpty();
+    syncGuiPanelFromTrackData();
 
-    size_t numKnobs = trackData_.knobs.size();
-    if (numKnobs == 0) {
-        trackData_.knobs = {
-            {"cutoff", "CUTOFF", 0.65f, "65%"},
-            {"resonance", "RESON", 0.50f, "50%"},
-            {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
-            {"decay", "DECAY", 0.45f, "225 ms"},
-            {"accent", "ACCENT", 0.70f, "70%"},
-            {"tuning", "TUNING", 0.50f, "440 Hz"}
-        };
-        numKnobs = trackData_.knobs.size();
+    // Allocate faceplate & oscilloscope:
+    float oscH = std::min(150.0f, bodyH * 0.28f);
+    float fpRectH = bodyH - oscH - 16.0f;
+    Rect2D fpRect{bodyBounds_.x, bodyBounds_.y, bodyBounds_.w, fpRectH};
+    guiPanel_.bounds = fpRect;
+    oscBounds_ = Rect2D{bodyBounds_.x, bodyBounds_.y + fpRectH + 16.0f, bodyBounds_.w, oscH};
+
+    // Compute widget bounds inside guiPanel_
+    float fpHeaderH = 44.0f;
+    float rowStartY = fpRect.y + fpHeaderH + 16.0f;
+    float rowH = (fpRectH - fpHeaderH - 32.0f) / std::max(1, static_cast<int>(guiPanel_.rows.size()));
+
+    for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+        auto& row = guiPanel_.rows[rIdx];
+        float ry = rowStartY + (rIdx * rowH);
+        row.bounds = Rect2D{fpRect.x + 12.0f, ry, fpRect.w - 24.0f, rowH - 8.0f};
+
+        size_t wCount = row.widgets.size();
+        if (wCount == 0) continue;
+        float colW = row.bounds.w / static_cast<float>(wCount);
+
+        for (size_t wIdx = 0; wIdx < wCount; ++wIdx) {
+            auto& w = row.widgets[wIdx];
+            float wx = row.bounds.x + (wIdx * colW);
+            float wy = ry + 4.0f;
+            w.bounds = Rect2D{wx + 6.0f, wy, colW - 12.0f, rowH - 16.0f};
+        }
     }
 
-    size_t displayKnobs = std::min(numKnobs, size_t{8});
-
-    float knobAreaY = bodyBounds_.y + 60.0f;
-    float knobAreaH = std::min(240.0f, bodyBounds_.h * 0.45f);
-    float kStep = bodyBounds_.w / static_cast<float>(displayKnobs);
-    float kRadius = std::clamp(kStep * 0.22f, 26.0f, 40.0f);
-
-    if (knobSlots_.size() != displayKnobs) {
+    // Mirror Row 0's knobs into knobSlots_ for backward compatibility
+    if (!guiPanel_.rows.empty()) {
+        const auto& r0 = guiPanel_.rows[0];
+        size_t displayKnobs = r0.widgets.size();
         knobSlots_.resize(displayKnobs);
         for (size_t i = 0; i < displayKnobs; ++i) {
-            knobSlots_[i].name = trackData_.knobs[i].name;
-            knobSlots_[i].label = trackData_.knobs[i].label;
-            knobSlots_[i].normVal = trackData_.knobs[i].value;
-            knobSlots_[i].readout = trackData_.knobs[i].display;
+            const auto& w = r0.widgets[i];
+            knobSlots_[i].name = w.param;
+            knobSlots_[i].label = w.label;
+            knobSlots_[i].normVal = w.currentVal;
+            knobSlots_[i].readout = (i < trackData_.knobs.size()) ? trackData_.knobs[i].display : "";
+            knobSlots_[i].center = Point2D{w.bounds.x + w.bounds.w * 0.5f, w.bounds.y + w.bounds.h * 0.42f};
+            knobSlots_[i].radius = std::clamp(w.size * 0.38f, 26.0f, 40.0f);
         }
-    }
-
-    for (size_t i = 0; i < displayKnobs; ++i) {
-        knobSlots_[i].name = trackData_.knobs[i].name;
-        knobSlots_[i].label = trackData_.knobs[i].label;
-        if (!isDraggingKnob_ || activeKnobIndex_ != static_cast<int>(i)) {
-            knobSlots_[i].normVal = trackData_.knobs[i].value;
-            knobSlots_[i].readout = trackData_.knobs[i].display;
-        }
-        knobSlots_[i].center = Point2D{bodyBounds_.x + static_cast<float>(i) * kStep + (kStep * 0.5f), knobAreaY + knobAreaH * 0.5f};
-        knobSlots_[i].radius = kRadius;
     }
 
     if (pluginDialog_.isOpen()) {
@@ -179,14 +415,8 @@ void FullscreenDeviceModal::render(BatchRenderer2D& r, const ThemeTokens& theme)
     // 2. Top Machined Header Strip
     renderHeaderBar(r, theme);
 
-    // 3. Main Device Body View
-    if (target_.type == DeviceTargetType::Instrument) {
-        renderInstrumentFaceplate(r, theme);
-    } else if (target_.type == DeviceTargetType::AudioFx) {
-        renderAudioFxRacks(r, theme);
-    } else if (target_.type == DeviceTargetType::MidiFx) {
-        renderMidiFxRacks(r, theme);
-    }
+    // 3. Main Device Body View - Unified Faceplate for Instruments, Audio FX, and MIDI FX
+    renderInstrumentFaceplate(r, theme);
 
     // 4. Modal Preset / Plugin Search Dialog if open
     if (pluginDialog_.isOpen()) {
@@ -213,7 +443,9 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
 
     // Track Title (bold uppercase white)
     std::string trackTitle = trackData_.trackName;
-    if (trackTitle.empty()) {
+    if (target_.type == DeviceTargetType::AudioFx || target_.type == DeviceTargetType::MidiFx) {
+        trackTitle = trackData_.trackName + " • " + guiPanel_.title;
+    } else if (trackTitle.empty()) {
         trackTitle = trackData_.instrument.empty() ? "SYNTHESIZER INSTRUMENT" : trackData_.instrument;
     }
     std::string upperTitle = trackTitle;
@@ -229,9 +461,7 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
     float chipSize = 16.0f;
     float chipX = designBtnBounds_.x + (designBtnBounds_.w - chipSize) * 0.5f;
     float chipY = designBtnBounds_.y + (designBtnBounds_.h - chipSize) * 0.5f;
-    Color chipCol = (trackData_.r > 0.05f || trackData_.g > 0.05f || trackData_.b > 0.05f)
-                        ? Color(trackData_.r, trackData_.g, trackData_.b, 1.0f)
-                        : theme.primaryAccent;
+    Color chipCol = guiPanel_.accentColor;
     drawDesignChipIcon(r, chipX, chipY, chipSize, chipCol);
 
     // Right: 2. Preset Button linking to Preset Dialog
@@ -263,122 +493,12 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
 }
 
 void FullscreenDeviceModal::renderInstrumentFaceplate(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
-    float bx = bodyBounds_.x;
-    float by = bodyBounds_.y;
-    float bw = bodyBounds_.w;
-    float bh = bodyBounds_.h;
+    // 1. Unified GUI Faceplate with authentic skeuomorphic hardware styling,
+    // wood cheeks, 3D multi-stop radial gradient knobs, sliders, nixies, etc.
+    drawGuiFaceplate(r, guiPanel_, guiPanel_.bounds, theme, scopeBuffer_, scopeBufferCount_, draggingRow_, draggingWidget_);
 
-    // Chassis background & borders styled by engine type
-    const std::string& eng = trackData_.instrumentEngine;
-    if (eng == "tb303") {
-        // Brushed Aluminum / Silver Diode Ladder Faceplate
-        drawRoundedRect(r, bx, by, bw, bh, 8.0f, 0.82f, 0.83f, 0.85f, 1.0f);
-        drawRoundedRectOutline(r, bx, by, bw, bh, 8.0f, 0.45f, 0.46f, 0.48f, 1.0f, 2.5f);
-        drawText(r, "COMPUTER CONTROLLED", bx + 24.0f, by + 18.0f, 10.0f, 0.70f, 0.10f, 0.10f, 1.0f);
-        drawText(r, "BASS LINE TB-303", bx + 24.0f, by + 32.0f, 14.0f, 0.15f, 0.20f, 0.45f, 1.0f);
-    } else if (eng == "tr808" || eng == "tr909") {
-        // Cream & Dark Charcoal Hardware Faceplate with Orange accents
-        drawRoundedRect(r, bx, by, bw, bh, 8.0f, 0.18f, 0.19f, 0.22f, 1.0f);
-        drawRoundedRectOutline(r, bx, by, bw, bh, 8.0f, 0.90f, 0.40f, 0.15f, 1.0f, 2.5f);
-        drawText(r, "RHYTHM COMPOSER", bx + 24.0f, by + 18.0f, 10.0f, 0.90f, 0.40f, 0.15f, 1.0f);
-        drawText(r, eng == "tr808" ? "TRANSISTOR RHYTHM TR-808" : "RHYTHM COMPOSER TR-909", bx + 24.0f, by + 32.0f, 14.0f, 0.95f, 0.95f, 1.0f, 1.0f);
-    } else if (eng == "dx7") {
-        // Deep Emerald / Yamaha FM Digital Synthesizer
-        drawRoundedRect(r, bx, by, bw, bh, 8.0f, 0.12f, 0.14f, 0.16f, 1.0f);
-        drawRoundedRectOutline(r, bx, by, bw, bh, 8.0f, 0.0f, 0.75f, 0.55f, 1.0f, 2.5f);
-        drawText(r, "DIGITAL PROGRAMMABLE ALGORITHM SYNTHESIZER", bx + 24.0f, by + 18.0f, 9.5f, 0.0f, 0.75f, 0.55f, 1.0f);
-        drawText(r, "FREQUENCY MODULATION 6-OPERATOR DX7", bx + 24.0f, by + 32.0f, 14.0f, 0.90f, 0.95f, 1.0f, 1.0f);
-    } else {
-        // Custom Eatscript Synth Faceplate with Track Accent
-        drawRoundedRect(r, bx, by, bw, bh, 8.0f, 0.12f, 0.14f, 0.18f, 1.0f);
-        drawRoundedRectOutline(r, bx, by, bw, bh, 8.0f, trackData_.r * 0.8f, trackData_.g * 0.8f, trackData_.b * 0.8f, 1.0f, 2.0f);
-        drawText(r, "EATSCRIPT DSP WORKBENCH", bx + 24.0f, by + 18.0f, 10.0f, 0.50f, 0.60f, 0.75f, 1.0f);
-        drawText(r, trackData_.trackName + " • " + trackData_.presetTitle, bx + 24.0f, by + 32.0f, 14.0f, 0.0f, 0.95f, 1.0f, 1.0f);
-    }
-
-    // Corner mounting hex screws
-    auto drawCornerScrew = [&](float sx, float sy) {
-        drawCircle(r, sx, sy, 5.0f, 0.35f, 0.38f, 0.45f, 1.0f);
-        drawCircle(r, sx, sy, 3.5f, 0.20f, 0.22f, 0.26f, 1.0f);
-        drawLine(r, sx - 2.5f, sy, sx + 2.5f, sy, 0.45f, 0.48f, 0.55f, 1.0f, 1.2f);
-    };
-    drawCornerScrew(bx + 14.0f, by + 14.0f);
-    drawCornerScrew(bx + bw - 14.0f, by + 14.0f);
-    drawCornerScrew(bx + 14.0f, by + bh - 14.0f);
-    drawCornerScrew(bx + bw - 14.0f, by + bh - 14.0f);
-
-    // Render Large Rotary Knobs
-    for (size_t i = 0; i < knobSlots_.size(); ++i) {
-        const auto& knob = knobSlots_[i];
-        float cx = knob.center.x;
-        float cy = knob.center.y;
-        float kRad = knob.radius;
-        float normVal = knob.normVal;
-        bool isEng303 = (eng == "tb303");
-
-        // Outer well drop shadow
-        drawCircle(r, cx, cy, kRad + 6.0f, 0.04f, 0.05f, 0.06f, 0.55f);
-
-        // Arc angle range (-135 deg to +135 deg)
-        constexpr float minA = -2.35619449f;
-        constexpr float maxA = 2.35619449f;
-        float curA = minA + normVal * (maxA - minA);
-
-        // Base Arc track
-        Color baseArcCol = isEng303 ? Color(0.50f, 0.52f, 0.56f, 0.8f) : Color(0.20f, 0.24f, 0.30f, 1.0f);
-        r.drawArc(cx, cy, kRad + 3.0f, minA, maxA, baseArcCol.r, baseArcCol.g, baseArcCol.b, baseArcCol.a, 2.5f);
-
-        // Active value arc
-        if (normVal > 0.01f) {
-            Color arcCol = isEng303 ? Color(0.15f, 0.35f, 0.85f, 1.0f) : theme.primaryAccent;
-            r.drawArc(cx, cy, kRad + 3.0f, minA, curA, arcCol.r, arcCol.g, arcCol.b, arcCol.a, 3.2f);
-        }
-
-        // Knob body
-        if (isEng303) {
-            drawCircle(r, cx, cy, kRad, 0.76f, 0.78f, 0.80f, 1.0f);
-            drawCircleOutline(r, cx, cy, kRad, 0.40f, 0.42f, 0.45f, 1.0f, 1.8f);
-            // Fluted grooves
-            for (int g = 0; g < 12; ++g) {
-                float ga = static_cast<float>(g) * (6.2831853f / 12.0f);
-                float gx1 = cx + std::sin(ga) * (kRad * 0.65f);
-                float gy1 = cy - std::cos(ga) * (kRad * 0.65f);
-                float gx2 = cx + std::sin(ga) * (kRad * 0.95f);
-                float gy2 = cy - std::cos(ga) * (kRad * 0.95f);
-                drawLine(r, gx1, gy1, gx2, gy2, 0.55f, 0.58f, 0.62f, 1.0f, 1.2f);
-            }
-        } else {
-            drawCircle(r, cx, cy, kRad, 0.16f, 0.18f, 0.23f, 1.0f);
-            drawCircleOutline(r, cx, cy, kRad, 0.30f, 0.35f, 0.45f, 1.0f, 1.8f);
-        }
-
-        // Pointer line
-        float indX = cx + std::sin(curA) * (kRad - 3.0f);
-        float indY = cy - std::cos(curA) * (kRad - 3.0f);
-        drawLine(r, cx, cy, indX, indY,
-                 isEng303 ? 0.10f : 0.0f,
-                 isEng303 ? 0.20f : 0.95f,
-                 isEng303 ? 0.75f : 1.0f, 1.0f, 2.4f);
-
-        // Parameter Name Label
-        drawText(r, knob.label, cx - (knob.label.size() * 3.2f), cy + kRad + 14.0f, 10.5f,
-                 isEng303 ? 0.20f : 0.75f,
-                 isEng303 ? 0.22f : 0.80f,
-                 isEng303 ? 0.25f : 0.90f, 1.0f);
-
-        // Readout display badge
-        drawRoundedRect(r, cx - 30.0f, cy + kRad + 28.0f, 60.0f, 18.0f, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
-        drawRoundedRectOutline(r, cx - 30.0f, cy + kRad + 28.0f, 60.0f, 18.0f, 3.0f, 0.25f, 0.30f, 0.40f, 0.6f, 1.0f);
-        drawText(r, knob.readout, cx - (knob.readout.size() * 2.8f), cy + kRad + 33.0f, 9.0f,
-                 0.0f, 0.90f, 1.0f, 1.0f);
-    }
-
-    // Lower section: Real-time Audio Oscilloscope & Waveform Display
-    float oscW = bw - 48.0f;
-    float oscH = std::min(160.0f, bh * 0.35f);
-    float oscX = bx + 24.0f;
-    float oscY = by + bh - oscH - 24.0f;
-    renderOscilloscope(r, oscX, oscY, oscW, oscH, theme);
+    // 2. Real-time CRT Audio Oscilloscope Display beneath the faceplate
+    renderOscilloscope(r, oscBounds_.x, oscBounds_.y, oscBounds_.w, oscBounds_.h, theme);
 }
 
 void FullscreenDeviceModal::renderAudioFxRacks(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
@@ -515,23 +635,70 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
     float my = ev.y;
 
     if (ev.action == PointerAction::Scroll) {
-        for (size_t i = 0; i < knobSlots_.size(); ++i) {
-            float dist = std::hypot(mx - knobSlots_[i].center.x, my - knobSlots_[i].center.y);
-            if (dist <= knobSlots_[i].radius * 1.6f) {
-                float newVal = std::clamp(knobSlots_[i].normVal + ev.scrollY * 0.04f, 0.0f, 1.0f);
-                knobSlots_[i].normVal = newVal;
-                if (i < trackData_.knobs.size()) {
-                    trackData_.knobs[i].value = newVal;
+        for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+            auto& row = guiPanel_.rows[rIdx];
+            for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                auto& w = row.widgets[wIdx];
+                float cx = w.bounds.x + (w.bounds.w * 0.5f);
+                float cy = w.bounds.y + (w.bounds.h * 0.42f);
+                float rad = std::clamp(w.size * 0.38f, 26.0f, 42.0f);
+                float dist = std::hypot(mx - cx, my - cy);
+                if (dist <= rad * 1.8f ||
+                    (std::abs(mx - cx) <= rad * 1.5f && std::abs(my - cy) <= rad * 2.0f)) {
+                    float newVal = std::clamp(w.currentVal + ev.scrollY * 0.04f, 0.0f, 1.0f);
+                    w.currentVal = newVal;
+                    size_t kIdx = rIdx * 6 + wIdx;
+                    if (kIdx < trackData_.knobs.size()) {
+                        trackData_.knobs[kIdx].value = newVal;
+                        int pct = static_cast<int>(std::round(newVal * 100.0f));
+                        trackData_.knobs[kIdx].display = std::to_string(pct) + "%";
+                        if (rIdx == 0 && wIdx < knobSlots_.size()) {
+                            knobSlots_[wIdx].normVal = newVal;
+                            knobSlots_[wIdx].readout = trackData_.knobs[kIdx].display;
+                        }
+                    }
+                    if (target_.type == DeviceTargetType::AudioFx) {
+                        if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.audioFx.size()) {
+                            auto& fx = trackData_.audioFx[target_.fxIndex];
+                            if (w.param == "drive" || w.param == "Drive" || w.param == "time" || w.param == "decay" || w.param == "rate" || w.param == "threshold" || w.param == "thresh") {
+                                fx.drive = newVal;
+                            } else if (w.param == "mix" || w.param == "Mix" || w.param == "WetLevel" || w.param == "gain") {
+                                fx.mix = newVal;
+                            }
+                            for (auto& k : fx.knobs) {
+                                if (k.name == w.param) {
+                                    k.value = newVal;
+                                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                                    k.display = std::to_string(pct) + (k.unit.empty() ? "%" : (" " + k.unit));
+                                    break;
+                                }
+                            }
+                        }
+                        if (onAudioFxParamChanged) {
+                            onAudioFxParamChanged(target_.trackIndex, w.param, newVal);
+                        }
+                    } else if (target_.type == DeviceTargetType::MidiFx) {
+                        if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
+                            auto& fx = trackData_.midiFx[target_.fxIndex];
+                            for (auto& k : fx.knobs) {
+                                if (k.name == w.param) {
+                                    k.value = newVal;
+                                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                                    k.display = std::to_string(pct) + (k.unit.empty() ? "%" : (" " + k.unit));
+                                    break;
+                                }
+                            }
+                        }
+                        if (onMidiFxParamChanged) {
+                            onMidiFxParamChanged(target_.trackIndex, w.param, newVal);
+                        }
+                    } else {
+                        if (onParamChanged) {
+                            onParamChanged(target_.trackIndex, w.param, newVal);
+                        }
+                    }
+                    return true;
                 }
-                int pct = static_cast<int>(std::round(newVal * 100.0f));
-                knobSlots_[i].readout = std::to_string(pct) + "%";
-                if (i < trackData_.knobs.size()) {
-                    trackData_.knobs[i].display = knobSlots_[i].readout;
-                }
-                if (onParamChanged) {
-                    onParamChanged(target_.trackIndex, knobSlots_[i].name, newVal);
-                }
-                return true;
             }
         }
         return true;
@@ -548,7 +715,7 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
 
         // 2. Preset button linking to preset dialog
         if (presetBtnBounds_.contains(mx, my)) {
-            pluginDialog_.open(PluginDialogMode::AddInstrument, trackData_.trackName, target_.trackIndex);
+            pluginDialog_.open(PluginDialogMode::SelectPreset, trackData_.trackName, target_.trackIndex);
             if (onOpenPresetDialog) onOpenPresetDialog(target_.trackIndex);
             return true;
         }
@@ -560,13 +727,44 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             return true;
         }
 
-        // 4. Knobs hit testing
+        // 4. GUI Widgets hit testing
+        for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+            auto& row = guiPanel_.rows[rIdx];
+            for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                auto& w = row.widgets[wIdx];
+                float kx = w.bounds.x + (w.bounds.w * 0.5f);
+                float ky = w.bounds.y + (w.bounds.h * 0.42f);
+                float rad = std::clamp(w.size * 0.38f, 26.0f, 42.0f);
+                float dist = std::hypot(mx - kx, my - ky);
+                if (dist <= rad * 1.8f ||
+                    (std::abs(mx - kx) <= rad * 1.5f && std::abs(my - ky) <= rad * 2.0f)) {
+                    if (w.type == GuiWidgetType::ToggleSwitch) {
+                        w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
+                        if (onParamChanged) {
+                            onParamChanged(target_.trackIndex, w.param, w.currentVal);
+                        }
+                        return true;
+                    }
+                    isDraggingKnob_ = true;
+                    draggingRow_ = static_cast<int>(rIdx);
+                    draggingWidget_ = static_cast<int>(wIdx);
+                    activeKnobIndex_ = (rIdx == 0) ? static_cast<int>(wIdx) : -1;
+                    dragStartY_ = my;
+                    dragStartVal_ = w.currentVal;
+                    return true;
+                }
+            }
+        }
+
+        // Fallback for knobSlots_
         for (size_t i = 0; i < knobSlots_.size(); ++i) {
             float dist = std::hypot(mx - knobSlots_[i].center.x, my - knobSlots_[i].center.y);
-            if (dist <= knobSlots_[i].radius * 1.6f ||
+            if (dist <= knobSlots_[i].radius * 1.8f ||
                 (std::abs(mx - knobSlots_[i].center.x) <= knobSlots_[i].radius * 1.5f &&
                  std::abs(my - knobSlots_[i].center.y) <= knobSlots_[i].radius * 2.0f)) {
                 isDraggingKnob_ = true;
+                draggingRow_ = 0;
+                draggingWidget_ = static_cast<int>(i);
                 activeKnobIndex_ = static_cast<int>(i);
                 dragStartY_ = my;
                 dragStartVal_ = knobSlots_[i].normVal;
@@ -579,22 +777,75 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
     }
 
     if (ev.action == PointerAction::Move && isDraggingKnob_) {
-        if (activeKnobIndex_ >= 0 && activeKnobIndex_ < static_cast<int>(knobSlots_.size())) {
-            float deltaY = dragStartY_ - my; // Up = increase
-            float newVal = std::clamp(dragStartVal_ + (deltaY / 150.0f), 0.0f, 1.0f);
+        float deltaY = dragStartY_ - my; // Up = increase
+        float newVal = std::clamp(dragStartVal_ + (deltaY / 150.0f), 0.0f, 1.0f);
+        if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size())) {
+            auto& row = guiPanel_.rows[draggingRow_];
+            if (draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(row.widgets.size())) {
+                auto& w = row.widgets[draggingWidget_];
+                w.currentVal = newVal;
+                size_t kIdx = draggingRow_ * 6 + draggingWidget_;
+                if (kIdx < trackData_.knobs.size()) {
+                    trackData_.knobs[kIdx].value = newVal;
+                    int pct = static_cast<int>(std::round(newVal * 100.0f));
+                    trackData_.knobs[kIdx].display = std::to_string(pct) + "%";
+                }
+                if (draggingRow_ == 0 && draggingWidget_ < static_cast<int>(knobSlots_.size())) {
+                    knobSlots_[draggingWidget_].normVal = newVal;
+                    if (kIdx < trackData_.knobs.size()) {
+                        knobSlots_[draggingWidget_].readout = trackData_.knobs[kIdx].display;
+                    }
+                }
+                if (target_.type == DeviceTargetType::AudioFx) {
+                    if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.audioFx.size()) {
+                        auto& fx = trackData_.audioFx[target_.fxIndex];
+                        if (w.param == "drive" || w.param == "Drive" || w.param == "time" || w.param == "decay" || w.param == "rate" || w.param == "threshold" || w.param == "thresh") {
+                            fx.drive = newVal;
+                        } else if (w.param == "mix" || w.param == "Mix" || w.param == "WetLevel" || w.param == "gain") {
+                            fx.mix = newVal;
+                        }
+                        for (auto& k : fx.knobs) {
+                            if (k.name == w.param) {
+                                k.value = newVal;
+                                int pct = static_cast<int>(std::round(newVal * 100.0f));
+                                k.display = std::to_string(pct) + (k.unit.empty() ? "%" : (" " + k.unit));
+                                break;
+                            }
+                        }
+                    }
+                    if (onAudioFxParamChanged) {
+                        onAudioFxParamChanged(target_.trackIndex, w.param, newVal);
+                    }
+                } else if (target_.type == DeviceTargetType::MidiFx) {
+                    if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
+                        auto& fx = trackData_.midiFx[target_.fxIndex];
+                        for (auto& k : fx.knobs) {
+                            if (k.name == w.param) {
+                                k.value = newVal;
+                                int pct = static_cast<int>(std::round(newVal * 100.0f));
+                                k.display = std::to_string(pct) + (k.unit.empty() ? "%" : (" " + k.unit));
+                                break;
+                            }
+                        }
+                    }
+                    if (onMidiFxParamChanged) {
+                        onMidiFxParamChanged(target_.trackIndex, w.param, newVal);
+                    }
+                } else {
+                    if (onParamChanged) {
+                        onParamChanged(target_.trackIndex, w.param, newVal);
+                    }
+                }
+                return true;
+            }
+        } else if (activeKnobIndex_ >= 0 && activeKnobIndex_ < static_cast<int>(knobSlots_.size())) {
             knobSlots_[activeKnobIndex_].normVal = newVal;
             if (static_cast<size_t>(activeKnobIndex_) < trackData_.knobs.size()) {
                 trackData_.knobs[activeKnobIndex_].value = newVal;
-            }
-
-            // Formatted readout
-            int pct = static_cast<int>(std::round(newVal * 100.0f));
-            knobSlots_[activeKnobIndex_].readout = std::to_string(pct) + "%";
-            if (static_cast<size_t>(activeKnobIndex_) < trackData_.knobs.size()) {
+                int pct = static_cast<int>(std::round(newVal * 100.0f));
+                knobSlots_[activeKnobIndex_].readout = std::to_string(pct) + "%";
                 trackData_.knobs[activeKnobIndex_].display = knobSlots_[activeKnobIndex_].readout;
             }
-
-            // Fire real-time parameter change callback
             if (onParamChanged) {
                 onParamChanged(target_.trackIndex, knobSlots_[activeKnobIndex_].name, newVal);
             }
@@ -605,6 +856,8 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
     if (ev.action == PointerAction::Up) {
         if (isDraggingKnob_) {
             isDraggingKnob_ = false;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
             activeKnobIndex_ = -1;
             return true;
         }

@@ -6,6 +6,7 @@
 #include <string>
 #include <memory>
 #include <algorithm>
+#include <unordered_map>
 
 namespace eatsbits::ui {
 
@@ -149,6 +150,13 @@ public:
     std::function<void(uint32_t channelIdx)> onTrackSelected;
     std::function<void(uint32_t channelIdx, const std::string& newName)> onTrackRename;
     std::function<void(uint32_t channelIdx)> onChooseTrackIcon;
+    std::function<void(uint32_t channelIdx)> onAudioFxChanged;
+    std::function<void(uint32_t channelIdx)> onMidiFxChanged;
+    std::function<void(uint32_t channelIdx, size_t fxIdx, bool enabled)> onToggleAudioFx;
+    std::function<void(uint32_t channelIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;
+    std::function<void(uint32_t channelIdx)> onOpenFullscreenDevice;
+    std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
+    std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
 
     // Synchronization with DAW Window & Audio Engine
     void syncFromWindow(
@@ -226,8 +234,15 @@ private:
     bool showButtons_{true};
     bool showReadouts_{true};
 
-    // Active drag interaction tracking
-    int activeFaderIndex_{-2}; // -1 = Master, >= 0 = Channel, -2 = None
+    // Active drag interaction tracking (Multi-Touch Multi-Fader Mixing)
+    struct ActiveFaderSession {
+        int faderIndex{-2}; // -1 = Master, >= 0 = Channel
+        float dragStartY{0.0f};
+        float initialFaderVal{0.0f};
+    };
+    std::unordered_map<int, ActiveFaderSession> activeFaderSessions_; // pointerId -> ActiveFaderSession
+
+    int activeFaderIndex_{-2}; // Legacy fallback / single-pointer query
     float dragStartY_{0.0f};
     float initialFaderVal_{0.0f};
 

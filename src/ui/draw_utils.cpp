@@ -255,4 +255,70 @@ void drawSlidersTuneIcon(BatchRenderer2D& r, float x, float y, float size, const
     drawRoundedRect(r, col2 - thumbW * 0.5f, t2Y, thumbW, thumbH, 1.0f, c);
 }
 
+void drawFullscreenIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c, float thickness) {
+    float arm = size * 0.32f;
+    float t = std::max(1.0f, thickness);
+    // Top-left corner
+    drawLine(r, x, y + t * 0.5f, x + arm, y + t * 0.5f, c, 1.0f, t);
+    drawLine(r, x + t * 0.5f, y, x + t * 0.5f, y + arm, c, 1.0f, t);
+    // Top-right corner
+    drawLine(r, x + size - arm, y + t * 0.5f, x + size, y + t * 0.5f, c, 1.0f, t);
+    drawLine(r, x + size - t * 0.5f, y, x + size - t * 0.5f, y + arm, c, 1.0f, t);
+    // Bottom-left corner
+    drawLine(r, x, y + size - t * 0.5f, x + arm, y + size - t * 0.5f, c, 1.0f, t);
+    drawLine(r, x + t * 0.5f, y + size - arm, x + t * 0.5f, y + size, c, 1.0f, t);
+    // Bottom-right corner
+    drawLine(r, x + size - arm, y + size - t * 0.5f, x + size, y + size - t * 0.5f, c, 1.0f, t);
+    drawLine(r, x + size - t * 0.5f, y + size - arm, x + size - t * 0.5f, y + size, c, 1.0f, t);
+}
+
+void drawChevronUp(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness) {
+    float hw = size * 0.5f;
+    float hh = size * 0.35f;
+    float t = std::max(1.0f, thickness);
+    drawLine(r, cx - hw, cy + hh, cx, cy - hh, c, 1.0f, t);
+    drawLine(r, cx, cy - hh, cx + hw, cy + hh, c, 1.0f, t);
+}
+
+void drawChevronDown(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness) {
+    float hw = size * 0.5f;
+    float hh = size * 0.35f;
+    float t = std::max(1.0f, thickness);
+    drawLine(r, cx - hw, cy - hh, cx, cy + hh, c, 1.0f, t);
+    drawLine(r, cx, cy + hh, cx + hw, cy - hh, c, 1.0f, t);
+}
+
+void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness) {
+    float t = std::max(1.0f, thickness);
+    float w = size * 0.72f;
+    float h = size * 0.88f;
+    float left = cx - w * 0.5f;
+    float top = cy - h * 0.5f;
+
+    // Top handle
+    float handleW = w * 0.36f;
+    float handleH = h * 0.16f;
+    drawLine(r, cx - handleW * 0.5f, top, cx + handleW * 0.5f, top, c, 1.0f, t);
+    drawLine(r, cx - handleW * 0.5f, top, cx - handleW * 0.5f, top + handleH, c, 1.0f, t);
+    drawLine(r, cx + handleW * 0.5f, top, cx + handleW * 0.5f, top + handleH, c, 1.0f, t);
+
+    // Lid rim
+    float rimY = top + handleH;
+    drawLine(r, left - 1.5f, rimY, left + w + 1.5f, rimY, c, 1.0f, t);
+
+    // Can body (slightly tapered at bottom)
+    float inset = w * 0.10f;
+    float canTopY = rimY + 1.0f;
+    float canBotY = top + h;
+    drawLine(r, left, canTopY, left + inset, canBotY, c, 1.0f, t);
+    drawLine(r, left + w, canTopY, left + w - inset, canBotY, c, 1.0f, t);
+    drawLine(r, left + inset, canBotY, left + w - inset, canBotY, c, 1.0f, t);
+
+    // Internal vertical ribs
+    float midX1 = left + w * 0.38f;
+    float midX2 = left + w * 0.62f;
+    drawLine(r, midX1, canTopY + 2.0f, midX1, canBotY - 2.0f, c, 0.75f, t * 0.85f);
+    drawLine(r, midX2, canTopY + 2.0f, midX2, canBotY - 2.0f, c, 0.75f, t * 0.85f);
+}
+
 } // namespace eatsbits::ui

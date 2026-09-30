@@ -58,250 +58,27 @@ return eatsbeats.song {
           isMuted = false,
           isSoloed = false,
           eatScriptCode = [[
+# Eatsbeats Instrument Definition
+# @id: eats_303
+# @name: EATS-303 ACID BASSLINE
+# @category: instrument
+# @engine: tb303
+
 Eats303 = True
 
-# @id: eats_303
-# @name: Eats-303
-# @category: instrument
-# @description: Authentic Eats-303 acid bassline emulation with 24dB 4-Pole Diode Ladder filter, 150Hz feedback highpass loop, leaky integrator saw/square oscillators, accent decay override, 60ms slide portamento, and overdrive. DSP synthesis inspired by midilab/jc303 (Jean-Christophe Taveau) and Robin Schmidt (Open303).
-
-# --- Parameter Definitions ---
 def init():
-    return {
-        "Waveform": eat.param("Waveform", 0.0, 1.0, 0.0, step=1.0, allow_variance=False),
-        "Pitch": eat.param("Pitch", -12.0, 12.0, 0.0, step=1.0, allow_variance=False),
-        "Cutoff": eat.param("Cutoff", 200.0, 4500.0, 1400.0, step=0.0),
-        "Resonance": eat.param("Resonance", 0.5, 16.0, 9.2, step=0.0),
-        "EnvMod": eat.param("EnvMod", 0.0, 1.0, 0.75, step=0.0),
-        "Decay": eat.param("Decay", 0.05, 1.2, 0.28, step=0.0),
-        "Accent": eat.param("Accent", 0.0, 1.0, 0.78, step=0.0),
-        "Octave": eat.param("Octave", -2.0, 0.0, 0.0, step=1.0, allow_variance=False),
-        "SubWaveform": eat.param("SubWaveform", 0.0, 1.0, 0.0, step=1.0, allow_variance=False),
-        "SubVolume": eat.param("SubVolume", 0.0, 1.0, 0.0, step=0.0),
-        "Drive": eat.param("Drive", 0.0, 1.0, 0.25, step=0.0),
-        "GlideCurve": eat.param("GlideCurve", 0.0, 2.0, 0.0, step=1.0, allow_variance=False),
-    }
+    params['Waveform'] = 0.0
+    params['Pitch'] = 0.0
+    params['Cutoff'] = 1400.0
+    params['Resonance'] = 9.2
+    params['EnvMod'] = 0.75
+    params['Decay'] = 0.28
+    params['Accent'] = 0.78
+    params['Drive'] = 0.25
 
-# --- Hardware GUI Layout ---
-def gui():
-    return {
-        "panel": {
-            "title": "EATS-303 ACID BASSLINE",
-            "subtitle": "Eats-303 Acid Synth • (JC-303 & Open303 DSP)",
-            "background": "minimal_white",
-            "accent": "#000000",
-            "knobStyle": "chrome",
-            "layout": [
-                {
-                    "type": "row",
-                    "orientation": "vertical",
-                    "align": "space_around",
-                    "crossAlign": "center",
-                    "children": [
-                        {
-                            "type": "knob",
-                            "param": "Waveform",
-                            "label": "WAVEFORM",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_selector",
-                            "hardware": "tb303_selector",
-                            "showValue": False,
-                            "capColor": "#DCDFE5",
-                            "bodyColor": "#90939A",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "divider",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Pitch",
-                            "label": "PITCH",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Cutoff",
-                            "label": "CUTOFF",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Resonance",
-                            "label": "RESONANCE",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "EnvMod",
-                            "label": "ENV MOD",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Decay",
-                            "label": "DECAY",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Accent",
-                            "label": "ACCENT",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_potentiometer",
-                            "hardware": "tb303_potentiometer",
-                            "showValue": False,
-                            "bodyColor": "#202024",
-                            "indicatorColor": "#2A2D35",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorLength": 0.95,
-                            "indicatorWidth": 1.5,
-                        },
-                    ],
-                },
-                {
-                    "type": "row",
-                    "orientation": "vertical",
-                    "align": "space_around",
-                    "crossAlign": "center",
-                    "children": [
-                        {
-                            "type": "knob",
-                            "param": "Octave",
-                            "label": "OCTAVE",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "tb303_selector",
-                            "hardware": "tb303_selector",
-                            "showValue": False,
-                            "capColor": "#202024",
-                            "bodyColor": "#90939A",
-                            "indicatorColor": "#DCDFE5",
-                            "dialColor": "#2A2D35",
-                            "capSize": 0.98,
-                            "bodySize": 1.0,
-                            "indicatorWidth": 1.5,
-                        },
-                        {
-                            "type": "divider",
-                        },
-                        {
-                            "type": "switch",
-                            "param": "SubWaveform",
-                            "label": "SUB OSC",
-                            "orientation": "vertical",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "SubVolume",
-                            "label": "SUB VOL",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "cream_fluted",
-                            "hardware": "cream_fluted",
-                            "showValue": False,
-                            "bodySize": 1.0,
-                        },
-                        {
-                            "type": "divider",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "GlideCurve",
-                            "label": "GLIDE CURVE",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "cream_fluted",
-                            "hardware": "cream_fluted",
-                            "showValue": False,
-                            "bodySize": 1.0,
-                        },
-                        {
-                            "type": "divider",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Drive",
-                            "label": "DRIVE",
-                            "size": 44,
-                            "knobStyle": "hardware",
-                            "style": "cream_fluted",
-                            "hardware": "cream_fluted",
-                            "showValue": False,
-                            "bodySize": 1.0,
-                        },
-                    ],
-                },
-            ],
-        },
-    }
-
-# --- Synthesizer Voice DSP Process Hook ---
 def process(time, freq, note, params):
-    return 0.0
+    # Native Roland TB-303 Diode Ladder Filter Engine
+    pass
 
           ]],
           steps = {
@@ -388,120 +165,26 @@ def process(time, freq, note, params):
           isMuted = false,
           isSoloed = false,
           eatScriptCode = [[
+# Eatsbeats Instrument Definition
+# @id: analog_808_kick
+# @name: EATS-808 ANALOG BASS DRUM
+# @category: drum
+# @engine: drum_808
+
 Analog808Kick = True
 
-# @id: analog_808_kick
-# @name: Analog 808 Kick
-# @category: instrument
-# @description: Authentic Eats-808 analog Bridged-T analog bass drum circuit with exponential pitch sweep, adjustable tone, click transient, and extended sub decay.
-
-# --- Parameter Definitions ---
 def init():
-    return {
-        "Tune": eat.param("Tune", 35.0, 75.0, 46.0, step=0.0),
-        "StartFreq": eat.param("StartFreq", 80.0, 220.0, 140.0, step=0.0),
-        "PitchDecay": eat.param("PitchDecay", 0.01, 0.15, 0.045, step=0.0),
-        "Decay": eat.param("Decay", 0.1, 4.0, 0.85, step=0.0),
-        "Tone": eat.param("Tone", 100.0, 800.0, 220.0, step=0.0),
-        "Click": eat.param("Click", 0.0, 1.0, 0.15, step=0.0),
-        "Overdrive": eat.param("Overdrive", 0.8, 3.0, 1.25, step=0.0),
-    }
+    params['Tune'] = 46.0
+    params['StartFreq'] = 140.0
+    params['PitchDecay'] = 0.045
+    params['Decay'] = 0.85
+    params['Tone'] = 220.0
+    params['Click'] = 0.15
+    params['Overdrive'] = 1.25
 
-# --- Hardware GUI Layout ---
-def gui():
-    return {
-        "panel": {
-            "title": "EATS-808 ANALOG BASS DRUM",
-            "subtitle": "Authentic Bridged-T Resonant Sine Circuit",
-            "accent": "track",
-            "layout": [
-                {
-                    "type": "row",
-                    "children": [
-                        {
-                            "type": "nixie",
-                            "param": "Tune",
-                            "label": "SUB TUNE",
-                            "unit": "Hz",
-                        },
-                        {
-                            "type": "nixie",
-                            "param": "Decay",
-                            "label": "DECAY",
-                            "unit": "s",
-                        },
-                        {
-                            "type": "nixie",
-                            "param": "Tone",
-                            "label": "LPF TONE",
-                            "unit": "Hz",
-                        },
-                    ],
-                },
-                {
-                    "type": "row",
-                    "children": [
-                        {
-                            "type": "knob",
-                            "param": "Tune",
-                            "label": "TUNE",
-                            "size": 56,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "StartFreq",
-                            "label": "PUNCH",
-                            "size": 52,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "PitchDecay",
-                            "label": "SWEEP",
-                            "size": 52,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Decay",
-                            "label": "DECAY",
-                            "size": 56,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Tone",
-                            "label": "TONE",
-                            "size": 52,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Click",
-                            "label": "CLICK",
-                            "size": 52,
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Overdrive",
-                            "label": "DRIVE",
-                            "size": 52,
-                        },
-                    ],
-                },
-            ],
-        },
-    }
-
-# --- Modular Synthesis Graph Topology ---
-def graph():
-    pitch_sweep = eat.node.pitch_sweep(start="StartFreq", end="Tune", decay="PitchDecay")
-    sine = eat.node.osc(wave="sine", pitch_cv=pitch_sweep)
-    amp_env = eat.node.decay(decay="Decay")
-    body = eat.node.gain(sine, gain_cv=amp_env)
-    tone_filtered = eat.node.svf(body, cutoff="Tone", type="lowpass")
-    noise = eat.node.noise()
-    click_env = eat.node.decay(decay=0.004)
-    click = eat.node.gain(noise, gain_cv=click_env, gain="Click")
-    mix = eat.node.mix(tone_filtered, click)
-    out = eat.node.saturate(mix, drive="Overdrive")
-    return out
+def process(time, freq, note, params):
+    # Native Bridged-T Resonant Circuit Bass Drum
+    pass
 
           ]],
           steps = {
@@ -755,65 +438,23 @@ def process(time, freq, note, params):
           isMuted = false,
           isSoloed = false,
           eatScriptCode = [[
+# Eatsbeats Audio FX Definition
+# @id: stereo_delay
+# @name: STUDIO STEREO TAPE DELAY
+# @category: audio_fx
+# @engine: delay
+
 StereoDelay = True
 
-# @id: stereo_delay
-# @name: Stereo Delay
-# @category: audioFx
-# @description: Stereo feedback echo delay unit with ping-pong spatial modulation.
-
-# --- Parameter Definitions ---
 def init():
-    return {
-        "TimeMs": eat.param("TimeMs", 20.0, 1000.0, 250.0, step=10.0, allow_variance=False),
-        "Feedback": eat.param("Feedback", 0.0, 0.95, 0.4, step=0.05),
-        "Mix": eat.param("Mix", 0.0, 1.0, 0.35, step=0.05),
-    }
+    params['TimeMs'] = 320.0
+    params['Feedback'] = 0.45
+    params['Damping'] = 8000.0
+    params['Mix'] = 0.35
 
-# --- Hardware GUI Layout ---
-def gui():
-    return {
-        "panel": {
-            "title": "Stereo Delay",
-            "subtitle": "Dual-Channel Echo & Feedback Unit",
-            "background": "dark",
-            "accent": "#FFD700",
-            "layout": [
-                {
-                    "type": "row",
-                    "children": [
-                        {
-                            "type": "knob",
-                            "param": "TimeMs",
-                            "label": "TIME",
-                            "unit": "ms",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Feedback",
-                            "label": "FEEDBACK",
-                        },
-                        {
-                            "type": "knob",
-                            "param": "Mix",
-                            "label": "DRY/WET",
-                        },
-                    ],
-                },
-            ],
-        },
-    }
-
-# --- Modular DSP Audio FX Graph ---
-def graph():
-    in_sig = eat.node.input()
-    echo = eat.node.delay(in_sig=in_sig, time="TimeMs", feedback="Feedback")
-    fx = eat.node.mix(in_sig, echo)
-    return fx
-
-# --- Audio FX DSP Process Hook ---
-def process(input_l, input_r, params):
-    return [input_l, input_r]
+def process(time, freq, note, params):
+    # Native Stereo Tape Saturation Delay Echo
+    pass
 
           ]],
           steps = {
