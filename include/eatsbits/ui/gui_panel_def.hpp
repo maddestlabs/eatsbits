@@ -16,7 +16,8 @@ enum class GuiWidgetType {
     NixieDisplay,
     VuMeter,
     ActionButton,
-    ScopeScreen
+    ScopeScreen,
+    Divider
 };
 
 enum class GuiKnobStyle {
@@ -25,7 +26,11 @@ enum class GuiKnobStyle {
     AnodizedKnurled,
     TwoToneStepped,
     Tb303Halo,
-    Standard
+    Standard,
+    Tb303Potentiometer,
+    Tb303SelectorSilver,
+    Tb303SelectorBlack,
+    MiniPotCream
 };
 
 enum class GuiChassisStyle {
@@ -67,6 +72,7 @@ struct GuiPanelDef {
     GuiChassisStyle chassisStyle{GuiChassisStyle::DarkChassis};
     Color accentColor{0.0f, 0.95f, 1.0f};
     bool woodCheeks{true};
+    bool hideHeader{false};
     float cornerRadius{8.0f};
     std::vector<GuiRowDef> rows;
     Rect2D bounds{0.0f, 0.0f, 0.0f, 0.0f};

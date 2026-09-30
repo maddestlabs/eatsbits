@@ -1397,11 +1397,20 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
 void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
     if (activeTrackIndex_ < tracks_.size()) {
         auto& track = tracks_[activeTrackIndex_];
+        bool trackChanged = (drawerData_.trackIndex != activeTrackIndex_ ||
+                             drawerData_.instrument != track.instrument ||
+                             drawerData_.instrumentEngine != track.instrumentEngine);
+        if (trackChanged) {
+            drawerData_.knobs.clear();
+        }
+
         drawerData_.trackIndex = activeTrackIndex_;
         drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
         drawerData_.trackName = track.name;
         drawerData_.instrument = track.instrument;
         drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+        drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
+        drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
         drawerData_.iconRef = track.iconRef;
         drawerData_.r = track.r;
         drawerData_.g = track.g;

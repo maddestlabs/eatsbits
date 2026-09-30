@@ -71,7 +71,8 @@ enum class GuiNodeType {
     Slider,
     Scope,
     Divider,
-    Spacer
+    Spacer,
+    Switch
 };
 
 struct GuiLayoutNode {

@@ -416,13 +416,24 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.eqMidQ = selCh.eqMidQ;
         drawerData_.eqHighGain = selCh.eqHighGain;
 
+        std::string newEngine = "synth";
+        if (selCh.instrument.find("303") != std::string::npos || selCh.name.find("303") != std::string::npos) newEngine = "tb303";
+        else if (selCh.instrument.find("808") != std::string::npos || selCh.name.find("808") != std::string::npos) newEngine = "tr808";
+        else if (selCh.instrument.find("909") != std::string::npos || selCh.name.find("909") != std::string::npos) newEngine = "tr909";
+        else if (selCh.instrument.find("DX7") != std::string::npos || selCh.name.find("DX7") != std::string::npos) newEngine = "dx7";
+        else if (selCh.instrument.find("Piano") != std::string::npos || selCh.name.find("Piano") != std::string::npos || selCh.name.find("Grand") != std::string::npos) newEngine = "piano";
+
+        bool chChanged = (drawerData_.trackIndex != static_cast<uint32_t>(chIdx) ||
+                          drawerData_.instrument != selCh.instrument ||
+                          drawerData_.instrumentEngine != newEngine);
+        if (chChanged) {
+            drawerData_.knobs.clear();
+        }
+
         drawerData_.instrument = selCh.instrument;
-        if (selCh.instrument.find("303") != std::string::npos) drawerData_.instrumentEngine = "tb303";
-        else if (selCh.instrument.find("808") != std::string::npos) drawerData_.instrumentEngine = "tr808";
-        else if (selCh.instrument.find("909") != std::string::npos) drawerData_.instrumentEngine = "tr909";
-        else if (selCh.instrument.find("DX7") != std::string::npos) drawerData_.instrumentEngine = "dx7";
-        else if (selCh.instrument.find("PIANO") != std::string::npos || selCh.instrument.find("Piano") != std::string::npos) drawerData_.instrumentEngine = "piano";
-        else drawerData_.instrumentEngine = "synth";
+        drawerData_.instrumentEngine = newEngine;
+        drawerData_.presetTitle = selCh.instrument.empty() ? selCh.name : selCh.instrument;
+        drawerData_.presetSubtitle = selCh.name + " • " + (selCh.instrument.empty() ? "Channel" : selCh.instrument);
 
         drawerData_.knob1 = selCh.knob1;
         drawerData_.knob2 = selCh.knob2;

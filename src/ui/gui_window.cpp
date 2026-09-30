@@ -2115,20 +2115,25 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
     TrackPropertiesDrawerData data;
     data.trackIndex = tIdx;
     if (tIdx < arrangerTracks_.size()) {
-        data.trackName = arrangerTracks_[tIdx].name;
-        data.r = arrangerTracks_[tIdx].r;
-        data.g = arrangerTracks_[tIdx].g;
-        data.b = arrangerTracks_[tIdx].b;
-        data.volume = arrangerTracks_[tIdx].volume;
-        data.pan = arrangerTracks_[tIdx].pan;
-        data.mute = arrangerTracks_[tIdx].mute;
-        data.solo = arrangerTracks_[tIdx].solo;
-        data.freeze = arrangerTracks_[tIdx].freeze;
-        data.midiFxData = arrangerTracks_[tIdx].midiFx;
-        data.audioFxData = arrangerTracks_[tIdx].audioFx;
+        const auto& at = arrangerTracks_[tIdx];
+        data.trackName = at.name;
+        data.r = at.r;
+        data.g = at.g;
+        data.b = at.b;
+        data.volume = at.volume;
+        data.pan = at.pan;
+        data.mute = at.mute;
+        data.solo = at.solo;
+        data.freeze = at.freeze;
+        data.midiFxData = at.midiFx;
+        data.audioFxData = at.audioFx;
+        data.instrument = at.instrument;
+        data.instrumentEngine = at.instrumentEngine;
+        data.presetTitle = at.instrument.empty() ? at.name : at.instrument;
+        data.presetSubtitle = at.name + " • " + (at.instrument.empty() ? "Track" : at.instrument);
     }
     const auto* preset = getActivePreset();
-    if (preset) {
+    if (preset && (data.instrumentEngine.empty() || preset->metadata.engineId == data.instrumentEngine)) {
         data.instrument = preset->metadata.name.empty() ? preset->guiRoot.title : preset->metadata.name;
         data.instrumentEngine = preset->metadata.engineId;
         data.presetTitle = preset->guiRoot.title;
@@ -3121,12 +3126,25 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
     if (presets_.empty()) return;
 
     std::string targetKeyword;
-    if (engine_ && trackIndex < engine_->getSequencer().getNumTracks()) {
+    if (trackIndex < arrangerTracks_.size()) {
+        const auto& at = arrangerTracks_[trackIndex];
+        const std::string& eng = at.instrumentEngine;
+        const std::string& inst = at.instrument;
+        const std::string& name = at.name;
+        if (eng == "tb303" || inst.find("303") != std::string::npos || name.find("303") != std::string::npos) targetKeyword = "303";
+        else if (eng == "tr808" || inst.find("808") != std::string::npos || name.find("808") != std::string::npos) targetKeyword = "808";
+        else if (eng == "tr909" || inst.find("909") != std::string::npos || name.find("909") != std::string::npos) targetKeyword = "909";
+        else if (eng == "dx7" || inst.find("DX7") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
+        else if (eng == "piano" || inst.find("Piano") != std::string::npos || name.find("Grand") != std::string::npos) targetKeyword = "piano";
+        else if (!eng.empty() && eng != "synth") targetKeyword = eng;
+    }
+    if (targetKeyword.empty() && engine_ && trackIndex < engine_->getSequencer().getNumTracks()) {
         auto* trk = engine_->getSequencer().getTrack(trackIndex);
         if (trk) {
             const std::string& name = trk->getName();
             if (name.find("303") != std::string::npos || name.find("Acid") != std::string::npos) targetKeyword = "303";
             else if (name.find("808") != std::string::npos || name.find("Drum") != std::string::npos) targetKeyword = "808";
+            else if (name.find("909") != std::string::npos) targetKeyword = "909";
             else if (name.find("Bass") != std::string::npos || name.find("Sub") != std::string::npos) targetKeyword = "bass";
             else if (name.find("Lead") != std::string::npos || name.find("Poly") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
             else if (name.find("Master") != std::string::npos || name.find("Delay") != std::string::npos || name.find("Echo") != std::string::npos) targetKeyword = "delay";
@@ -3143,20 +3161,12 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
             }
         }
     }
-    if (targetKeyword.empty() && trackIndex < arrangerTracks_.size()) {
-        const std::string& name = arrangerTracks_[trackIndex].name;
-        if (name.find("303") != std::string::npos || name.find("Acid") != std::string::npos) targetKeyword = "303";
-        else if (name.find("808") != std::string::npos || name.find("Drum") != std::string::npos) targetKeyword = "808";
-        else if (name.find("Bass") != std::string::npos || name.find("Sub") != std::string::npos) targetKeyword = "bass";
-        else if (name.find("Lead") != std::string::npos || name.find("Poly") != std::string::npos) targetKeyword = "dx7";
-        else if (name.find("Master") != std::string::npos || name.find("Delay") != std::string::npos) targetKeyword = "delay";
-    }
     if (targetKeyword.empty()) {
         if (trackIndex == 0) targetKeyword = "303";
         else if (trackIndex == 1) targetKeyword = "808";
-        else if (trackIndex == 2) targetKeyword = "bass";
+        else if (trackIndex == 2) targetKeyword = "909";
         else if (trackIndex == 3) targetKeyword = "dx7";
-        else if (trackIndex == 4) targetKeyword = "delay";
+        else if (trackIndex == 4) targetKeyword = "piano";
         else targetKeyword = "303";
     }
 
@@ -8671,6 +8681,8 @@ void GuiWindow::initArrangerTracks() {
     {
         ArrangerTrackData t0;
         t0.name = "303 Acid Bass";
+        t0.instrument = "Eats-303 Acid Bassline";
+        t0.instrumentEngine = "tb303";
         t0.type = "SYNTH";
         t0.r = 1.0f; t0.g = 0.55f; t0.b = 0.0f;
         t0.volume = 0.8f;
@@ -8701,6 +8713,8 @@ void GuiWindow::initArrangerTracks() {
     {
         ArrangerTrackData t1;
         t1.name = "TR-808 Kit";
+        t1.instrument = "Analog 808 Rhythm";
+        t1.instrumentEngine = "tr808";
         t1.type = "SAMPLER";
         t1.r = 0.13f; t1.g = 0.96f; t1.b = 0.91f;
         t1.volume = 0.85f;
@@ -8722,6 +8736,8 @@ void GuiWindow::initArrangerTracks() {
     {
         ArrangerTrackData t2;
         t2.name = "TR-909 Drive";
+        t2.instrument = "TR-909 Rhythm Composer";
+        t2.instrumentEngine = "tr909";
         t2.type = "SAMPLER";
         t2.r = 1.0f; t2.g = 0.16f; t2.b = 0.43f;
         t2.volume = 0.80f;
@@ -8743,6 +8759,8 @@ void GuiWindow::initArrangerTracks() {
     {
         ArrangerTrackData t3;
         t3.name = "DX7 Rhodes";
+        t3.instrument = "Yamaha DX7 FM";
+        t3.instrumentEngine = "dx7";
         t3.type = "SYNTH";
         t3.r = 0.62f; t3.g = 0.31f; t3.b = 0.87f;
         t3.volume = 0.75f;
@@ -8764,6 +8782,8 @@ void GuiWindow::initArrangerTracks() {
     {
         ArrangerTrackData t4;
         t4.name = "Concert Grand";
+        t4.instrument = "Physical Modeling Piano";
+        t4.instrumentEngine = "piano";
         t4.type = "PHYSICAL";
         t4.r = 0.88f; t4.g = 0.66f; t4.b = 0.43f;
         t4.volume = 0.75f;

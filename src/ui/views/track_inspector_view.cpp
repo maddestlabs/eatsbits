@@ -208,16 +208,22 @@ void TrackInspectorView::initDefaultTracks() {
     t1.mute = false;
     t1.solo = false;
     t1.freeze = false;
-    t1.instrument = "Roland TB-303";
+    t1.instrument = "Eats-303 Acid Bassline";
     t1.instrumentEngine = "tb303";
     t1.chordFollowMode = ChordFollowMode::Off;
     t1.knobs = {
-        {"tuning", "TUNING", 0.50f, "440 Hz"},
+        {"waveform", "WAVEFORM", 0.0f, "Saw"},
+        {"pitch", "PITCH", 0.50f, "0 st"},
         {"cutoff", "CUTOFF", 0.65f, "1.8 kHz"},
-        {"resonance", "RESON", 0.80f, "80%"},
+        {"resonance", "RESONANCE", 0.80f, "80%"},
         {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
         {"decay", "DECAY", 0.45f, "240 ms"},
-        {"accent", "ACCENT", 0.85f, "85%"}
+        {"accent", "ACCENT", 0.85f, "85%"},
+        {"octave", "OCTAVE", 0.50f, "0"},
+        {"subOsc", "SUB OSC", 0.0f, "Off"},
+        {"subVol", "SUB VOL", 0.35f, "35%"},
+        {"glideCurve", "GLIDE CURVE", 0.40f, "40%"},
+        {"drive", "DRIVE", 0.25f, "25%"}
     };
     t1.midiFx.arpEnabled = true;
     t1.midiFx.arpPattern = 2; // UpDown
@@ -312,12 +318,18 @@ void TrackInspectorView::initDefaultTracks() {
 void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
     if (trk.instrumentEngine == "tb303") {
         trk.knobs = {
-            {"tuning", "TUNING", 0.50f, "440 Hz"},
+            {"waveform", "WAVEFORM", 0.0f, "Saw"},
+            {"pitch", "PITCH", 0.50f, "0 st"},
             {"cutoff", "CUTOFF", 0.65f, "1.8 kHz"},
-            {"resonance", "RESON", 0.80f, "80%"},
+            {"resonance", "RESONANCE", 0.80f, "80%"},
             {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
             {"decay", "DECAY", 0.45f, "240 ms"},
-            {"accent", "ACCENT", 0.85f, "85%"}
+            {"accent", "ACCENT", 0.85f, "85%"},
+            {"octave", "OCTAVE", 0.50f, "0"},
+            {"subOsc", "SUB OSC", 0.0f, "Off"},
+            {"subVol", "SUB VOL", 0.35f, "35%"},
+            {"glideCurve", "GLIDE CURVE", 0.40f, "40%"},
+            {"drive", "DRIVE", 0.25f, "25%"}
         };
     } else if (trk.instrumentEngine == "tr808") {
         trk.knobs = {
@@ -345,6 +357,15 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
             {"decay", "DECAY", 0.75f, "1.4 s"},
             {"bright", "BRIGHT", 0.60f, "60%"},
             {"detune", "DETUNE", 0.40f, "+12 ct"}
+        };
+    } else if (trk.instrumentEngine == "piano" || trk.instrumentEngine == "piano_physical") {
+        trk.knobs = {
+            {"stiffness", "STIFF", 0.50f, "50%"},
+            {"hammer", "HAMMER", 0.65f, "Hard"},
+            {"decay", "DECAY", 0.70f, "2.2 s"},
+            {"damping", "DAMP", 0.30f, "30%"},
+            {"pedal", "PEDAL", 0.0f, "Off"},
+            {"reverb", "REVERB", 0.40f, "40%"}
         };
     } else {
         trk.knobs = {
@@ -389,12 +410,15 @@ TrackPropertiesDrawerData TrackInspectorView::buildDrawerData() const {
         d.audioFxData = trk.audioFx;
         d.midiFx = trk.midiFxList;
         d.audioFx = trk.audioFxList;
+        d.presetTitle = trk.instrument.empty() ? trk.name : trk.instrument;
+        d.presetSubtitle = trk.name + " • " + (trk.instrument.empty() ? "Track" : trk.instrument);
+    } else {
+        d.presetTitle = presetTitle_;
+        d.presetSubtitle = presetSubtitle_;
     }
 
     d.activePresetIdx = activePresetIdx_;
     d.totalPresets = totalPresets_;
-    d.presetTitle = presetTitle_;
-    d.presetSubtitle = presetSubtitle_;
     d.scopeBuffer = scopeBuffer_;
     d.scopeBufferCount = scopeBufferCount_;
     return d;
@@ -421,6 +445,8 @@ void TrackInspectorView::syncBackFromDrawerData(const TrackPropertiesDrawerData&
 void TrackInspectorView::setActiveTrack(uint32_t idx) noexcept {
     if (idx < tracks_.size()) {
         selectedTrackIndex_ = idx;
+        presetTitle_ = tracks_[idx].instrument.empty() ? tracks_[idx].name : tracks_[idx].instrument;
+        presetSubtitle_ = tracks_[idx].name + " • " + (tracks_[idx].instrument.empty() ? "Track" : tracks_[idx].instrument);
     }
 }
 

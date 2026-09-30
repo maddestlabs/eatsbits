@@ -240,13 +240,13 @@ struct TrackPropertiesDrawerData {
     float eqHighGain{0.0f};    // -18..+18 dB
 
     // Dynamic Instrument Parameters
-    std::string instrument{"Roland TB-303"};
-    std::string instrumentEngine{"tb303"}; // "tb303", "tr808", "tr909", "dx7", "snes", "c64", "convolver", "synth"
+    std::string instrument{""};
+    std::string instrumentEngine{""}; // "tb303", "tr808", "tr909", "dx7", "piano", "snes", "c64", "convolver", "synth"
     std::vector<TrackPropertiesKnob> knobs;
     size_t activePresetIdx{0};
     size_t totalPresets{1};
-    std::string presetTitle{"TB-303 Acid Bassline"};
-    std::string presetSubtitle{"Diode Ladder Synthesizer"};
+    std::string presetTitle{""};
+    std::string presetSubtitle{""};
     bool instrumentExpanded{true};
 
     // Harmonic Chord Track Follow
@@ -309,14 +309,20 @@ struct TrackPropertiesDrawerData {
         for (auto& fx : midiFx) fx.ensureDefaultKnobs();
         for (auto& fx : masterAudioFx) fx.ensureDefaultKnobs();
         if (!knobs.empty()) return;
-        if (instrumentEngine == "tb303") {
+        if (instrumentEngine == "tb303" || instrument.find("303") != std::string::npos || presetTitle.find("303") != std::string::npos) {
             knobs = {
-                {"tuning", "TUNING", 0.50f, "440 Hz"},
+                {"waveform", "WAVEFORM", 0.0f, "Saw"},
+                {"pitch", "PITCH", 0.50f, "0 st"},
                 {"cutoff", "CUTOFF", knob1, std::to_string(static_cast<int>(std::round(knob1 * 100.0f))) + "%"},
-                {"resonance", "RESON", knob2, std::to_string(static_cast<int>(std::round(knob2 * 100.0f))) + "%"},
+                {"resonance", "RESONANCE", knob2, std::to_string(static_cast<int>(std::round(knob2 * 100.0f))) + "%"},
                 {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
                 {"decay", "DECAY", knob3, std::to_string(static_cast<int>(std::round(knob3 * 500.0f))) + " ms"},
-                {"accent", "ACCENT", knob4, std::to_string(static_cast<int>(std::round(knob4 * 100.0f))) + "%"}
+                {"accent", "ACCENT", knob4, std::to_string(static_cast<int>(std::round(knob4 * 100.0f))) + "%"},
+                {"octave", "OCTAVE", 0.50f, "0"},
+                {"subOsc", "SUB OSC", 0.0f, "Off"},
+                {"subVol", "SUB VOL", 0.35f, "35%"},
+                {"glideCurve", "GLIDE CURVE", 0.40f, "40%"},
+                {"drive", "DRIVE", 0.25f, "25%"}
             };
         } else if (instrumentEngine == "tr808") {
             knobs = {
@@ -344,6 +350,15 @@ struct TrackPropertiesDrawerData {
                 {"decay", "DECAY", knob2, "1.4 s"},
                 {"bright", "BRIGHT", knob3, "60%"},
                 {"detune", "DETUNE", knob4, "+12 ct"}
+            };
+        } else if (instrumentEngine == "piano" || instrumentEngine == "piano_physical") {
+            knobs = {
+                {"stiffness", "STIFF", 0.50f, "50%"},
+                {"hammer", "HAMMER", 0.65f, "Hard"},
+                {"decay", "DECAY", 0.70f, "2.2 s"},
+                {"damping", "DAMP", 0.30f, "30%"},
+                {"pedal", "PEDAL", 0.0f, "Off"},
+                {"reverb", "REVERB", 0.40f, "40%"}
             };
         } else {
             knobs = {

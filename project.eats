@@ -312,24 +312,21 @@ def process(time, freq, note, params):
           isSoloed = false,
           eatScriptCode = [[
 # Eatsbeats Instrument Definition
-# @id: upright_bass
-# @name: UPRIGHT DOUBLE BASS
-# @category: instrument
-# @engine: upright_bass
+# @id: analog_909_snare
+# @name: EATS-909 ANALOG SNARE
+# @category: drum
+# @engine: drum_909
 
-DoubleBass = True
+Analog909Snare = True
 
 def init():
-    params['FingerMass'] = 2.2
-    params['SlapClick'] = 0.35
-    params['Sustain'] = 0.992
-    params['StringDamp'] = 0.28
-    params['Dispersion'] = 0.22
-    params['ActionHeight'] = 3.2
-    params['BodyWarmth'] = 0.75
+    params['Tune'] = 220.0
+    params['Snappy'] = 0.70
+    params['Decay'] = 0.32
+    params['Tone'] = 1800.0
 
 def process(time, freq, note, params):
-    # Native Hunt-Crossley Gut Waveguide & Cavity Resonator
+    # Native Dual Resonant Shells & Snappy Noise Matrix
     pass
 
           ]],
@@ -438,22 +435,24 @@ def process(time, freq, note, params):
           isMuted = false,
           isSoloed = false,
           eatScriptCode = [[
-# Eatsbeats Audio FX Definition
-# @id: stereo_delay
-# @name: STUDIO STEREO TAPE DELAY
-# @category: audio_fx
-# @engine: delay
+# Eatsbeats Instrument Definition
+# @id: dx7_epiano
+# @name: YAMAHA DX7 E.PIANO 1
+# @category: instrument
+# @engine: dx7
 
-StereoDelay = True
+DX7EPiano = True
 
 def init():
-    params['TimeMs'] = 320.0
-    params['Feedback'] = 0.45
-    params['Damping'] = 8000.0
-    params['Mix'] = 0.35
+    params['Algorithm'] = 5.0
+    params['Feedback'] = 6.0
+    params['Brightness'] = 1.0
+    params['TineBell'] = 0.85
+    params['BodyWarmth'] = 1.0
+    params['Volume'] = 0.85
 
 def process(time, freq, note, params):
-    # Native Stereo Tape Saturation Delay Echo
+    # Native 6-Operator Dynamic Phase Modulation Engine
     pass
 
           ]],

@@ -108,21 +108,33 @@ void DesignView::initDefaultGuiPanel() {
     guiPanel_.rows.clear();
 
     if (activeT.id == "eats_303") {
-        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
-        // Row 1: Primary Knobs
+        guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
+        guiPanel_.woodCheeks = false;
+        guiPanel_.hideHeader = true;
+        guiPanel_.cornerRadius = 6.0f;
+
+        // Row 1: WAVEFORM, divider, PITCH, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT
         GuiRowDef r1;
-        r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "Cutoff", GuiKnobStyle::CreamFluted, 56.0f, 0.65f, 20.0f, 4000.0f, "Hz", {0.0f, 0.95f, 1.0f}});
-        r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "Resonance", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.78f, 0.1f, 0.98f, "", {1.0f, 0.85f, 0.0f}});
-        r1.widgets.push_back({"w_envmod", GuiWidgetType::Knob, "ENV MOD", "EnvMod", GuiKnobStyle::AnodizedKnurled, 56.0f, 0.60f, 0.0f, 1.0f, "", {0.0f, 0.95f, 1.0f}});
-        r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "Decay", GuiKnobStyle::TwoToneStepped, 56.0f, 0.45f, 0.05f, 1.5f, "s", {1.0f, 0.55f, 0.0f}});
+        r1.widgets.push_back({"w_waveform", GuiWidgetType::Knob, "WAVEFORM", "Waveform", GuiKnobStyle::Tb303SelectorSilver, 52.0f, 0.0f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"div1", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+        r1.widgets.push_back({"w_pitch", GuiWidgetType::Knob, "PITCH", "Pitch", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.5f, -12.0f, 12.0f, "st", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "Cutoff", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.65f, 200.0f, 4500.0f, "Hz", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "Resonance", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.78f, 0.5f, 16.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"w_envmod", GuiWidgetType::Knob, "ENV MOD", "EnvMod", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.60f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "Decay", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.45f, 0.05f, 1.2f, "s", Color(0.12f, 0.14f, 0.18f)});
+        r1.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "Accent", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.78f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
         guiPanel_.rows.push_back(r1);
 
-        // Row 2: Secondary Controls
+        // Row 2: OCTAVE, divider, SUB OSC, SUB VOL, divider, GLIDE CURVE, divider, DRIVE
         GuiRowDef r2;
-        r2.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "Accent", GuiKnobStyle::Tb303Halo, 56.0f, 0.70f, 0.0f, 1.0f, "", {0.0f, 1.0f, 0.55f}});
-        r2.widgets.push_back({"w_tune", GuiWidgetType::Slider, "FINE TUNE", "Tuning", GuiKnobStyle::Standard, 120.0f, 0.50f, -12.0f, 12.0f, "st", {1.0f, 0.85f, 0.0f}});
-        r2.widgets.push_back({"w_wave", GuiWidgetType::ToggleSwitch, "WAVE SAW/SQR", "Wave", GuiKnobStyle::Standard, 48.0f, 0.0f, 0.0f, 1.0f, "", {0.0f, 0.95f, 1.0f}});
-        r2.widgets.push_back({"w_nixie", GuiWidgetType::NixieDisplay, "PATTERN BPM", "Tempo", GuiKnobStyle::Standard, 70.0f, 0.65f, 60.0f, 180.0f, "BPM", {1.0f, 0.55f, 0.0f}});
+        r2.widgets.push_back({"w_octave", GuiWidgetType::Knob, "OCTAVE", "Octave", GuiKnobStyle::Tb303SelectorBlack, 52.0f, 0.5f, -2.0f, 0.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r2.widgets.push_back({"div2", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+        r2.widgets.push_back({"w_subosc", GuiWidgetType::ToggleSwitch, "SUB OSC", "SubWaveform", GuiKnobStyle::Standard, 48.0f, 0.0f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r2.widgets.push_back({"w_subvol", GuiWidgetType::Knob, "SUB VOL", "SubVolume", GuiKnobStyle::MiniPotCream, 48.0f, 0.35f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r2.widgets.push_back({"div3", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+        r2.widgets.push_back({"w_glide", GuiWidgetType::Knob, "GLIDE CURVE", "GlideCurve", GuiKnobStyle::MiniPotCream, 48.0f, 0.40f, 0.0f, 2.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        r2.widgets.push_back({"div4", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+        r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "Drive", GuiKnobStyle::MiniPotCream, 48.0f, 0.25f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
         guiPanel_.rows.push_back(r2);
     } else if (activeT.id == "eats_kick") {
         guiPanel_.chassisStyle = GuiChassisStyle::Grunge;

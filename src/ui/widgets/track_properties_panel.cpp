@@ -109,44 +109,94 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
     guiPanel_.title = data.presetTitle.empty() ? data.instrument : data.presetTitle;
     guiPanel_.subtitle = data.presetSubtitle.empty() ? (data.trackName + " • " + data.instrument) : data.presetSubtitle;
     guiPanel_.accentColor = Color(data.r, data.g, data.b, 1.0f);
-    guiPanel_.woodCheeks = true;
-    guiPanel_.cornerRadius = 6.0f;
 
     const std::string& eng = data.instrumentEngine;
-    if (eng == "tb303") {
-        guiPanel_.chassisStyle = GuiChassisStyle::Silver;
-    } else if (eng == "tr808" || eng == "tr909") {
+    bool is303 = (eng == "tb303" || data.instrument.find("303") != std::string::npos ||
+                  guiPanel_.title.find("303") != std::string::npos);
+
+    auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
+        for (const auto& k : data.knobs) {
+            if (_stricmp(k.name.c_str(), p1.c_str()) == 0 || _stricmp(k.label.c_str(), p1.c_str()) == 0 ||
+                (!p2.empty() && (_stricmp(k.name.c_str(), p2.c_str()) == 0 || _stricmp(k.label.c_str(), p2.c_str()) == 0))) {
+                return k.value;
+            }
+        }
+        return def;
+    };
+
+    if (is303) {
+        guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
+        guiPanel_.woodCheeks = false;
+        guiPanel_.hideHeader = true;
+        guiPanel_.cornerRadius = 6.0f;
+
+        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 8) {
+            guiPanel_.rows.clear();
+
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_waveform", GuiWidgetType::Knob, "WAVEFORM", "waveform", GuiKnobStyle::Tb303SelectorSilver, 52.0f, findKnobVal("waveform", "wave", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"div1", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r1.widgets.push_back({"w_pitch", GuiWidgetType::Knob, "PITCH", "pitch", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("pitch", "tuning", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "cutoff", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("cutoff", "", 0.65f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "resonance", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("resonance", "reson", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_env", GuiWidgetType::Knob, "ENV MOD", "envMod", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("envMod", "env", 0.60f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "decay", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("decay", "", 0.45f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "accent", GuiKnobStyle::Tb303Potentiometer, 52.0f, findKnobVal("accent", "", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            guiPanel_.rows.push_back(r1);
+
+            GuiRowDef r2;
+            r2.widgets.push_back({"w_octave", GuiWidgetType::Knob, "OCTAVE", "octave", GuiKnobStyle::Tb303SelectorBlack, 52.0f, findKnobVal("octave", "", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div2", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_subosc", GuiWidgetType::ToggleSwitch, "SUB OSC", "subOsc", GuiKnobStyle::Standard, 48.0f, findKnobVal("subOsc", "subWaveform", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"w_subvol", GuiWidgetType::Knob, "SUB VOL", "subVol", GuiKnobStyle::MiniPotCream, 48.0f, findKnobVal("subVol", "subVolume", 0.35f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div3", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_glide", GuiWidgetType::Knob, "GLIDE CURVE", "glideCurve", GuiKnobStyle::MiniPotCream, 48.0f, findKnobVal("glideCurve", "glide", 0.40f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div4", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "drive", GuiKnobStyle::MiniPotCream, 48.0f, findKnobVal("drive", "overdrive", 0.25f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            guiPanel_.rows.push_back(r2);
+        } else {
+            for (auto& row : guiPanel_.rows) {
+                for (auto& w : row.widgets) {
+                    if (w.type == GuiWidgetType::Divider) continue;
+                    w.currentVal = findKnobVal(w.param, "", w.currentVal);
+                }
+            }
+        }
+        return;
+    }
+
+    guiPanel_.hideHeader = false;
+    guiPanel_.woodCheeks = true;
+    guiPanel_.cornerRadius = 6.0f;
+    if (eng == "tr808" || eng == "tr909") {
         guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
     } else if (eng == "dx7") {
         guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+    } else if (eng == "piano" || eng == "piano_physical") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
     } else if (eng == "snes") {
         guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+        guiPanel_.woodCheeks = false;
     } else if (eng == "c64") {
         guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+        guiPanel_.woodCheeks = false;
     } else if (eng == "convolver") {
         guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
     } else {
-        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
     }
 
     size_t numKnobs = data.knobs.size();
     if (numKnobs == 0) return;
     size_t displayKnobs = std::min(numKnobs, size_t{6});
 
-    if (guiPanel_.rows.empty() || guiPanel_.rows[0].widgets.size() != displayKnobs) {
+    if (guiPanel_.rows.size() != 1 || guiPanel_.rows[0].widgets.size() != displayKnobs) {
         guiPanel_.rows.clear();
         GuiRowDef r1;
         for (size_t i = 0; i < displayKnobs; ++i) {
             const auto& k = data.knobs[i];
             GuiKnobStyle kStyle = GuiKnobStyle::Standard;
-            if (eng == "tb303") {
-                if (i == 0) kStyle = GuiKnobStyle::CreamFluted;
-                else if (i == 1) kStyle = GuiKnobStyle::BakeliteSkirt;
-                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
-                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
-                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
-                else kStyle = GuiKnobStyle::Standard;
-            } else if (eng == "tr808" || eng == "tr909") {
+            if (eng == "tr808" || eng == "tr909") {
                 if (i == 0) kStyle = GuiKnobStyle::BakeliteSkirt;
                 else if (i == 1) kStyle = GuiKnobStyle::CreamFluted;
                 else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
@@ -1379,10 +1429,11 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 const auto& row = guiPanel_.rows[rIdx];
                 for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
                     const auto& w = row.widgets[wIdx];
+                    if (w.type == GuiWidgetType::Divider) continue;
                     if (w.bounds.contains(mx, my)) {
                         res.hit = true;
                         res.area = TrackPropertiesHitArea::InstrumentKnob;
-                        res.index = static_cast<int>(rIdx * 6 + wIdx);
+                        res.index = static_cast<int>(rIdx * 100 + wIdx);
                         res.normVal = w.currentVal;
                         return res;
                     }
@@ -1995,11 +2046,37 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 dragMode_ = DragMode::InstrumentKnob;
                 activeKnobIndex_ = hit.index;
                 dragStartY_ = ev.y;
-                dragStartVal_ = (activeKnobIndex_ < static_cast<int>(data.knobs.size()))
-                                    ? data.knobs[activeKnobIndex_].value
-                                    : 0.5f;
-                draggingRow_ = activeKnobIndex_ / 6;
-                draggingWidget_ = activeKnobIndex_ % 6;
+                int rIdx = hit.index / 100;
+                int wIdx = hit.index % 100;
+                if (rIdx < static_cast<int>(guiPanel_.rows.size()) &&
+                    wIdx < static_cast<int>(guiPanel_.rows[rIdx].widgets.size())) {
+                    auto& w = guiPanel_.rows[rIdx].widgets[wIdx];
+                    if (w.type == GuiWidgetType::ToggleSwitch) {
+                        float newVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
+                        w.currentVal = newVal;
+                        for (auto& k : data.knobs) {
+                            if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                                k.value = newVal;
+                                k.display = (newVal > 0.5f) ? "On" : "Off";
+                                break;
+                            }
+                        }
+                        if (onParamChanged) {
+                            onParamChanged(data.trackIndex, w.param, newVal);
+                        }
+                        dragMode_ = DragMode::None;
+                        return true;
+                    }
+                    dragStartVal_ = w.currentVal;
+                    draggingRow_ = rIdx;
+                    draggingWidget_ = wIdx;
+                } else {
+                    dragStartVal_ = (activeKnobIndex_ < static_cast<int>(data.knobs.size()))
+                                        ? data.knobs[activeKnobIndex_].value
+                                        : 0.5f;
+                    draggingRow_ = activeKnobIndex_ / 6;
+                    draggingWidget_ = activeKnobIndex_ % 6;
+                }
                 return true;
             }
 
@@ -2121,18 +2198,33 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             return true;
         }
 
-        if (dragMode_ == DragMode::InstrumentKnob && activeKnobIndex_ >= 0 &&
-            activeKnobIndex_ < static_cast<int>(data.knobs.size())) {
+        if (dragMode_ == DragMode::InstrumentKnob) {
             float dy = dragStartY_ - ev.y;
             float newVal = std::clamp(dragStartVal_ + (dy / 150.0f), 0.0f, 1.0f);
-            data.knobs[activeKnobIndex_].value = newVal;
-            data.knobs[activeKnobIndex_].display = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
+            std::string pName;
             if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
                 draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
-                guiPanel_.rows[draggingRow_].widgets[draggingWidget_].currentVal = newVal;
+                auto& w = guiPanel_.rows[draggingRow_].widgets[draggingWidget_];
+                w.currentVal = newVal;
+                pName = w.param;
             }
-            if (onParamChanged) {
-                onParamChanged(data.trackIndex, data.knobs[activeKnobIndex_].name, newVal);
+
+            bool updated = false;
+            for (auto& k : data.knobs) {
+                if (!pName.empty() && _stricmp(k.name.c_str(), pName.c_str()) == 0) {
+                    k.value = newVal;
+                    k.display = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
+                    updated = true;
+                    break;
+                }
+            }
+            if (!updated && activeKnobIndex_ >= 0 && activeKnobIndex_ < static_cast<int>(data.knobs.size())) {
+                data.knobs[activeKnobIndex_].value = newVal;
+                data.knobs[activeKnobIndex_].display = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
+                if (pName.empty()) pName = data.knobs[activeKnobIndex_].name;
+            }
+            if (onParamChanged && !pName.empty()) {
+                onParamChanged(data.trackIndex, pName, newVal);
             }
             return true;
         }

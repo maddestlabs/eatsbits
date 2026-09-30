@@ -436,6 +436,8 @@ struct HitTestMixerResult {
 
 struct ArrangerTrackData {
     std::string name{"Track"};
+    std::string instrument{""};
+    std::string instrumentEngine{""};
     std::string type{"SYNTH"};
     std::string iconRef{""};
     float r{0.0f}, g{0.9f}, b{1.0f};

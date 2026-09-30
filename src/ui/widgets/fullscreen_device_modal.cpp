@@ -178,24 +178,82 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
     guiPanel_.title = trackData_.presetTitle.empty() ? trackData_.instrument : trackData_.presetTitle;
     guiPanel_.subtitle = trackData_.presetSubtitle.empty() ? (trackData_.trackName + " • " + trackData_.instrument) : trackData_.presetSubtitle;
     guiPanel_.accentColor = Color(trackData_.r, trackData_.g, trackData_.b, 1.0f);
+
+    const std::string& eng = trackData_.instrumentEngine;
+    bool is303 = (eng == "tb303" || trackData_.instrument.find("303") != std::string::npos ||
+                  guiPanel_.title.find("303") != std::string::npos);
+
+    auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
+        for (const auto& k : trackData_.knobs) {
+            if (_stricmp(k.name.c_str(), p1.c_str()) == 0 || _stricmp(k.label.c_str(), p1.c_str()) == 0 ||
+                (!p2.empty() && (_stricmp(k.name.c_str(), p2.c_str()) == 0 || _stricmp(k.label.c_str(), p2.c_str()) == 0))) {
+                return k.value;
+            }
+        }
+        return def;
+    };
+
+    if (is303) {
+        guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
+        guiPanel_.woodCheeks = false;
+        guiPanel_.hideHeader = true;
+        guiPanel_.cornerRadius = 6.0f;
+
+        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 8) {
+            guiPanel_.rows.clear();
+
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_waveform", GuiWidgetType::Knob, "WAVEFORM", "waveform", GuiKnobStyle::Tb303SelectorSilver, 56.0f, findKnobVal("waveform", "wave", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"div1", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r1.widgets.push_back({"w_pitch", GuiWidgetType::Knob, "PITCH", "pitch", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("pitch", "tuning", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "cutoff", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("cutoff", "", 0.65f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "resonance", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("resonance", "reson", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_env", GuiWidgetType::Knob, "ENV MOD", "envMod", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("envMod", "env", 0.60f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "decay", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("decay", "", 0.45f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r1.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "accent", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("accent", "", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            guiPanel_.rows.push_back(r1);
+
+            GuiRowDef r2;
+            r2.widgets.push_back({"w_octave", GuiWidgetType::Knob, "OCTAVE", "octave", GuiKnobStyle::Tb303SelectorBlack, 56.0f, findKnobVal("octave", "", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div2", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_subosc", GuiWidgetType::ToggleSwitch, "SUB OSC", "subOsc", GuiKnobStyle::Standard, 52.0f, findKnobVal("subOsc", "subWaveform", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"w_subvol", GuiWidgetType::Knob, "SUB VOL", "subVol", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("subVol", "subVolume", 0.35f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div3", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_glide", GuiWidgetType::Knob, "GLIDE CURVE", "glideCurve", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("glideCurve", "glide", 0.40f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            r2.widgets.push_back({"div4", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
+            r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "drive", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("drive", "overdrive", 0.25f), 0.0f, 1.0f, "", guiPanel_.accentColor});
+            guiPanel_.rows.push_back(r2);
+        } else {
+            for (auto& row : guiPanel_.rows) {
+                for (auto& w : row.widgets) {
+                    if (w.type == GuiWidgetType::Divider) continue;
+                    w.currentVal = findKnobVal(w.param, "", w.currentVal);
+                }
+            }
+        }
+        return;
+    }
+
+    guiPanel_.hideHeader = false;
     guiPanel_.woodCheeks = true;
     guiPanel_.cornerRadius = 8.0f;
 
-    const std::string& eng = trackData_.instrumentEngine;
-    if (eng == "tb303") {
-        guiPanel_.chassisStyle = GuiChassisStyle::Silver;
-    } else if (eng == "tr808" || eng == "tr909") {
+    if (eng == "tr808" || eng == "tr909") {
         guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
     } else if (eng == "dx7") {
         guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+    } else if (eng == "piano" || eng == "piano_physical") {
+        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
     } else if (eng == "snes") {
         guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+        guiPanel_.woodCheeks = false;
     } else if (eng == "c64") {
         guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+        guiPanel_.woodCheeks = false;
     } else if (eng == "convolver") {
         guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
     } else {
-        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
     }
 
     size_t numKnobs = trackData_.knobs.size();
@@ -219,14 +277,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         for (size_t i = 0; i < displayKnobs; ++i) {
             const auto& k = trackData_.knobs[i];
             GuiKnobStyle kStyle = GuiKnobStyle::Standard;
-            if (eng == "tb303") {
-                if (i == 0) kStyle = GuiKnobStyle::CreamFluted;
-                else if (i == 1) kStyle = GuiKnobStyle::BakeliteSkirt;
-                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
-                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
-                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
-                else kStyle = GuiKnobStyle::Standard;
-            } else if (eng == "tr808" || eng == "tr909") {
+            if (eng == "tr808" || eng == "tr909") {
                 if (i == 0) kStyle = GuiKnobStyle::BakeliteSkirt;
                 else if (i == 1) kStyle = GuiKnobStyle::CreamFluted;
                 else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
@@ -343,32 +394,49 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
 
     syncGuiPanelFromTrackData();
 
-    // Allocate faceplate & oscilloscope:
-    float oscH = std::min(150.0f, bodyH * 0.28f);
-    float fpRectH = bodyH - oscH - 16.0f;
-    Rect2D fpRect{bodyBounds_.x, bodyBounds_.y, bodyBounds_.w, fpRectH};
-    guiPanel_.bounds = fpRect;
-    oscBounds_ = Rect2D{bodyBounds_.x, bodyBounds_.y + fpRectH + 16.0f, bodyBounds_.w, oscH};
+    // Allocate faceplate & oscilloscope centered inside bodyBounds:
+    float maxFpW = std::clamp(bodyBounds_.w * 0.82f, 680.0f, 960.0f);
+    if (maxFpW > bodyBounds_.w) maxFpW = bodyBounds_.w;
+    float maxFpH = std::clamp(bodyH * 0.65f, 260.0f, 360.0f);
+    if (maxFpH > bodyH - 120.0f) maxFpH = std::max(180.0f, bodyH - 120.0f);
 
-    // Compute widget bounds inside guiPanel_
-    float fpHeaderH = 44.0f;
-    float rowStartY = fpRect.y + fpHeaderH + 16.0f;
-    float rowH = (fpRectH - fpHeaderH - 32.0f) / std::max(1, static_cast<int>(guiPanel_.rows.size()));
+    float fpX = bodyBounds_.x + (bodyBounds_.w - maxFpW) * 0.5f;
+    float fpY = bodyBounds_.y + 8.0f;
+    Rect2D fpRect{fpX, fpY, maxFpW, maxFpH};
+    guiPanel_.bounds = fpRect;
+
+    float oscY = fpY + maxFpH + 12.0f;
+    float oscH = std::min(130.0f, bodyBounds_.y + bodyBounds_.h - oscY - 6.0f);
+    if (oscH < 40.0f) oscH = 40.0f;
+    oscBounds_ = Rect2D{fpX, oscY, maxFpW, oscH};
+
+    // Compute divider-aware widget bounds inside guiPanel_
+    float fpHeaderH = guiPanel_.hideHeader ? 0.0f : 44.0f;
+    float rowStartY = fpRect.y + (guiPanel_.hideHeader ? 12.0f : fpHeaderH + 12.0f);
+    float rowAvailableH = maxFpH - (guiPanel_.hideHeader ? 20.0f : fpHeaderH + 20.0f);
+    float rowH = rowAvailableH / std::max(1, static_cast<int>(guiPanel_.rows.size()));
 
     for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
         auto& row = guiPanel_.rows[rIdx];
         float ry = rowStartY + (rIdx * rowH);
-        row.bounds = Rect2D{fpRect.x + 12.0f, ry, fpRect.w - 24.0f, rowH - 8.0f};
+        row.bounds = Rect2D{fpRect.x + 12.0f, ry, fpRect.w - 24.0f, rowH - 6.0f};
 
-        size_t wCount = row.widgets.size();
-        if (wCount == 0) continue;
-        float colW = row.bounds.w / static_cast<float>(wCount);
+        float totalDividerW = 0.0f;
+        int nonDividerCount = 0;
+        for (const auto& w : row.widgets) {
+            if (w.type == GuiWidgetType::Divider) totalDividerW += 14.0f;
+            else nonDividerCount++;
+        }
+        float nonDividerW = (nonDividerCount > 0)
+            ? std::max(20.0f, (row.bounds.w - totalDividerW) / static_cast<float>(nonDividerCount))
+            : 40.0f;
 
-        for (size_t wIdx = 0; wIdx < wCount; ++wIdx) {
+        float curX = row.bounds.x;
+        for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
             auto& w = row.widgets[wIdx];
-            float wx = row.bounds.x + (wIdx * colW);
-            float wy = ry + 4.0f;
-            w.bounds = Rect2D{wx + 6.0f, wy, colW - 12.0f, rowH - 16.0f};
+            float wW = (w.type == GuiWidgetType::Divider) ? 14.0f : nonDividerW;
+            w.bounds = Rect2D{curX, ry + 2.0f, wW, rowH - 4.0f};
+            curX += wW;
         }
     }
 
@@ -740,6 +808,13 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                     (std::abs(mx - kx) <= rad * 1.5f && std::abs(my - ky) <= rad * 2.0f)) {
                     if (w.type == GuiWidgetType::ToggleSwitch) {
                         w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
+                        for (auto& k : trackData_.knobs) {
+                            if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                                k.value = w.currentVal;
+                                k.display = (w.currentVal > 0.5f) ? "On" : "Off";
+                                break;
+                            }
+                        }
                         if (onParamChanged) {
                             onParamChanged(target_.trackIndex, w.param, w.currentVal);
                         }
@@ -784,17 +859,17 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             if (draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(row.widgets.size())) {
                 auto& w = row.widgets[draggingWidget_];
                 w.currentVal = newVal;
-                size_t kIdx = draggingRow_ * 6 + draggingWidget_;
-                if (kIdx < trackData_.knobs.size()) {
-                    trackData_.knobs[kIdx].value = newVal;
-                    int pct = static_cast<int>(std::round(newVal * 100.0f));
-                    trackData_.knobs[kIdx].display = std::to_string(pct) + "%";
+                for (auto& k : trackData_.knobs) {
+                    if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                        k.value = newVal;
+                        int pct = static_cast<int>(std::round(newVal * 100.0f));
+                        k.display = std::to_string(pct) + "%";
+                        break;
+                    }
                 }
                 if (draggingRow_ == 0 && draggingWidget_ < static_cast<int>(knobSlots_.size())) {
                     knobSlots_[draggingWidget_].normVal = newVal;
-                    if (kIdx < trackData_.knobs.size()) {
-                        knobSlots_[draggingWidget_].readout = trackData_.knobs[kIdx].display;
-                    }
+                    knobSlots_[draggingWidget_].readout = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
                 }
                 if (target_.type == DeviceTargetType::AudioFx) {
                     if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.audioFx.size()) {

@@ -500,6 +500,10 @@ PresetDefinition PresetLoader::createEats303Preset() {
     p.params["EnvMod"] = {"EnvMod", 0.0f, 1.0f, 0.75f, 0.75f, 0.0f, "", true};
     p.params["Decay"] = {"Decay", 0.05f, 1.2f, 0.28f, 0.28f, 0.0f, "s", true};
     p.params["Accent"] = {"Accent", 0.0f, 1.0f, 0.78f, 0.78f, 0.0f, "", true};
+    p.params["Octave"] = {"Octave", -2.0f, 0.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["SubWaveform"] = {"SubWaveform", 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["SubVolume"] = {"SubVolume", 0.0f, 1.0f, 0.35f, 0.35f, 0.0f, "", true};
+    p.params["GlideCurve"] = {"GlideCurve", 0.0f, 2.0f, 0.0f, 0.0f, 1.0f, "", false};
     p.params["Drive"] = {"Drive", 0.0f, 1.0f, 0.25f, 0.25f, 0.0f, "", true};
 
     p.guiRoot.type = GuiNodeType::Panel;
@@ -508,30 +512,34 @@ PresetDefinition PresetLoader::createEats303Preset() {
     p.guiRoot.background = "minimal_white";
     p.guiRoot.accent = "#000000";
 
-    // Row of knobs
-    GuiLayoutNode row{};
-    row.type = GuiNodeType::Row;
-    row.align = "space_around";
+    // Row 1
+    GuiLayoutNode row1{};
+    row1.type = GuiNodeType::Row;
+    row1.align = "space_around";
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Waveform", "WAVEFORM", "", 48.0f, "tb303_selector", false});
+    row1.children.push_back({GuiNodeType::Divider});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Pitch", "PITCH", "st", 48.0f, "tb303_potentiometer", false});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Cutoff", "CUTOFF", "Hz", 48.0f, "tb303_potentiometer", false});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Resonance", "RESONANCE", "", 48.0f, "tb303_potentiometer", false});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "EnvMod", "ENV MOD", "", 48.0f, "tb303_potentiometer", false});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Decay", "DECAY", "s", 48.0f, "tb303_potentiometer", false});
+    row1.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Accent", "ACCENT", "", 48.0f, "tb303_potentiometer", false});
 
-    GuiLayoutNode kWave{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Waveform", "WAVE", "", 48.0f, "tb303_selector", false};
-    GuiLayoutNode kPitch{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Pitch", "TUNING", "st", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kCut{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Cutoff", "CUTOFF", "Hz", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kRes{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Resonance", "RESO", "", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kEnv{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "EnvMod", "ENV MOD", "", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kDec{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Decay", "DECAY", "s", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kAcc{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Accent", "ACCENT", "", 48.0f, "tb303_potentiometer", false};
-    GuiLayoutNode kDrv{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Drive", "OVERDRIVE", "", 48.0f, "tb303_potentiometer", false};
+    // Row 2
+    GuiLayoutNode row2{};
+    row2.type = GuiNodeType::Row;
+    row2.align = "space_around";
+    row2.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Octave", "OCTAVE", "", 48.0f, "tb303_selector", false});
+    row2.children.push_back({GuiNodeType::Divider});
+    row2.children.push_back({GuiNodeType::Switch, "", "", "", "", "hardware", "", "", "", "SubWaveform", "SUB OSC", "", 48.0f, "vertical", false});
+    row2.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "SubVolume", "SUB VOL", "", 48.0f, "cream_fluted", false});
+    row2.children.push_back({GuiNodeType::Divider});
+    row2.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "GlideCurve", "GLIDE CURVE", "", 48.0f, "cream_fluted", false});
+    row2.children.push_back({GuiNodeType::Divider});
+    row2.children.push_back({GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Drive", "DRIVE", "", 48.0f, "cream_fluted", false});
 
-    row.children.push_back(kWave);
-    row.children.push_back(kPitch);
-    row.children.push_back(kCut);
-    row.children.push_back(kRes);
-    row.children.push_back(kEnv);
-    row.children.push_back(kDec);
-    row.children.push_back(kAcc);
-    row.children.push_back(kDrv);
-
-    p.guiRoot.children.push_back(row);
+    p.guiRoot.children.push_back(row1);
+    p.guiRoot.children.push_back(row2);
 
     p.rawScript =
         "# Eatsbeats Instrument Definition\n"
