@@ -385,8 +385,8 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     designBtnBounds_ = Rect2D{designX, designY, designBtnSize, designBtnSize};
 
     // Body fills the rest of the display with clean margins
-    float marginX = 24.0f;
-    float marginY = 16.0f;
+    float marginX = 16.0f;
+    float marginY = 12.0f;
     float bodyY = headerH + marginY;
     float bodyH = screenHeight_ - bodyY - marginY;
     float bodyW = screenWidth_ - (marginX * 2.0f);
@@ -394,49 +394,47 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
 
     syncGuiPanelFromTrackData();
 
-    // Allocate faceplate & oscilloscope centered inside bodyBounds:
-    float maxFpW = std::clamp(bodyBounds_.w * 0.82f, 680.0f, 960.0f);
-    if (maxFpW > bodyBounds_.w) maxFpW = bodyBounds_.w;
-    float maxFpH = std::clamp(bodyH * 0.65f, 260.0f, 360.0f);
-    if (maxFpH > bodyH - 120.0f) maxFpH = std::max(180.0f, bodyH - 120.0f);
-
-    float fpX = bodyBounds_.x + (bodyBounds_.w - maxFpW) * 0.5f;
-    float fpY = bodyBounds_.y + 8.0f;
-    Rect2D fpRect{fpX, fpY, maxFpW, maxFpH};
+    // Allocate faceplate & oscilloscope responsively utilizing full available screen space:
+    float oscH = std::clamp(bodyH * 0.18f, 75.0f, 150.0f);
+    float gapY = 10.0f;
+    float fpH = bodyH - oscH - gapY;
+    float fpW = bodyW;
+    float fpX = bodyBounds_.x;
+    float fpY = bodyBounds_.y;
+    Rect2D fpRect{fpX, fpY, fpW, fpH};
     guiPanel_.bounds = fpRect;
 
-    float oscY = fpY + maxFpH + 12.0f;
-    float oscH = std::min(130.0f, bodyBounds_.y + bodyBounds_.h - oscY - 6.0f);
-    if (oscH < 40.0f) oscH = 40.0f;
-    oscBounds_ = Rect2D{fpX, oscY, maxFpW, oscH};
+    float oscY = fpY + fpH + gapY;
+    oscBounds_ = Rect2D{fpX, oscY, fpW, oscH};
 
     // Compute divider-aware widget bounds inside guiPanel_
-    float fpHeaderH = guiPanel_.hideHeader ? 0.0f : 44.0f;
-    float rowStartY = fpRect.y + (guiPanel_.hideHeader ? 12.0f : fpHeaderH + 12.0f);
-    float rowAvailableH = maxFpH - (guiPanel_.hideHeader ? 20.0f : fpHeaderH + 20.0f);
+    float fpHeaderH = (guiPanel_.hideHeader || guiPanel_.chassisStyle == GuiChassisStyle::MinimalWhite) ? 0.0f : 44.0f;
+    float topPad = (fpHeaderH > 0.0f) ? (fpHeaderH + 12.0f) : 10.0f;
+    float botPad = 8.0f;
+    float rowStartY = fpRect.y + topPad;
+    float rowAvailableH = fpH - topPad - botPad;
     float rowH = rowAvailableH / std::max(1, static_cast<int>(guiPanel_.rows.size()));
 
     for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
         auto& row = guiPanel_.rows[rIdx];
-        float ry = rowStartY + (rIdx * rowH);
-        row.bounds = Rect2D{fpRect.x + 12.0f, ry, fpRect.w - 24.0f, rowH - 6.0f};
+        float ry = rowStartY + (static_cast<float>(rIdx) * rowH);
+        row.bounds = Rect2D{fpRect.x + 8.0f, ry, fpRect.w - 16.0f, rowH};
 
-        float totalDividerW = 0.0f;
-        int nonDividerCount = 0;
-        for (const auto& w : row.widgets) {
-            if (w.type == GuiWidgetType::Divider) totalDividerW += 14.0f;
-            else nonDividerCount++;
+        size_t dividerCount = 0;
+        for (const auto& wid : row.widgets) {
+            if (wid.type == GuiWidgetType::Divider) dividerCount++;
         }
-        float nonDividerW = (nonDividerCount > 0)
-            ? std::max(20.0f, (row.bounds.w - totalDividerW) / static_cast<float>(nonDividerCount))
-            : 40.0f;
+        float divWidth = std::clamp(row.bounds.w * 0.015f, 12.0f, 28.0f);
+        float remainingW = row.bounds.w - (static_cast<float>(dividerCount) * divWidth);
+        size_t nonDivCount = (row.widgets.size() > dividerCount) ? (row.widgets.size() - dividerCount) : 1;
+        float normalColW = remainingW / static_cast<float>(nonDivCount);
 
         float curX = row.bounds.x;
         for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
             auto& w = row.widgets[wIdx];
-            float wW = (w.type == GuiWidgetType::Divider) ? 14.0f : nonDividerW;
-            w.bounds = Rect2D{curX, ry + 2.0f, wW, rowH - 4.0f};
-            curX += wW;
+            float itemW = (w.type == GuiWidgetType::Divider) ? divWidth : normalColW;
+            w.bounds = Rect2D{curX, ry + 2.0f, itemW, rowH - 4.0f};
+            curX += itemW;
         }
     }
 
@@ -451,8 +449,8 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
             knobSlots_[i].label = w.label;
             knobSlots_[i].normVal = w.currentVal;
             knobSlots_[i].readout = (i < trackData_.knobs.size()) ? trackData_.knobs[i].display : "";
-            knobSlots_[i].center = Point2D{w.bounds.x + w.bounds.w * 0.5f, w.bounds.y + w.bounds.h * 0.42f};
-            knobSlots_[i].radius = std::clamp(w.size * 0.38f, 26.0f, 40.0f);
+            knobSlots_[i].center = Point2D{w.bounds.x + w.bounds.w * 0.5f, w.bounds.y + w.bounds.h * 0.44f};
+            knobSlots_[i].radius = std::clamp(std::min(w.bounds.w * 0.34f, w.bounds.h * 0.28f), 14.0f, 66.0f);
         }
     }
 
@@ -707,12 +705,11 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             auto& row = guiPanel_.rows[rIdx];
             for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
                 auto& w = row.widgets[wIdx];
+                if (w.type == GuiWidgetType::Divider) continue;
                 float cx = w.bounds.x + (w.bounds.w * 0.5f);
-                float cy = w.bounds.y + (w.bounds.h * 0.42f);
-                float rad = std::clamp(w.size * 0.38f, 26.0f, 42.0f);
+                float cy = w.bounds.y + (w.bounds.h * 0.44f);
                 float dist = std::hypot(mx - cx, my - cy);
-                if (dist <= rad * 1.8f ||
-                    (std::abs(mx - cx) <= rad * 1.5f && std::abs(my - cy) <= rad * 2.0f)) {
+                if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
                     float newVal = std::clamp(w.currentVal + ev.scrollY * 0.04f, 0.0f, 1.0f);
                     w.currentVal = newVal;
                     size_t kIdx = rIdx * 6 + wIdx;
@@ -800,12 +797,11 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             auto& row = guiPanel_.rows[rIdx];
             for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
                 auto& w = row.widgets[wIdx];
+                if (w.type == GuiWidgetType::Divider) continue;
                 float kx = w.bounds.x + (w.bounds.w * 0.5f);
-                float ky = w.bounds.y + (w.bounds.h * 0.42f);
-                float rad = std::clamp(w.size * 0.38f, 26.0f, 42.0f);
+                float ky = w.bounds.y + (w.bounds.h * 0.44f);
                 float dist = std::hypot(mx - kx, my - ky);
-                if (dist <= rad * 1.8f ||
-                    (std::abs(mx - kx) <= rad * 1.5f && std::abs(my - ky) <= rad * 2.0f)) {
+                if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
                     if (w.type == GuiWidgetType::ToggleSwitch) {
                         w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
                         for (auto& k : trackData_.knobs) {

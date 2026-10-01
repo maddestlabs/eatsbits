@@ -277,7 +277,7 @@ void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) 
     // Note: only advances curY during render if eq is active
 
     // 5. Dynamic Instrument Hardware Faceplate Card
-    float faceplateH = isWide ? 260.0f : 240.0f;
+    float faceplateH = isWide ? 280.0f : 240.0f;
     faceplateBounds_ = Rect2D(bounds_.x + padding, curY, contentW, faceplateH);
     curY += faceplateH + 8.0f;
 
@@ -370,7 +370,7 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
         curCardY += 138.0f + 8.0f;
     }
 
-    float faceplateH = data.instrumentExpanded ? (isWide ? 260.0f : 240.0f) : 38.0f;
+    float faceplateH = data.instrumentExpanded ? (isWide ? 280.0f : 240.0f) : 38.0f;
     faceplateBounds_ = Rect2D(contentX, curCardY, contentW, faceplateH);
     renderFaceplateCard(r, theme, data, faceplateBounds_.x, faceplateBounds_.y, faceplateBounds_.w, isWide);
     curCardY += faceplateH + 8.0f;
@@ -616,7 +616,7 @@ void TrackPropertiesPanel::renderEqCard(BatchRenderer2D& r, const ThemeTokens& t
 
 void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTokens& theme,
                                               TrackPropertiesDrawerData& data, float cx, float cy, float cw, bool isWide) {
-    float faceH = data.instrumentExpanded ? (isWide ? 260.0f : 240.0f) : 38.0f;
+    float faceH = data.instrumentExpanded ? (isWide ? 280.0f : 240.0f) : 38.0f;
     if (cy + faceH < bounds_.y || cy > bounds_.y + bounds_.h) return;
 
     // Outer card container background (matching Eatsbeats original instrument layout)

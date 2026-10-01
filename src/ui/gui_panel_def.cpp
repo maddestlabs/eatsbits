@@ -92,11 +92,12 @@ void drawGuiFaceplate(BatchRenderer2D& r,
         if (wCount == 0) continue;
 
         // Calculate layout with special narrow width for Dividers
+        // Calculate layout with special narrow width for Dividers
         size_t dividerCount = 0;
         for (const auto& wid : row.widgets) {
             if (wid.type == GuiWidgetType::Divider) dividerCount++;
         }
-        float divWidth = 14.0f;
+        float divWidth = std::clamp(row.bounds.w * 0.015f, 12.0f, 28.0f);
         float remainingW = row.bounds.w - (static_cast<float>(dividerCount) * divWidth);
         size_t nonDivCount = (wCount > dividerCount) ? (wCount - dividerCount) : 1;
         float normalColW = remainingW / static_cast<float>(nonDivCount);
@@ -120,42 +121,50 @@ void drawGuiFaceplate(BatchRenderer2D& r,
             if (w.type == GuiWidgetType::Divider) {
                 // Vertical divider line between module sections
                 float divX = w.bounds.x + (w.bounds.w * 0.5f);
-                float lineY1 = w.bounds.y + 6.0f;
-                float lineY2 = w.bounds.y + w.bounds.h - 6.0f;
+                float linePad = std::clamp(w.bounds.h * 0.10f, 6.0f, 24.0f);
+                float lineY1 = w.bounds.y + linePad;
+                float lineY2 = w.bounds.y + w.bounds.h - linePad;
+                float lineThick = std::clamp(w.bounds.w * 0.08f, 1.0f, 2.2f);
                 drawLine(r, divX, lineY1, divX, lineY2,
                          isLightChassis ? 0.74f : 0.22f,
                          isLightChassis ? 0.77f : 0.24f,
                          isLightChassis ? 0.82f : 0.28f,
-                         0.85f, 1.0f);
+                         0.85f, lineThick);
                 continue;
             }
 
             if (w.type == GuiWidgetType::Knob) {
-                float rad = std::clamp(w.bounds.h * 0.28f, 13.0f, 26.0f);
-                if (w.knobStyle == GuiKnobStyle::MiniPotCream) {
-                    rad = std::clamp(w.bounds.h * 0.22f, 10.0f, 17.0f);
-                }
-
-                float offX = -0.25f * rad;
-                float offY = -0.30f * rad;
-
                 if (w.knobStyle == GuiKnobStyle::Tb303SelectorSilver || w.knobStyle == GuiKnobStyle::Tb303SelectorBlack) {
+                    float maxRadW = (w.bounds.w * 0.5f) - 10.0f;
+                    float maxRadH = (w.bounds.h * 0.38f) - 10.0f;
+                    float rad = std::clamp(std::min(maxRadW, maxRadH) * 0.72f, 13.0f, 64.0f);
+                    float offX = -0.25f * rad;
+                    float offY = -0.30f * rad;
                     bool isBlack = (w.knobStyle == GuiKnobStyle::Tb303SelectorBlack);
+
+                    float numDist = rad + std::clamp(rad * 0.34f, 9.0f, 22.0f);
+                    float numFontSize = std::clamp(rad * 0.24f, 6.5f, 14.0f);
+                    float numBoxW = numFontSize * 1.8f;
+                    float numBoxH = numFontSize * 1.4f;
+
                     // 0-10 stepped selector dial ticks and numbers around perimeter
                     for (int step = 0; step <= 10; ++step) {
                         float sAng = minA + (static_cast<float>(step) / 10.0f) * (maxA - minA);
-                        float numR = rad + 9.5f;
-                        float nx = cx + std::sin(sAng) * numR;
-                        float ny = cy - std::cos(sAng) * numR;
-                        drawCenteredText(r, std::to_string(step), nx - 6.0f, ny - 4.5f, 12.0f, 9.0f, 6.5f,
+                        float nx = cx + std::sin(sAng) * numDist;
+                        float ny = cy - std::cos(sAng) * numDist;
+                        drawCenteredText(r, std::to_string(step), nx - numBoxW * 0.5f, ny - numBoxH * 0.5f, numBoxW, numBoxH, numFontSize,
                                          isLightChassis ? 0.25f : 0.80f,
                                          isLightChassis ? 0.28f : 0.82f,
                                          isLightChassis ? 0.32f : 0.86f, 0.95f);
                     }
 
+                    float skirtExtra = std::clamp(rad * 0.10f, 2.0f, 5.0f);
+                    float ptrWidth = std::clamp(rad * 0.08f, 2.0f, 4.5f);
+                    float rivetR = std::clamp(rad * 0.10f, 2.2f, 5.5f);
+
                     // Stepped knob cap
                     if (isBlack) {
-                        drawCircle(r, cx, cy, rad + 2.0f, 0.08f, 0.08f, 0.10f, 1.0f);
+                        drawCircle(r, cx, cy, rad + skirtExtra, 0.08f, 0.08f, 0.10f, 1.0f);
                         drawCircleRadial3StopGradient(r, cx, cy, rad,
                                                       Color(0.26f, 0.27f, 0.30f, 1.0f),
                                                       Color(0.14f, 0.14f, 0.16f, 1.0f),
@@ -165,10 +174,10 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                         // White pointer line
                         float px = cx + std::sin(curA) * (rad - 1.5f);
                         float py = cy - std::cos(curA) * (rad - 1.5f);
-                        drawLine(r, cx, cy, px, py, 0.92f, 0.94f, 0.96f, 1.0f, 2.2f);
-                        drawCircle(r, cx, cy, 2.5f, 0.30f, 0.32f, 0.35f, 1.0f);
+                        drawLine(r, cx, cy, px, py, 0.92f, 0.94f, 0.96f, 1.0f, ptrWidth);
+                        drawCircle(r, cx, cy, rivetR, 0.30f, 0.32f, 0.35f, 1.0f);
                     } else {
-                        drawCircle(r, cx, cy, rad + 2.5f, 0.55f, 0.57f, 0.62f, 1.0f);
+                        drawCircle(r, cx, cy, rad + skirtExtra, 0.55f, 0.57f, 0.62f, 1.0f);
                         drawCircleRadial3StopGradient(r, cx, cy, rad,
                                                       Color(0.96f, 0.97f, 0.99f, 1.0f),
                                                       Color(0.80f, 0.82f, 0.86f, 1.0f),
@@ -178,33 +187,47 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                         // Dark pointer line
                         float px = cx + std::sin(curA) * (rad - 1.5f);
                         float py = cy - std::cos(curA) * (rad - 1.5f);
-                        drawLine(r, cx, cy, px, py, 0.12f, 0.14f, 0.18f, 1.0f, 2.2f);
-                        drawCircle(r, cx, cy, 2.5f, 0.20f, 0.22f, 0.26f, 1.0f);
+                        drawLine(r, cx, cy, px, py, 0.12f, 0.14f, 0.18f, 1.0f, ptrWidth);
+                        drawCircle(r, cx, cy, rivetR, 0.20f, 0.22f, 0.26f, 1.0f);
                     }
 
                     // Label below
-                    drawCenteredText(r, w.label, w.bounds.x, cy + rad + 10.0f, w.bounds.w, 12.0f, 8.5f,
+                    float labelY = cy + rad + std::clamp(rad * 0.34f, 9.0f, 24.0f);
+                    float labelH = std::clamp(rad * 0.38f, 12.0f, 22.0f);
+                    float labelFontSize = std::clamp(rad * 0.28f, 8.5f, 17.0f);
+                    drawCenteredText(r, w.label, w.bounds.x, labelY, w.bounds.w, labelH, labelFontSize,
                                      isLightChassis ? 0.14f : 0.90f,
                                      isLightChassis ? 0.16f : 0.92f,
                                      isLightChassis ? 0.18f : 0.96f, 1.0f);
 
                 } else if (w.knobStyle == GuiKnobStyle::Tb303Potentiometer) {
+                    float maxRadW = (w.bounds.w * 0.5f) - 6.0f;
+                    float maxRadH = (w.bounds.h * 0.40f) - 10.0f;
+                    float rad = std::clamp(std::min(maxRadW, maxRadH) * 0.75f, 14.0f, 68.0f);
+                    float offX = -0.25f * rad;
+                    float offY = -0.30f * rad;
+
+                    float tickIn = rad + std::clamp(rad * 0.12f, 3.0f, 8.0f);
+                    float tickOut = rad + std::clamp(rad * 0.28f, 6.5f, 18.0f);
+                    float tickWidth = std::clamp(rad * 0.05f, 1.2f, 2.8f);
+
                     // Authentic 3D Roland TB-303 Silver Potentiometer with radial tick marks
                     for (int t = 0; t <= 6; ++t) {
                         float tAng = minA + (static_cast<float>(t) / 6.0f) * (maxA - minA);
-                        float tX1 = cx + std::sin(tAng) * (rad + 3.0f);
-                        float tY1 = cy - std::cos(tAng) * (rad + 3.0f);
-                        float tX2 = cx + std::sin(tAng) * (rad + 6.5f);
-                        float tY2 = cy - std::cos(tAng) * (rad + 6.5f);
+                        float tX1 = cx + std::sin(tAng) * tickIn;
+                        float tY1 = cy - std::cos(tAng) * tickIn;
+                        float tX2 = cx + std::sin(tAng) * tickOut;
+                        float tY2 = cy - std::cos(tAng) * tickOut;
                         drawLine(r, tX1, tY1, tX2, tY2,
                                  isLightChassis ? 0.18f : 0.70f,
                                  isLightChassis ? 0.20f : 0.72f,
-                                 isLightChassis ? 0.24f : 0.76f, 0.9f, 1.5f);
+                                 isLightChassis ? 0.24f : 0.76f, 0.9f, tickWidth);
                     }
 
                     // Beveled metal skirt ring
-                    drawCircle(r, cx, cy, rad + 2.5f, 0.55f, 0.57f, 0.62f, 1.0f);
-                    drawCircleOutline(r, cx, cy, rad + 2.5f, 0.38f, 0.40f, 0.45f, 0.8f, 1.0f);
+                    float skirtExtra = std::clamp(rad * 0.10f, 2.2f, 6.0f);
+                    drawCircle(r, cx, cy, rad + skirtExtra, 0.55f, 0.57f, 0.62f, 1.0f);
+                    drawCircleOutline(r, cx, cy, rad + skirtExtra, 0.38f, 0.40f, 0.45f, 0.8f, 1.0f);
 
                     // 3D brushed specular gradient cap
                     drawCircleRadial3StopGradient(r, cx, cy, rad,
@@ -215,40 +238,54 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     drawCircleOutline(r, cx, cy, rad, 0.40f, 0.42f, 0.48f, 0.8f, 1.0f);
 
                     // Black etched pointer line
+                    float ptrWidth = std::clamp(rad * 0.08f, 2.0f, 4.5f);
                     float nx = cx + std::sin(curA) * (rad - 1.5f);
                     float ny = cy - std::cos(curA) * (rad - 1.5f);
-                    drawLine(r, cx, cy, nx, ny, 0.12f, 0.13f, 0.16f, 1.0f, 2.2f);
-                    drawCircle(r, cx, cy, 2.8f, 0.24f, 0.26f, 0.30f, 1.0f);
+                    drawLine(r, cx, cy, nx, ny, 0.12f, 0.13f, 0.16f, 1.0f, ptrWidth);
+                    float rivetR = std::clamp(rad * 0.11f, 2.5f, 6.5f);
+                    drawCircle(r, cx, cy, rivetR, 0.24f, 0.26f, 0.30f, 1.0f);
 
                     // Clean dark uppercase label below
-                    drawCenteredText(r, w.label, w.bounds.x, cy + rad + 8.0f, w.bounds.w, 12.0f, 8.5f,
+                    float labelY = cy + rad + std::clamp(rad * 0.32f, 8.0f, 22.0f);
+                    float labelH = std::clamp(rad * 0.38f, 12.0f, 22.0f);
+                    float labelFontSize = std::clamp(rad * 0.28f, 8.5f, 17.0f);
+                    drawCenteredText(r, w.label, w.bounds.x, labelY, w.bounds.w, labelH, labelFontSize,
                                      isLightChassis ? 0.14f : 0.90f,
                                      isLightChassis ? 0.16f : 0.92f,
                                      isLightChassis ? 0.18f : 0.96f, 1.0f);
 
                 } else if (w.knobStyle == GuiKnobStyle::MiniPotCream) {
+                    float maxRadW = (w.bounds.w * 0.5f) - 8.0f;
+                    float maxRadH = (w.bounds.h * 0.38f) - 10.0f;
+                    float rad = std::clamp(std::min(maxRadW, maxRadH) * 0.54f, 10.0f, 46.0f);
+                    float offX = -0.25f * rad;
+                    float offY = -0.30f * rad;
+
                     // Vintage cream mini potentiometer with low, mid, high ticks
-                    float tLowAng = minA;
-                    float tMidAng = 0.0f;
-                    float tHighAng = maxA;
+                    float tickIn = rad + std::clamp(rad * 0.12f, 2.0f, 6.0f);
+                    float tickOut = rad + std::clamp(rad * 0.30f, 5.0f, 14.0f);
+                    float txtR = rad + std::clamp(rad * 0.58f, 9.5f, 24.0f);
+                    float txtSize = std::clamp(rad * 0.34f, 6.5f, 13.5f);
+                    float txtBoxW = txtSize * 3.0f;
+                    float txtBoxH = txtSize * 1.4f;
 
                     auto drawMiniTick = [&](float ang, const char* txt) {
-                        float tx1 = cx + std::sin(ang) * (rad + 2.0f);
-                        float ty1 = cy - std::cos(ang) * (rad + 2.0f);
-                        float tx2 = cx + std::sin(ang) * (rad + 5.0f);
-                        float ty2 = cy - std::cos(ang) * (rad + 5.0f);
+                        float tx1 = cx + std::sin(ang) * tickIn;
+                        float ty1 = cy - std::cos(ang) * tickIn;
+                        float tx2 = cx + std::sin(ang) * tickOut;
+                        float ty2 = cy - std::cos(ang) * tickOut;
                         drawLine(r, tx1, ty1, tx2, ty2, 0.46f, 0.42f, 0.36f, 0.8f, 1.0f);
-                        float txtR = rad + 9.5f;
                         float lx = cx + std::sin(ang) * txtR;
                         float ly = cy - std::cos(ang) * txtR;
-                        drawCenteredText(r, txt, lx - 10.0f, ly - 4.0f, 20.0f, 8.0f, 6.5f, 0.50f, 0.46f, 0.40f, 0.9f);
+                        drawCenteredText(r, txt, lx - txtBoxW * 0.5f, ly - txtBoxH * 0.5f, txtBoxW, txtBoxH, txtSize, 0.50f, 0.46f, 0.40f, 0.9f);
                     };
-                    drawMiniTick(tLowAng, "low");
-                    drawMiniTick(tMidAng, "mid");
-                    drawMiniTick(tHighAng, "high");
+                    drawMiniTick(minA, "low");
+                    drawMiniTick(0.0f, "mid");
+                    drawMiniTick(maxA, "high");
 
                     // Cream cap
-                    drawCircle(r, cx, cy, rad + 1.5f, 0.42f, 0.38f, 0.32f, 0.7f);
+                    float skirtExtra = std::clamp(rad * 0.10f, 1.5f, 4.0f);
+                    drawCircle(r, cx, cy, rad + skirtExtra, 0.42f, 0.38f, 0.32f, 0.7f);
                     drawCircleRadial3StopGradient(r, cx, cy, rad,
                                                   Color(0.96f, 0.95f, 0.88f, 1.0f),
                                                   Color(0.86f, 0.83f, 0.74f, 1.0f),
@@ -257,16 +294,26 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     drawCircleOutline(r, cx, cy, rad, 0.48f, 0.44f, 0.38f, 0.8f, 1.0f);
 
                     // Pointer line
+                    float ptrWidth = std::clamp(rad * 0.08f, 1.6f, 3.8f);
                     float nx = cx + std::sin(curA) * (rad - 1.5f);
                     float ny = cy - std::cos(curA) * (rad - 1.5f);
-                    drawLine(r, cx, cy, nx, ny, 0.16f, 0.14f, 0.12f, 1.0f, 1.8f);
-                    drawCircle(r, cx, cy, 2.0f, 0.35f, 0.32f, 0.28f, 1.0f);
+                    drawLine(r, cx, cy, nx, ny, 0.16f, 0.14f, 0.12f, 1.0f, ptrWidth);
+                    drawCircle(r, cx, cy, std::clamp(rad * 0.12f, 1.8f, 4.5f), 0.35f, 0.32f, 0.28f, 1.0f);
 
                     // Label below in warm bronze/khaki
-                    drawCenteredText(r, w.label, w.bounds.x, cy + rad + 8.0f, w.bounds.w, 12.0f, 8.0f,
+                    float labelY = cy + rad + std::clamp(rad * 0.32f, 8.0f, 22.0f);
+                    float labelH = std::clamp(rad * 0.38f, 12.0f, 22.0f);
+                    float labelFontSize = std::clamp(rad * 0.30f, 8.0f, 16.0f);
+                    drawCenteredText(r, w.label, w.bounds.x, labelY, w.bounds.w, labelH, labelFontSize,
                                      0.46f, 0.42f, 0.36f, 1.0f);
 
                 } else {
+                    float maxRadW = (w.bounds.w * 0.5f) - 8.0f;
+                    float maxRadH = (w.bounds.h * 0.38f) - 10.0f;
+                    float rad = std::clamp(std::min(maxRadW, maxRadH) * 0.70f, 13.0f, 64.0f);
+                    float offX = -0.25f * rad;
+                    float offY = -0.30f * rad;
+
                     // Standard / CreamFluted / BakeliteSkirt / etc.
                     if (w.knobStyle == GuiKnobStyle::CreamFluted) {
                         drawCircle(r, cx, cy, rad + 3.0f, 0.25f, 0.22f, 0.18f, 0.6f);
@@ -324,21 +371,27 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     }
 
                     // Arc indicator around knob
-                    r.drawArc(cx, cy, rad + 3.0f, minA, maxA, 0.22f, 0.24f, 0.30f, 0.6f, 2.0f);
+                    float arcR = rad + std::clamp(rad * 0.12f, 3.0f, 7.0f);
+                    float arcW = std::clamp(rad * 0.08f, 2.0f, 4.0f);
+                    r.drawArc(cx, cy, arcR, minA, maxA, 0.22f, 0.24f, 0.30f, 0.6f, arcW);
                     if (norm > 0.01f) {
                         Color needleCol = isDragging ? theme.highlight : w.accentColor;
-                        r.drawArc(cx, cy, rad + 3.0f, minA, curA, needleCol.r, needleCol.g, needleCol.b, 0.95f, 2.5f);
+                        r.drawArc(cx, cy, arcR, minA, curA, needleCol.r, needleCol.g, needleCol.b, 0.95f, arcW + 0.8f);
                     }
 
                     // Needle pointer
                     float nx = cx + std::sin(curA) * (rad - 3.0f);
                     float ny = cy - std::cos(curA) * (rad - 3.0f);
                     Color needleCol = isDragging ? theme.highlight : w.accentColor;
-                    drawLine(r, cx, cy, nx, ny, needleCol.r, needleCol.g, needleCol.b, 1.0f, 2.5f);
-                    drawCircle(r, cx, cy, 3.5f, 0.20f, 0.22f, 0.25f, 1.0f);
+                    float ptrW = std::clamp(rad * 0.08f, 2.2f, 4.5f);
+                    drawLine(r, cx, cy, nx, ny, needleCol.r, needleCol.g, needleCol.b, 1.0f, ptrW);
+                    drawCircle(r, cx, cy, std::clamp(rad * 0.12f, 3.0f, 6.0f), 0.20f, 0.22f, 0.25f, 1.0f);
 
                     // Label and readout badge
-                    drawCenteredText(r, w.label, w.bounds.x, cy + rad + 6.0f, w.bounds.w, 14.0f, 9.0f,
+                    float labelY = cy + rad + std::clamp(rad * 0.32f, 7.0f, 20.0f);
+                    float labelH = std::clamp(rad * 0.36f, 12.0f, 22.0f);
+                    float labelFontSize = std::clamp(rad * 0.28f, 8.5f, 17.0f);
+                    drawCenteredText(r, w.label, w.bounds.x, labelY, w.bounds.w, labelH, labelFontSize,
                                      isDragging ? theme.highlight.r : (isLightChassis ? 0.14f : 0.9f),
                                      isDragging ? theme.highlight.g : (isLightChassis ? 0.16f : 0.92f),
                                      isDragging ? theme.highlight.b : (isLightChassis ? 0.18f : 0.96f), 1.0f);
@@ -350,33 +403,36 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                             int pct = static_cast<int>(std::round(norm * 100.0f));
                             ss << pct << "%";
                         }
-                        float badgeW = std::clamp(static_cast<float>(ss.str().size()) * 7.5f + 16.0f, 48.0f, 74.0f);
-                        float badgeH = 16.0f;
+                        float badgeFontSize = std::clamp(rad * 0.24f, 8.0f, 15.0f);
+                        float badgeW = std::clamp(static_cast<float>(ss.str().size()) * (badgeFontSize * 0.85f) + 16.0f, rad * 1.6f, rad * 2.8f);
+                        float badgeH = std::clamp(rad * 0.38f, 15.0f, 26.0f);
                         float badgeX = cx - (badgeW * 0.5f);
-                        float badgeY = cy + rad + 22.0f;
+                        float badgeY = labelY + labelH + 2.0f;
                         drawRoundedRect(r, badgeX, badgeY, badgeW, badgeH, 3.0f, 0.07f, 0.08f, 0.10f, 0.85f);
                         drawRoundedRectOutline(r, badgeX, badgeY, badgeW, badgeH, 3.0f, 0.22f, 0.25f, 0.32f, 0.6f, 1.0f);
-                        drawCenteredText(r, ss.str(), badgeX, badgeY + 1.0f, badgeW, badgeH, 8.0f,
+                        drawCenteredText(r, ss.str(), badgeX, badgeY + 1.0f, badgeW, badgeH, badgeFontSize,
                                          isDragging ? theme.highlight.r : w.accentColor.r,
                                          isDragging ? theme.highlight.g : w.accentColor.g,
                                          isDragging ? theme.highlight.b : w.accentColor.b, 1.0f);
                     }
                 }
-
             } else if (w.type == GuiWidgetType::Slider) {
-                float trkW = w.bounds.w - 24.0f;
-                float trkH = 6.0f;
+                float trkW = w.bounds.w - std::clamp(w.bounds.w * 0.15f, 16.0f, 48.0f);
+                float trkH = std::clamp(w.bounds.h * 0.08f, 6.0f, 14.0f);
                 float trkX = cx - (trkW * 0.5f);
                 float trkY = cy;
 
                 drawRoundedRect(r, trkX, trkY, trkW, trkH, 3.0f, 0.06f, 0.07f, 0.09f, 1.0f);
                 drawRoundedRect(r, trkX, trkY, trkW * norm, trkH, 3.0f, w.accentColor.r * 0.8f, w.accentColor.g * 0.8f, w.accentColor.b * 0.8f, 1.0f);
 
+                float thumbW = std::clamp(w.bounds.w * 0.08f, 14.0f, 26.0f);
+                float thumbH = std::clamp(w.bounds.h * 0.25f, 20.0f, 44.0f);
                 float thumbX = trkX + (trkW * norm);
-                drawRoundedRect(r, thumbX - 8.0f, trkY - 8.0f, 16.0f, 22.0f, 3.0f, 0.85f, 0.88f, 0.95f, 1.0f);
-                drawLine(r, thumbX, trkY - 6.0f, thumbX, trkY + 12.0f, 0.2f, 0.2f, 0.2f, 1.0f, 1.5f);
+                drawRoundedRect(r, thumbX - thumbW * 0.5f, trkY - thumbH * 0.35f, thumbW, thumbH, 3.0f, 0.85f, 0.88f, 0.95f, 1.0f);
+                drawLine(r, thumbX, trkY - thumbH * 0.25f, thumbX, trkY + thumbH * 0.5f, 0.2f, 0.2f, 0.2f, 1.0f, 1.5f);
 
-                drawCenteredText(r, w.label, w.bounds.x, trkY + 18.0f, w.bounds.w, 14.0f, 8.5f,
+                float labelFontSize = std::clamp(w.bounds.h * 0.12f, 8.5f, 16.0f);
+                drawCenteredText(r, w.label, w.bounds.x, trkY + thumbH * 0.6f, w.bounds.w, 14.0f, labelFontSize,
                                  isLightChassis ? 0.14f : 0.9f,
                                  isLightChassis ? 0.16f : 0.92f,
                                  isLightChassis ? 0.18f : 0.96f, 1.0f);
@@ -384,51 +440,71 @@ void drawGuiFaceplate(BatchRenderer2D& r,
             } else if (w.type == GuiWidgetType::ToggleSwitch) {
                 // Authentic metal bat toggle switch with golden collar on dark pill bezel
                 bool isOn = (w.currentVal > 0.5f);
-                float pillW = 20.0f;
-                float pillH = 34.0f;
+                float maxW = (w.bounds.w * 0.5f) - 4.0f;
+                float maxH = (w.bounds.h * 0.44f);
+                float pillW = std::clamp(std::min(maxW, maxH * 0.55f), 18.0f, 50.0f);
+                float pillH = pillW * 1.70f;
                 float pillX = cx - (pillW * 0.5f);
                 float pillY = cy - (pillH * 0.5f) + 2.0f;
+                float pillCorner = pillW * 0.45f;
 
                 // Dark recessed pill plate
-                drawRoundedRect(r, pillX, pillY, pillW, pillH, 9.0f, 0.12f, 0.11f, 0.10f, 1.0f);
-                drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 9.0f, 0.32f, 0.28f, 0.22f, 0.9f, 1.0f);
+                drawRoundedRect(r, pillX, pillY, pillW, pillH, pillCorner, 0.12f, 0.11f, 0.10f, 1.0f);
+                drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, pillCorner, 0.32f, 0.28f, 0.22f, 0.9f, 1.0f);
 
                 // Golden/brass collar ring
-                drawCircle(r, cx, cy + 2.0f, 5.5f, 0.72f, 0.55f, 0.20f, 1.0f);
-                drawCircle(r, cx, cy + 2.0f, 3.8f, 0.15f, 0.13f, 0.10f, 1.0f);
+                float collarR = pillW * 0.28f;
+                float collarInR = pillW * 0.18f;
+                drawCircle(r, cx, cy + 2.0f, collarR, 0.72f, 0.55f, 0.20f, 1.0f);
+                drawCircle(r, cx, cy + 2.0f, collarInR, 0.15f, 0.13f, 0.10f, 1.0f);
 
                 // Silver metal bat lever
-                float tipY = isOn ? (cy - 9.0f) : (cy + 13.0f);
-                drawLine(r, cx, cy + 2.0f, cx, tipY, 0.78f, 0.80f, 0.85f, 1.0f, 3.2f);
+                float tipOffset = pillH * 0.32f;
+                float tipY = isOn ? (cy + 2.0f - tipOffset) : (cy + 2.0f + tipOffset);
+                float leverWidth = std::clamp(pillW * 0.16f, 3.0f, 7.5f);
+                drawLine(r, cx, cy + 2.0f, cx, tipY, 0.78f, 0.80f, 0.85f, 1.0f, leverWidth);
                 // Gold/brass ball tip
-                drawCircle(r, cx, tipY, 4.0f, 0.88f, 0.70f, 0.25f, 1.0f);
-                drawCircleOutline(r, cx, tipY, 4.0f, 0.40f, 0.30f, 0.10f, 0.8f, 1.0f);
+                float ballR = std::clamp(pillW * 0.20f, 3.8f, 10.0f);
+                drawCircle(r, cx, tipY, ballR, 0.88f, 0.70f, 0.25f, 1.0f);
+                drawCircleOutline(r, cx, tipY, ballR, 0.40f, 0.30f, 0.10f, 0.8f, 1.0f);
 
                 // Label ABOVE switch (matching Eatsbeats original layout)
-                drawCenteredText(r, w.label, w.bounds.x, pillY - 14.0f, w.bounds.w, 12.0f, 7.5f,
+                float labelY = pillY - std::clamp(pillH * 0.32f, 14.0f, 28.0f);
+                float labelH = std::clamp(pillH * 0.28f, 12.0f, 22.0f);
+                float labelFontSize = std::clamp(pillW * 0.38f, 7.5f, 16.0f);
+                drawCenteredText(r, w.label, w.bounds.x, labelY, w.bounds.w, labelH, labelFontSize,
                                  isLightChassis ? 0.20f : 0.85f,
                                  isLightChassis ? 0.22f : 0.88f,
                                  isLightChassis ? 0.26f : 0.92f, 1.0f);
 
             } else if (w.type == GuiWidgetType::NixieDisplay) {
-                drawRoundedRect(r, cx - 36.0f, cy - 16.0f, 72.0f, 32.0f, 4.0f, 0.04f, 0.02f, 0.01f, 1.0f);
-                drawRoundedRectOutline(r, cx - 36.0f, cy - 16.0f, 72.0f, 32.0f, 4.0f, 1.0f, 0.45f, 0.0f, 0.8f, 1.2f);
+                float nixW = std::clamp(w.bounds.w * 0.65f, 60.0f, 160.0f);
+                float nixH = std::clamp(w.bounds.h * 0.35f, 28.0f, 70.0f);
+                drawRoundedRect(r, cx - nixW * 0.5f, cy - nixH * 0.5f, nixW, nixH, 4.0f, 0.04f, 0.02f, 0.01f, 1.0f);
+                drawRoundedRectOutline(r, cx - nixW * 0.5f, cy - nixH * 0.5f, nixW, nixH, 4.0f, 1.0f, 0.45f, 0.0f, 0.8f, 1.2f);
                 std::ostringstream ss;
                 ss << std::fixed << std::setprecision(1) << w.currentVal;
-                drawCenteredText(r, ss.str(), cx - 36.0f, cy - 10.0f, 72.0f, 20.0f, 12.0f, 1.0f, 0.55f, 0.1f, 1.0f);
-                drawCenteredText(r, w.label, w.bounds.x, cy + 20.0f, w.bounds.w, 14.0f, 8.5f,
+                float nixFontSize = std::clamp(nixH * 0.40f, 11.0f, 26.0f);
+                drawCenteredText(r, ss.str(), cx - nixW * 0.5f, cy - nixH * 0.35f, nixW, nixH * 0.7f, nixFontSize, 1.0f, 0.55f, 0.1f, 1.0f);
+                float labelFontSize = std::clamp(nixH * 0.28f, 8.5f, 16.0f);
+                drawCenteredText(r, w.label, w.bounds.x, cy + nixH * 0.55f, w.bounds.w, 14.0f, labelFontSize,
                                  isLightChassis ? 0.14f : 0.9f,
                                  isLightChassis ? 0.16f : 0.92f,
                                  isLightChassis ? 0.18f : 0.96f, 1.0f);
 
             } else if (w.type == GuiWidgetType::VuMeter) {
-                drawRoundedRect(r, cx - 30.0f, cy - 14.0f, 60.0f, 28.0f, 3.0f, 0.06f, 0.07f, 0.09f, 1.0f);
+                float vuW = std::clamp(w.bounds.w * 0.60f, 55.0f, 150.0f);
+                float vuH = std::clamp(w.bounds.h * 0.32f, 24.0f, 60.0f);
+                drawRoundedRect(r, cx - vuW * 0.5f, cy - vuH * 0.5f, vuW, vuH, 3.0f, 0.06f, 0.07f, 0.09f, 1.0f);
+                float segW = (vuW - 12.0f) / 8.0f;
+                float segH = vuH * 0.55f;
                 for (int seg = 0; seg < 8; ++seg) {
-                    float sx = cx - 25.0f + (seg * 6.5f);
+                    float sx = cx - vuW * 0.5f + 6.0f + (seg * segW);
                     Color segCol = (seg < 5) ? Color{0.0f, 0.95f, 0.45f} : ((seg < 7) ? Color{1.0f, 0.85f, 0.0f} : Color{1.0f, 0.2f, 0.2f});
-                    drawRect(r, sx, cy - 8.0f, 5.0f, 16.0f, segCol.r, segCol.g, segCol.b, (seg <= 5) ? 1.0f : 0.2f);
+                    drawRect(r, sx, cy - segH * 0.5f, segW - 1.5f, segH, segCol.r, segCol.g, segCol.b, (seg <= 5) ? 1.0f : 0.2f);
                 }
-                drawCenteredText(r, w.label, w.bounds.x, cy + 18.0f, w.bounds.w, 14.0f, 8.5f,
+                float labelFontSize = std::clamp(vuH * 0.30f, 8.5f, 16.0f);
+                drawCenteredText(r, w.label, w.bounds.x, cy + vuH * 0.55f, w.bounds.w, 14.0f, labelFontSize,
                                  isLightChassis ? 0.14f : 0.9f,
                                  isLightChassis ? 0.16f : 0.92f,
                                  isLightChassis ? 0.18f : 0.96f, 1.0f);
@@ -448,10 +524,10 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     float prevY = midY - scopeBuffer[0] * (sh * 0.4f);
                     for (int i = 1; i < kPts; ++i) {
                         size_t sIdx = (static_cast<size_t>(i) * scopeBufferCount) / static_cast<size_t>(kPts);
-                        float curX = sx + 4.0f + (static_cast<float>(i) / static_cast<float>(kPts - 1)) * (sw - 8.0f);
+                        float ptX = sx + 4.0f + (static_cast<float>(i) / static_cast<float>(kPts - 1)) * (sw - 8.0f);
                         float curYPoint = midY - scopeBuffer[sIdx] * (sh * 0.4f);
-                        drawLine(r, prevX, prevY, curX, curYPoint, 0.20f, 1.0f, 0.45f, 0.95f, 1.6f);
-                        prevX = curX;
+                        drawLine(r, prevX, prevY, ptX, curYPoint, 0.20f, 1.0f, 0.45f, 0.95f, 1.6f);
+                        prevX = ptX;
                         prevY = curYPoint;
                     }
                 }
