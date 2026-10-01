@@ -67,6 +67,9 @@ MixerView::MixerView() {
                 ch.knob4 = normVal;
             }
         }
+        if (onParamChanged) {
+            onParamChanged(trackIdx, paramName, normVal);
+        }
     };
     propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {
         if (onChooseTrackIcon) {

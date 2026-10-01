@@ -152,6 +152,7 @@ public:
     std::function<void(uint32_t channelIdx)> onChooseTrackIcon;
     std::function<void(uint32_t channelIdx)> onAudioFxChanged;
     std::function<void(uint32_t channelIdx)> onMidiFxChanged;
+    std::function<void(uint32_t channelIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t channelIdx, size_t fxIdx, bool enabled)> onToggleAudioFx;
     std::function<void(uint32_t channelIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;
     std::function<void(uint32_t channelIdx)> onOpenFullscreenDevice;

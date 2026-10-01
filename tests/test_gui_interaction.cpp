@@ -3392,6 +3392,43 @@ void testFullscreenDeviceModal() {
     window.onMouseDown(0, closeX, closeY);
     REQUIRE(!window.isFullscreenDeviceOpen());
 
+    // 9. Test ValueEditDialog interaction in Fullscreen Device Modal
+    window.openFullscreenDevice(0);
+    REQUIRE(window.isFullscreenDeviceOpen());
+    float kx = knob1X;
+    float ky = knob1Y;
+    const auto& gui = window.getFullscreenDeviceModal().getGuiPanel();
+    if (!gui.rows.empty() && !gui.rows[0].widgets.empty()) {
+        const auto& w = gui.rows[0].widgets[0];
+        kx = w.bounds.x + w.bounds.w * 0.5f;
+        ky = w.bounds.y + w.bounds.h * 0.44f;
+    }
+    // Right click on first knob to open ValueEditDialog
+    window.onMouseDown(1, kx, ky);
+    REQUIRE(window.getValueEditDialog().isOpen());
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Clicking ValueEditDialog's [x] close button closes the dialog but keeps Fullscreen Device open
+    const auto& clBtn = window.getValueEditDialog().getCloseButtonBounds();
+    float dialogCloseX = clBtn.x + clBtn.w * 0.5f;
+    float dialogCloseY = clBtn.y + clBtn.h * 0.5f;
+    window.onMouseDown(0, dialogCloseX, dialogCloseY);
+    REQUIRE(!window.getValueEditDialog().isOpen());
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Right-click to open ValueEditDialog again
+    window.onMouseDown(1, kx, ky);
+    REQUIRE(window.getValueEditDialog().isOpen());
+
+    // Pressing ESC closes the ValueEditDialog, keeping Fullscreen Device open
+    window.onKeyDown(256, 0); // Escape
+    REQUIRE(!window.getValueEditDialog().isOpen());
+    REQUIRE(window.isFullscreenDeviceOpen());
+
+    // Pressing ESC again when dialog is closed exits Fullscreen Device mode
+    window.onKeyDown(256, 0); // Escape
+    REQUIRE(!window.isFullscreenDeviceOpen());
+
     std::cout << "  [PASS] Fullscreen Device Modal tests passed." << std::endl;
 }
 

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <chrono>
 
 namespace eatsbits::ui {
 
@@ -553,6 +554,8 @@ private:
                            float cx, float cy, float cw, float mouseX, float mouseY);
     void renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme);
     bool executeHitAction(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data, const ViewContext& ctx);
+    bool openValueEditForHit(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data,
+                             const std::function<void(const ValueEditRequest&)>& onOpenValueEdit);
     void update(float dt) noexcept;
 
     enum class DragMode {
@@ -575,6 +578,14 @@ private:
     bool touchDragCommitted_{false};
     double touchStartTimeMs_{0.0};
     TrackPropertiesHitResult pendingHitResult_;
+
+    // Mobile Long-Press / Touch State
+    bool isLongPressActive_{false};
+    float longPressTimer_{0.0f};
+    std::chrono::steady_clock::time_point touchDownTimePoint_{};
+    Point2D longPressPos_{0.0f, 0.0f};
+    TrackPropertiesHitResult longPressHit_{};
+    std::function<void(const ValueEditRequest& req)> longPressOpenValueEdit_;
 
     bool showTrackRibbon_{false};
     Rect2D bounds_{0.0f, 0.0f, 0.0f, 0.0f};

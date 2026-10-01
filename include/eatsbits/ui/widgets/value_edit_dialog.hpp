@@ -70,6 +70,7 @@ public:
     void resetToDefault();
     void submit();
     [[nodiscard]] const Rect2D& getDialogBounds() const noexcept { return dialogBounds_; }
+    [[nodiscard]] const Rect2D& getCloseButtonBounds() const noexcept { return closeBtnBounds_; }
 
     // Text Selection & Cursor inspection / control
     [[nodiscard]] bool hasSelection() const noexcept { return textModel_.hasSelection(); }

@@ -323,6 +323,18 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
     if (scroller_.isGliding()) {
         update(1.0f / 60.0f);
     }
+    if (isLongPressActive_) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
+        if (elapsedMs >= 450) {
+            isLongPressActive_ = false;
+            dragMode_ = DragMode::None;
+            activeKnobIndex_ = -1;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
+            openValueEditForHit(longPressHit_, data, longPressOpenValueEdit_);
+        }
+    }
     data.syncKnobsIfEmpty();
 
     float padding = (bounds_.w >= 560.0f) ? 14.0f : 8.0f;
@@ -1955,6 +1967,377 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
     return false;
 }
 
+bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data,
+                                               const std::function<void(const ValueEditRequest&)>& onOpenValueEdit) {
+    if (!onOpenValueEdit || !hit.hit) return false;
+
+    if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
+        ValueEditRequest req;
+        req.title = data.trackName + " VOLUME";
+        req.paramName = "Volume";
+        req.currentValue = data.volume;
+        req.minValue = 0.0f;
+        req.maxValue = 1.5f;
+        req.defaultValue = 0.8f;
+        req.hasDefault = true;
+        req.allowPercentage = true;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [this, &data](float val) {
+            data.volume = val;
+            if (onVolumeChanged) onVolumeChanged(data.trackIndex, val);
+        };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::PanKnob) {
+        ValueEditRequest req;
+        req.title = data.trackName + " PAN";
+        req.paramName = "Pan";
+        req.currentValue = data.pan;
+        req.minValue = -1.0f;
+        req.maxValue = 1.0f;
+        req.defaultValue = 0.0f;
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [this, &data](float val) {
+            data.pan = val;
+            if (onPanChanged) onPanChanged(data.trackIndex, val);
+        };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::InstrumentKnob) {
+        int rIdx = hit.index / 100;
+        int wIdx = hit.index % 100;
+        std::string pName = "Param";
+        std::string lName = "Param";
+        float cVal = 0.5f;
+        if (rIdx < static_cast<int>(guiPanel_.rows.size()) &&
+            wIdx < static_cast<int>(guiPanel_.rows[rIdx].widgets.size())) {
+            const auto& w = guiPanel_.rows[rIdx].widgets[wIdx];
+            if (w.type == GuiWidgetType::Divider) return false;
+            pName = w.param.empty() ? w.label : w.param;
+            lName = w.label.empty() ? pName : w.label;
+            cVal = w.currentVal;
+        } else if (hit.index < static_cast<int>(data.knobs.size())) {
+            pName = data.knobs[hit.index].name;
+            lName = data.knobs[hit.index].label.empty() ? pName : data.knobs[hit.index].label;
+            cVal = data.knobs[hit.index].value;
+        }
+        ValueEditRequest req;
+        req.title = data.trackName + " • " + lName;
+        req.paramName = lName;
+        req.currentValue = cVal;
+        req.minValue = 0.0f;
+        req.maxValue = 1.0f;
+        req.defaultValue = 0.5f;
+        req.hasDefault = true;
+        req.allowPercentage = true;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [this, &data, pName, rIdx, wIdx](float val) {
+            if (rIdx < static_cast<int>(guiPanel_.rows.size()) &&
+                wIdx < static_cast<int>(guiPanel_.rows[rIdx].widgets.size())) {
+                guiPanel_.rows[rIdx].widgets[wIdx].currentVal = val;
+            }
+            for (auto& k : data.knobs) {
+                if (_stricmp(k.name.c_str(), pName.c_str()) == 0) {
+                    k.value = val;
+                    k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
+                    break;
+                }
+            }
+            if (onParamChanged) {
+                onParamChanged(data.trackIndex, pName, val);
+            }
+        };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::AudioFxKnob) {
+        size_t fxIdx = static_cast<size_t>(hit.index / 10);
+        size_t kIdx = static_cast<size_t>(hit.index % 10);
+        if (fxIdx < data.audioFx.size() && kIdx < data.audioFx[fxIdx].knobs.size()) {
+            auto& fx = data.audioFx[fxIdx];
+            auto& k = fx.knobs[kIdx];
+            ValueEditRequest req;
+            req.title = fx.name + " • " + (k.label.empty() ? k.name : k.label);
+            req.paramName = k.name;
+            req.currentValue = k.value;
+            req.minValue = 0.0f;
+            req.maxValue = 1.0f;
+            req.defaultValue = 0.5f;
+            req.hasDefault = true;
+            req.allowPercentage = true;
+            req.accentColor = Color(0.2f, 0.8f, 1.0f, 1.0f);
+            req.onCommit = [this, &data, fxIdx, kIdx, pName = k.name](float val) {
+                if (fxIdx < data.audioFx.size() && kIdx < data.audioFx[fxIdx].knobs.size()) {
+                    data.audioFx[fxIdx].knobs[kIdx].value = val;
+                    data.audioFx[fxIdx].knobs[kIdx].display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
+                    if (pName == "drive" || pName == "Drive" || pName == "time" || pName == "decay") {
+                        data.audioFx[fxIdx].drive = val;
+                    } else if (pName == "mix" || pName == "Mix" || pName == "gain") {
+                        data.audioFx[fxIdx].mix = val;
+                    }
+                }
+                if (onAudioFxParamChanged) {
+                    onAudioFxParamChanged(data.trackIndex, pName, val);
+                }
+            };
+            onOpenValueEdit(req);
+            return true;
+        }
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MidiFxKnob) {
+        size_t fxIdx = static_cast<size_t>(hit.index / 10);
+        size_t kIdx = static_cast<size_t>(hit.index % 10);
+        if (fxIdx < data.midiFx.size() && kIdx < data.midiFx[fxIdx].knobs.size()) {
+            auto& fx = data.midiFx[fxIdx];
+            auto& k = fx.knobs[kIdx];
+            ValueEditRequest req;
+            req.title = fx.name + " • " + (k.label.empty() ? k.name : k.label);
+            req.paramName = k.name;
+            req.currentValue = k.value;
+            req.minValue = 0.0f;
+            req.maxValue = 1.0f;
+            req.defaultValue = 0.5f;
+            req.hasDefault = true;
+            req.allowPercentage = true;
+            req.accentColor = Color(0.9f, 0.7f, 0.2f, 1.0f);
+            req.onCommit = [this, &data, fxIdx, kIdx, pName = k.name](float val) {
+                if (fxIdx < data.midiFx.size() && kIdx < data.midiFx[fxIdx].knobs.size()) {
+                    data.midiFx[fxIdx].knobs[kIdx].value = val;
+                    data.midiFx[fxIdx].knobs[kIdx].display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
+                }
+                if (onMidiFxParamChanged) {
+                    onMidiFxParamChanged(data.trackIndex, pName, val);
+                }
+            };
+            onOpenValueEdit(req);
+            return true;
+        }
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqHpf) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • HPF Cut";
+        req.paramName = "HPF Cut";
+        req.currentValue = data.eqHpf;
+        req.minValue = 20.0f;
+        req.maxValue = 500.0f;
+        req.defaultValue = 20.0f;
+        req.unit = "Hz";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqHpf = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqLowGain) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • Low Gain";
+        req.paramName = "Low Gain";
+        req.currentValue = data.eqLowGain;
+        req.minValue = -18.0f;
+        req.maxValue = 18.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqLowGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqHighGain) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • High Gain";
+        req.paramName = "High Gain";
+        req.currentValue = data.eqHighGain;
+        req.minValue = -18.0f;
+        req.maxValue = 18.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqHighGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqMidFreq) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • Mid Freq";
+        req.paramName = "Mid Freq";
+        req.currentValue = data.eqMidFreq;
+        req.minValue = 200.0f;
+        req.maxValue = 8000.0f;
+        req.defaultValue = 1000.0f;
+        req.unit = "Hz";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqMidFreq = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqMidGain) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • Mid Gain";
+        req.paramName = "Mid Gain";
+        req.currentValue = data.eqMidGain;
+        req.minValue = -18.0f;
+        req.maxValue = 18.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqMidGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqMidQ) {
+        ValueEditRequest req;
+        req.title = data.trackName + " • Mid Q";
+        req.paramName = "Mid Q";
+        req.currentValue = data.eqMidQ;
+        req.minValue = 0.3f;
+        req.maxValue = 10.0f;
+        req.defaultValue = 1.0f;
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
+        req.onCommit = [&data](float val) { data.eqMidQ = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterEqSubCut) {
+        ValueEditRequest req;
+        req.title = "MASTER SUB CUT";
+        req.paramName = "Sub Cut";
+        req.currentValue = data.masterSubCut;
+        req.minValue = 20.0f;
+        req.maxValue = 45.0f;
+        req.defaultValue = 25.0f;
+        req.unit = "Hz";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterSubCut = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterEqLow) {
+        ValueEditRequest req;
+        req.title = "MASTER LOW GAIN";
+        req.paramName = "Master Low Gain";
+        req.currentValue = data.masterLowGain;
+        req.minValue = -12.0f;
+        req.maxValue = 12.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterLowGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterEqMid) {
+        ValueEditRequest req;
+        req.title = "MASTER MID GAIN";
+        req.paramName = "Master Mid Gain";
+        req.currentValue = data.masterMidGain;
+        req.minValue = -12.0f;
+        req.maxValue = 12.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterMidGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterEqHigh) {
+        ValueEditRequest req;
+        req.title = "MASTER HIGH GAIN";
+        req.paramName = "Master High Gain";
+        req.currentValue = data.masterHighGain;
+        req.minValue = -12.0f;
+        req.maxValue = 12.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterHighGain = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterCeiling) {
+        ValueEditRequest req;
+        req.title = "MASTER LIMITER CEILING";
+        req.paramName = "Ceiling";
+        req.currentValue = data.masterCeilingDbfs;
+        req.minValue = -2.0f;
+        req.maxValue = 0.0f;
+        req.defaultValue = -0.3f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterCeilingDbfs = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterDrive) {
+        ValueEditRequest req;
+        req.title = "MASTER LIMITER DRIVE";
+        req.paramName = "Drive";
+        req.currentValue = data.masterLimiterDrive;
+        req.minValue = 0.0f;
+        req.maxValue = 12.0f;
+        req.defaultValue = 0.0f;
+        req.unit = "dB";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterLimiterDrive = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::MasterLufs) {
+        ValueEditRequest req;
+        req.title = "MASTER TARGET LUFS";
+        req.paramName = "Target LUFS";
+        req.currentValue = data.masterTargetLufs;
+        req.minValue = -24.0f;
+        req.maxValue = -6.0f;
+        req.defaultValue = -14.0f;
+        req.unit = "LUFS";
+        req.hasDefault = true;
+        req.allowPercentage = false;
+        req.onCommit = [&data](float val) { data.masterTargetLufs = val; };
+        onOpenValueEdit(req);
+        return true;
+    }
+
+    return false;
+}
+
 bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data,
                                          const ViewContext& ctx) {
     data.syncKnobsIfEmpty();
@@ -1987,28 +2370,44 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
         auto hit = hitTest(ev.x, ev.y, data);
         if (hit.hit) {
-            // Check continuous drag controls:
-            if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
-                if (ev.button == PointerButton::Right) {
-                    if (ctx.onOpenValueEdit) {
-                        ValueEditRequest req;
-                        req.title = data.trackName + " VOLUME";
-                        req.paramName = "Volume";
-                        req.currentValue = data.volume;
-                        req.minValue = 0.0f;
-                        req.maxValue = 1.5f;
-                        req.defaultValue = 0.8f;
-                        req.hasDefault = true;
-                        req.allowPercentage = true;
-                        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-                        req.onCommit = [this, &data](float val) {
-                            data.volume = val;
-                            if (onVolumeChanged) onVolumeChanged(data.trackIndex, val);
-                        };
-                        ctx.onOpenValueEdit(req);
-                    }
+            // Universal Right-Click on any knob or slider opens manual ValueEditDialog
+            if (ev.button == PointerButton::Right) {
+                if (openValueEditForHit(hit, data, ctx.onOpenValueEdit)) {
                     return true;
                 }
+            }
+
+            // Mobile / Touch Long-Press Detection (>= 0.45s hold triggers ValueEditDialog)
+            if (ev.type == PointerType::Touch || ctx.isMobile) {
+                if (hit.area == TrackPropertiesHitArea::VolumeSlider ||
+                    hit.area == TrackPropertiesHitArea::PanKnob ||
+                    hit.area == TrackPropertiesHitArea::InstrumentKnob ||
+                    hit.area == TrackPropertiesHitArea::AudioFxKnob ||
+                    hit.area == TrackPropertiesHitArea::MidiFxKnob ||
+                    hit.area == TrackPropertiesHitArea::EqHpf ||
+                    hit.area == TrackPropertiesHitArea::EqLowGain ||
+                    hit.area == TrackPropertiesHitArea::EqHighGain ||
+                    hit.area == TrackPropertiesHitArea::EqMidFreq ||
+                    hit.area == TrackPropertiesHitArea::EqMidGain ||
+                    hit.area == TrackPropertiesHitArea::EqMidQ ||
+                    hit.area == TrackPropertiesHitArea::MasterEqSubCut ||
+                    hit.area == TrackPropertiesHitArea::MasterEqLow ||
+                    hit.area == TrackPropertiesHitArea::MasterEqMid ||
+                    hit.area == TrackPropertiesHitArea::MasterEqHigh ||
+                    hit.area == TrackPropertiesHitArea::MasterCeiling ||
+                    hit.area == TrackPropertiesHitArea::MasterDrive ||
+                    hit.area == TrackPropertiesHitArea::MasterLufs) {
+                    isLongPressActive_ = true;
+                    longPressTimer_ = 0.0f;
+                    touchDownTimePoint_ = std::chrono::steady_clock::now();
+                    longPressPos_ = Point2D{ev.x, ev.y};
+                    longPressHit_ = hit;
+                    longPressOpenValueEdit_ = ctx.onOpenValueEdit;
+                }
+            }
+
+            // Check continuous drag controls:
+            if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
                 dragMode_ = DragMode::VolumeSlider;
                 data.volume = hit.normVal * 1.5f;
                 if (onVolumeChanged) onVolumeChanged(data.trackIndex, data.volume);
@@ -2016,26 +2415,6 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             }
 
             if (hit.area == TrackPropertiesHitArea::PanKnob) {
-                if (ev.button == PointerButton::Right) {
-                    if (ctx.onOpenValueEdit) {
-                        ValueEditRequest req;
-                        req.title = data.trackName + " PAN";
-                        req.paramName = "Pan";
-                        req.currentValue = data.pan;
-                        req.minValue = -1.0f;
-                        req.maxValue = 1.0f;
-                        req.defaultValue = 0.0f;
-                        req.hasDefault = true;
-                        req.allowPercentage = false;
-                        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-                        req.onCommit = [this, &data](float val) {
-                            data.pan = val;
-                            if (onPanChanged) onPanChanged(data.trackIndex, val);
-                        };
-                        ctx.onOpenValueEdit(req);
-                    }
-                    return true;
-                }
                 dragMode_ = DragMode::PanKnob;
                 dragStartY_ = ev.y;
                 dragStartVal_ = data.pan;
@@ -2142,6 +2521,12 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
     // Pointer Move
     if (ev.action == PointerAction::Move) {
+        if (isLongPressActive_) {
+            if (std::hypot(ev.x - longPressPos_.x, ev.y - longPressPos_.y) > 10.0f) {
+                isLongPressActive_ = false;
+            }
+        }
+
         if (dragMode_ == DragMode::TouchScroll) {
             float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
             scrollY_ = std::clamp(touchStartScrollY_ - (ev.y - touchStartY_), 0.0f, maxScroll);
@@ -2326,6 +2711,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
     // Pointer Up or Cancel
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        isLongPressActive_ = false;
         if (dragMode_ == DragMode::TouchScroll) {
             dragMode_ = DragMode::None;
             scroller_.endDrag(ev.timestampMs);

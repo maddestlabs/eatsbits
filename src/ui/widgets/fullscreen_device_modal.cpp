@@ -49,6 +49,7 @@ void FullscreenDeviceModal::open(const DeviceTarget& target) noexcept {
 void FullscreenDeviceModal::close() noexcept {
     isOpen_ = false;
     isDraggingKnob_ = false;
+    isLongPressActive_ = false;
     activeKnobIndex_ = -1;
     pluginDialog_.close();
     if (onClose) {
@@ -358,6 +359,9 @@ void FullscreenDeviceModal::setAudioScopeBuffer(const float* buffer, size_t coun
 void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     screenWidth_ = std::max(640.0f, screenW);
     screenHeight_ = std::max(480.0f, screenH);
+    if (screenW < 768.0f) {
+        isMobile_ = true;
+    }
 
     backdropBounds_ = Rect2D{0.0f, 0.0f, screenWidth_, screenHeight_};
 
@@ -394,18 +398,14 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
 
     syncGuiPanelFromTrackData();
 
-    // Allocate faceplate & oscilloscope responsively utilizing full available screen space:
-    float oscH = std::clamp(bodyH * 0.18f, 75.0f, 150.0f);
-    float gapY = 10.0f;
-    float fpH = bodyH - oscH - gapY;
+    // Allocate faceplate responsively utilizing full available screen space (oscilloscope removed):
+    float fpH = bodyH;
     float fpW = bodyW;
     float fpX = bodyBounds_.x;
     float fpY = bodyBounds_.y;
     Rect2D fpRect{fpX, fpY, fpW, fpH};
     guiPanel_.bounds = fpRect;
-
-    float oscY = fpY + fpH + gapY;
-    oscBounds_ = Rect2D{fpX, oscY, fpW, oscH};
+    oscBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Compute divider-aware widget bounds inside guiPanel_
     float fpHeaderH = (guiPanel_.hideHeader || guiPanel_.chassisStyle == GuiChassisStyle::MinimalWhite) ? 0.0f : 44.0f;
@@ -460,12 +460,40 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
 }
 
 void FullscreenDeviceModal::update(float dt) noexcept {
+    if (!isOpen_) return;
     pulsePhase_ += dt * 3.0f;
     if (pulsePhase_ > 6.2831853f) pulsePhase_ -= 6.2831853f;
+
+    if (isLongPressActive_) {
+        longPressTimer_ += dt;
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
+        if (longPressTimer_ >= 0.45f || elapsedMs >= 450) {
+            isLongPressActive_ = false;
+            isDraggingKnob_ = false;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
+            activeKnobIndex_ = -1;
+            openValueEditForWidget(longPressRow_, longPressWidget_);
+        }
+    }
 }
 
 void FullscreenDeviceModal::render(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
     if (!isOpen_) return;
+
+    if (isLongPressActive_) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
+        if (elapsedMs >= 450) {
+            isLongPressActive_ = false;
+            isDraggingKnob_ = false;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
+            activeKnobIndex_ = -1;
+            openValueEditForWidget(longPressRow_, longPressWidget_);
+        }
+    }
 
     // 1. Dark matte studio background (skipping all underlying DAW drawings!)
     Color bg1 = theme.backgroundDark.darken(0.12f);
@@ -562,9 +590,6 @@ void FullscreenDeviceModal::renderInstrumentFaceplate(BatchRenderer2D& r, const 
     // 1. Unified GUI Faceplate with authentic skeuomorphic hardware styling,
     // wood cheeks, 3D multi-stop radial gradient knobs, sliders, nixies, etc.
     drawGuiFaceplate(r, guiPanel_, guiPanel_.bounds, theme, scopeBuffer_, scopeBufferCount_, draggingRow_, draggingWidget_);
-
-    // 2. Real-time CRT Audio Oscilloscope Display beneath the faceplate
-    renderOscilloscope(r, oscBounds_.x, oscBounds_.y, oscBounds_.w, oscBounds_.h, theme);
 }
 
 void FullscreenDeviceModal::renderAudioFxRacks(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
@@ -656,35 +681,102 @@ void FullscreenDeviceModal::renderMidiFxRacks(BatchRenderer2D& r, const ThemeTok
     }
 }
 
-void FullscreenDeviceModal::renderOscilloscope(BatchRenderer2D& r, float ox, float oy, float ow, float oh, const ThemeTokens& theme) noexcept {
-    (void)theme;
-    // CRT phosphor bezel
-    drawRoundedRect(r, ox, oy, ow, oh, 6.0f, 0.03f, 0.05f, 0.04f, 0.95f);
-    drawRoundedRectOutline(r, ox, oy, ow, oh, 6.0f, 0.15f, 0.60f, 0.30f, 0.6f, 1.5f);
+void FullscreenDeviceModal::openValueEditForWidget(int rIdx, int wIdx) noexcept {
+    if (!onOpenValueEdit) return;
 
-    // Center reticle
-    drawLine(r, ox, oy + oh * 0.5f, ox + ow, oy + oh * 0.5f, 0.10f, 0.30f, 0.18f, 0.5f, 1.0f);
-    drawLine(r, ox + ow * 0.5f, oy, ox + ow * 0.5f, oy + oh, 0.10f, 0.30f, 0.18f, 0.5f, 1.0f);
+    std::string paramName = "Param";
+    std::string labelName = "Param";
+    float curVal = 0.5f;
 
-    drawText(r, "REAL-TIME OSCILLOSCOPE FEED", ox + 12.0f, oy + 10.0f, 8.5f, 0.20f, 0.85f, 0.40f, 0.8f);
-
-    // Waveform line
-    if (scopeBuffer_ && scopeBufferCount_ > 1) {
-        size_t pts = std::min(scopeBufferCount_, size_t{128});
-        float stepX = ow / static_cast<float>(pts - 1);
-        float midY = oy + oh * 0.5f;
-
-        for (size_t i = 1; i < pts; ++i) {
-            float x1 = ox + static_cast<float>(i - 1) * stepX;
-            float y1 = midY - (scopeBuffer_[i - 1] * (oh * 0.42f));
-            float x2 = ox + static_cast<float>(i) * stepX;
-            float y2 = midY - (scopeBuffer_[i] * (oh * 0.42f));
-            drawLine(r, x1, y1, x2, y2, 0.0f, 1.0f, 0.50f, 0.95f, 1.8f);
+    if (rIdx >= 0 && rIdx < static_cast<int>(guiPanel_.rows.size())) {
+        auto& row = guiPanel_.rows[rIdx];
+        if (wIdx >= 0 && wIdx < static_cast<int>(row.widgets.size())) {
+            auto& w = row.widgets[wIdx];
+            if (w.type == GuiWidgetType::Divider) return;
+            paramName = w.param.empty() ? w.label : w.param;
+            labelName = w.label.empty() ? paramName : w.label;
+            curVal = w.currentVal;
         }
-    } else {
-        // Flat baseline
-        drawLine(r, ox + 10.0f, oy + oh * 0.5f, ox + ow - 10.0f, oy + oh * 0.5f, 0.0f, 0.80f, 0.40f, 0.6f, 1.2f);
+    } else if (wIdx >= 0 && wIdx < static_cast<int>(knobSlots_.size())) {
+        paramName = knobSlots_[wIdx].name;
+        labelName = knobSlots_[wIdx].label.empty() ? paramName : knobSlots_[wIdx].label;
+        curVal = knobSlots_[wIdx].normVal;
     }
+
+    ValueEditRequest req;
+    req.title = trackData_.trackName + " • " + labelName;
+    req.paramName = labelName;
+    req.currentValue = curVal;
+    req.minValue = 0.0f;
+    req.maxValue = 1.0f;
+    req.defaultValue = 0.5f;
+    req.hasDefault = true;
+    req.allowPercentage = true;
+    req.accentColor = Color(trackData_.r, trackData_.g, trackData_.b, 1.0f);
+
+    req.onCommit = [this, rIdx, wIdx, pName = paramName](float val) {
+        if (rIdx >= 0 && rIdx < static_cast<int>(guiPanel_.rows.size())) {
+            auto& row = guiPanel_.rows[rIdx];
+            if (wIdx >= 0 && wIdx < static_cast<int>(row.widgets.size())) {
+                row.widgets[wIdx].currentVal = val;
+            }
+        }
+        for (auto& k : trackData_.knobs) {
+            if (_stricmp(k.name.c_str(), pName.c_str()) == 0) {
+                k.value = val;
+                k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
+                break;
+            }
+        }
+        if (rIdx == 0 && wIdx < static_cast<int>(knobSlots_.size())) {
+            knobSlots_[wIdx].normVal = val;
+            knobSlots_[wIdx].readout = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
+        }
+        if (target_.type == DeviceTargetType::AudioFx) {
+            if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.audioFx.size()) {
+                auto& fx = trackData_.audioFx[target_.fxIndex];
+                if (pName == "drive" || pName == "Drive" || pName == "time" || pName == "decay" || pName == "rate" || pName == "threshold" || pName == "thresh") {
+                    fx.drive = val;
+                } else if (pName == "mix" || pName == "Mix" || pName == "WetLevel" || pName == "gain") {
+                    fx.mix = val;
+                }
+                for (auto& k : fx.knobs) {
+                    if (k.name == pName) {
+                        k.value = val;
+                        k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + (k.unit.empty() ? "%" : (" " + k.unit));
+                        break;
+                    }
+                }
+            }
+            if (onAudioFxParamChanged) {
+                onAudioFxParamChanged(target_.trackIndex, pName, val);
+            }
+        } else if (target_.type == DeviceTargetType::MidiFx) {
+            if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
+                auto& fx = trackData_.midiFx[target_.fxIndex];
+                for (auto& k : fx.knobs) {
+                    if (k.name == pName) {
+                        k.value = val;
+                        k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + (k.unit.empty() ? "%" : (" " + k.unit));
+                        break;
+                    }
+                }
+            }
+            if (onMidiFxParamChanged) {
+                onMidiFxParamChanged(target_.trackIndex, pName, val);
+            }
+        } else {
+            if (onParamChanged) {
+                onParamChanged(target_.trackIndex, pName, val);
+            }
+        }
+    };
+
+    onOpenValueEdit(req);
+}
+
+void FullscreenDeviceModal::renderOscilloscope(BatchRenderer2D& /*r*/, float /*ox*/, float /*oy*/, float /*ow*/, float /*oh*/, const ThemeTokens& /*theme*/) noexcept {
+    // Oscilloscope removed from fullscreen instrument view per design requirements
 }
 
 bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
@@ -769,7 +861,33 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
         return true;
     }
 
-    if (ev.action == PointerAction::Down && (ev.button == PointerButton::Left || ev.button == PointerButton::None)) {
+    if (ev.action == PointerAction::Down) {
+        // Universal Right-Click on any widget / knob slot opens ValueEditDialog
+        if (ev.button == PointerButton::Right) {
+            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+                auto& row = guiPanel_.rows[rIdx];
+                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                    auto& w = row.widgets[wIdx];
+                    if (w.type == GuiWidgetType::Divider) continue;
+                    float kx = w.bounds.x + (w.bounds.w * 0.5f);
+                    float ky = w.bounds.y + (w.bounds.h * 0.44f);
+                    float dist = std::hypot(mx - kx, my - ky);
+                    if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
+                        openValueEditForWidget(static_cast<int>(rIdx), static_cast<int>(wIdx));
+                        return true;
+                    }
+                }
+            }
+            for (size_t i = 0; i < knobSlots_.size(); ++i) {
+                float dist = std::hypot(mx - knobSlots_[i].center.x, my - knobSlots_[i].center.y);
+                if (dist <= knobSlots_[i].radius * 1.8f) {
+                    openValueEditForWidget(0, static_cast<int>(i));
+                    return true;
+                }
+            }
+            return true;
+        }
+
         // 1. Universal Close button (screw)
         float cx = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
         float cy = closeBtnBounds_.y + closeBtnBounds_.h * 0.5f;
@@ -816,6 +934,14 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                         }
                         return true;
                     }
+                    if (ev.type == PointerType::Touch || isMobile_) {
+                        isLongPressActive_ = true;
+                        longPressTimer_ = 0.0f;
+                        touchDownTimePoint_ = std::chrono::steady_clock::now();
+                        longPressPos_ = Point2D{mx, my};
+                        longPressRow_ = static_cast<int>(rIdx);
+                        longPressWidget_ = static_cast<int>(wIdx);
+                    }
                     isDraggingKnob_ = true;
                     draggingRow_ = static_cast<int>(rIdx);
                     draggingWidget_ = static_cast<int>(wIdx);
@@ -833,6 +959,14 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             if (dist <= knobSlots_[i].radius * 1.8f ||
                 (std::abs(mx - knobSlots_[i].center.x) <= knobSlots_[i].radius * 1.5f &&
                  std::abs(my - knobSlots_[i].center.y) <= knobSlots_[i].radius * 2.0f)) {
+                if (ev.type == PointerType::Touch || isMobile_) {
+                    isLongPressActive_ = true;
+                    longPressTimer_ = 0.0f;
+                    touchDownTimePoint_ = std::chrono::steady_clock::now();
+                    longPressPos_ = Point2D{mx, my};
+                    longPressRow_ = 0;
+                    longPressWidget_ = static_cast<int>(i);
+                }
                 isDraggingKnob_ = true;
                 draggingRow_ = 0;
                 draggingWidget_ = static_cast<int>(i);
@@ -845,6 +979,14 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
 
         // Absorb all other clicks while full display view is open
         return true;
+    }
+
+    if (ev.action == PointerAction::Move) {
+        if (isLongPressActive_) {
+            if (std::hypot(mx - longPressPos_.x, my - longPressPos_.y) > 10.0f) {
+                isLongPressActive_ = false;
+            }
+        }
     }
 
     if (ev.action == PointerAction::Move && isDraggingKnob_) {
@@ -925,6 +1067,7 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
     }
 
     if (ev.action == PointerAction::Up) {
+        isLongPressActive_ = false;
         if (isDraggingKnob_) {
             isDraggingKnob_ = false;
             draggingRow_ = -1;

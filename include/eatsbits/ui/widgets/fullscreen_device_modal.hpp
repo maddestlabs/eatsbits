@@ -13,6 +13,7 @@
 #include <functional>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 
 namespace eatsbits::ui {
 
@@ -72,6 +73,9 @@ public:
     bool handlePointer(const PointerEvent& ev) noexcept;
     bool handleKey(int key, int scancode, int action, int mods) noexcept;
 
+    void setIsMobile(bool mobile) noexcept { isMobile_ = mobile; }
+    [[nodiscard]] bool isMobile() const noexcept { return isMobile_; }
+
     // Callbacks
     std::function<void()> onClose;
     std::function<void()> onPrevPreset;
@@ -81,6 +85,7 @@ public:
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
+    std::function<void(const ValueEditRequest& req)> onOpenValueEdit;
 
 private:
     void renderHeaderBar(BatchRenderer2D& r, const ThemeTokens& theme) noexcept;
@@ -88,6 +93,7 @@ private:
     void renderAudioFxRacks(BatchRenderer2D& r, const ThemeTokens& theme) noexcept;
     void renderMidiFxRacks(BatchRenderer2D& r, const ThemeTokens& theme) noexcept;
     void renderOscilloscope(BatchRenderer2D& r, float ox, float oy, float ow, float oh, const ThemeTokens& theme) noexcept;
+    void openValueEditForWidget(int rIdx, int wIdx) noexcept;
 
     bool isOpen_{false};
     DeviceTarget target_{DeviceTargetType::Instrument, 0, -1, ""};
@@ -134,7 +140,16 @@ private:
     float dragStartVal_{0.0f};
     float pulsePhase_{0.0f};
 
-    // Unified GUI system panel & oscilloscope bounds
+    // Mobile Long-Press / Touch State
+    bool isMobile_{false};
+    bool isLongPressActive_{false};
+    float longPressTimer_{0.0f};
+    Point2D longPressPos_{0.0f, 0.0f};
+    int longPressRow_{-1};
+    int longPressWidget_{-1};
+    std::chrono::steady_clock::time_point touchDownTimePoint_{};
+
+    // Unified GUI system panel
     GuiPanelDef guiPanel_{};
     Rect2D oscBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     void syncGuiPanelFromTrackData() noexcept;

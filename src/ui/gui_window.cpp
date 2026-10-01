@@ -2173,9 +2173,11 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
     target.deviceName = data.instrument;
     lastFocusedDevice_ = target;
 
+    fullscreenDeviceModal_.setIsMobile(width_ < 768);
     fullscreenDeviceModal_.open(target);
     fullscreenDeviceModal_.syncData(data);
     fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+    fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
 
     setStatusMessage("Device Full-Display: " + data.instrument + " (Esc to exit)");
 }
@@ -2225,9 +2227,11 @@ void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
     target.deviceName = fxTitle;
     lastFocusedDevice_ = target;
 
+    fullscreenDeviceModal_.setIsMobile(width_ < 768);
     fullscreenDeviceModal_.open(target);
     fullscreenDeviceModal_.syncData(data);
     fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+    fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
 
     setStatusMessage("Device Full-Display: " + fxTitle + " (Esc to exit)");
 }
@@ -2277,14 +2281,19 @@ void GuiWindow::openFullscreenMidiFx(uint32_t trackIndex, int fxIndex) {
     target.deviceName = mfxTitle;
     lastFocusedDevice_ = target;
 
+    fullscreenDeviceModal_.setIsMobile(width_ < 768);
     fullscreenDeviceModal_.open(target);
     fullscreenDeviceModal_.syncData(data);
     fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+    fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
 
     setStatusMessage("Device Full-Display: " + mfxTitle + " (Esc to exit)");
 }
 
 void GuiWindow::closeFullscreenDevice() noexcept {
+    if (valueEditDialog_.isOpen()) {
+        valueEditDialog_.close();
+    }
     fullscreenDeviceModal_.close();
     setStatusMessage("Device Full-Display Closed");
 }
@@ -3258,38 +3267,38 @@ void GuiWindow::dispatchHardwareParam(const std::string& paramName, float normVa
     for (char& c : normKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     if (preset->metadata.id == "eats_303" || preset->metadata.engineId == "tb303") {
+        auto postTb303Param = [&](uint32_t paramId, float val) {
+            for (const auto& m : canvas_.getModules()) {
+                if (m.type == "tb303") engine_->postNodeParameter(m.id, paramId, val);
+            }
+            audio::NodeId srcId = engine_->getTrackSourceNodeId(selectedTrackIndex_);
+            if (srcId != audio::INVALID_NODE_ID) {
+                engine_->postNodeParameter(srcId, paramId, val);
+            }
+            audio::NodeId tbId = engine_->getGraph().findNodeByName("Tb303");
+            if (tbId != audio::INVALID_NODE_ID) {
+                engine_->postNodeParameter(tbId, paramId, val);
+            }
+        };
+
         if (normKey == "cutoff" && p) {
             engine_->setCutoff(p->currentVal);
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 0, p->currentVal);
-            }
+            postTb303Param(0, p->currentVal);
         } else if (normKey == "resonance" && p) {
             float resNorm = std::clamp((p->currentVal - p->minVal) / (p->maxVal - p->minVal), 0.0f, 0.98f);
             engine_->setResonance(resNorm);
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 1, resNorm);
-            }
+            postTb303Param(1, resNorm);
         } else if (normKey == "envmod" && p) {
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 2, normVal);
-            }
+            postTb303Param(2, normVal);
         } else if (normKey == "decay" && p) {
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 3, normVal);
-            }
+            postTb303Param(3, normVal);
         } else if (normKey == "accent" && p) {
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 4, normVal);
-            }
+            postTb303Param(4, normVal);
         } else if (normKey == "waveform" && p) {
             float wave = (normVal >= 0.5f) ? 1.0f : 0.0f;
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 5, wave);
-            }
+            postTb303Param(5, wave);
         } else if ((normKey == "drive" || normKey == "overdrive") && p) {
-            for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, 6, normVal);
-            }
+            postTb303Param(6, normVal);
         }
     } else if (preset->metadata.engineId == "drum_808" || preset->metadata.id == "analog_808_kick" || preset->metadata.engineId == "drum_kit") {
         for (const auto& m : canvas_.getModules()) {
@@ -3858,7 +3867,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             setTrackSoloState(idx, solo);
         };
         modularArrangerView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-            (void)idx;
+            if (idx != selectedTrackIndex_) {
+                setSelectedTrackIndex(idx);
+            }
+            syncTrackToPreset(idx);
             dispatchHardwareParam(paramName, normVal);
         };
         modularArrangerView_->onClipsChanged = [this]() {
@@ -3997,7 +4009,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             setStatusMessage("Harmonic chords baked into track " + std::to_string(idx + 1));
         };
         modularTrackInspectorView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-            (void)idx;
+            if (idx != selectedTrackIndex_) {
+                setSelectedTrackIndex(idx);
+            }
+            syncTrackToPreset(idx);
             dispatchHardwareParam(paramName, normVal);
         };
         modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
@@ -4097,6 +4112,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     // High-performance Dedicated Fullscreen Device Modal Callbacks
     fullscreenDeviceModal_.onClose = [this]() {
+        if (valueEditDialog_.isOpen()) {
+            valueEditDialog_.close();
+        }
         setStatusMessage("Device Full-Display Closed");
     };
     fullscreenDeviceModal_.onPrevPreset = [this]() {
@@ -4163,8 +4181,18 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         (void)idx;
         dispatchHardwareParam(paramName, normVal);
     };
+    fullscreenDeviceModal_.onOpenValueEdit = [this](const ValueEditRequest& req) {
+        openValueEditDialog(req);
+    };
 
     if (modularMixerView_) {
+        modularMixerView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+            if (idx != selectedTrackIndex_) {
+                setSelectedTrackIndex(idx);
+            }
+            syncTrackToPreset(idx);
+            dispatchHardwareParam(paramName, normVal);
+        };
         modularMixerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
             setTrackMuteState(idx, mute);
         };
@@ -10872,6 +10900,40 @@ HitTestArrangerResult GuiWindow::hitTestArranger(float x, float y) const noexcep
 }
 
 void GuiWindow::onMouseMove(float x, float y) {
+    if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Move;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            pev.dx = x - mouseX_;
+            pev.dy = y - mouseY_;
+            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) {
+                mouseX_ = x;
+                mouseY_ = y;
+                return;
+            }
+        }
+
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        if (valueEditDialog_.handlePointer(pev)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
+    }
+
     if (fullscreenDeviceModal_.isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -10952,40 +11014,6 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.dx = x - mouseX_;
         pev.dy = y - mouseY_;
         if (audioToMidiDialog_.handlePointer(pev)) {
-            mouseX_ = x;
-            mouseY_ = y;
-            return;
-        }
-    }
-
-    if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Move;
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            pev.dx = x - mouseX_;
-            pev.dy = y - mouseY_;
-            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) {
-                mouseX_ = x;
-                mouseY_ = y;
-                return;
-            }
-        }
-
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Move;
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        pev.dx = x - mouseX_;
-        pev.dy = y - mouseY_;
-        if (valueEditDialog_.handlePointer(pev)) {
             mouseX_ = x;
             mouseY_ = y;
             return;
@@ -11467,31 +11495,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         if (commandPaletteDialog_.handlePointer(pev)) return;
     }
 
-    // Intercept if Dedicated Full-Display Device GUI is open
-    if (fullscreenDeviceModal_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Down;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (fullscreenDeviceModal_.handlePointer(pev)) return;
-    }
-
-    if (audioToMidiDialog_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Down;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (audioToMidiDialog_.handlePointer(pev)) return;
-    }
-
     if (valueEditDialog_.isOpen()) {
         if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             PointerEvent pev;
@@ -11514,6 +11517,31 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         if (valueEditDialog_.handlePointer(pev)) return;
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (audioToMidiDialog_.handlePointer(pev)) return;
+    }
+
+    // Intercept if Dedicated Full-Display Device GUI is open
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (fullscreenDeviceModal_.handlePointer(pev)) return;
     }
 
     if (button == 2) { // Middle click: 2D panning in Arranger or Piano Roll
@@ -13051,6 +13079,54 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 }
 
 void GuiWindow::onMouseUp(int button, float x, float y) {
+    if (valueEditDialog_.isOpen()) {
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Up;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
+        }
+
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (valueEditDialog_.handlePointer(pev)) return;
+    }
+
+    if (commandPaletteDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (commandPaletteDialog_.handlePointer(pev)) return;
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (audioToMidiDialog_.handlePointer(pev)) return;
+    }
+
     if (fullscreenDeviceModal_.isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -13093,54 +13169,6 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         if (activePluginDialog->handlePointer(pev)) return;
-    }
-
-    if (commandPaletteDialog_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Up;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (commandPaletteDialog_.handlePointer(pev)) return;
-    }
-
-    if (audioToMidiDialog_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Up;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (audioToMidiDialog_.handlePointer(pev)) return;
-    }
-
-    if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Up;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
-        }
-
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Up;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (valueEditDialog_.handlePointer(pev)) return;
     }
 
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -13473,21 +13501,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    // Intercept keyboard input if Dedicated Full-Display Device GUI is open
-    if (fullscreenDeviceModal_.isOpen()) {
-        if (fullscreenDeviceModal_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
-            return;
-        }
-        if (key == 256) { // GLFW_KEY_ESCAPE
-            closeFullscreenDevice();
-            return;
-        }
-        if (isShift && !isCtrl && !isAlt && (key == 70 || key == 102)) { // Shift+F closes
-            closeFullscreenDevice();
-            return;
-        }
-    }
-
     // Intercept keyboard input if Command Palette is open
     if (commandPaletteDialog_.isOpen()) {
         if (commandPaletteDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
@@ -13522,6 +13535,21 @@ void GuiWindow::onKeyDown(int key, int mods) {
             return;
         }
         return; // Absorb keys while modal is open
+    }
+
+    // Intercept keyboard input if Dedicated Full-Display Device GUI is open
+    if (fullscreenDeviceModal_.isOpen()) {
+        if (fullscreenDeviceModal_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            return;
+        }
+        if (key == 256) { // GLFW_KEY_ESCAPE
+            closeFullscreenDevice();
+            return;
+        }
+        if (isShift && !isCtrl && !isAlt && (key == 70 || key == 102)) { // Shift+F closes
+            closeFullscreenDevice();
+            return;
+        }
     }
 
     // Intercept keyboard input if Plugin Search Modal Dialog is open
@@ -14100,6 +14128,9 @@ bool GuiWindow::isCommandPaletteOpen() const noexcept {
 }
 
 void GuiWindow::onChar(unsigned int codepoint) {
+    if (valueEditDialog_.isOpen()) {
+        return;
+    }
     if (presetSearchDialog_.isOpen()) {
         presetSearchDialog_.handleKey(static_cast<int>(codepoint), 0, 1, 0);
         return;

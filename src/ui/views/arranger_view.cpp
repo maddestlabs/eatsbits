@@ -268,6 +268,9 @@ ArrangerView::ArrangerView() {
                 trk.knob4 = normVal;
             }
         }
+        if (onParamChanged) {
+            onParamChanged(trackIdx, paramName, normVal);
+        }
     };
     propertiesDrawer_.onTabSelected = [this](TrackPropertiesTab tab) {
         inspectorTab_ = (tab == TrackPropertiesTab::Clip) ? ArrangerInspectorTab::Clip : ArrangerInspectorTab::Track;
