@@ -5,8 +5,22 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
+#include <string_view>
 
 namespace eatsbits::ui {
+
+namespace {
+inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+        [](char c1, char c2) noexcept {
+            return std::tolower(static_cast<unsigned char>(c1)) ==
+                   std::tolower(static_cast<unsigned char>(c2));
+        });
+}
+} // namespace
 
 FullscreenDeviceModal::FullscreenDeviceModal() {
     trackData_.knobs = {
@@ -186,8 +200,8 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
 
     auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
         for (const auto& k : trackData_.knobs) {
-            if (_stricmp(k.name.c_str(), p1.c_str()) == 0 || _stricmp(k.label.c_str(), p1.c_str()) == 0 ||
-                (!p2.empty() && (_stricmp(k.name.c_str(), p2.c_str()) == 0 || _stricmp(k.label.c_str(), p2.c_str()) == 0))) {
+            if (stringEqualsIgnoreCase(k.name, p1) || stringEqualsIgnoreCase(k.label, p1) ||
+                (!p2.empty() && (stringEqualsIgnoreCase(k.name, p2) || stringEqualsIgnoreCase(k.label, p2)))) {
                 return k.value;
             }
         }
@@ -722,7 +736,7 @@ void FullscreenDeviceModal::openValueEditForWidget(int rIdx, int wIdx) noexcept 
             }
         }
         for (auto& k : trackData_.knobs) {
-            if (_stricmp(k.name.c_str(), pName.c_str()) == 0) {
+            if (stringEqualsIgnoreCase(k.name, pName)) {
                 k.value = val;
                 k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
                 break;
@@ -923,7 +937,7 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                     if (w.type == GuiWidgetType::ToggleSwitch) {
                         w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
                         for (auto& k : trackData_.knobs) {
-                            if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                            if (stringEqualsIgnoreCase(k.name, w.param)) {
                                 k.value = w.currentVal;
                                 k.display = (w.currentVal > 0.5f) ? "On" : "Off";
                                 break;
@@ -998,7 +1012,7 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                 auto& w = row.widgets[draggingWidget_];
                 w.currentVal = newVal;
                 for (auto& k : trackData_.knobs) {
-                    if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                    if (stringEqualsIgnoreCase(k.name, w.param)) {
                         k.value = newVal;
                         int pct = static_cast<int>(std::round(newVal * 100.0f));
                         k.display = std::to_string(pct) + "%";

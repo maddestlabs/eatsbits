@@ -8,9 +8,22 @@
 #include "eatsbits/ui/gui_window.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 #include <iomanip>
+#include <string_view>
+
+namespace {
+inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+        [](char c1, char c2) noexcept {
+            return std::tolower(static_cast<unsigned char>(c1)) ==
+                   std::tolower(static_cast<unsigned char>(c2));
+        });
+}
+} // namespace
 
 #ifdef max
 #undef max
@@ -116,8 +129,8 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
 
     auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
         for (const auto& k : data.knobs) {
-            if (_stricmp(k.name.c_str(), p1.c_str()) == 0 || _stricmp(k.label.c_str(), p1.c_str()) == 0 ||
-                (!p2.empty() && (_stricmp(k.name.c_str(), p2.c_str()) == 0 || _stricmp(k.label.c_str(), p2.c_str()) == 0))) {
+            if (stringEqualsIgnoreCase(k.name, p1) || stringEqualsIgnoreCase(k.label, p1) ||
+                (!p2.empty() && (stringEqualsIgnoreCase(k.name, p2) || stringEqualsIgnoreCase(k.label, p2)))) {
                 return k.value;
             }
         }
@@ -2043,7 +2056,7 @@ bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& h
                 guiPanel_.rows[rIdx].widgets[wIdx].currentVal = val;
             }
             for (auto& k : data.knobs) {
-                if (_stricmp(k.name.c_str(), pName.c_str()) == 0) {
+                if (stringEqualsIgnoreCase(k.name, pName)) {
                     k.value = val;
                     k.display = std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%";
                     break;
@@ -2434,7 +2447,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                         float newVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
                         w.currentVal = newVal;
                         for (auto& k : data.knobs) {
-                            if (_stricmp(k.name.c_str(), w.param.c_str()) == 0) {
+                            if (stringEqualsIgnoreCase(k.name, w.param)) {
                                 k.value = newVal;
                                 k.display = (newVal > 0.5f) ? "On" : "Off";
                                 break;
@@ -2596,7 +2609,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
             bool updated = false;
             for (auto& k : data.knobs) {
-                if (!pName.empty() && _stricmp(k.name.c_str(), pName.c_str()) == 0) {
+                if (!pName.empty() && stringEqualsIgnoreCase(k.name, pName)) {
                     k.value = newVal;
                     k.display = std::to_string(static_cast<int>(std::round(newVal * 100.0f))) + "%";
                     updated = true;
