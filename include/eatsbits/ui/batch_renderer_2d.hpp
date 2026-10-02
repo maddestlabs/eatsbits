@@ -20,7 +20,7 @@ struct alignas(16) Vertex2D {
     float u{0.0f};
     float v{0.0f};
     uint32_t color{0xFFFFFFFF}; // RGBA8 packed
-    uint32_t mode{0};          // 0 = solid/gradient color, 1 = font atlas texture
+    uint32_t mode{0};          // 0 = solid/gradient color, 1 = font atlas texture, 2 = analytical, 3 = rgba texture, 4 = monospace font atlas
     float pad[2]{0.0f, 0.0f};  // 32-byte uniform alignment
 };
 
@@ -138,6 +138,31 @@ public:
     void updateFontAtlas(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH);
     void drawTexturedTriangles(const float* verts, const float* tcoords, const unsigned int* colors, int nverts);
 
+    // --- Monospace Text & High-Throughput Terminal Glyph Pipeline ---
+    void initDefaultMonospaceAtlas();
+    [[nodiscard]] bool isMonospaceAtlasReady() const noexcept { return monospaceAtlasReady_; }
+    void setMonospaceAtlasReady(bool ready) noexcept { monospaceAtlasReady_ = ready; }
+
+    void drawMonospaceCell(float x, float y, float w, float h,
+                           char32_t codepoint,
+                           uint32_t fgColor,
+                           uint32_t bgColor = 0,
+                           uint8_t attrs = 0,
+                           float subpixelOffsetX = 0.0f,
+                           float subpixelOffsetY = 0.0f);
+
+    void drawMonospaceText(float x, float y, float charW, float charH,
+                           std::string_view text,
+                           uint32_t fgColor,
+                           uint32_t bgColor = 0,
+                           uint8_t attrs = 0,
+                           float subpixelOffsetX = 0.0f,
+                           float subpixelOffsetY = 0.0f);
+
+    void drawTerminalGrid(float startX, float startY, float cellW, float cellH,
+                          const void* cells, int cols, int rows,
+                          float subpixelOffsetX = 0.0f, float subpixelOffsetY = 0.0f);
+
     [[nodiscard]] size_t getVertexCount() const noexcept { return vertices_.size(); }
     [[nodiscard]] RenderBackendType getBackendType() const noexcept;
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
@@ -170,6 +195,7 @@ private:
     int antiAliasingMode_{2};
     BlendMode blendMode_{BlendMode::Normal};
     bool inFrame_{false};
+    bool monospaceAtlasReady_{false};
 
     // 2D Rotation Transform State
     bool transformActive_{false};

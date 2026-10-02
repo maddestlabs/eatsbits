@@ -20,33 +20,30 @@ void ValueEditDialog::open(const ValueEditRequest& req) {
     isPercentMode_ = false;
     cursorBlinkTimer_ = 0.0f;
     isDraggingSelection_ = false;
-    if (req_.isTextMode) {
-        textModel_.setText(req_.initialText.empty() ? req_.paramName : req_.initialText, /*selectAllOnSet=*/ true);
-    } else {
-        formatBufferFromValue(req_.currentValue);
-    }
+
+    presenter::ValueEditConfig cfg;
+    cfg.title = req.title;
+    cfg.paramName = req.paramName;
+    cfg.isTextMode = req.isTextMode;
+    cfg.initialText = req.initialText;
+    cfg.currentValue = req.currentValue;
+    cfg.minValue = req.minValue;
+    cfg.maxValue = req.maxValue;
+    cfg.defaultValue = req.defaultValue;
+    cfg.hasDefault = req.hasDefault;
+    cfg.isInteger = req.isInteger;
+    cfg.allowPercentage = req.allowPercentage;
+    cfg.unit = req.unit;
+    cfg.onCommit = req.onCommit;
+    cfg.onCommitText = req.onCommitText;
+    cfg.onCancel = [this]() { close(); };
+
+    presenter_.open(cfg);
+    textModel_.setText(presenter_.getInitialEditText(), /*selectAllOnSet=*/ true);
 }
 
 void ValueEditDialog::formatBufferFromValue(float val) {
-    std::string s;
-    if (req_.isInteger) {
-        s = std::to_string(static_cast<int>(std::round(val)));
-    } else {
-        char buf[64];
-        if (std::abs(val) < 10.0f) {
-            std::snprintf(buf, sizeof(buf), "%.2f", val);
-        } else {
-            std::snprintf(buf, sizeof(buf), "%.1f", val);
-        }
-        // Trim trailing zeros after decimal point
-        s = buf;
-        if (s.find('.') != std::string::npos) {
-            while (s.back() == '0') s.pop_back();
-            if (s.back() == '.') s.pop_back();
-        }
-    }
-    // Existing value is selected by default so any typed input immediately replaces it
-    textModel_.setText(s, /*selectAllOnSet=*/ true);
+    textModel_.setText(presenter_.formatValueForEdit(val), /*selectAllOnSet=*/ true);
 }
 
 void ValueEditDialog::setPercentMode(bool enabled) {
@@ -55,109 +52,32 @@ void ValueEditDialog::setPercentMode(bool enabled) {
 }
 
 void ValueEditDialog::togglePercentMode() {
-    if (!req_.allowPercentage || req_.maxValue <= req_.minValue) return;
-
-    float current = 0.0f;
-    try {
-        current = std::stof(textModel_.getText());
-    } catch (...) {
-        current = req_.currentValue;
-    }
-
-    if (!isPercentMode_) {
-        // Direct value -> Percentage (0% - 100%)
-        float pct = ((current - req_.minValue) / (req_.maxValue - req_.minValue)) * 100.0f;
-        pct = std::clamp(pct, 0.0f, 100.0f);
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%.1f", pct);
-        std::string s(buf);
-        if (s.find('.') != std::string::npos) {
-            while (s.back() == '0') s.pop_back();
-            if (s.back() == '.') s.pop_back();
-        }
-        textModel_.setText(s, /*selectAllOnSet=*/ true);
-        isPercentMode_ = true;
-    } else {
-        // Percentage -> Direct value
-        float val = req_.minValue + (current / 100.0f) * (req_.maxValue - req_.minValue);
-        val = std::clamp(val, req_.minValue, req_.maxValue);
-        formatBufferFromValue(val);
-        isPercentMode_ = false;
-    }
+    std::string next = presenter_.togglePercentMode(textModel_.getText());
+    isPercentMode_ = presenter_.isPercentMode();
+    textModel_.setText(next, /*selectAllOnSet=*/ true);
 }
 
 void ValueEditDialog::resetToDefault() {
-    if (!req_.hasDefault) return;
-    isPercentMode_ = false;
-    formatBufferFromValue(req_.defaultValue);
+    std::string next = presenter_.resetToDefault();
+    isPercentMode_ = presenter_.isPercentMode();
+    if (!next.empty()) {
+        textModel_.setText(next, /*selectAllOnSet=*/ true);
+    }
 }
 
 void ValueEditDialog::setQuickPercent(float pct) {
-    if (!req_.allowPercentage || req_.maxValue <= req_.minValue) return;
-    if (isPercentMode_) {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::round(pct)));
-        textModel_.setText(buf, /*selectAllOnSet=*/ true);
-    } else {
-        float val = req_.minValue + (pct / 100.0f) * (req_.maxValue - req_.minValue);
-        val = std::clamp(val, req_.minValue, req_.maxValue);
-        formatBufferFromValue(val);
+    std::string next = presenter_.calculateQuickPercent(pct);
+    if (!next.empty()) {
+        textModel_.setText(next, /*selectAllOnSet=*/ true);
     }
 }
 
 void ValueEditDialog::submit() {
     if (!isOpen_) return;
-
-    if (req_.isTextMode) {
-        if (req_.onCommitText) {
-            req_.onCommitText(textModel_.getText());
-        }
-        close();
-        return;
-    }
-
-    const std::string& bufStr = textModel_.getText();
-    if (bufStr.empty()) {
-        close();
-        return;
-    }
-
-    // Check if inputBuffer contains '%'
-    bool hasPercentChar = (bufStr.find('%') != std::string::npos);
-    std::string cleanStr = bufStr;
-    cleanStr.erase(std::remove(cleanStr.begin(), cleanStr.end(), '%'), cleanStr.end());
-    cleanStr.erase(std::remove(cleanStr.begin(), cleanStr.end(), ' '), cleanStr.end());
-
-    float parsed = 0.0f;
-    bool valid = false;
-    try {
-        parsed = std::stof(cleanStr);
-        valid = true;
-    } catch (...) {
-        valid = false;
-    }
-
-    if (valid) {
-        if ((isPercentMode_ || hasPercentChar) && req_.maxValue > req_.minValue) {
-            float val = req_.minValue + (parsed / 100.0f) * (req_.maxValue - req_.minValue);
-            val = std::clamp(val, req_.minValue, req_.maxValue);
-            if (req_.onCommit) {
-                req_.onCommit(val);
-            }
-        } else {
-            float val = std::clamp(parsed, req_.minValue, req_.maxValue);
-            if (req_.onCommit) {
-                req_.onCommit(val);
-            }
-        }
-    }
-
-    if (req_.onCommitText) {
-        req_.onCommitText(textModel_.getText());
-    }
-
+    presenter_.submit(textModel_.getText());
     close();
 }
+
 
 void ValueEditDialog::layout(float screenW, float screenH) {
     screenWidth_ = screenW;

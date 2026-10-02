@@ -223,10 +223,11 @@ void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float t
 
 void ProjectBrowserDrawer::update(float dt) {
     float target = isOpen_ ? 1.0f : 0.0f;
-    float speed = 28.0f;
-    animProgress_ += (target - animProgress_) * std::clamp(dt * speed, 0.0f, 1.0f);
+    constexpr float kDrawerDamping = 18.0f; // ~180ms smooth ease-out
+    float factor = 1.0f - std::exp(-kDrawerDamping * dt);
+    animProgress_ += (target - animProgress_) * factor;
 
-    if (std::abs(animProgress_ - target) < 0.005f) {
+    if (std::abs(animProgress_ - target) < 0.001f) {
         animProgress_ = target;
     }
 

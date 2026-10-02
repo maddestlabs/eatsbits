@@ -130,6 +130,7 @@ using GLuint = unsigned int;
 #include <fstream>
 #include <sstream>
 #include <cstring>
+#include "eatsbits/ui/monospace_font_8x16.hpp"
 extern "C" {
 #include "fontstash.h"
 int fonsAddFallbackFont(FONScontext* stash, int base, int fallback);
@@ -3465,6 +3466,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     projectBrowserDrawerWidget_ = std::make_unique<ProjectBrowserDrawer>();
     transportHeaderWidget_ = std::make_unique<TransportHeader>();
     bottomNavBarWidget_ = std::make_unique<BottomNavBar>();
+    terminalConsoleDrawerWidget_ = std::make_unique<TerminalConsoleDrawer>();
+    if (engine_) {
+        terminalConsoleDrawerWidget_->bindAudioEngine(engine_);
+    }
 
     bottomNavBarWidget_->onTabSelected = [this](int tabIdx) {
         if (tabIdx >= 0 && tabIdx <= 4) {
@@ -3724,6 +3729,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     commandPaletteDialog_.registerCommand({
         "view.drawer.browser", "Toggle Project Browser Drawer", "Projects, presets, macros, and history timeline",
         CommandCategory::View, "B", [this]() { toggleBrowser(); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.drawer.terminal", "Toggle Terminal Console / Eatscript Shell", "Hardware-accelerated REPL & live audio host inspection",
+        CommandCategory::View, "` / ~", [this]() { toggleTerminalConsole(); }
     });
     commandPaletteDialog_.registerCommand({
         "action.play_pause", "Play / Pause Transport", "Toggle global transport playback",
@@ -4482,24 +4491,34 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* w, int width, int height) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
-        if (app) app->onFramebufferResize(width, height);
+        if (app) {
+            app->markNeedsRedraw();
+            app->onFramebufferResize(width, height);
+        }
     });
 
     glfwSetWindowSizeCallback(window_, [](GLFWwindow* w, int width, int height) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
-        if (app) app->onWindowResize(width, height);
+        if (app) {
+            app->markNeedsRedraw();
+            app->onWindowResize(width, height);
+        }
     });
 
     glfwSetWindowRefreshCallback(window_, [](GLFWwindow* w) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
-        if (app && !app->isRendering_) {
-            app->renderFrame();
+        if (app) {
+            app->markNeedsRedraw();
+            if (!app->isRendering_) {
+                app->renderFrame();
+            }
         }
     });
 
     glfwSetCursorPosCallback(window_, [](GLFWwindow* w, double xpos, double ypos) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
+            app->markNeedsRedraw();
             float logX = app->windowToLogicalX(xpos);
             float logY = app->windowToLogicalY(ypos);
             if (app->is3dConsoleEnabled()) {
@@ -4513,6 +4532,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetMouseButtonCallback(window_, [](GLFWwindow* w, int button, int action, int /*mods*/) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (!app) return;
+        app->markNeedsRedraw();
         double x, y;
         glfwGetCursorPos(w, &x, &y);
         float logX = app->windowToLogicalX(x);
@@ -4530,14 +4550,18 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     glfwSetKeyCallback(window_, [](GLFWwindow* w, int key, int /*scancode*/, int action, int mods) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
-        if (app && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-            app->onKeyDown(key, mods);
+        if (app) {
+            app->markNeedsRedraw();
+            if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+                app->onKeyDown(key, mods);
+            }
         }
     });
 
     glfwSetCharCallback(window_, [](GLFWwindow* w, unsigned int codepoint) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
+            app->markNeedsRedraw();
             app->onChar(codepoint);
         }
     });
@@ -4545,6 +4569,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetScrollCallback(window_, [](GLFWwindow* w, double xoffset, double yoffset) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
+            app->markNeedsRedraw();
             app->onMouseScroll(xoffset, yoffset);
         }
     });
@@ -4552,6 +4577,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (!app || count <= 0 || !paths) return;
+        app->markNeedsRedraw();
         double x, y;
         glfwGetCursorPos(w, &x, &y);
         float logX = app->windowToLogicalX(x);
@@ -4582,6 +4608,11 @@ ViewContext GuiWindow::createViewContext() noexcept {
     ctx.logicalWidth = static_cast<float>(width_);
     ctx.logicalHeight = static_cast<float>(height_);
     ctx.uiScale = renderScale_;
+    ctx.dt = (frameDt_ > 0.0001f) ? frameDt_ : 0.0166f;
+    ctx.time.deltaTime = static_cast<double>(ctx.dt);
+    ctx.time.songTimeSeconds = telemetryPresenter_.getTransport().songTimeSeconds;
+    ctx.time.frameIndex = frameIndex_++;
+    ctx.time.isOfflineExport = false;
     ctx.mouseX = mouseX_;
     ctx.mouseY = mouseY_;
     ctx.onNavigateTab = [this](WorkspaceView v) {
@@ -4651,6 +4682,36 @@ void GuiWindow::pollWebResize() noexcept {
 #endif
 }
 
+bool GuiWindow::isAnyDrawerAnimating() const noexcept {
+    if (std::abs(virtualKeyboardAnimProgress_ - (virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f)) > 0.001f) {
+        return true;
+    }
+    if (projectBrowserDrawerWidget_ && projectBrowserDrawerWidget_->isAnimating()) {
+        return true;
+    }
+    if (modularArrangerView_ && modularArrangerView_->getPropertiesDrawer().isAnimating()) {
+        return true;
+    }
+    if (modularMixerView_ && modularMixerView_->getPropertiesDrawer().isAnimating()) {
+        return true;
+    }
+    return false;
+}
+
+bool GuiWindow::isIdle() const noexcept {
+    if (!engine_) return true;
+    if (engine_->getSequencer().isPlaying()) return false;
+    if (!telemetryPresenter_.isSettled()) return false;
+    if (activeDragHandler_ != nullptr) return false;
+    if (fullscreenDeviceModal_.isOpen()) return false;
+    if (valueEditDialog_.isOpen()) return false;
+    if (commandPaletteDialog_.isOpen()) return false;
+    if (audioToMidiDialog_.isOpen()) return false;
+    if (presetSearchDialog_.isOpen()) return false;
+    if (isAnyDrawerAnimating()) return false;
+    return true;
+}
+
 void GuiWindow::runEventLoop() {
 #if defined(__EMSCRIPTEN__)
     if (!window_) return;
@@ -4671,15 +4732,24 @@ void GuiWindow::runEventLoop() {
     constexpr auto targetFrameDuration = std::chrono::microseconds(16666); // ~60 FPS smooth frame pacing
 
     while (!glfwWindowShouldClose(window_)) {
-        auto frameStart = clock::now();
+        bool idle = isIdle();
+        if (idle && !needsRedraw_) {
+            // Zero-CPU idle sleep: suspend into OS event wait for up to 50ms (wakes immediately on user input/event)
+            glfwWaitEventsTimeout(0.05);
+        } else {
+            glfwPollEvents();
+        }
 
-        glfwPollEvents();
-        renderFrame();
+        if (!idle || needsRedraw_) {
+            auto frameStart = clock::now();
+            needsRedraw_ = false;
+            renderFrame();
 
-        auto frameEnd = clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart);
-        if (elapsed < targetFrameDuration) {
-            std::this_thread::sleep_for(targetFrameDuration - elapsed);
+            auto frameEnd = clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frameEnd - frameStart);
+            if (elapsed < targetFrameDuration) {
+                std::this_thread::sleep_for(targetFrameDuration - elapsed);
+            }
         }
     }
 #endif
@@ -5068,37 +5138,35 @@ void GuiWindow::renderFrame() {
     float frameDt = std::chrono::duration<float>(currentFrameTime - s_lastFrameTime).count();
     s_lastFrameTime = currentFrameTime;
     if (frameDt <= 0.0001f || frameDt > 0.1f) frameDt = 0.016f;
+    frameDt_ = frameDt;
 
-    // 1. Pull real-time audio scope data & meters from lock-free queues
-    size_t count = engine_->getScopeSamples(scopeBuffer_, 128);
-    if (count > 0) {
-        canvas_.setScopeData(scopeBuffer_, count);
-    }
-
-    MeterFeedback fb{};
-    if (engine_ && engine_->pollMeterFeedback(fb)) {
-        canvas_.setVuMeter(fb.peakLeft, fb.peakRight);
-        masterPeakL_ = std::max(fb.peakLeft, masterPeakL_ * 0.91f);
-        masterPeakR_ = std::max(fb.peakRight, masterPeakR_ * 0.91f);
-    } else {
-        masterPeakL_ *= 0.91f;
-        masterPeakR_ *= 0.91f;
-    }
-
+    // 1. Pull real-time audio scope data & meters from lock-free TelemetryPresenter bridge
     if (engine_) {
-        for (size_t i = 0; i < mixerStrips_.size() && i < chPeakL_.size(); ++i) {
-            MeterFeedback trFb{};
-            if (engine_->getTrackMeterFeedback(static_cast<uint32_t>(i), trFb)) {
-                chPeakL_[i] = std::max(trFb.peakLeft, chPeakL_[i] * 0.91f);
-                chPeakR_[i] = std::max(trFb.peakRight, chPeakR_[i] * 0.91f);
-            } else {
-                float est = (masterPeakL_ + masterPeakR_) * 0.5f * (mixerStrips_[i].mute ? 0.0f : mixerStrips_[i].volume);
-                chPeakL_[i] = std::max(est, chPeakL_[i] * 0.91f);
-                chPeakR_[i] = std::max(est, chPeakR_[i] * 0.91f);
-            }
-            mixerStrips_[i].peakL = chPeakL_[i];
-            mixerStrips_[i].peakR = chPeakR_[i];
+        telemetryPresenter_.update(*engine_, frameDt);
+    }
+
+    const auto& scope = telemetryPresenter_.getScopeSamples();
+    if (!scope.empty()) {
+        canvas_.setScopeData(scope.data(), std::min(scope.size(), size_t(128)));
+    }
+
+    const auto& masterMeter = telemetryPresenter_.getMasterMeter();
+    canvas_.setVuMeter(masterMeter.peakL, masterMeter.peakR);
+    masterPeakL_ = masterMeter.peakL;
+    masterPeakR_ = masterMeter.peakR;
+
+    const auto& trackMeters = telemetryPresenter_.getTrackMeters();
+    for (size_t i = 0; i < mixerStrips_.size() && i < chPeakL_.size(); ++i) {
+        if (i < trackMeters.size()) {
+            chPeakL_[i] = trackMeters[i].peakL;
+            chPeakR_[i] = trackMeters[i].peakR;
+        } else {
+            float est = (masterPeakL_ + masterPeakR_) * 0.5f * (mixerStrips_[i].mute ? 0.0f : mixerStrips_[i].volume);
+            chPeakL_[i] = std::max(est, chPeakL_[i] * 0.91f);
+            chPeakR_[i] = std::max(est, chPeakR_[i] * 0.91f);
         }
+        mixerStrips_[i].peakL = chPeakL_[i];
+        mixerStrips_[i].peakR = chPeakR_[i];
     }
 
 #if EATS_HAS_GLFW
@@ -5414,6 +5482,19 @@ void GuiWindow::renderFrame() {
             projectBrowserDrawerWidget_->update(frameDt);
             if (batchRenderer_) {
                 projectBrowserDrawerWidget_->render(*batchRenderer_, getTheme());
+            }
+        }
+
+        // =========================================================================
+        // IN-DAW WEBGPU TERMINAL & LIVE EATSCRIPT REPL CONSOLE DRAWER
+        // =========================================================================
+        if (terminalConsoleDrawerWidget_) {
+            terminalConsoleDrawerWidget_->layout(static_cast<float>(width_), bPanelY, renderScale_);
+            FrameTimeContext ftc{};
+            ftc.deltaTime = frameDt;
+            terminalConsoleDrawerWidget_->update(ftc);
+            if (batchRenderer_) {
+                terminalConsoleDrawerWidget_->render(*batchRenderer_, getTheme(), renderScale_);
             }
         }
         } // End of !fullscreenDeviceModal_.isOpen()
@@ -8886,16 +8967,44 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
         case TrackInspectorHitArea::FreezeButton:
             setTrackFreezeState(tIdx, !trk.freeze);
             break;
-        case TrackInspectorHitArea::VolumeSlider:
+        case TrackInspectorHitArea::VolumeSlider: {
             dragMode_ = DragMode::TrackInspectorVolume;
             dragStartX_ = x;
             dragStartValGeneric_ = trk.volume;
+            presenter::ScalarDragConfig cfg{};
+            cfg.dragMode = DragMode::TrackInspectorVolume;
+            cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
+            cfg.minValue = 0.0f;
+            cfg.maxValue = 1.5f;
+            cfg.sensitivity = 1.5f / 220.0f;
+            scalarDragPresenter_.startDrag(x, y, trk.volume, cfg,
+                [this, t = tIdx](float v) {
+                    if (t < arrangerTracks_.size()) arrangerTracks_[t].volume = v;
+                    if (t < mixerStrips_.size()) mixerStrips_[t].volume = v;
+                    if (engine_) engine_->setTrackVolume(t, v);
+                });
+            activeDragHandler_ = &scalarDragPresenter_;
             break;
-        case TrackInspectorHitArea::PanKnob:
+        }
+        case TrackInspectorHitArea::PanKnob: {
             dragMode_ = DragMode::TrackInspectorPan;
             dragStartX_ = x;
             dragStartPan_ = trk.pan;
+            presenter::ScalarDragConfig cfg{};
+            cfg.dragMode = DragMode::TrackInspectorPan;
+            cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
+            cfg.minValue = -1.0f;
+            cfg.maxValue = 1.0f;
+            cfg.sensitivity = 2.0f / 180.0f;
+            scalarDragPresenter_.startDrag(x, y, trk.pan, cfg,
+                [this, t = tIdx](float p) {
+                    if (t < arrangerTracks_.size()) arrangerTracks_[t].pan = p;
+                    if (t < mixerStrips_.size()) mixerStrips_[t].pan = p;
+                    if (engine_) engine_->setTrackPan(t, p);
+                });
+            activeDragHandler_ = &scalarDragPresenter_;
             break;
+        }
         case TrackInspectorHitArea::ChordFollowChip:
             trk.chordFollowMode = inspHit.chordMode;
             recordProjectHistory("Set Chord Follow on Track " + std::to_string(tIdx + 1), "CHORD");
@@ -8943,18 +9052,65 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
         case TrackInspectorHitArea::AudioFxChorusKnob:
         case TrackInspectorHitArea::AudioFxEqKnob:
         case TrackInspectorHitArea::AudioFxCompKnob:
-        case TrackInspectorHitArea::AudioFxConvolverKnob:
+        case TrackInspectorHitArea::AudioFxConvolverKnob: {
             dragMode_ = DragMode::TrackInspectorFxKnob;
             activeTrackInspectorFxParam_ = inspHit.paramName;
             dragStartY_ = y;
             dragStartTrackInspectorVal_ = inspHit.normVal;
+            presenter::ScalarDragConfig cfg{};
+            cfg.dragMode = DragMode::TrackInspectorFxKnob;
+            cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+            cfg.minValue = 0.0f;
+            cfg.maxValue = 1.0f;
+            cfg.sensitivity = 1.0f / 140.0f;
+            scalarDragPresenter_.startDrag(x, y, inspHit.normVal, cfg,
+                [this, t = tIdx, param = inspHit.paramName](float newVal) {
+                    if (t >= arrangerTracks_.size()) return;
+                    auto& tr = arrangerTracks_[t];
+                    if (param == "delayTime") tr.audioFx.delayTime = newVal;
+                    else if (param == "delayFeedback") tr.audioFx.delayFeedback = newVal;
+                    else if (param == "delayMix") tr.audioFx.delayMix = newVal;
+                    else if (param == "chorusRate") tr.audioFx.chorusRate = newVal;
+                    else if (param == "chorusDepth") tr.audioFx.chorusDepth = newVal;
+                    else if (param == "chorusMix") tr.audioFx.chorusMix = newVal;
+                    else if (param == "eqLow") tr.audioFx.eqLow = newVal;
+                    else if (param == "eqMid") tr.audioFx.eqMid = newVal;
+                    else if (param == "eqHigh") tr.audioFx.eqHigh = newVal;
+                    else if (param == "compThreshold") tr.audioFx.compThreshold = newVal;
+                    else if (param == "compRatio") tr.audioFx.compRatio = newVal;
+                    else if (param == "compGain") tr.audioFx.compGain = newVal;
+                    else if (param == "convolverPreset") tr.audioFx.convolverPreset = static_cast<int>(std::round(newVal * 12.0f));
+                    else if (param == "convolverMix") tr.audioFx.convolverMix = newVal;
+                    else if (param == "arpPattern") tr.midiFx.arpPattern = static_cast<int>(std::round(newVal * 4.0f));
+                    else if (param == "arpRate") tr.midiFx.arpRate = newVal;
+                    else if (param == "arpOctaves") tr.midiFx.arpOctaves = static_cast<int>(std::round(newVal));
+                    else if (param == "arpGate") tr.midiFx.arpGate = newVal;
+                    else if (param == "arpSwing") tr.midiFx.arpSwing = newVal;
+                    else if (param == "scaleMinor") tr.midiFx.scaleMinor = (newVal >= 0.5f);
+                    else if (param == "humanizeTiming") tr.midiFx.humanizeTiming = newVal;
+                    else if (param == "humanizeVelocity") tr.midiFx.humanizeVelocity = newVal;
+                });
+            activeDragHandler_ = &scalarDragPresenter_;
             break;
-        case TrackInspectorHitArea::HardwareKnob:
+        }
+        case TrackInspectorHitArea::HardwareKnob: {
             dragMode_ = DragMode::HardwareKnob;
             activeHardwareParam_ = inspHit.paramName;
             dragStartY_ = y;
             dragStartHardwareVal_ = inspHit.normVal;
+            presenter::ScalarDragConfig cfg{};
+            cfg.dragMode = DragMode::HardwareKnob;
+            cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+            cfg.minValue = 0.0f;
+            cfg.maxValue = 1.0f;
+            cfg.sensitivity = 1.0f / 160.0f;
+            scalarDragPresenter_.startDrag(x, y, inspHit.normVal, cfg,
+                [this, p = inspHit.paramName](float v) {
+                    dispatchHardwareParam(p, v);
+                });
+            activeDragHandler_ = &scalarDragPresenter_;
             break;
+        }
         case TrackInspectorHitArea::ColorSwatch: {
             static const float swatches[8][3] = {
                 {0.0f, 0.90f, 1.0f},   // Neon Cyan
@@ -9816,6 +9972,18 @@ bool GuiWindow::isShiftPressed() const noexcept {
             glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
 }
 
+bool GuiWindow::isCtrlPressed() const noexcept {
+    if (!window_) return false;
+    return (glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+}
+
+bool GuiWindow::isAltPressed() const noexcept {
+    if (!window_) return false;
+    return (glfwGetKey(window_, GLFW_KEY_LEFT_ALT) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS);
+}
+
 void GuiWindow::setVirtualKeyboardBaseOctave(int octave) noexcept {
     virtualKeyboardBaseOctave_ = std::clamp(octave, 1, 6);
     virtualPianoDrawerKeyboard_.setBaseOctave(virtualKeyboardBaseOctave_);
@@ -9887,11 +10055,12 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
     const float tabX = (static_cast<float>(width_) - tabW) * 0.5f;
     const auto& theme = getTheme();
 
-    // Smooth ease-in animation step (speed matching ProjectBrowserDrawer)
+    // Smooth ease-in animation step with exponential damping
     float target = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
-    constexpr float speed = 28.0f;
-    virtualKeyboardAnimProgress_ += (target - virtualKeyboardAnimProgress_) * std::clamp(0.016f * speed, 0.0f, 1.0f);
-    if (std::abs(virtualKeyboardAnimProgress_ - target) < 0.005f) {
+    constexpr float kKeyboardDamping = 18.0f;
+    float factor = 1.0f - std::exp(-kKeyboardDamping * frameDt_);
+    virtualKeyboardAnimProgress_ += (target - virtualKeyboardAnimProgress_) * factor;
+    if (std::abs(virtualKeyboardAnimProgress_ - target) < 0.001f) {
         virtualKeyboardAnimProgress_ = target;
     }
 
@@ -11124,6 +11293,21 @@ void GuiWindow::onMouseMove(float x, float y) {
     mouseX_ = x;
     mouseY_ = y;
 
+    if (activeDragHandler_ && activeDragHandler_->isDragging()) {
+        PointerEvent pev{};
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        pev.mods.shift = isShiftPressed();
+        pev.mods.ctrl = isCtrlPressed();
+        pev.mods.alt = isAltPressed();
+        activeDragHandler_->onPointerMove(pev);
+        return;
+    }
+
     if (dragMode_ == DragMode::PianoRollMiddlePan) {
         float dx = x - panStartMouseX_;
         float dy = y - panStartMouseY_;
@@ -11891,6 +12075,21 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             }
         }
 
+        if (terminalConsoleDrawerWidget_) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (terminalConsoleDrawerWidget_->handlePointer(pev)) {
+                markNeedsRedraw();
+                return;
+            }
+        }
+
         // 1. Check Top Transport Header Hit
         auto transportHit = hitTestTransport(x, y);
         if (transportHit.hit) {
@@ -11925,23 +12124,55 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     break;
                 case TransportAction::Bpm:
                     if (engine_) {
-                        dragMode_ = DragMode::BpmScrubber;
                         dragStartY_ = y;
                         dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getBpm());
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::BpmScrubber;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = 40.0f;
+                        cfg.maxValue = 300.0f;
+                        cfg.sensitivity = 0.5f;
+                        scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
+                            [this](float bpm) {
+                                if (engine_) engine_->getSequencer().setBpm(bpm);
+                            });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::BpmScrubber;
                     }
                     break;
                 case TransportAction::Swing:
                     if (engine_) {
-                        dragMode_ = DragMode::SwingScrubber;
                         dragStartY_ = y;
                         dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getSwing());
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::SwingScrubber;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = 0.0f;
+                        cfg.maxValue = 0.75f;
+                        cfg.sensitivity = 0.005f;
+                        scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
+                            [this](float sw) {
+                                if (engine_) engine_->getSequencer().setSwing(sw);
+                            });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::SwingScrubber;
                     }
                     break;
-                case TransportAction::MasterVol:
-                    dragMode_ = DragMode::MasterVolume;
+                case TransportAction::MasterVol: {
                     dragStartY_ = y;
-                    dragStartValGeneric_ = 1.0f;
+                    dragStartValGeneric_ = masterVolume_;
+                    presenter::ScalarDragConfig cfg{};
+                    cfg.dragMode = DragMode::MasterVolume;
+                    cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                    cfg.minValue = 0.0f;
+                    cfg.maxValue = 1.5f;
+                    cfg.sensitivity = 1.5f / 280.0f;
+                    scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
+                        [this](float v) { setMasterVolume(v); });
+                    activeDragHandler_ = &scalarDragPresenter_;
+                    dragMode_ = DragMode::MasterVolume;
                     break;
+                }
                 case TransportAction::LoopToggle:
                     toggleLoop();
                     break;
@@ -12090,6 +12321,12 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             auto arrHit = hitTestArranger(x, y);
             if (arrHit.hit) {
                 if (arrHit.area == ArrangerHitArea::Ruler) {
+                    uint32_t curStep = engine_ ? engine_->getSequencer().getTransport().getCurrentStep() : 0;
+                    timelineScrubPresenter_.startRulerScrub(x, 210.0f, 60.0f, curStep, 18 * 16,
+                        [this](uint32_t step) {
+                            if (engine_) engine_->getSequencer().getTransport().setPosition(step);
+                        });
+                    activeDragHandler_ = &timelineScrubPresenter_;
                     dragMode_ = DragMode::ArrangerRulerScrub;
                     if (engine_) {
                         engine_->getSequencer().getTransport().setPosition(arrHit.step);
@@ -12109,7 +12346,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 } else if (arrHit.area == ArrangerHitArea::TrackVolume) {
                     selectedTrackIndex_ = arrHit.trackIndex;
                     activeArrangerTrack_ = arrHit.trackIndex;
-                    dragMode_ = DragMode::ArrangerTrackVolume;
                     dragStartX_ = x;
                     if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) {
                         mixerStrips_[arrHit.trackIndex].volume = arrHit.normVal;
@@ -12117,13 +12353,40 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     if (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) {
                         arrangerTracks_[arrHit.trackIndex].volume = arrHit.normVal;
                     }
+                    presenter::ScalarDragConfig cfg{};
+                    cfg.dragMode = DragMode::ArrangerTrackVolume;
+                    cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
+                    cfg.minValue = 0.0f;
+                    cfg.maxValue = 1.5f;
+                    cfg.sensitivity = 1.5f / 114.0f;
+                    scalarDragPresenter_.startDrag(x, y, arrHit.normVal, cfg,
+                        [this, trk = activeArrangerTrack_](float v) {
+                            if (trk < mixerStrips_.size()) mixerStrips_[trk].volume = v;
+                            if (trk < arrangerTracks_.size()) arrangerTracks_[trk].volume = v;
+                            if (engine_) engine_->setTrackVolume(trk, v);
+                        });
+                    activeDragHandler_ = &scalarDragPresenter_;
+                    dragMode_ = DragMode::ArrangerTrackVolume;
                 } else if (arrHit.area == ArrangerHitArea::TrackPan) {
                     selectedTrackIndex_ = arrHit.trackIndex;
                     activeArrangerTrack_ = arrHit.trackIndex;
-                    dragMode_ = DragMode::ArrangerTrackPan;
                     dragStartX_ = x;
                     dragStartY_ = y;
                     dragStartPan_ = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].pan : 0.0f;
+                    presenter::ScalarDragConfig cfg{};
+                    cfg.dragMode = DragMode::ArrangerTrackPan;
+                    cfg.direction = presenter::DragDirection::BidirectionalPan;
+                    cfg.minValue = -1.0f;
+                    cfg.maxValue = 1.0f;
+                    cfg.sensitivity = 0.015f;
+                    scalarDragPresenter_.startDrag(x, y, dragStartPan_, cfg,
+                        [this, trk = activeArrangerTrack_](float p) {
+                            if (trk < arrangerTracks_.size()) arrangerTracks_[trk].pan = p;
+                            if (trk < mixerStrips_.size()) mixerStrips_[trk].pan = p;
+                            if (engine_) engine_->setTrackPan(trk, p);
+                        });
+                    activeDragHandler_ = &scalarDragPresenter_;
+                    dragMode_ = DragMode::ArrangerTrackPan;
                 } else if (arrHit.area == ArrangerHitArea::TrackEditButton) {
                     setSelectedTrackIndex(arrHit.trackIndex);
                     setActiveView(WorkspaceView::Edit);
@@ -12153,9 +12416,22 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     lastClickedClipIdx_ = arrHit.clipIndex;
                     lastClipClickTime_ = static_cast<double>(nowMs);
                 } else if (arrHit.area == ArrangerHitArea::SidebarPullTab) {
-                    dragMode_ = DragMode::ArrangerPropertiesResize;
                     dragStartX_ = x;
                     dragStartValGeneric_ = arrangerPropertiesWidth_;
+                    presenter::SplitterConfig scfg{};
+                    scfg.dragMode = DragMode::ArrangerPropertiesResize;
+                    scfg.minWidth = kArrangerPropertiesMinW;
+                    scfg.maxWidth = kArrangerPropertiesMaxW;
+                    scfg.defaultWidth = 300.0f;
+                    scfg.collapseThresholdMargin = 25.0f;
+                    splitterDragPresenter_.startDrag(x, arrangerPropertiesWidth_, arrangerPropertiesExpanded_, scfg,
+                        [this](float w, bool exp) {
+                            arrangerPropertiesWidth_ = w;
+                            arrangerPropertiesExpanded_ = exp;
+                            if (!exp) dragMode_ = DragMode::None;
+                        });
+                    activeDragHandler_ = &splitterDragPresenter_;
+                    dragMode_ = DragMode::ArrangerPropertiesResize;
                 } else if (arrHit.area == ArrangerHitArea::SidebarCloseButton) {
                     arrangerPropertiesExpanded_ = false;
                 } else if (arrHit.area == ArrangerHitArea::SidebarTabTrack) {
@@ -12249,11 +12525,15 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         }
                     }
                 } else if (arrHit.area == ArrangerHitArea::OverviewScrollbar) {
+                    const float trackHeaderW = 210.0f;
+                    const float miniTrackW = static_cast<float>(width_) - trackHeaderW - 20.0f;
+                    uint32_t curStep = engine_ ? engine_->getSequencer().getTransport().getCurrentStep() : 0;
+                    timelineScrubPresenter_.startOverviewScrub(x, trackHeaderW, miniTrackW, curStep, 18 * 16,
+                        [this](uint32_t step) {
+                            if (engine_) engine_->getSequencer().getTransport().setPosition(step);
+                        });
+                    activeDragHandler_ = &timelineScrubPresenter_;
                     dragMode_ = DragMode::ArrangerOverviewScroll;
-                    if (engine_) {
-                        uint32_t targetStep = static_cast<uint32_t>(arrHit.normVal * 18.0f * 16.0f);
-                        engine_->getSequencer().getTransport().setPosition(targetStep);
-                    }
                 } else if (arrHit.area == ArrangerHitArea::SidebarTrackInspector || arrHit.trackInspectorHit.hit) {
                     handleTrackInspectorInteraction(arrHit.trackInspectorHit, x, y);
                 }
@@ -12327,9 +12607,22 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
                 // Pull-Tab and Track Properties Sidebar Interactions
                 if (mixerHit.isPullTab) {
-                    dragMode_ = DragMode::MixerPropertiesResize;
                     dragStartX_ = x;
                     dragStartValGeneric_ = mixerPropertiesWidth_;
+                    presenter::SplitterConfig scfg{};
+                    scfg.dragMode = DragMode::MixerPropertiesResize;
+                    scfg.minWidth = kMixerPropertiesMinW;
+                    scfg.maxWidth = kMixerPropertiesMaxW;
+                    scfg.defaultWidth = 360.0f;
+                    scfg.collapseThresholdMargin = 25.0f;
+                    splitterDragPresenter_.startDrag(x, mixerPropertiesWidth_, mixerPropertiesExpanded_, scfg,
+                        [this](float w, bool exp) {
+                            mixerPropertiesWidth_ = w;
+                            mixerPropertiesExpanded_ = exp;
+                            if (!exp) dragMode_ = DragMode::None;
+                        });
+                    activeDragHandler_ = &splitterDragPresenter_;
+                    dragMode_ = DragMode::MixerPropertiesResize;
                     return;
                 }
                 if (mixerHit.isPropertiesClose) {
@@ -12354,13 +12647,31 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     if (mixerHit.isMute) {
                         setMasterMuted(!isMasterMuted());
                     } else if (mixerHit.isFader) {
-                        dragMode_ = DragMode::MasterFader;
                         dragStartY_ = y;
                         dragStartValGeneric_ = masterVolume_;
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::MasterFader;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = 0.0f;
+                        cfg.maxValue = 1.5f;
+                        cfg.sensitivity = 1.5f / 280.0f;
+                        scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
+                            [this](float v) { setMasterVolume(v); });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::MasterFader;
                     } else if (mixerHit.isPan) {
-                        dragMode_ = DragMode::MasterPan;
                         dragStartY_ = y;
                         dragStartValGeneric_ = masterPan_;
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::MasterPan;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = -1.0f;
+                        cfg.maxValue = 1.0f;
+                        cfg.sensitivity = 2.0f / 100.0f;
+                        scalarDragPresenter_.startDrag(x, y, masterPan_, cfg,
+                            [this](float p) { setMasterPan(p); });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::MasterPan;
                     }
                 } else if (mixerHit.channelIndex < mixerStrips_.size()) {
                     setSelectedTrackIndex(mixerHit.channelIndex);
@@ -12388,15 +12699,47 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         const char* aModes[] = {"TRIM", "READ", "TOUCH", "LATCH"};
                         setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + " Automation: " + aModes[mixerStrips_[mixerHit.channelIndex].automationMode]);
                     } else if (mixerHit.isFader) {
-                        dragMode_ = DragMode::MixerFader;
                         activeMixerChannel_ = mixerHit.channelIndex;
                         dragStartY_ = y;
                         dragStartValGeneric_ = mixerStrips_[mixerHit.channelIndex].volume;
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::MixerFader;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = 0.0f;
+                        cfg.maxValue = 1.5f;
+                        cfg.sensitivity = 1.5f / 280.0f;
+                        scalarDragPresenter_.startDrag(x, y, mixerStrips_[activeMixerChannel_].volume, cfg,
+                            [this, ch = activeMixerChannel_](float v) {
+                                if (ch < mixerStrips_.size()) mixerStrips_[ch].volume = v;
+                                if (ch < arrangerTracks_.size()) arrangerTracks_[ch].volume = v;
+                                if (engine_) {
+                                    if (ch < 4) engine_->setTrackVolume(ch, v);
+                                    else setMasterVolume(v);
+                                }
+                            });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::MixerFader;
                     } else if (mixerHit.isPan) {
-                        dragMode_ = DragMode::MixerPan;
                         activeMixerChannel_ = mixerHit.channelIndex;
                         dragStartY_ = y;
                         dragStartValGeneric_ = mixerStrips_[mixerHit.channelIndex].pan;
+                        presenter::ScalarDragConfig cfg{};
+                        cfg.dragMode = DragMode::MixerPan;
+                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                        cfg.minValue = -1.0f;
+                        cfg.maxValue = 1.0f;
+                        cfg.sensitivity = 2.0f / 100.0f;
+                        scalarDragPresenter_.startDrag(x, y, mixerStrips_[activeMixerChannel_].pan, cfg,
+                            [this, ch = activeMixerChannel_](float p) {
+                                if (ch < mixerStrips_.size()) mixerStrips_[ch].pan = p;
+                                if (ch < arrangerTracks_.size()) arrangerTracks_[ch].pan = p;
+                                if (engine_) {
+                                    if (ch < 4) engine_->setTrackPan(ch, p);
+                                    else setMasterPan(p);
+                                }
+                            });
+                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragMode_ = DragMode::MixerPan;
                     }
                 }
             }
@@ -12706,12 +13049,31 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     }
 
                     // Single click on empty grid -> marquee selection drag (clears selection if released without drag)
-                    dragMode_ = DragMode::PianoRollMarquee;
-                    isMarqueeSelecting_ = true;
                     marqueeStartX_ = x;
                     marqueeStartY_ = y;
                     marqueeCurX_ = x;
                     marqueeCurY_ = y;
+                    isMarqueeSelecting_ = true;
+                    marqueeSelectPresenter_.startSelection(x, y, isShiftPressed(),
+                        [this](const presenter::MarqueeRect& r, bool add) {
+                            isMarqueeSelecting_ = true;
+                            marqueeStartX_ = r.minX;
+                            marqueeStartY_ = r.minY;
+                            marqueeCurX_ = r.maxX;
+                            marqueeCurY_ = r.maxY;
+                            updatePianoRollMarqueeSelection(r.minX, r.minY, r.maxX, r.maxY, add);
+                        },
+                        [this](const presenter::MarqueeRect& /*r*/, bool /*add*/, bool isDrag) {
+                            if (!isDrag) {
+                                if (engine_ && selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
+                                    auto* tr = engine_->getSequencer().getTrack(selectedTrackIndex_);
+                                    if (tr) tr->clearSelection();
+                                }
+                            }
+                            isMarqueeSelecting_ = false;
+                        });
+                    activeDragHandler_ = &marqueeSelectPresenter_;
+                    dragMode_ = DragMode::PianoRollMarquee;
                     return;
                 }
             } else if (editSubView_ == EditSubView::Tracker) {
@@ -12875,20 +13237,34 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             // Direct active audio-graph rack interactions (knob tweaks & cable patching)
             auto jack = hitTestJack(x, y);
             if (jack.hit && jack.isOutput) {
-                dragMode_ = DragMode::PatchCable;
                 dragCableSrcNode_ = jack.nodeId;
                 dragCableSrcPort_ = jack.portIndex;
                 dragCableSrcPos_ = jack.position;
+                cablePatchPresenter_.startPatch(jack.nodeId, jack.portIndex, jack.position.x, jack.position.y);
+                activeDragHandler_ = &cablePatchPresenter_;
+                dragMode_ = DragMode::PatchCable;
                 return;
             }
 
             auto knob = hitTestKnob(x, y);
             if (knob.hit) {
-                dragMode_ = DragMode::Knob;
                 activeKnobNode_ = knob.nodeId;
                 activeKnobIndex_ = knob.knobIndex;
                 dragStartY_ = y;
                 dragStartValue_ = getKnobValue(knob.nodeId, knob.knobIndex);
+                presenter::ScalarDragConfig cfg{};
+                cfg.dragMode = DragMode::Knob;
+                cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                cfg.minValue = 0.0f;
+                cfg.maxValue = 1.0f;
+                cfg.sensitivity = 1.0f / 160.0f;
+                scalarDragPresenter_.startDrag(x, y, dragStartValue_, cfg,
+                    [this, n = knob.nodeId, idx = knob.knobIndex](float v) {
+                        setKnobValue(n, idx, v);
+                        dispatchKnobParameter(n, idx, v);
+                    });
+                activeDragHandler_ = &scalarDragPresenter_;
+                dragMode_ = DragMode::Knob;
                 return;
             }
 
@@ -13284,14 +13660,34 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         }
     }
 
-    if (crtTweakerOpen_) {
-        handleCrtTweakerPointer(x, y, false, true);
-    }
-    if (dragMode_ == DragMode::CrtTweakerSlider) {
-        dragMode_ = DragMode::None;
-        crtTweakerSliderIndex_ = -1;
+    if (activeDragHandler_ && activeDragHandler_->isDragging()) {
+        PointerEvent pev{};
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.x = x;
+        pev.y = y;
+        pev.button = (button == GLFW_MOUSE_BUTTON_LEFT) ? PointerButton::Left :
+                     ((button == GLFW_MOUSE_BUTTON_RIGHT) ? PointerButton::Right : PointerButton::Middle);
+        pev.mods.shift = isShiftPressed();
+        pev.mods.ctrl = isCtrlPressed();
+        pev.mods.alt = isAltPressed();
+
+        if (activeDragHandler_ == &cablePatchPresenter_ && engine_) {
+            auto destJack = hitTestJack(x, y);
+            if (destJack.hit && !destJack.isOutput) {
+                cablePatchPresenter_.commitConnection(destJack.nodeId, destJack.portIndex, destJack.isOutput, engine_->getGraph());
+                canvas_.updateRackLayout(engine_->getGraph());
+                initDefaultKnobValues();
+            } else {
+                cablePatchPresenter_.cancelDrag();
+            }
+        } else {
+            activeDragHandler_->onPointerUp(pev);
+        }
+        activeDragHandler_ = nullptr;
     }
 
+    isMarqueeSelecting_ = false;
     dragMode_ = DragMode::None;
 }
 
@@ -13491,6 +13887,21 @@ void GuiWindow::onKeyDown(int key, int mods) {
             }
         }
         return;
+    }
+
+    // Grave Accent / Tilde (` / ~): In-DAW WebGPU Terminal & REPL Toggle
+    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen()) {
+        toggleTerminalConsole();
+        markNeedsRedraw();
+        return;
+    }
+
+    // Intercept keyboard input if In-DAW Terminal Console is expanded
+    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
+        if (terminalConsoleDrawerWidget_->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
     }
 
     // Intercept keyboard input if CRT Shader Tweaker is open (Escape dismisses)
@@ -14130,6 +14541,12 @@ bool GuiWindow::isCommandPaletteOpen() const noexcept {
 void GuiWindow::onChar(unsigned int codepoint) {
     if (valueEditDialog_.isOpen()) {
         return;
+    }
+    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
+        if (terminalConsoleDrawerWidget_->handleChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
     }
     if (presetSearchDialog_.isOpen()) {
         presetSearchDialog_.handleKey(static_cast<int>(codepoint), 0, 1, 0);

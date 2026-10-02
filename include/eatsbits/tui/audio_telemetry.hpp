@@ -1,43 +1,54 @@
 #pragma once
 
+#include "eatsbits/presenter/telemetry_presenter.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
-#include <vector>
-#include <array>
-#include <cmath>
-#include <algorithm>
 
 namespace eatsbits::tui {
 
-struct TelemetrySnapshot {
-    std::vector<float> scopeSamples;
-    float peakL{0.0f};
-    float peakR{0.0f};
-    float peakHoldL{0.0f};
-    float peakHoldR{0.0f};
-    std::array<float, 16> spectrumBands{};
-    uint32_t currentStep{0};
-    bool isPlaying{false};
-    double bpm{120.0};
-    double cpuUsage{0.0};
-};
+// Unify TelemetrySnapshot with headless Presenter core
+using TelemetrySnapshot = eatsbits::presenter::TelemetrySnapshot;
 
+/**
+ * @brief TUI Audio Telemetry Bridge adapter.
+ * Wraps headless TelemetryPresenter to drive terminal VU meters, Braille scopes,
+ * and 16-band ASCII spectrum visualizers with zero terminal dependencies.
+ */
 class AudioTelemetryBridge {
 public:
-    AudioTelemetryBridge(size_t scopeCapacity = 256);
+    explicit AudioTelemetryBridge(size_t scopeCapacity = 256)
+        : presenter_(scopeCapacity) {}
     ~AudioTelemetryBridge() = default;
 
-    void update(audio::AudioEngine& engine);
-    const TelemetrySnapshot& getSnapshot() const { return snapshot_; }
+    void update(audio::AudioEngine& engine, float dt = 0.016666f) {
+        presenter_.update(engine, dt);
+    }
+
+    [[nodiscard]] const TelemetrySnapshot& getSnapshot() const noexcept {
+        return presenter_.getSnapshot();
+    }
+
+    [[nodiscard]] bool isSettled() const noexcept {
+        return presenter_.isSettled();
+    }
+
+    [[nodiscard]] bool isDirty() const noexcept {
+        return presenter_.isDirty();
+    }
+
+    void clearDirty() noexcept {
+        presenter_.clearDirty();
+    }
+
+    [[nodiscard]] eatsbits::presenter::TelemetryPresenter& getPresenter() noexcept {
+        return presenter_;
+    }
+
+    [[nodiscard]] const eatsbits::presenter::TelemetryPresenter& getPresenter() const noexcept {
+        return presenter_;
+    }
 
 private:
-    size_t scopeCapacity_{256};
-    std::vector<float> rawScopeBuf_;
-    TelemetrySnapshot snapshot_;
-
-    float peakHoldTimerL_{0.0f};
-    float peakHoldTimerR_{0.0f};
-
-    void computeSpectrumBands();
+    eatsbits::presenter::TelemetryPresenter presenter_;
 };
 
 } // namespace eatsbits::tui

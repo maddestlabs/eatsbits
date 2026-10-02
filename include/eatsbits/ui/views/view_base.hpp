@@ -10,6 +10,7 @@
 #include "../draw_utils.hpp"
 #include "../input/pointer_event.hpp"
 #include "../widgets/value_edit_dialog.hpp"
+#include "eatsbits/presenter/frame_time_context.hpp"
 
 namespace eatsbits::audio {
     class AudioEngine;
@@ -32,6 +33,7 @@ struct ViewContext {
     float logicalHeight{800.0f};
     float uiScale{1.0f};
     float dpiScale{1.0f};
+    FrameTimeContext time{};
     float dt{0.0166f};
     bool isMobile{false};
     float mouseX{-1.0f};

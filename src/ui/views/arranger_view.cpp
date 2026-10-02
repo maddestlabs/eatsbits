@@ -813,7 +813,7 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     propertiesDrawer_.layout(bounds, 0.0f);
     inspectorOpen_ = propertiesDrawer_.isExpanded();
 
-    float inspW = inspectorOpen_ ? propertiesDrawer_.getWidth() : TrackPropertiesDrawer::kPullTabWidth;
+    float inspW = propertiesDrawer_.getEffectiveWidth();
     float mainW = bounds_.w - inspW;
 
     rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
@@ -842,6 +842,10 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 void ArrangerView::render(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
+
+    float frameDt = ctx.dt > 0.0f ? ctx.dt : 0.016f;
+    propertiesDrawer_.update(frameDt);
+    propertiesDrawer_.layout(bounds_, 0.0f);
 
     if (kineticScroller_.isGliding()) {
         float dx = 0.0f, dy = 0.0f;

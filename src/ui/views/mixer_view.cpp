@@ -245,9 +245,7 @@ void MixerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     // Sliding Track Properties Drawer Layout
     propertiesDrawer_.layout(bounds_, 0.0f);
-    float drawerTotalW = propertiesDrawer_.isExpanded()
-        ? (TrackPropertiesDrawer::kPullTabWidth + propertiesDrawer_.getWidth())
-        : TrackPropertiesDrawer::kPullTabWidth;
+    float drawerTotalW = propertiesDrawer_.getEffectiveWidth();
 
     // Clean authentic layout: Strips start directly at top padding (Eatsbeats parity)
     float stripTopY = bounds_.y + 8.0f;
@@ -334,25 +332,12 @@ void MixerView::render(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
-    // 0. Update meters from Audio Engine if active
-    if (ctx.audioEngine) {
-        MeterFeedback fb;
-        if (ctx.audioEngine->pollMeterFeedback(fb)) {
-            masterChannel_.peakL = fb.peakLeft;
-            masterChannel_.peakR = fb.peakRight;
-            masterChannel_.peakHoldL = std::max(masterChannel_.peakHoldL * 0.96f, fb.peakLeft);
-            masterChannel_.peakHoldR = std::max(masterChannel_.peakHoldR * 0.96f, fb.peakRight);
-        }
-        for (size_t i = 0; i < channels_.size(); ++i) {
-            MeterFeedback trFb;
-            if (ctx.audioEngine->getTrackMeterFeedback(static_cast<uint32_t>(i), trFb)) {
-                channels_[i].peakL = trFb.peakLeft;
-                channels_[i].peakR = trFb.peakRight;
-                channels_[i].peakHoldL = std::max(channels_[i].peakHoldL * 0.96f, trFb.peakLeft);
-                channels_[i].peakHoldR = std::max(channels_[i].peakHoldR * 0.96f, trFb.peakRight);
-            }
-        }
-    }
+    float frameDt = ctx.dt > 0.0f ? ctx.dt : 0.016f;
+    propertiesDrawer_.update(frameDt);
+    propertiesDrawer_.layout(bounds_, 0.0f);
+
+    // 0. Meter ballistics and peaks are updated from TelemetryPresenter via syncFromWindow
+
 
     // 1. Pinned Master Bus Strip (Always in view on the left, Eatsbeats parity)
     renderMasterStrip(r, theme, masterBounds_);

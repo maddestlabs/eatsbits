@@ -16,6 +16,7 @@ public:
 
     bool getWindowSize(int& cols, int& rows);
     size_t readInput(char* buffer, size_t maxBytes);
+    bool waitForInput(int timeoutMs);
     void writeRaw(std::string_view data);
     void flush();
 

@@ -60,6 +60,102 @@ struct Chunk {
     }
 };
 
+inline std::string disassembleChunk(const Chunk& chunk, const std::string& name = "") {
+    std::string out;
+    if (!name.empty()) {
+        out += "== Disassembly: " + name + " ==\n";
+    }
+    if (!chunk.constants.empty()) {
+        out += "Constants (" + std::to_string(chunk.constants.size()) + "):\n";
+        for (size_t i = 0; i < chunk.constants.size(); ++i) {
+            out += "  [" + std::to_string(i) + "] " + std::to_string(chunk.constants[i]) + "\n";
+        }
+    }
+
+    out += "Bytecode (" + std::to_string(chunk.code.size()) + " bytes):\n";
+    size_t ip = 0;
+    int instNum = 0;
+    char lineBuf[128];
+
+    while (ip < chunk.code.size()) {
+        size_t offset = ip;
+        uint8_t opByte = chunk.code[ip++];
+        auto op = static_cast<OpCode>(opByte);
+        std::string opName;
+        std::string detail;
+
+        switch (op) {
+            case OpCode::Constant: {
+                uint8_t cIdx = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                double val = (cIdx < chunk.constants.size()) ? chunk.constants[cIdx] : 0.0;
+                opName = "OP_CONSTANT";
+                detail = "[" + std::to_string(cIdx) + "] (" + std::to_string(val) + ")";
+                break;
+            }
+            case OpCode::GetLocal: {
+                uint8_t slot = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                opName = "OP_GETLOCAL";
+                std::string locName = (slot < chunk.localNames.size()) ? chunk.localNames[slot] : "";
+                detail = "slot " + std::to_string(slot) + (locName.empty() ? "" : " (" + locName + ")");
+                break;
+            }
+            case OpCode::SetLocal: {
+                uint8_t slot = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                opName = "OP_SETLOCAL";
+                std::string locName = (slot < chunk.localNames.size()) ? chunk.localNames[slot] : "";
+                detail = "slot " + std::to_string(slot) + (locName.empty() ? "" : " (" + locName + ")");
+                break;
+            }
+            case OpCode::GetParam: {
+                uint8_t p = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                opName = "OP_GETPARAM";
+                detail = "param " + std::to_string(p);
+                break;
+            }
+            case OpCode::Add: opName = "OP_ADD"; break;
+            case OpCode::Subtract: opName = "OP_SUBTRACT"; break;
+            case OpCode::Multiply: opName = "OP_MULTIPLY"; break;
+            case OpCode::Divide: opName = "OP_DIVIDE"; break;
+            case OpCode::Modulo: opName = "OP_MODULO"; break;
+            case OpCode::Power: opName = "OP_POWER"; break;
+            case OpCode::Negate: opName = "OP_NEGATE"; break;
+            case OpCode::Equal: opName = "OP_EQUAL"; break;
+            case OpCode::NotEqual: opName = "OP_NOTEQUAL"; break;
+            case OpCode::Less: opName = "OP_LESS"; break;
+            case OpCode::LessEqual: opName = "OP_LESSEQUAL"; break;
+            case OpCode::Greater: opName = "OP_GREATER"; break;
+            case OpCode::GreaterEqual: opName = "OP_GREATEREQUAL"; break;
+            case OpCode::MathSin: opName = "OP_MATHSIN"; break;
+            case OpCode::MathCos: opName = "OP_MATHCOS"; break;
+            case OpCode::MathTanh: opName = "OP_MATHTANH"; break;
+            case OpCode::MathExp: opName = "OP_MATHEXP"; break;
+            case OpCode::MathFloor: opName = "OP_MATHFLOOR"; break;
+            case OpCode::MathSqrt: opName = "OP_MATHSQRT"; break;
+            case OpCode::MathRandom: opName = "OP_MATHRANDOM"; break;
+            case OpCode::Jump: {
+                uint8_t hi = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                uint8_t lo = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                opName = "OP_JUMP";
+                detail = "offset " + std::to_string((hi << 8) | lo);
+                break;
+            }
+            case OpCode::JumpIfFalse: {
+                uint8_t hi = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                uint8_t lo = (ip < chunk.code.size()) ? chunk.code[ip++] : 0;
+                opName = "OP_JUMPIFFALSE";
+                detail = "offset " + std::to_string((hi << 8) | lo);
+                break;
+            }
+            case OpCode::Return: opName = "OP_RETURN"; break;
+            default: opName = "OP_UNKNOWN (" + std::to_string(opByte) + ")"; break;
+        }
+
+        std::snprintf(lineBuf, sizeof(lineBuf), "  %04zu: [%04d] %-16s %s\n", offset, instNum++, opName.c_str(), detail.c_str());
+        out += lineBuf;
+    }
+    return out;
+}
+
 } // namespace eatsbits::eatscript
 
 #endif // EATS_BYTECODE_HPP

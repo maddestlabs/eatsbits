@@ -112,6 +112,15 @@ void TuiApp::run() {
     bool forceRedraw = true;
 
     while (running_) {
+        bool isIdle = !audioEngine_.getSequencer().isPlaying() &&
+                      telemetryBridge_.isSettled() &&
+                      !(activeTab_ == WorkspaceTab::Track && paramRackView_.isEditing());
+
+        if (isIdle && !forceRedraw) {
+            // Suspend into kernel event-wait rather than spinning at 60 FPS (~0% idle CPU)
+            terminalDevice_.waitForInput(50);
+        }
+
         auto frameStart = std::chrono::steady_clock::now();
 
         // Check if terminal size changed
@@ -142,7 +151,7 @@ void TuiApp::run() {
             terminalDevice_.flush();
         }
 
-        // Target 60 FPS (~16.6ms)
+        // Frame pacing (when active)
         auto frameEnd = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart);
         if (elapsed.count() < 16) {
@@ -183,6 +192,13 @@ void TuiApp::processInput() {
 }
 
 void TuiApp::handleKeyEvent(const KeyEvent& key) {
+    // When editing in Track Param Rack, prioritize inline edit buffer
+    if (activeTab_ == WorkspaceTab::Track && paramRackView_.isEditing()) {
+        if (paramRackView_.handleKey(key, audioEngine_)) {
+            return;
+        }
+    }
+
     if (key.code == KeyCode::Escape || key.isChar('q') || key.isChar('Q')) {
         running_ = false;
         return;
@@ -235,6 +251,10 @@ void TuiApp::handleKeyEvent(const KeyEvent& key) {
         else if (key.isChar('a') || key.isChar('A')) trackerGridView_.toggleAccent(seq);
         else if (key.isChar('s') || key.isChar('S')) trackerGridView_.toggleSlide(seq);
     } else if (activeTab_ == WorkspaceTab::Track) {
+        if (key.code == KeyCode::Enter || key.isChar('e') || key.isChar('E')) {
+            paramRackView_.startEdit(audioEngine_);
+            return;
+        }
         if (key.code == KeyCode::Up) paramRackView_.moveSelection(-1);
         else if (key.code == KeyCode::Down) paramRackView_.moveSelection(1);
         else if (key.code == KeyCode::Left) paramRackView_.adjustValue(-1, audioEngine_);

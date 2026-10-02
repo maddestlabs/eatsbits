@@ -2,6 +2,7 @@
 #define EATS_PLUGIN_ABI_H
 
 #include <stdint.h>
+#include "eats_host_abi.h"
 
 #ifdef __cplusplus
 extern "C" {

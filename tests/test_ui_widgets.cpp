@@ -7,6 +7,8 @@
 #include "eatsbits/ui/widgets/scrollable_area.hpp"
 #include "eatsbits/ui/widgets/drum_pad_grid_widget.hpp"
 #include "eatsbits/ui/input/pointer_event.hpp"
+#include "eatsbits/ui/element2d.hpp"
+#include "eatsbits/ui/views/view_base.hpp"
 
 #include <iostream>
 #include <cassert>
@@ -408,6 +410,145 @@ void testMultiTouchAndKineticTouch() {
     std::cout << "  [PASS] Multi-touch and kinetic momentum tests passed." << std::endl;
 }
 
+void testElement2D() {
+    std::cout << "[Test] Element2D hierarchy, coordinate transforms, hit-testing & event bubbling..." << std::endl;
+
+    // 1. Hierarchy creation & parent-child links
+    auto root = std::make_shared<Element2D>("root");
+    root->setBounds(0.0f, 0.0f, 1000.0f, 800.0f);
+
+    auto container = std::make_shared<Element2D>("container");
+    container->setBounds(50.0f, 100.0f, 400.0f, 300.0f);
+    root->addChild(container);
+
+    assert(container->getParent() == root.get());
+    assert(root->getChildCount() == 1);
+    assert(root->findById("container") == container.get());
+
+    auto btn1 = std::make_shared<Element2D>("btn1");
+    btn1->setBounds(20.0f, 30.0f, 80.0f, 40.0f);
+    container->addChild(btn1);
+
+    auto btn2 = std::make_shared<Element2D>("btn2");
+    btn2->setBounds(60.0f, 50.0f, 80.0f, 40.0f);
+    container->addChild(btn2);
+
+    assert(btn1->getParent() == container.get());
+    assert(btn2->getParent() == container.get());
+    assert(container->getChildCount() == 2);
+    assert(root->findById("btn2") == btn2.get());
+
+    // 2. Coordinate transformations
+    // btn1 local (0, 0) -> global: container(50, 100) + btn1(20, 30) = (70, 130)
+    Point gPt = btn1->localToGlobal(Point{0.0f, 0.0f});
+    assertNear(gPt.x, 70.0f, 1e-4f, "btn1 global origin X");
+    assertNear(gPt.y, 130.0f, 1e-4f, "btn1 global origin Y");
+
+    Point lPt = btn1->globalToLocal(Point{70.0f, 130.0f});
+    assertNear(lPt.x, 0.0f, 1e-4f, "btn1 local origin X");
+    assertNear(lPt.y, 0.0f, 1e-4f, "btn1 local origin Y");
+
+    Rect2D btn1Gb = btn1->getGlobalBounds();
+    assertNear(btn1Gb.x, 70.0f, 1e-4f, "btn1 global bounds X");
+    assertNear(btn1Gb.y, 130.0f, 1e-4f, "btn1 global bounds Y");
+    assertNear(btn1Gb.w, 80.0f, 1e-4f, "btn1 global bounds W");
+    assertNear(btn1Gb.h, 40.0f, 1e-4f, "btn1 global bounds H");
+
+    // 3. Clipping bounds
+    container->setClipping(true);
+    assert(container->isClippingEnabled());
+    Rect2D clipRect = container->getGlobalClipRect();
+    assertNear(clipRect.x, 50.0f, 1e-4f);
+    assertNear(clipRect.y, 100.0f, 1e-4f);
+    assertNear(clipRect.w, 400.0f, 1e-4f);
+    assertNear(clipRect.h, 300.0f, 1e-4f);
+
+    // 4. Hit-testing with reverse-z child ordering & overlap
+    // btn1 global: [70, 130, 80, 40] -> X in [70, 150], Y in [130, 170]
+    // btn2 global: container(50, 100) + (60, 50) = [110, 150, 80, 40] -> X in [110, 190], Y in [150, 190]
+    // Overlap region: X in [110, 150], Y in [150, 170]
+    // Since btn2 was added after btn1, clicking at (120, 160) MUST hit btn2
+    Element2D* hitTarget = root->hitTest(120.0f, 160.0f);
+    assert(hitTarget == btn2.get());
+
+    // Clicking at (80, 140) is only inside btn1
+    hitTarget = root->hitTest(80.0f, 140.0f);
+    assert(hitTarget == btn1.get());
+
+    // Clicking at (200, 200) is inside container, outside buttons
+    hitTarget = root->hitTest(200.0f, 200.0f);
+    assert(hitTarget == container.get());
+
+    // Hiding btn2 makes hit-test fall through to btn1 in overlap region
+    btn2->setVisible(false);
+    hitTarget = root->hitTest(120.0f, 160.0f);
+    assert(hitTarget == btn1.get());
+    btn2->setVisible(true);
+
+    // 5. Event dispatching & bubbling
+    class TestClickableElement : public Element2D {
+    public:
+        using Element2D::Element2D;
+        bool clicked{false};
+        bool handlePointer(const PointerEvent& ev, [[maybe_unused]] const ViewContext& ctx) override {
+            if (ev.action == PointerAction::Down) {
+                clicked = true;
+                return true; // Handled!
+            }
+            return false;
+        }
+    };
+
+    class TestBubblingParent : public Element2D {
+    public:
+        using Element2D::Element2D;
+        bool parentReceived{false};
+        bool handlePointer(const PointerEvent& ev, [[maybe_unused]] const ViewContext& ctx) override {
+            if (ev.action == PointerAction::Down) {
+                parentReceived = true;
+                return true;
+            }
+            return false;
+        }
+    };
+
+    auto bubbleParent = std::make_shared<TestBubblingParent>("bubbleParent");
+    bubbleParent->setBounds(0.0f, 0.0f, 200.0f, 200.0f);
+
+    auto unhandledChild = std::make_shared<Element2D>("unhandledChild");
+    unhandledChild->setBounds(20.0f, 20.0f, 100.0f, 100.0f);
+    bubbleParent->addChild(unhandledChild);
+
+    ViewContext ctx{};
+    PointerEvent evDown{};
+    evDown.action = PointerAction::Down;
+    evDown.x = 50.0f;
+    evDown.y = 50.0f;
+
+    // Dispatching to unhandled child bubbles up to bubbleParent
+    bool handled = bubbleParent->dispatchPointer(evDown, ctx);
+    assert(handled);
+    assert(bubbleParent->parentReceived);
+
+    // 6. Dirty tracking & tree removal
+    root->clearDirty();
+    assert(!root->isDirty());
+    assert(!btn1->isDirty());
+
+    // Modifying child marks root dirty
+    btn1->setBounds(25.0f, 35.0f, 80.0f, 40.0f);
+    assert(btn1->isDirty());
+    assert(root->isDirty());
+
+    // Removal
+    btn2->removeFromParent();
+    assert(btn2->getParent() == nullptr);
+    assert(container->getChildCount() == 1);
+    assert(root->findById("btn2") == nullptr);
+
+    std::cout << "  [PASS] Element2D hierarchy & event bubbling validated." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits UI Geometry & Widgets Tests ===" << std::endl;
     testRectGeometry();
@@ -418,6 +559,7 @@ int main() {
     testContextualLightingAndTb303();
     testScrollableArea();
     testMultiTouchAndKineticTouch();
+    testElement2D();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }

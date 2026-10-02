@@ -13,6 +13,7 @@
 #include <sstream>
 #include <iomanip>
 #include <string_view>
+#include "eatsbits/presenter/track_properties_presenter.hpp"
 
 namespace {
 inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
@@ -22,6 +23,27 @@ inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexc
             return std::tolower(static_cast<unsigned char>(c1)) ==
                    std::tolower(static_cast<unsigned char>(c2));
         });
+}
+
+inline eatsbits::ui::ValueEditRequest toValueEditRequest(const eatsbits::presenter::ValueEditConfig& cfg,
+                                                        const eatsbits::ui::Color& accent) {
+    eatsbits::ui::ValueEditRequest req;
+    req.title = cfg.title;
+    req.paramName = cfg.paramName;
+    req.isTextMode = cfg.isTextMode;
+    req.initialText = cfg.initialText;
+    req.currentValue = cfg.currentValue;
+    req.minValue = cfg.minValue;
+    req.maxValue = cfg.maxValue;
+    req.defaultValue = cfg.defaultValue;
+    req.hasDefault = cfg.hasDefault;
+    req.isInteger = cfg.isInteger;
+    req.allowPercentage = cfg.allowPercentage;
+    req.unit = cfg.unit;
+    req.accentColor = accent;
+    req.onCommit = cfg.onCommit;
+    req.onCommitText = cfg.onCommitText;
+    return req;
 }
 } // namespace
 
@@ -1985,42 +2007,27 @@ bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& h
     if (!onOpenValueEdit || !hit.hit) return false;
 
     if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
-        ValueEditRequest req;
-        req.title = data.trackName + " VOLUME";
-        req.paramName = "Volume";
-        req.currentValue = data.volume;
-        req.minValue = 0.0f;
-        req.maxValue = 1.5f;
-        req.defaultValue = 0.8f;
-        req.hasDefault = true;
-        req.allowPercentage = true;
-        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-        req.onCommit = [this, &data](float val) {
-            data.volume = val;
-            if (onVolumeChanged) onVolumeChanged(data.trackIndex, val);
-        };
-        onOpenValueEdit(req);
+        auto cfg = presenter::TrackPropertiesPresenter::makeEditConfig(
+            presenter::TrackParamType::Volume, data.volume, data.trackName,
+            [this, &data](float val) {
+                data.volume = val;
+                if (onVolumeChanged) onVolumeChanged(data.trackIndex, val);
+            });
+        onOpenValueEdit(toValueEditRequest(cfg, Color(data.r, data.g, data.b, 1.0f)));
         return true;
     }
 
     if (hit.area == TrackPropertiesHitArea::PanKnob) {
-        ValueEditRequest req;
-        req.title = data.trackName + " PAN";
-        req.paramName = "Pan";
-        req.currentValue = data.pan;
-        req.minValue = -1.0f;
-        req.maxValue = 1.0f;
-        req.defaultValue = 0.0f;
-        req.hasDefault = true;
-        req.allowPercentage = false;
-        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-        req.onCommit = [this, &data](float val) {
-            data.pan = val;
-            if (onPanChanged) onPanChanged(data.trackIndex, val);
-        };
-        onOpenValueEdit(req);
+        auto cfg = presenter::TrackPropertiesPresenter::makeEditConfig(
+            presenter::TrackParamType::Pan, data.pan, data.trackName,
+            [this, &data](float val) {
+                data.pan = val;
+                if (onPanChanged) onPanChanged(data.trackIndex, val);
+            });
+        onOpenValueEdit(toValueEditRequest(cfg, Color(data.r, data.g, data.b, 1.0f)));
         return true;
     }
+
 
     if (hit.area == TrackPropertiesHitArea::InstrumentKnob) {
         int rIdx = hit.index / 100;
@@ -2136,55 +2143,29 @@ bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& h
     }
 
     if (hit.area == TrackPropertiesHitArea::EqHpf) {
-        ValueEditRequest req;
-        req.title = data.trackName + " • HPF Cut";
-        req.paramName = "HPF Cut";
-        req.currentValue = data.eqHpf;
-        req.minValue = 20.0f;
-        req.maxValue = 500.0f;
-        req.defaultValue = 20.0f;
-        req.unit = "Hz";
-        req.hasDefault = true;
-        req.allowPercentage = false;
-        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-        req.onCommit = [&data](float val) { data.eqHpf = val; };
-        onOpenValueEdit(req);
+        auto cfg = presenter::TrackPropertiesPresenter::makeEditConfig(
+            presenter::TrackParamType::EqHpf, data.eqHpf, data.trackName,
+            [&data](float val) { data.eqHpf = val; });
+        onOpenValueEdit(toValueEditRequest(cfg, Color(data.r, data.g, data.b, 1.0f)));
         return true;
     }
 
     if (hit.area == TrackPropertiesHitArea::EqLowGain) {
-        ValueEditRequest req;
-        req.title = data.trackName + " • Low Gain";
-        req.paramName = "Low Gain";
-        req.currentValue = data.eqLowGain;
-        req.minValue = -18.0f;
-        req.maxValue = 18.0f;
-        req.defaultValue = 0.0f;
-        req.unit = "dB";
-        req.hasDefault = true;
-        req.allowPercentage = false;
-        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-        req.onCommit = [&data](float val) { data.eqLowGain = val; };
-        onOpenValueEdit(req);
+        auto cfg = presenter::TrackPropertiesPresenter::makeEditConfig(
+            presenter::TrackParamType::EqLowGain, data.eqLowGain, data.trackName,
+            [&data](float val) { data.eqLowGain = val; });
+        onOpenValueEdit(toValueEditRequest(cfg, Color(data.r, data.g, data.b, 1.0f)));
         return true;
     }
 
     if (hit.area == TrackPropertiesHitArea::EqHighGain) {
-        ValueEditRequest req;
-        req.title = data.trackName + " • High Gain";
-        req.paramName = "High Gain";
-        req.currentValue = data.eqHighGain;
-        req.minValue = -18.0f;
-        req.maxValue = 18.0f;
-        req.defaultValue = 0.0f;
-        req.unit = "dB";
-        req.hasDefault = true;
-        req.allowPercentage = false;
-        req.accentColor = Color(data.r, data.g, data.b, 1.0f);
-        req.onCommit = [&data](float val) { data.eqHighGain = val; };
-        onOpenValueEdit(req);
+        auto cfg = presenter::TrackPropertiesPresenter::makeEditConfig(
+            presenter::TrackParamType::EqHighGain, data.eqHighGain, data.trackName,
+            [&data](float val) { data.eqHighGain = val; });
+        onOpenValueEdit(toValueEditRequest(cfg, Color(data.r, data.g, data.b, 1.0f)));
         return true;
     }
+
 
     if (hit.area == TrackPropertiesHitArea::EqMidFreq) {
         ValueEditRequest req;

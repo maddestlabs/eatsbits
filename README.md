@@ -5,6 +5,25 @@
 
 ---
 
+## 🏛️ The Bigger Picture: Beyond the DAW (Engine Core & Vision)
+
+While **Eatsbits** seeks to poise itself as a cutting-edge Digital Audio Workstation, it is architected as the flagship anchor application for a much larger ambition: a **lean, web-first, mobile-first, dual-surface (GUI + TUI) game and application engine**.
+
+We're seeking to prove out the engine's design by applying it against the brutal real-time constraints of hard real-time audio threads, zero-allocation DSP, 120 FPS WebGPU vector rendering, and dual-surface TUI/GUI behavioral parity.
+
+* **Flagship Anchor Application:** Eatsbits DAW (multitrack sequencer, modular synthesizer, and live-coding studio).
+* **Universal Scripting Core:** [Eatscript](include/eatsbits/eatscript), a Pythonic DSL featuring both a zero-allocation bytecode VM and an AOT C-ABI transpiler.
+* **Dual-Surface MVP Architecture:** Headless [Presenters](include/eatsbits/presenter) driving both desktop/mobile hardware-accelerated vector UI (WebGPU / Dawn) and low-latency terminal TUI ([CellSurface](include/eatsbits/tui/cell_surface.hpp)).
+* **GPU-driven Terminal & Eatscript Shell:** A WebGPU-accelerated terminal emulator and structured interactive shell powered by Eatscript.
+* **Future OS Foundation:** An operating system built around Eatscript for simplified, readable, API-driven system interaction.
+
+> **Architectural Blueprint & AI Pair-Programming Guide:**  
+> To prevent architectural drift and align both human developers and AI pair-programmers (Gemini / Antigravity) with our long-term modular vision, refer to:
+> - **[engine-blueprint.md](engine-blueprint.md)**: Master deconstruction roadmap, gap analysis, and AI development guardrails.
+> - **[gui-mvp.md](gui-mvp.md)**: Model-View-Presenter (MVP) specification for zero-allocation dual-surface TUI/GUI parity.
+
+---
+
 ## 1. Architectural Highlights
 
 - **Zero-Allocation Audio Thread:** Strict real-time safety in the audio callback. No dynamic memory allocations (`malloc`, `new`), lock contention, or garbage collection pauses.
@@ -85,6 +104,10 @@
 eatsbits/
 ├── CMakeLists.txt                         # Root CMake configuration (C++20, MSVC/GCC/Clang)
 ├── README.md                             # Documentation & user guide
+├── engine-blueprint.md                   # Engine deconstruction blueprint & AI guidelines
+├── gui-mvp.md                            # Model-View-Presenter dual-surface (TUI/GUI) architecture
+├── port.md                               # Eatsbeats (Flutter) to Eatsbits (C++20) porting tracker
+├── progress.md                           # Verification & test suite tracker
 ├── build.ps1                              # Automated Windows PowerShell build script
 ├── build.sh                               # Automated POSIX / Linux / macOS build script
 ├── assets/
@@ -269,8 +292,35 @@ cmake -B build -S .
 # Build Release binaries
 cmake --build build --config Release
 
-# Run automated test suite (100% passing across 18 targets)
+# Run automated test suite (100% passing across 42 targets)
 ctest --test-dir build -C Release --output-on-failure
+```
+
+### Standalone Executable Targets
+1. **`eatsbits_gui.exe`:** Hardware-accelerated Desktop GUI DAW (Dawn / WebGPU / NanoVG).
+2. **`eatsbits_tui.exe`:** Ultra-low latency terminal DAW with ANSI differential rendering and Braille telemetry.
+3. **`eatsbits_term.exe`:** Standalone WebGPU GPU terminal emulator with built-in Eatscript shell.
+4. **`eatscript_cli.exe`:** Standalone Eatscript compiler, bytecode VM, AOT C++ transpiler, and interactive REPL.
+5. **`eatsbits_cli.exe`:** CLI demo harness and audio auditioning testbench.
+
+### Running the Standalone WebGPU Terminal & Eatscript Shell
+```powershell
+.\build\Release\eatsbits_term.exe
+```
+
+### Running the Standalone Eatscript REPL / CLI
+```powershell
+# Interactive REPL
+.\build\Release\eatscript_cli.exe --shell
+
+# Direct Expression Evaluation
+.\build\Release\eatscript_cli.exe --eval "print(math.sin(math.pi * 0.5))"
+
+# Disassemble Script Bytecode
+.\build\Release\eatscript_cli.exe --bytecode synth.eats
+
+# AOT Transpile to C-ABI C++ Plugin
+.\build\Release\eatscript_cli.exe --transpile synth.eats -o synth_plugin.cpp
 ```
 
 ### Running the Interactive Desktop GUI (GLFW + Google Dawn / WebGPU / NanoVG)
@@ -280,6 +330,7 @@ ctest --test-dir build -C Release --output-on-failure
 .\build.ps1 -Run
 ```
 Inside the Desktop GUI:
+- **Interactive WebGPU Terminal & REPL Drawer:** Expandable terminal drawer docked above the bottom bar with live Host ABI reflection to the running audio engine. Type expressions, trigger sounds, or inspect BPM and telemetry live.
 - **Canonical Bottom Hardware Navigation Panel:** Instant switching between `ARRANGER` (Multi-track playlist timeline), `EDIT` (Tracker & Piano Roll sub-views), `TRACK` (Instrument hardware faceplate & audio FX rack), `MIXER` (Studio console faders & meters), and `DESIGN` (Eurorack Modular rack & Eatscript IDE).
 - **Top Transport Header:** Live Bar:Beat:Tick Nixie/LCD Song Position readout (`001:01:01`), Quantize Snap selector (`1/16`), `[METRO]` Metronome toggle, `[LOOP]` Loop region toggle, and `[BROWSER]` Project Browser drawer button.
 - **Arranger Timeline Workspace (`ARRANGER`):** Multi-track playlist canvas with 5 track cards, time ruler, loop markers, clip blocks with mini step waveforms, real-time live playhead, and minimap overview scrollbar.

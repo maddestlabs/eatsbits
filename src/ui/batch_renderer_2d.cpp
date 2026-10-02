@@ -1,4 +1,6 @@
 #include "eatsbits/ui/batch_renderer_2d.hpp"
+#include "eatsbits/ui/monospace_font_8x16.hpp"
+#include "eatsbits/tui/types.hpp"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -45,6 +47,22 @@ public:
         atlasHeight_ = 1024;
         fontAtlas_.assign(atlasWidth_ * atlasHeight_, 0);
 
+        // Populate dedicated 128x256 monospace font atlas directly from kMonospaceFont8x16
+        monospaceAtlas_.resize(128 * 256, 0);
+        for (int c = 0; c < 256; ++c) {
+            int glyphCol = c % 16;
+            int glyphRow = c / 16;
+            int originX = glyphCol * 8;
+            int originY = glyphRow * 16;
+            for (int y = 0; y < 16; ++y) {
+                uint8_t rowByte = kMonospaceFont8x16[c * 16 + y];
+                for (int x = 0; x < 8; ++x) {
+                    uint8_t alpha = (rowByte & (1 << (7 - x))) ? 255 : 0;
+                    monospaceAtlas_[(originY + y) * 128 + (originX + x)] = alpha;
+                }
+            }
+        }
+
         if (width > 0 && height > 0) {
             framebuffer_.assign(static_cast<size_t>(width) * height, 0xFF14171E);
         }
@@ -65,6 +83,7 @@ public:
 
     void shutdown() override {
         fontAtlas_.clear();
+        monospaceAtlas_.clear();
         framebuffer_.clear();
 #if defined(_WIN32)
         hwnd_ = nullptr;
@@ -90,7 +109,8 @@ public:
         }
     }
 
-    void updateFontTexture(int /*x*/, int /*y*/, int /*w*/, int /*h*/, const unsigned char* data, int atlasW, int atlasH) override {
+    void updateFontTexture(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) override {
+        (void)x; (void)y; (void)w; (void)h;
         atlasWidth_ = atlasW;
         atlasHeight_ = atlasH;
         size_t totalBytes = static_cast<size_t>(atlasW) * atlasH;
@@ -98,7 +118,6 @@ public:
             fontAtlas_.resize(totalBytes, 0);
         }
         if (data && totalBytes > 0) {
-            // FontStash passes stash->texData (the full atlas buffer)
             std::memcpy(fontAtlas_.data(), data, totalBytes);
         }
     }
@@ -129,10 +148,11 @@ public:
                 const auto& w1 = vertices[(t + 1) * 3 + 1];
                 const auto& w2 = vertices[(t + 1) * 3 + 2];
 
-                // Fast path: standard quad emitted by drawRect / drawKnurledRing
-                if (std::abs(v0.x - w0.x) < 0.001f && std::abs(v0.y - w0.y) < 0.001f &&
+                // Fast path: standard quad emitted by drawRect / drawKnurledRing (solid mode == 0)
+                if (v0.mode == 0 && w0.mode == 0 &&
+                    std::abs(v0.x - w0.x) < 0.001f && std::abs(v0.y - w0.y) < 0.001f &&
                     std::abs(v2.x - w1.x) < 0.001f && std::abs(v2.y - w1.y) < 0.001f &&
-                    v0.mode == w0.mode && v0.color == w0.color && v2.color == w1.color) {
+                    v0.color == w0.color && v2.color == w1.color) {
                     rasterizeQuad(v0, v1, v2, w2);
                     t += 2;
                     continue;
@@ -820,7 +840,8 @@ private:
         const float stepX2 = -dy2;
 
         const bool isText = (t0.mode == 1 || t1.mode == 1 || t2.mode == 1);
-        const bool isSolid = (!isText && t0.color == t1.color && t0.color == t2.color);
+        const bool isMonospace = (t0.mode == 4 || t1.mode == 4 || t2.mode == 4);
+        const bool isSolid = (!isText && !isMonospace && t0.color == t1.color && t0.color == t2.color);
 
         const uint32_t c0_r = t0.color & 0xFF;
         const uint32_t c0_g = (t0.color >> 8) & 0xFF;
@@ -852,6 +873,16 @@ private:
                     if (e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f) {
                         if (isSolid) {
                             *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, c0_a);
+                        } else if (isMonospace) {
+                            float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
+                            float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
+                            int gx = std::clamp(static_cast<int>(u * 128.0f), 0, 127);
+                            int gy = std::clamp(static_cast<int>(v * 256.0f), 0, 255);
+                            uint32_t fontAlpha = monospaceAtlas_.empty() ? 0 : monospaceAtlas_[static_cast<size_t>(gy * 128 + gx)];
+                            if (fontAlpha > 0) {
+                                uint32_t a = (c0_a * fontAlpha) / 255;
+                                *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
+                            }
                         } else if (isText) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
@@ -935,6 +966,17 @@ private:
                         if (isSolid) {
                             uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
                             *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, effA);
+                        } else if (isMonospace) {
+                            float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
+                            float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
+                            int gx = std::clamp(static_cast<int>(u * 128.0f), 0, 127);
+                            int gy = std::clamp(static_cast<int>(v * 256.0f), 0, 255);
+                            uint32_t fontAlpha = monospaceAtlas_.empty() ? 0 : monospaceAtlas_[static_cast<size_t>(gy * 128 + gx)];
+                            if (fontAlpha > 0) {
+                                uint32_t effA = (mask == static_cast<uint32_t>(numSamples)) ? c0_a : ((c0_a * mask + (numSamples / 2)) / numSamples);
+                                uint32_t a = (effA * fontAlpha) / 255;
+                                *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
+                            }
                         } else if (isText) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
@@ -981,6 +1023,7 @@ private:
     }
 
     std::vector<unsigned char> fontAtlas_;
+    std::vector<uint8_t> monospaceAtlas_{};
     std::vector<uint32_t> framebuffer_;
     int atlasWidth_{1024};
     int atlasHeight_{1024};
@@ -1437,7 +1480,7 @@ private:
 
             @fragment
             fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-                if (in.mode == 1u) {
+                if (in.mode == 1u || in.mode == 4u) {
                     let alpha = textureSampleLevel(fontTexture, fontSampler, in.uv, 0.0).r;
                     return vec4<f32>(in.color.rgb, in.color.a * alpha);
                 } else if (in.mode == 2u) {
@@ -2371,4 +2414,381 @@ void BatchRenderer2D::drawKnurledRing(float cx, float cy, float rInner, float rO
     }
 }
 
+// ============================================================================
+// Monospace Text & High-Throughput Terminal Glyph Pipeline
+// ============================================================================
+
+void BatchRenderer2D::initDefaultMonospaceAtlas() {
+    monospaceAtlasReady_ = true;
+}
+
+static bool isBoxDrawingOrBlock(char32_t cp) noexcept {
+    return (cp >= 0x2500 && cp <= 0x257F) || // Box Drawing
+           (cp >= 0x2580 && cp <= 0x259F) || // Block Elements
+           (cp >= 0x2800 && cp <= 0x28FF);   // Braille Patterns
+}
+
+void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
+                                       char32_t codepoint,
+                                       uint32_t fgColor,
+                                       uint32_t bgColor,
+                                       uint8_t attrs,
+                                       float subpixelOffsetX,
+                                       float subpixelOffsetY) {
+    float cx = x + subpixelOffsetX;
+    float cy = y + subpixelOffsetY;
+
+    // Attribute: Reverse / Invert video
+    if (attrs & static_cast<uint8_t>(tui::TextAttr::Reverse)) {
+        std::swap(fgColor, bgColor);
+    }
+
+    // Extract background color RGBA
+    float bgR = static_cast<float>(bgColor & 0xFF) / 255.0f;
+    float bgG = static_cast<float>((bgColor >> 8) & 0xFF) / 255.0f;
+    float bgB = static_cast<float>((bgColor >> 16) & 0xFF) / 255.0f;
+    float bgA = static_cast<float>((bgColor >> 24) & 0xFF) / 255.0f;
+
+    if (bgA > 0.001f) {
+        drawRect(cx, cy, w, h, bgR, bgG, bgB, bgA);
+    }
+
+    // Space or null codepoint: only background
+    if (codepoint == ' ' || codepoint == 0) {
+        if (attrs & static_cast<uint8_t>(tui::TextAttr::Underline)) {
+            float fgR = static_cast<float>(fgColor & 0xFF) / 255.0f;
+            float fgG = static_cast<float>((fgColor >> 8) & 0xFF) / 255.0f;
+            float fgB = static_cast<float>((fgColor >> 16) & 0xFF) / 255.0f;
+            float fgA = static_cast<float>((fgColor >> 24) & 0xFF) / 255.0f;
+            drawRect(cx, cy + h - 1.5f, w, 1.0f, fgR, fgG, fgB, fgA);
+        }
+        return;
+    }
+
+    // Attribute: Dim
+    if (attrs & static_cast<uint8_t>(tui::TextAttr::Dim)) {
+        float r = static_cast<float>(fgColor & 0xFF) / 255.0f * 0.6f;
+        float g = static_cast<float>((fgColor >> 8) & 0xFF) / 255.0f * 0.6f;
+        float b = static_cast<float>((fgColor >> 16) & 0xFF) / 255.0f * 0.6f;
+        float a = static_cast<float>((fgColor >> 24) & 0xFF) / 255.0f * 0.75f;
+        fgColor = packColor(r, g, b, a);
+    }
+
+    // Attribute: Bold
+    bool isBold = (attrs & static_cast<uint8_t>(tui::TextAttr::Bold)) != 0;
+
+    float fgR = static_cast<float>(fgColor & 0xFF) / 255.0f;
+    float fgG = static_cast<float>((fgColor >> 8) & 0xFF) / 255.0f;
+    float fgB = static_cast<float>((fgColor >> 16) & 0xFF) / 255.0f;
+    float fgA = static_cast<float>((fgColor >> 24) & 0xFF) / 255.0f;
+
+    // Check if custom vector box-drawing / block / braille glyph
+    if (isBoxDrawingOrBlock(codepoint)) {
+        float lineThick = isBold ? std::max(2.0f, std::round(w * 0.16f)) : std::max(1.0f, std::round(w * 0.08f));
+        float midX = cx + std::floor(w * 0.5f);
+        float midY = cy + std::floor(h * 0.5f);
+        float halfThick = std::floor(lineThick * 0.5f);
+
+        // Box Drawing Characters (0x2500 - 0x257F)
+        if (codepoint >= 0x2500 && codepoint <= 0x257F) {
+            bool left = false, right = false, top = false, bottom = false;
+            bool isDouble = false;
+
+            switch (codepoint) {
+                case 0x2500: case 0x2501: left = right = true; break; // ─ ━
+                case 0x2502: case 0x2503: top = bottom = true; break; // │ ┃
+                case 0x250C: case 0x250F: right = bottom = true; break; // ┌ ┏
+                case 0x2510: case 0x2513: left = bottom = true; break;  // ┐ ┓
+                case 0x2514: case 0x2517: right = top = true; break;    // └ ┗
+                case 0x2518: case 0x251B: left = top = true; break;     // ┘ ┛
+                case 0x251C: case 0x2523: top = bottom = right = true; break; // ├ ┣
+                case 0x2524: case 0x252B: top = bottom = left = true; break;  // ┤ ┫
+                case 0x252C: case 0x2533: left = right = bottom = true; break; // ┬ ┳
+                case 0x2534: case 0x253B: left = right = top = true; break;    // ┴ ┻
+                case 0x253C: case 0x254B: left = right = top = bottom = true; break; // ┼ ╋
+                // Double lines
+                case 0x2550: left = right = true; isDouble = true; break; // ═
+                case 0x2551: top = bottom = true; isDouble = true; break; // ║
+                case 0x2554: right = bottom = true; isDouble = true; break; // ╔
+                case 0x2557: left = bottom = true; isDouble = true; break; // ╗
+                case 0x255A: right = top = true; isDouble = true; break; // ╚
+                case 0x255D: left = top = true; isDouble = true; break; // ╝
+                case 0x2560: top = bottom = right = true; isDouble = true; break; // ╠
+                case 0x2563: top = bottom = left = true; isDouble = true; break; // ╣
+                case 0x2566: left = right = bottom = true; isDouble = true; break; // ╦
+                case 0x2569: left = right = top = true; isDouble = true; break; // ╩
+                case 0x256C: left = right = top = bottom = true; isDouble = true; break; // ╬
+                // Arc corners
+                case 0x256D: right = bottom = true; break; // ╭
+                case 0x256E: left = bottom = true; break;  // ╮
+                case 0x256F: left = top = true; break;     // ╯
+                case 0x2570: right = top = true; break;    // ╰
+                default: left = right = true; break;
+            }
+
+            if (isDouble) {
+                float gap = std::max(2.0f, std::round(lineThick * 1.5f));
+                if (left && right) {
+                    drawRect(cx, midY - gap * 0.5f, w, 1.0f, fgR, fgG, fgB, fgA);
+                    drawRect(cx, midY + gap * 0.5f, w, 1.0f, fgR, fgG, fgB, fgA);
+                } else {
+                    if (left) {
+                        drawRect(cx, midY - gap * 0.5f, midX - cx, 1.0f, fgR, fgG, fgB, fgA);
+                        drawRect(cx, midY + gap * 0.5f, midX - cx, 1.0f, fgR, fgG, fgB, fgA);
+                    }
+                    if (right) {
+                        drawRect(midX, midY - gap * 0.5f, cx + w - midX, 1.0f, fgR, fgG, fgB, fgA);
+                        drawRect(midX, midY + gap * 0.5f, cx + w - midX, 1.0f, fgR, fgG, fgB, fgA);
+                    }
+                }
+                if (top && bottom) {
+                    drawRect(midX - gap * 0.5f, cy, 1.0f, h, fgR, fgG, fgB, fgA);
+                    drawRect(midX + gap * 0.5f, cy, 1.0f, h, fgR, fgG, fgB, fgA);
+                } else {
+                    if (top) {
+                        drawRect(midX - gap * 0.5f, cy, 1.0f, midY - cy, fgR, fgG, fgB, fgA);
+                        drawRect(midX + gap * 0.5f, cy, 1.0f, midY - cy, fgR, fgG, fgB, fgA);
+                    }
+                    if (bottom) {
+                        drawRect(midX - gap * 0.5f, midY, 1.0f, cy + h - midY, fgR, fgG, fgB, fgA);
+                        drawRect(midX + gap * 0.5f, midY, 1.0f, cy + h - midY, fgR, fgG, fgB, fgA);
+                    }
+                }
+            } else {
+                if (left && right) {
+                    drawRect(cx, midY - halfThick, w, lineThick, fgR, fgG, fgB, fgA);
+                } else {
+                    if (left) drawRect(cx, midY - halfThick, midX - cx + halfThick, lineThick, fgR, fgG, fgB, fgA);
+                    if (right) drawRect(midX - halfThick, midY - halfThick, cx + w - midX + halfThick, lineThick, fgR, fgG, fgB, fgA);
+                }
+                if (top && bottom) {
+                    drawRect(midX - halfThick, cy, lineThick, h, fgR, fgG, fgB, fgA);
+                } else {
+                    if (top) drawRect(midX - halfThick, cy, lineThick, midY - cy + halfThick, fgR, fgG, fgB, fgA);
+                    if (bottom) drawRect(midX - halfThick, midY - halfThick, lineThick, cy + h - midY + halfThick, fgR, fgG, fgB, fgA);
+                }
+            }
+        }
+        // Block Elements (0x2580 - 0x259F)
+        else if (codepoint >= 0x2580 && codepoint <= 0x259F) {
+            float halfW = std::floor(w * 0.5f);
+            float halfH = std::floor(h * 0.5f);
+
+            switch (codepoint) {
+                case 0x2588: // █ Full block
+                    drawRect(cx, cy, w, h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2580: // ▀ Upper half block
+                    drawRect(cx, cy, w, halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2584: // ▄ Lower half block
+                    drawRect(cx, cy + halfH, w, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x258C: // ▌ Left half block
+                    drawRect(cx, cy, halfW, h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2590: // ▐ Right half block
+                    drawRect(cx + halfW, cy, w - halfW, h, fgR, fgG, fgB, fgA);
+                    break;
+                // Quadrants
+                case 0x2596: // ▖ Lower left
+                    drawRect(cx, cy + halfH, halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2597: // ▗ Lower right
+                    drawRect(cx + halfW, cy + halfH, w - halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2598: // ▘ Upper left
+                    drawRect(cx, cy, halfW, halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259D: // ▝ Upper right
+                    drawRect(cx + halfW, cy, w - halfW, halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2599: // ▙ Upper left, lower left, lower right
+                    drawRect(cx, cy, halfW, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx, cy + halfH, w, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259A: // ▚ Upper left, lower right
+                    drawRect(cx, cy, halfW, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx + halfW, cy + halfH, w - halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259B: // ▛ Upper left, upper right, lower left
+                    drawRect(cx, cy, w, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx, cy + halfH, halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259C: // ▜ Upper left, upper right, lower right
+                    drawRect(cx, cy, w, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx + halfW, cy + halfH, w - halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259E: // ▞ Upper right, lower left
+                    drawRect(cx + halfW, cy, w - halfW, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx, cy + halfH, halfW, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x259F: // ▟ Upper right, lower left, lower right
+                    drawRect(cx + halfW, cy, w - halfW, halfH, fgR, fgG, fgB, fgA);
+                    drawRect(cx, cy + halfH, w, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                // Shades (0x2591, 0x2592, 0x2593)
+                case 0x2591: // ░ 25%
+                    drawRect(cx, cy, w, h, fgR, fgG, fgB, fgA * 0.25f);
+                    break;
+                case 0x2592: // ▒ 50%
+                    drawRect(cx, cy, w, h, fgR, fgG, fgB, fgA * 0.50f);
+                    break;
+                case 0x2593: // ▓ 75%
+                    drawRect(cx, cy, w, h, fgR, fgG, fgB, fgA * 0.75f);
+                    break;
+                default:
+                    drawRect(cx, cy, w, h, fgR, fgG, fgB, fgA);
+                    break;
+            }
+        }
+        // Braille Patterns (0x2800 - 0x28FF)
+        else if (codepoint >= 0x2800 && codepoint <= 0x28FF) {
+            uint32_t mask = static_cast<uint32_t>(codepoint - 0x2800);
+            float dotW = std::max(1.5f, std::round(w * 0.22f));
+            float dotH = std::max(1.5f, std::round(h * 0.16f));
+
+            float xCols[2] = { cx + std::round(w * 0.25f - dotW * 0.5f),
+                               cx + std::round(w * 0.75f - dotW * 0.5f) };
+            float yRows[4] = { cy + std::round(h * 0.15f - dotH * 0.5f),
+                               cy + std::round(h * 0.38f - dotH * 0.5f),
+                               cy + std::round(h * 0.62f - dotH * 0.5f),
+                               cy + std::round(h * 0.85f - dotH * 0.5f) };
+
+            if (mask & 0x01) drawRect(xCols[0], yRows[0], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x02) drawRect(xCols[0], yRows[1], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x04) drawRect(xCols[0], yRows[2], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x08) drawRect(xCols[1], yRows[0], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x10) drawRect(xCols[1], yRows[1], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x20) drawRect(xCols[1], yRows[2], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x40) drawRect(xCols[0], yRows[3], dotW, dotH, fgR, fgG, fgB, fgA);
+            if (mask & 0x80) drawRect(xCols[1], yRows[3], dotW, dotH, fgR, fgG, fgB, fgA);
+        }
+    } else {
+        // Standard ASCII & extended font glyph rendering from texture atlas
+        if (!monospaceAtlasReady_) {
+            initDefaultMonospaceAtlas();
+        }
+
+        uint8_t glyph = (codepoint < 256) ? static_cast<uint8_t>(codepoint) : static_cast<uint8_t>('?');
+        int col = glyph % 16;
+        int row = glyph / 16;
+
+        constexpr float kAtlasW = 128.0f;
+        constexpr float kAtlasH = 256.0f;
+        float u0 = (col * 8.0f) / kAtlasW;
+        float v0 = (row * 16.0f) / kAtlasH;
+        float u1 = ((col + 1) * 8.0f) / kAtlasW;
+        float v1 = ((row + 1) * 16.0f) / kAtlasH;
+
+        float x0 = cx, y0 = cy;
+        float x1 = cx + w, y1 = cy + h;
+
+        Vertex2D v_tl{x0, y0, u0, v0, fgColor, 4, {0, 0}};
+        Vertex2D v_tr{x1, y0, u1, v0, fgColor, 4, {0, 0}};
+        Vertex2D v_br{x1, y1, u1, v1, fgColor, 4, {0, 0}};
+        Vertex2D v_bl{x0, y1, u0, v1, fgColor, 4, {0, 0}};
+
+        applyTransform(v_tl.x, v_tl.y);
+        applyTransform(v_tr.x, v_tr.y);
+        applyTransform(v_br.x, v_br.y);
+        applyTransform(v_bl.x, v_bl.y);
+
+        vertices_.push_back(v_tl);
+        vertices_.push_back(v_tr);
+        vertices_.push_back(v_br);
+
+        vertices_.push_back(v_tl);
+        vertices_.push_back(v_br);
+        vertices_.push_back(v_bl);
+
+        // Faux bold: render slightly offset second pass
+        if (isBold) {
+            Vertex2D b_tl{x0 + 0.75f, y0, u0, v0, fgColor, 4, {0, 0}};
+            Vertex2D b_tr{x1 + 0.75f, y0, u1, v0, fgColor, 4, {0, 0}};
+            Vertex2D b_br{x1 + 0.75f, y1, u1, v1, fgColor, 4, {0, 0}};
+            Vertex2D b_bl{x0 + 0.75f, y1, u0, v1, fgColor, 4, {0, 0}};
+
+            applyTransform(b_tl.x, b_tl.y);
+            applyTransform(b_tr.x, b_tr.y);
+            applyTransform(b_br.x, b_br.y);
+            applyTransform(b_bl.x, b_bl.y);
+
+            vertices_.push_back(b_tl);
+            vertices_.push_back(b_tr);
+            vertices_.push_back(b_br);
+
+            vertices_.push_back(b_tl);
+            vertices_.push_back(b_br);
+            vertices_.push_back(b_bl);
+        }
+    }
+
+    // Attribute: Underline
+    if (attrs & static_cast<uint8_t>(tui::TextAttr::Underline)) {
+        drawRect(cx, cy + h - 1.5f, w, 1.0f, fgR, fgG, fgB, fgA);
+    }
+}
+
+void BatchRenderer2D::drawMonospaceText(float x, float y, float charW, float charH,
+                                       std::string_view text,
+                                       uint32_t fgColor,
+                                       uint32_t bgColor,
+                                       uint8_t attrs,
+                                       float subpixelOffsetX,
+                                       float subpixelOffsetY) {
+    float curX = x;
+    float curY = y;
+    for (size_t i = 0; i < text.size(); ++i) {
+        char ch = text[i];
+        if (ch == '\n') {
+            curY += charH;
+            curX = x;
+            continue;
+        } else if (ch == '\r') {
+            curX = x;
+            continue;
+        } else if (ch == '\t') {
+            float col = (curX - x) / charW;
+            int nextCol = ((static_cast<int>(col) / 4) + 1) * 4;
+            curX = x + nextCol * charW;
+            continue;
+        }
+        drawMonospaceCell(curX, curY, charW, charH,
+                          static_cast<char32_t>(static_cast<uint8_t>(ch)),
+                          fgColor, bgColor, attrs,
+                          subpixelOffsetX, subpixelOffsetY);
+        curX += charW;
+    }
+}
+
+static inline uint32_t packTuiColor(const tui::Color& c, bool isBg) {
+    if (c.isDefault) {
+        return isBg ? 0x00000000 : 0xFFFFFFFF;
+    }
+    return (static_cast<uint32_t>(c.a) << 24) |
+           (static_cast<uint32_t>(c.b) << 16) |
+           (static_cast<uint32_t>(c.g) << 8) |
+            static_cast<uint32_t>(c.r);
+}
+
+void BatchRenderer2D::drawTerminalGrid(float startX, float startY, float cellW, float cellH,
+                                      const void* cellsPtr, int cols, int rows,
+                                      float subpixelOffsetX, float subpixelOffsetY) {
+    if (!cellsPtr || cols <= 0 || rows <= 0) return;
+    const auto* cells = static_cast<const tui::Cell*>(cellsPtr);
+    for (int r = 0; r < rows; ++r) {
+        float y = startY + r * cellH;
+        for (int c = 0; c < cols; ++c) {
+            float x = startX + c * cellW;
+            const tui::Cell& cell = cells[r * cols + c];
+            uint32_t fg = packTuiColor(cell.fg, false);
+            uint32_t bg = packTuiColor(cell.bg, true);
+            drawMonospaceCell(x, y, cellW, cellH, cell.codepoint, fg, bg, cell.attrs,
+                              subpixelOffsetX, subpixelOffsetY);
+        }
+    }
+}
+
 } // namespace eatsbits::ui
+

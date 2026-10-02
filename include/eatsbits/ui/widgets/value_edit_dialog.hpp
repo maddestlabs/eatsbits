@@ -9,6 +9,7 @@
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
 #include "text_field_state.hpp"
+#include "eatsbits/presenter/value_edit_presenter.hpp"
 
 namespace eatsbits::ui {
 
@@ -84,6 +85,9 @@ public:
     [[nodiscard]] const TextFieldState& getTextFieldState() const noexcept { return textModel_; }
     [[nodiscard]] TextFieldState& getTextFieldState() noexcept { return textModel_; }
 
+    [[nodiscard]] const presenter::ValueEditPresenter& getPresenter() const noexcept { return presenter_; }
+    [[nodiscard]] presenter::ValueEditPresenter& getPresenter() noexcept { return presenter_; }
+
     std::function<void(const std::string& text)> onCopyToClipboard;
     std::function<std::string()> onPasteFromClipboard;
 
@@ -92,6 +96,7 @@ private:
     void setQuickPercent(float pct);
 
     bool isOpen_{false};
+    presenter::ValueEditPresenter presenter_{};
     ValueEditRequest req_{};
     bool isPercentMode_{false};
     TextFieldState textModel_{};

@@ -317,3 +317,15 @@ private:
 };
 
 } // namespace eatsbits::ui
+
+namespace eatsbits::input {
+    using ui::PointerType;
+    using ui::PointerAction;
+    using ui::PointerButton;
+    using ui::hasButton;
+    using ui::PointerModifiers;
+    using ui::PointerEvent;
+    using ui::KineticScroller;
+    using ui::GestureKind;
+    using ui::GestureRecognizer;
+} // namespace eatsbits::input

@@ -32,22 +32,38 @@ if(NOT EMSCRIPTEN)
     endif()
 endif()
 
-# Core Engine Static Library (Headless DSP, Graph, Sequencer, EatScript, Project I/O)
-add_library(eatsbits_core STATIC
+# 1. Fundamental Zero-Dependency Core Primitives (Time, Geometry, Color, Memory, Math)
+add_library(eats_core INTERFACE)
+target_include_directories(eats_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# 2. Standalone Eatscript Scripting & Host ABI Library (Lexer, Parser, VM, Transpiler, Evaluator, Host ABI, Stdlib, REPL)
+add_library(eats_script STATIC
+    src/eatscript/lexer.cpp
+    src/eatscript/parser.cpp
+    src/eatscript/vm.cpp
+    src/eatscript/transpiler.cpp
+    src/eatscript/evaluator.cpp
+    src/eatscript/host_abi.cpp
+    src/eatscript/stdlib.cpp
+    src/eatscript/repl.cpp
+)
+target_link_libraries(eats_script PUBLIC eats_core)
+
+# Standalone Eatscript CLI Executable (Zero Audio/DSP/GUI Hardware Dependencies)
+add_executable(eatscript_cli src/eatscript_main.cpp)
+target_link_libraries(eatscript_cli PRIVATE eats_script)
+
+# 3. Real-Time Audio DSP, Modular Graph, Sequencer, Synthesis Nodes, Project I/O
+add_library(eats_audio STATIC
     src/audio/audio_engine.cpp
     src/audio/audio_graph.cpp
     src/sequencer/step_sequencer.cpp
     src/project/project_file.cpp
     src/project/preset_loader.cpp
-    src/eatscript/lexer.cpp
-    src/eatscript/parser.cpp
-    src/eatscript/vm.cpp
-    src/eatscript/transpiler.cpp
     src/eatscript/note_script.cpp
     src/eatscript/dispatch_scanner.cpp
     src/eatscript/midi_fx_pipeline.cpp
     src/eatscript/macro_runtime.cpp
-    src/eatscript/evaluator.cpp
     src/project/eats_serializer.cpp
     src/project/diff_history_manager.cpp
     src/theory/chord_model.cpp
@@ -72,17 +88,35 @@ add_library(eatsbits_core STATIC
     src/project/eats_builtin_presets.cpp
     src/project/preset_manager.cpp
 )
+target_link_libraries(eats_audio PUBLIC eats_core eats_script)
 
 # Core Platform Libraries (Audio Only)
 if(EMSCRIPTEN)
-    target_link_libraries(eatsbits_core PUBLIC)
+    target_link_libraries(eats_audio PUBLIC)
 elseif(WIN32)
-    target_link_libraries(eatsbits_core PUBLIC ole32 winmm winhttp)
+    target_link_libraries(eats_audio PUBLIC ole32 winmm winhttp)
 elseif(APPLE)
-    target_link_libraries(eatsbits_core PUBLIC "-framework CoreAudio" "-framework AudioToolbox")
+    target_link_libraries(eats_audio PUBLIC "-framework CoreAudio" "-framework AudioToolbox")
 elseif(UNIX)
-    target_link_libraries(eatsbits_core PUBLIC pthread dl m)
+    target_link_libraries(eats_audio PUBLIC pthread dl m)
 endif()
+
+# 4. Headless Presentation Logic, Dual-Surface State Machines & Interaction Models
+add_library(eats_presenter STATIC
+    src/presenter/parameter_presenter.cpp
+    src/presenter/value_edit_presenter.cpp
+    src/presenter/track_properties_presenter.cpp
+    src/presenter/scalar_drag_presenter.cpp
+    src/presenter/timeline_scrub_presenter.cpp
+    src/presenter/splitter_drag_presenter.cpp
+    src/presenter/cable_patch_presenter.cpp
+    src/presenter/marquee_select_presenter.cpp
+    src/presenter/telemetry_presenter.cpp
+    src/presenter/scroll_physics_presenter.cpp
+    src/presenter/zoom_pan_presenter.cpp
+    src/ui/element2d.cpp
+)
+target_link_libraries(eats_presenter PUBLIC eats_core eats_audio)
 
 # Windowing and Graphics Toolchain (GUI only)
 if (EMSCRIPTEN)
@@ -103,15 +137,59 @@ else()
     FetchContent_MakeAvailable(glfw)
 endif()
 
-# GUI Core Library (GLFW, NanoVG, Dawn/WebGPU Bridge, Canvas Renderer)
-add_library(eatsbits_gui_core STATIC
-    src/ui/canvas_renderer.cpp
-    src/ui/dawn_bridge.cpp
+# 5. Hardware-Accelerated 2D Batch Renderer (Dawn/WebGPU & Monospace Glyph Engine)
+add_library(eats_render_wgpu STATIC
     src/ui/batch_renderer_2d.cpp
+    src/ui/dawn_bridge.cpp
+    src/ui/canvas_renderer.cpp
     src/ui/draw_utils.cpp
-    src/ui/gui_panel_def.cpp
     src/ui/svg_path.cpp
+    src/ui/theme.cpp
+    src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
+    src/ui/gui_panel_def.cpp
+    third_party/nanovg/nanovg.c
+)
+target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter)
+
+if(EMSCRIPTEN)
+    target_compile_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -fwasm-exceptions)
+    target_link_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -sUSE_GLFW=3 -fwasm-exceptions)
+elseif(WIN32)
+    set(WGPU_NATIVE_LIB "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll.lib")
+    target_link_libraries(eats_render_wgpu PUBLIC 
+        comdlg32 user32 gdi32 shlwapi opengl32 glfw "${WGPU_NATIVE_LIB}"
+    )
+elseif(APPLE)
+    target_link_libraries(eats_render_wgpu PUBLIC glfw)
+elseif(UNIX)
+    target_link_libraries(eats_render_wgpu PUBLIC glfw)
+endif()
+
+# 6. ANSI Diff Cell Surface & Terminal State Machine
+add_library(eats_render_tui STATIC
+    src/tui/cell_surface.cpp
+    src/tui/ansi_diff_renderer.cpp
+    src/tui/terminal_device.cpp
+    src/tui/input_parser.cpp
+    src/tui/audio_telemetry.cpp
+    src/terminal/terminal_grid.cpp
+    src/terminal/ansi_parser.cpp
+)
+target_link_libraries(eats_render_tui PUBLIC eats_core eats_presenter eats_audio)
+
+# 7. Deterministic Headless Audio-Visual Video & Frame Exporter
+add_library(eats_video_export STATIC
+    src/export/headless_video_exporter.cpp
+)
+target_link_libraries(eats_video_export PUBLIC eats_render_wgpu eats_presenter eats_audio eats_core)
+
+# Compatibility Interface: eatsbits_core (aggregates eats_audio, eats_presenter, eats_core, eats_script)
+add_library(eatsbits_core INTERFACE)
+target_link_libraries(eatsbits_core INTERFACE eats_audio eats_presenter eats_core eats_script)
+
+# GUI Desktop Core Library (Window, Views, Widgets)
+add_library(eatsbits_gui_core STATIC
     src/ui/gui_window.cpp
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
@@ -123,6 +201,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/circle_of_fifths_dialog.cpp
     src/ui/widgets/track_properties_panel.cpp
     src/ui/widgets/track_properties_drawer.cpp
+    src/ui/widgets/terminal_console_drawer.cpp
     src/ui/widgets/value_edit_dialog.cpp
     src/ui/widgets/icon_search_dialog.cpp
     src/ui/widgets/command_palette_dialog.cpp
@@ -138,39 +217,18 @@ add_library(eatsbits_gui_core STATIC
     src/ui/views/track_inspector_view.cpp
     src/ui/views/mixer_view.cpp
     src/ui/views/design_view.cpp
-    src/ui/theme.cpp
-    third_party/nanovg/nanovg.c
 )
-target_link_libraries(eatsbits_gui_core PUBLIC eatsbits_core)
+target_link_libraries(eatsbits_gui_core PUBLIC eats_render_wgpu eats_render_tui eats_video_export eats_presenter eats_audio eats_core)
 
-if(EMSCRIPTEN)
-    target_compile_options(eatsbits_gui_core PUBLIC --use-port=emdawnwebgpu -fwasm-exceptions)
-    target_link_options(eatsbits_gui_core PUBLIC --use-port=emdawnwebgpu -sUSE_GLFW=3 -fwasm-exceptions)
-elseif(WIN32)
-    set(WGPU_NATIVE_LIB "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll.lib")
-    target_link_libraries(eatsbits_gui_core PUBLIC 
-        comdlg32 user32 gdi32 shlwapi opengl32 glfw "${WGPU_NATIVE_LIB}"
-    )
-elseif(APPLE)
-    target_link_libraries(eatsbits_gui_core PUBLIC glfw)
-elseif(UNIX)
-    target_link_libraries(eatsbits_gui_core PUBLIC glfw)
-endif()
-
-# TUI Engine Library (Double-buffering, ANSI diffing, Braille, Telemetry, Views)
+# TUI Views and App Library
 add_library(eatsbits_tui_core STATIC
-    src/tui/cell_surface.cpp
-    src/tui/ansi_diff_renderer.cpp
-    src/tui/terminal_device.cpp
-    src/tui/input_parser.cpp
-    src/tui/audio_telemetry.cpp
     src/tui/views/arranger_view.cpp
     src/tui/views/braille_scope.cpp
     src/tui/views/tracker_grid.cpp
     src/tui/views/param_rack.cpp
     src/tui/tui_app.cpp
 )
-target_link_libraries(eatsbits_tui_core PUBLIC eatsbits_core)
+target_link_libraries(eatsbits_tui_core PUBLIC eats_render_tui eats_presenter eats_audio eats_core)
 
 if (EMSCRIPTEN)
     # WebAssembly & WebGPU Application
@@ -247,6 +305,17 @@ else()
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll"
             "$<TARGET_FILE_DIR:eatsbits_gui>"
+        )
+    endif()
+
+    # Standalone WebGPU GPU Terminal & Eatscript Shell
+    add_executable(eatsbits_term src/term_main.cpp)
+    target_link_libraries(eatsbits_term PRIVATE eats_render_wgpu eats_render_tui eats_script eats_core)
+    if(WIN32)
+        add_custom_command(TARGET eatsbits_term POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll"
+            "$<TARGET_FILE_DIR:eatsbits_term>"
         )
     endif()
 endif()
@@ -413,5 +482,25 @@ add_test(NAME LyricTrackTest COMMAND test_lyric_track)
 add_executable(test_builtin_presets tests/test_builtin_presets.cpp)
 target_link_libraries(test_builtin_presets PRIVATE eatsbits_core)
 add_test(NAME BuiltinPresetsTest COMMAND test_builtin_presets)
+
+add_executable(test_presenters tests/test_presenters.cpp)
+target_link_libraries(test_presenters PRIVATE eatsbits_core)
+add_test(NAME PresentersTest COMMAND test_presenters)
+
+add_executable(test_eatscript_host_abi tests/test_eatscript_host_abi.cpp)
+target_link_libraries(test_eatscript_host_abi PRIVATE eats_script)
+add_test(NAME EatscriptHostAbiTest COMMAND test_eatscript_host_abi)
+
+add_executable(test_webgpu_terminal tests/test_webgpu_terminal.cpp)
+target_link_libraries(test_webgpu_terminal PRIVATE eatsbits_gui_core eatsbits_tui_core eats_script)
+add_test(NAME WebGpuTerminalTest COMMAND test_webgpu_terminal)
+
+add_executable(test_headless_video_exporter tests/test_headless_video_exporter.cpp)
+target_link_libraries(test_headless_video_exporter PRIVATE eats_video_export eats_render_wgpu eats_presenter eats_audio eats_core)
+add_test(NAME HeadlessVideoExporterTest COMMAND test_headless_video_exporter)
+
+add_executable(test_terminal_console tests/test_terminal_console.cpp)
+target_link_libraries(test_terminal_console PRIVATE eatsbits_gui_core eatsbits_core eats_script)
+add_test(NAME TerminalConsoleTest COMMAND test_terminal_console)
 
 endif() # BUILD_TESTING

@@ -32,6 +32,7 @@
 #include "widgets/project_browser_drawer.hpp"
 #include "widgets/transport_header.hpp"
 #include "widgets/bottom_nav_bar.hpp"
+#include "widgets/terminal_console_drawer.hpp"
 #include "widgets/value_edit_dialog.hpp"
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
@@ -39,6 +40,14 @@
 #include "widgets/fullscreen_device_modal.hpp"
 #include "widgets/scrollable_area.hpp"
 #include "input/pointer_event.hpp"
+#include "eatsbits/presenter/drag_types.hpp"
+#include "eatsbits/presenter/drag_handler.hpp"
+#include "eatsbits/presenter/scalar_drag_presenter.hpp"
+#include "eatsbits/presenter/timeline_scrub_presenter.hpp"
+#include "eatsbits/presenter/splitter_drag_presenter.hpp"
+#include "eatsbits/presenter/cable_patch_presenter.hpp"
+#include "eatsbits/presenter/marquee_select_presenter.hpp"
+#include "eatsbits/presenter/telemetry_presenter.hpp"
 
 struct GLFWwindow;
 
@@ -82,40 +91,6 @@ enum class BottomNavAction {
 struct HitTestBottomNavResult {
     bool hit{false};
     BottomNavAction action{BottomNavAction::None};
-};
-
-enum class DragMode {
-    None,
-    Knob,
-    HardwareKnob,
-    PatchCable,
-    BpmScrubber,
-    SwingScrubber,
-    MasterVolume,
-    MixerFader,
-    MixerPan,
-    MasterFader,
-    MasterPan,
-    ArrangerRulerScrub,
-    ArrangerTrackVolume,
-    ArrangerTrackPan,
-    ArrangerOverviewScroll,
-    ArrangerPropertiesResize,
-    MixerPropertiesResize,
-    TrackInspectorVolume,
-    TrackInspectorPan,
-    TrackInspectorFxKnob,
-    TrackInspectorScrollbar,
-    PianoRollMarquee,
-    PianoRollNoteMove,
-    PianoRollNoteResize,
-    PianoRollMiddlePan,
-    PianoRollScrollbarV,
-    PianoRollScrollbarH,
-    VirtualKeyboardGlissando,
-    ProjectHubScroll,
-    CrtTweakerSlider,
-    UiScaleSlider
 };
 
 enum class TransportAction {
@@ -575,6 +550,12 @@ public:
     [[nodiscard]] bool isOpen() const noexcept;
     void renderFrame();
 
+    [[nodiscard]] bool isIdle() const noexcept;
+    [[nodiscard]] bool isAnyDrawerAnimating() const noexcept;
+    void markNeedsRedraw() noexcept { needsRedraw_ = true; }
+    [[nodiscard]] eatsbits::presenter::TelemetryPresenter& getTelemetryPresenter() noexcept { return telemetryPresenter_; }
+    [[nodiscard]] const eatsbits::presenter::TelemetryPresenter& getTelemetryPresenter() const noexcept { return telemetryPresenter_; }
+
     // Mouse & Keyboard Event Handlers (Called by GLFW callbacks or unit tests)
     void onMouseMove(float x, float y);
     void onMouseDown(int button, float x, float y);
@@ -703,6 +684,16 @@ public:
     [[nodiscard]] ProjectBrowserDrawer* getProjectBrowserDrawerWidget() noexcept { return projectBrowserDrawerWidget_.get(); }
     [[nodiscard]] TransportHeader* getTransportHeaderWidget() noexcept { return transportHeaderWidget_.get(); }
     [[nodiscard]] BottomNavBar* getBottomNavBarWidget() noexcept { return bottomNavBarWidget_.get(); }
+    [[nodiscard]] TerminalConsoleDrawer* getTerminalConsoleDrawerWidget() noexcept { return terminalConsoleDrawerWidget_.get(); }
+    [[nodiscard]] bool isTerminalConsoleOpen() const noexcept {
+        return terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded();
+    }
+    void toggleTerminalConsole() noexcept {
+        if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->toggleExpanded();
+    }
+    void setTerminalConsoleOpen(bool open) noexcept {
+        if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->setExpanded(open);
+    }
     [[nodiscard]] KineticScroller& getKineticScroller() noexcept { return kineticScroller_; }
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
     [[nodiscard]] ViewContext createViewContext() noexcept;
@@ -911,6 +902,8 @@ public:
     void setPreviewingVelocity(float vel) noexcept { previewingVelocity_ = std::clamp(vel, 0.0f, 1.0f); }
     [[nodiscard]] bool isShiftPressed() const noexcept;
     void setMockShiftPressed(bool pressed) noexcept { mockShiftPressed_ = pressed; }
+    [[nodiscard]] bool isCtrlPressed() const noexcept;
+    [[nodiscard]] bool isAltPressed() const noexcept;
 
     // Master Channel
     [[nodiscard]] float getMasterVolume() const noexcept { return masterVolume_; }
@@ -1005,7 +998,12 @@ public:
     void toggle3dConsole() noexcept {}
     void transform3dMouseCoords(float inX, float inY, float& outX, float& outY) const noexcept { outX = inX; outY = inY; }
     void remapCrtMouseCoords(float inX, float inY, float& outX, float& outY) const noexcept;
-    [[nodiscard]] DragMode getDragMode() const noexcept { return dragMode_; }
+    [[nodiscard]] DragMode getDragMode() const noexcept {
+        if (activeDragHandler_ && activeDragHandler_->isDragging()) {
+            return activeDragHandler_->getDragMode();
+        }
+        return dragMode_;
+    }
 
     // Arranger Properties Sidebar
     [[nodiscard]] bool isArrangerPropertiesExpanded() const noexcept { return arrangerPropertiesExpanded_; }
@@ -1128,6 +1126,12 @@ private:
     bool isEditingTitle_{false};
     bool isEditingAuthor_{false};
     DragMode dragMode_{DragMode::None};
+    presenter::IDragHandler* activeDragHandler_{nullptr};
+    presenter::ScalarDragPresenter scalarDragPresenter_;
+    presenter::TimelineScrubPresenter timelineScrubPresenter_;
+    presenter::SplitterDragPresenter splitterDragPresenter_;
+    presenter::CablePatchPresenter cablePatchPresenter_;
+    presenter::MarqueeSelectPresenter marqueeSelectPresenter_;
     float mouseX_{0.0f};
     float mouseY_{0.0f};
     float dragStartY_{0.0f};
@@ -1310,6 +1314,10 @@ private:
     float masterPeakR_{0.0f};
     std::array<float, 8> chPeakL_{};
     std::array<float, 8> chPeakR_{};
+    bool needsRedraw_{true};
+    float frameDt_{0.016f};
+    uint64_t frameIndex_{0};
+    presenter::TelemetryPresenter telemetryPresenter_;
 
     // Modular Views & Ubiquitous Widgets (Option B)
     std::unique_ptr<ArrangerView> modularArrangerView_;
@@ -1321,6 +1329,7 @@ private:
     std::unique_ptr<ProjectBrowserDrawer> projectBrowserDrawerWidget_;
     std::unique_ptr<TransportHeader> transportHeaderWidget_;
     std::unique_ptr<BottomNavBar> bottomNavBarWidget_;
+    std::unique_ptr<TerminalConsoleDrawer> terminalConsoleDrawerWidget_;
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;

@@ -17,6 +17,7 @@
     #include <sys/ioctl.h>
     #include <fcntl.h>
     #include <signal.h>
+    #include <poll.h>
 #endif
 
 namespace eatsbits::tui {
@@ -161,6 +162,20 @@ size_t TerminalDevice::readInput(char* buffer, size_t maxBytes) {
     ssize_t n = read(STDIN_FILENO, buffer, maxBytes);
     if (n > 0) return static_cast<size_t>(n);
     return 0;
+#endif
+}
+
+bool TerminalDevice::waitForInput(int timeoutMs) {
+#if defined(_WIN32)
+    if (!hIn_) return false;
+    DWORD res = WaitForSingleObject(static_cast<HANDLE>(hIn_), timeoutMs > 0 ? static_cast<DWORD>(timeoutMs) : 0);
+    return (res == WAIT_OBJECT_0);
+#else
+    struct pollfd pfd;
+    pfd.fd = STDIN_FILENO;
+    pfd.events = POLLIN;
+    int ret = poll(&pfd, 1, timeoutMs);
+    return (ret > 0 && (pfd.revents & POLLIN));
 #endif
 }
 

@@ -101,6 +101,9 @@ public:
     void close() noexcept;
     void toggle() noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
+    [[nodiscard]] bool isAnimating() const noexcept {
+        return std::abs(animProgress_ - (isOpen_ ? 1.0f : 0.0f)) > 0.001f;
+    }
     [[nodiscard]] float getAnimOffset() const noexcept { return animOffset_; }
     [[nodiscard]] Rect2D getDrawerBounds() const noexcept { return drawerBounds_; }
     [[nodiscard]] static constexpr float getDrawerWidth() noexcept { return kDrawerWidth; }
