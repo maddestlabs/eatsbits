@@ -678,6 +678,18 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - Forwarded character input through `ArrangerView`, `MixerView`, and `TrackInspectorView` up to `GuiWindow::onChar` and `GuiWindow::onKeyDown`.
   - **Automated Verification**:
     - Added comprehensive unit tests in `tests/test_modular_ui.cpp` (Test 19) verifying tokenized search, character input, backspace, escape behavior, selection navigation, scrolling containment, and outside click dismissal.
+- **Header Transport & Track Properties Tooltip System**:
+  - **Shared Badge Renderer (`drawTooltipBadge`)**:
+    - Created `drawTooltipBadge` utility in `include/eatsbits/ui/draw_utils.hpp` and `src/ui/draw_utils.cpp`.
+    - Features soft drop shadows, theme-aware high contrast styling (light-mode solid dark badge with clean white vector text, dark-mode creamy studio label tape badge with deep dark charcoal text), boundary clamping against screen edges, and configurable placement (above or below anchor point).
+  - **Header Transport Tooltips**:
+    - Supported hover tips for Logo ("Project Hub & Global Workspace Settings"), Play/Pause ("Play / Pause Playhead (Space)"), Stop ("Stop Transport & Return to Zero"), Record ("Toggle Real-Time Automation & Input Recording (R)"), BPM ("Tempo (BPM) - Click/Scroll to Adjust"), Song Position ("Song Position (Bar.Beat.Tick)"), Workspace Lock ("Lock / Unlock Workspace Layout"), Fullscreen Device Mode ("Dedicated Full-Screen Instrument & Device Mode"), Preset Browser ("Toggle Preset Browser & Project Library (B)"), Snap ("Snap to Grid (Off / 16th / 8th / Bar)"), Scale ("Scale & Harmonic Snapping"), Metronome ("Toggle Metronome Click"), and Loop ("Toggle Arrangement Loop Range").
+    - Integrated in both `GuiWindow::getTransportTooltip` and modular `TransportHeader::getTooltip`.
+  - **Track Properties Drawer & Panel Tooltips**:
+    - Implemented `TrackPropertiesPanel::getTooltip` and `TrackPropertiesDrawer::getTooltip`.
+    - Covers Track Icon ("Change Track Icon / Color"), Rename / Title ("Edit Track Name"), Color Swatch ("Set Track Accent Color"), Volume Slider ("Track Output Level"), Pan Dial ("Stereo Panning"), Fullscreen Mode ("Fullscreen Device GUI"), Preset Selector ("Cycle Previous / Next Preset"), Instrument ("Instrument Device"), Chord Follow Chips ("Harmonic Chord Following Mode"), Bake to MIDI ("Bake Chords to Sequencer MIDI"), MIDI FX & Audio FX Add Buttons ("Add MIDI FX Insert", "Add Audio FX Insert"), Bypass Toggles ("Bypass FX"), Reorder Up/Down buttons, Remove FX buttons, Fullscreen Device FX buttons, and Drawer Tabs ("Track Properties Inspector", "Clip Properties Inspector", "Close Properties Drawer").
+  - **Automated Verification**:
+    - Added Test 20 to `tests/test_modular_ui.cpp` verifying tooltip queries across GuiWindow, TransportHeader, TrackPropertiesPanel, and TrackPropertiesDrawer.
 - **Validation**:
   - 100% pass across all 44 test suites in `build.ps1 -Test` on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
 
