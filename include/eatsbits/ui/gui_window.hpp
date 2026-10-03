@@ -48,10 +48,21 @@
 #include "eatsbits/presenter/cable_patch_presenter.hpp"
 #include "eatsbits/presenter/marquee_select_presenter.hpp"
 #include "eatsbits/presenter/telemetry_presenter.hpp"
+#include "input/focus_manager.hpp"
 
 struct GLFWwindow;
 
 namespace eatsbits::ui {
+
+class GlfwClipboard : public IClipboard {
+public:
+    GlfwClipboard() = default;
+    void setWindow(GLFWwindow* win) noexcept { win_ = win; }
+    void setString(const std::string& text) override;
+    [[nodiscard]] std::string getString() const override;
+private:
+    GLFWwindow* win_{nullptr};
+};
 
 enum class WorkspaceView {
     Arranger,
@@ -709,6 +720,10 @@ public:
     [[nodiscard]] const ValueEditDialog& getValueEditDialog() const noexcept { return valueEditDialog_; }
     void openValueEditDialog(const ValueEditRequest& req) { valueEditDialog_.open(req); }
 
+    [[nodiscard]] FocusManager& getFocusManager() noexcept { return focusManager_; }
+    [[nodiscard]] const FocusManager& getFocusManager() const noexcept { return focusManager_; }
+    [[nodiscard]] IClipboard& getClipboard() noexcept { return clipboardBridge_; }
+
     [[nodiscard]] CommandPaletteDialog& getCommandPaletteDialog() noexcept { return commandPaletteDialog_; }
     [[nodiscard]] const CommandPaletteDialog& getCommandPaletteDialog() const noexcept { return commandPaletteDialog_; }
     void openCommandPalette() noexcept;
@@ -1014,8 +1029,8 @@ public:
 
     // Mixer Properties Pullout Sidebar (Reusing Track Properties Inspector)
     [[nodiscard]] bool isMixerPropertiesExpanded() const noexcept { return mixerPropertiesExpanded_; }
-    void setMixerPropertiesExpanded(bool expanded) noexcept { mixerPropertiesExpanded_ = expanded; }
-    void toggleMixerProperties() noexcept { mixerPropertiesExpanded_ = !mixerPropertiesExpanded_; }
+    void setMixerPropertiesExpanded(bool expanded) noexcept;
+    void toggleMixerProperties() noexcept;
     [[nodiscard]] float getMixerPropertiesWidth() const noexcept { return mixerPropertiesWidth_; }
     void setMixerPropertiesWidth(float width) noexcept;
     [[nodiscard]] ArrangerInspectorTab getArrangerInspectorTab() const noexcept { return arrangerInspectorTab_; }
@@ -1132,6 +1147,9 @@ private:
     presenter::SplitterDragPresenter splitterDragPresenter_;
     presenter::CablePatchPresenter cablePatchPresenter_;
     presenter::MarqueeSelectPresenter marqueeSelectPresenter_;
+
+    GlfwClipboard clipboardBridge_{};
+    FocusManager focusManager_{};
     float mouseX_{0.0f};
     float mouseY_{0.0f};
     float dragStartY_{0.0f};

@@ -44,6 +44,15 @@ DesignView::DesignView() {
     }
 
     initDefaultGuiPanel();
+
+    textEditor_.onCompileTriggered = [this]() {
+        ViewContext dummyCtx;
+        compileCurrentScript(dummyCtx);
+    };
+    textEditor_.onTextChanged = [this](const std::string& code) {
+        currentScriptCode_ = code;
+    };
+    textEditor_.setText(currentScriptCode_);
 }
 
 void DesignView::setSubMode(DesignSubMode mode) noexcept {
@@ -481,6 +490,7 @@ void DesignView::setScriptCode(const std::string& code) {
     if (codeLines_.empty()) {
         codeLines_.push_back("");
     }
+    textEditor_.setText(code);
 }
 
 void DesignView::selectTargetByIndex(int index) {
@@ -602,6 +612,7 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     float edCanvasY = edHeaderY + 28.0f;
     float edCanvasH = std::min(300.0f, std::max(160.0f, studioBodyBounds_.h - 280.0f));
     editorCanvasBounds_ = Rect2D(scopeBounds_.x, edCanvasY, scopeBounds_.w, edCanvasH);
+    textEditor_.layout(editorCanvasBounds_, ctx);
 
     float statusY = edCanvasY + edCanvasH + 8.0f;
     statusBannerBounds_ = Rect2D(scopeBounds_.x, statusY, scopeBounds_.w, 26.0f);
@@ -893,41 +904,7 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
     drawButton(r, btnSubmitPr_, "SUBMIT PR", Color{0.14f, 0.18f, 0.24f, 0.8f}, Color{theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f}, theme.primaryAccent, 9.0f, 3.0f, 1.0f);
     drawButton(r, btnApiDocs_, "API DOCS", Color{0.05f, 0.20f, 0.12f, 0.8f}, Color{0.0f, 0.95f, 0.45f, 0.8f}, Color{0.0f, 0.95f, 0.45f, 1.0f}, 9.0f, 3.0f, 1.0f);
 
-    drawRect(r, editorCanvasBounds_.x, editorCanvasBounds_.y, editorCanvasBounds_.w, editorCanvasBounds_.h,
-             0.06f, 0.07f, 0.09f, 1.0f);
-    drawRoundedRectOutline(r, editorCanvasBounds_.x, editorCanvasBounds_.y, editorCanvasBounds_.w, editorCanvasBounds_.h, 0.0f,
-                           0.20f, 0.23f, 0.30f, 1.0f, 1.2f);
-
-    float gutterW = 46.0f;
-    drawRect(r, editorCanvasBounds_.x, editorCanvasBounds_.y, gutterW, editorCanvasBounds_.h,
-             0.08f, 0.09f, 0.12f, 1.0f);
-    drawLine(r, editorCanvasBounds_.x + gutterW, editorCanvasBounds_.y,
-             editorCanvasBounds_.x + gutterW, editorCanvasBounds_.y + editorCanvasBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
-
-    float lineH = 18.0f;
-    int maxLines = static_cast<int>((editorCanvasBounds_.h - 10.0f) / lineH);
-
-    for (int i = 0; i < maxLines && i < static_cast<int>(codeLines_.size()); ++i) {
-        float ly = editorCanvasBounds_.y + 8.0f + (i * lineH);
-
-        std::string numStr = (i + 1 < 10 ? " " : "") + std::to_string(i + 1);
-        drawMonoText(r, numStr, editorCanvasBounds_.x + 10.0f, ly, 9.5f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.65f);
-
-        const auto& line = codeLines_[i];
-        float textX = editorCanvasBounds_.x + gutterW + 12.0f;
-
-        if (line.starts_with("#")) {
-            drawMonoText(r, line, textX, ly, 10.0f, 0.38f, 0.49f, 0.55f, 1.0f);
-        } else if (line.find("def ") != std::string::npos || line.find("import ") != std::string::npos) {
-            drawMonoText(r, line, textX, ly, 10.0f, 1.0f, 0.85f, 0.0f, 1.0f);
-        } else if (line.find("eat.param") != std::string::npos || line.find("params.get") != std::string::npos) {
-            drawMonoText(r, line, textX, ly, 10.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-        } else {
-            drawMonoText(r, line, textX, ly, 10.0f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f);
-        }
-    }
+    textEditor_.render(ctx);
 
     drawRoundedRect(r, statusBannerBounds_.x, statusBannerBounds_.y, statusBannerBounds_.w, statusBannerBounds_.h, 4.0f,
                     0.05f, 0.22f, 0.12f, 0.85f);
@@ -1933,10 +1910,16 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
 
-        // 4. Code Editor live parameters
+        // 4. Code Editor live parameters & interactive text editor
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+            if (btnSelectAll_.contains(ev.x, ev.y)) {
+                textEditor_.getPresenter().selectAll();
+                if (ctx.focusManager) ctx.focusManager->requestFocus(&textEditor_);
+                return true;
+            }
             if (btnCopy_.contains(ev.x, ev.y)) {
-                if (onCopyToClipboard) onCopyToClipboard(currentScriptCode_);
+                if (ctx.clipboard) ctx.clipboard->setText(textEditor_.getText());
+                if (onCopyToClipboard) onCopyToClipboard(textEditor_.getText());
                 if (ctx.onShowNotification) ctx.onShowNotification("Copied script to clipboard");
                 return true;
             }
@@ -1946,6 +1929,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
             if (btnApiDocs_.contains(ev.x, ev.y)) {
                 if (ctx.onShowNotification) ctx.onShowNotification("Opening Eatscript API documentation...");
+                return true;
+            }
+
+            if (textEditor_.handlePointer(ev, ctx)) {
                 return true;
             }
 
@@ -1964,6 +1951,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+            textEditor_.handlePointer(ev, ctx);
+        }
+
         // Modular rack knob dragging
         if (draggingModuleKnobMod_ >= 0 && draggingModuleKnobMod_ < static_cast<int>(modules_.size())) {
             auto& mod = modules_[draggingModuleKnobMod_];
@@ -2015,6 +2006,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Up) {
+        if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+            textEditor_.handlePointer(ev, ctx);
+        }
+
         if (draggingModuleKnobMod_ >= 0) {
             draggingModuleKnobMod_ = -1;
             draggingModuleKnobIdx_ = -1;
@@ -2102,18 +2097,34 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             draggingParamIndex_ = -1;
             return true;
         }
+    } else if (ev.action == PointerAction::Scroll) {
+        if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+            if (textEditor_.handlePointer(ev, ctx)) return true;
+        }
     }
 
     return false;
 }
 
-bool DesignView::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods, const ViewContext& ctx) {
+bool DesignView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
     if (action == 1) { // GLFW_PRESS
         // Ctrl+Enter: Compile current script
         if (key == 257 && (mods & 2)) {
             compileCurrentScript(ctx);
             return true;
         }
+    }
+    if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+        if (textEditor_.handleKey(key, scancode, action, mods, ctx)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DesignView::handleChar(char32_t codepoint, const ViewContext& ctx) {
+    if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
+        return textEditor_.handleChar(codepoint, ctx);
     }
     return false;
 }

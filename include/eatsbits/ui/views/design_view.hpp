@@ -2,6 +2,7 @@
 
 #include "view_base.hpp"
 #include "../gui_panel_def.hpp"
+#include "../widgets/text_editor_widget.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -93,6 +94,10 @@ public:
     void render(const ViewContext& ctx) override;
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
+    bool handleChar(char32_t codepoint, const ViewContext& ctx) override;
+
+    [[nodiscard]] TextEditorWidget& getTextEditor() noexcept { return textEditor_; }
+    [[nodiscard]] const TextEditorWidget& getTextEditor() const noexcept { return textEditor_; }
 
     void setSubMode(DesignSubMode mode) noexcept;
     [[nodiscard]] DesignSubMode getSubMode() const noexcept { return mode_; }
@@ -208,6 +213,7 @@ private:
     // Script text & lines
     std::string currentScriptCode_;
     std::vector<std::string> codeLines_;
+    TextEditorWidget textEditor_;
     int cursorLine_{0};
     int cursorCol_{0};
     bool isCompiled_{true};

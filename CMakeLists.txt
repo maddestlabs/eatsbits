@@ -203,6 +203,8 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/track_properties_drawer.cpp
     src/ui/widgets/terminal_console_drawer.cpp
     src/ui/widgets/value_edit_dialog.cpp
+    src/ui/widgets/text_field_widget.cpp
+    src/ui/widgets/text_editor_widget.cpp
     src/ui/widgets/icon_search_dialog.cpp
     src/ui/widgets/command_palette_dialog.cpp
     src/ui/widgets/audio_to_midi_dialog.cpp
@@ -502,5 +504,9 @@ add_test(NAME HeadlessVideoExporterTest COMMAND test_headless_video_exporter)
 add_executable(test_terminal_console tests/test_terminal_console.cpp)
 target_link_libraries(test_terminal_console PRIVATE eatsbits_gui_core eatsbits_core eats_script)
 add_test(NAME TerminalConsoleTest COMMAND test_terminal_console)
+
+add_executable(test_text_engine tests/test_text_engine.cpp)
+target_link_libraries(test_text_engine PRIVATE eats_core)
+add_test(NAME TextEngineTest COMMAND test_text_engine)
 
 endif() # BUILD_TESTING

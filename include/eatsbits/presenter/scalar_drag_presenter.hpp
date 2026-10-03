@@ -20,6 +20,59 @@ enum class DragDirection {
     BidirectionalPan         ///< (dx - dy) diagonal panning delta
 };
 
+namespace audio_taper {
+
+/**
+ * @brief Converts linear gain [0.0, 1.5] to normalized fader travel [0.0, 1.0].
+ * Unity gain (1.0, 0 dB) maps exactly to 0.75 (75% height).
+ * Max gain (1.5, +3.52 dB) maps to 1.0 (100% height).
+ * Lower travel [0.0, 0.75] maps logarithmically down to -inf (0.0 gain).
+ */
+inline float gainToTravel(float gain) noexcept {
+    gain = std::clamp(gain, 0.0f, 1.5f);
+    if (gain <= 1e-4f) return 0.0f;
+    if (gain >= 1.0f) {
+        float frac = std::clamp((gain - 1.0f) / 0.5f, 0.0f, 1.0f);
+        return 0.75f + frac * 0.25f;
+    } else {
+        float norm = std::cbrt(gain);
+        return std::clamp(norm * 0.75f, 0.0f, 0.75f);
+    }
+}
+
+/**
+ * @brief Converts normalized fader travel [0.0, 1.0] to linear gain [0.0, 1.5].
+ */
+inline float travelToGain(float t) noexcept {
+    t = std::clamp(t, 0.0f, 1.0f);
+    if (t <= 0.001f) return 0.0f;
+    if (t >= 0.75f) {
+        float frac = (t - 0.75f) / 0.25f;
+        return 1.0f + frac * 0.5f;
+    } else {
+        float norm = t / 0.75f;
+        return norm * norm * norm;
+    }
+}
+
+/**
+ * @brief Formats linear gain into authentic decibel readout string.
+ */
+inline std::string formatDb(float gain) {
+    if (gain <= 0.001f) return "-INF dB";
+    float db = 20.0f * std::log10(gain);
+    if (std::abs(db) < 0.05f) return "0.0 dB";
+    char buf[32];
+    if (db > 0.0f) {
+        std::snprintf(buf, sizeof(buf), "+%.1f dB", db);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%.1f dB", db);
+    }
+    return buf;
+}
+
+} // namespace audio_taper
+
 /**
  * @brief Configuration tuning continuous mouse/pointer drag behavior.
  */
@@ -32,6 +85,7 @@ struct ScalarDragConfig {
     float fineRatio{0.15f};
     float stepSnap{0.0f};   ///< 0.0 means continuous smooth variation
     bool isInteger{false};
+    bool useAudioTaper{false}; ///< True if fader follows authentic console dB taper
 };
 
 /**
@@ -79,6 +133,7 @@ private:
     float startX_{0.0f};
     float startY_{0.0f};
     float initialValue_{0.0f};
+    float initialTravel_{0.75f};
     float currentValue_{0.0f};
     ScalarDragConfig config_{};
 

@@ -11,6 +11,9 @@ void ScalarDragPresenter::startDrag(float startX, float startY, float initialVal
     initialValue_ = initialValue;
     currentValue_ = initialValue;
     config_ = config;
+    if (config_.useAudioTaper) {
+        initialTravel_ = audio_taper::gainToTravel(initialValue_);
+    }
     boundParam_ = nullptr;
     onValueChanged_ = std::move(onValueChanged);
     onDragCommitted_ = std::move(onDragCommitted);
@@ -32,6 +35,9 @@ void ScalarDragPresenter::startDragWithPresenter(float startX, float startY, Par
     config_.isInteger = param.isInteger();
     if (config_.stepSnap <= 0.0f && param.getStep() > 0.0f) {
         config_.stepSnap = param.getStep();
+    }
+    if (config_.useAudioTaper) {
+        initialTravel_ = audio_taper::gainToTravel(initialValue_);
     }
     boundParam_ = &param;
     onValueChanged_ = nullptr;
@@ -66,16 +72,22 @@ void ScalarDragPresenter::onPointerMove(const ui::PointerEvent& ev) {
             break;
     }
 
-    float rawVal = initialValue_ + delta;
-    float clampedVal = std::clamp(rawVal, config_.minValue, config_.maxValue);
+    float clampedVal = 0.0f;
+    if (config_.useAudioTaper) {
+        float newTravel = std::clamp(initialTravel_ + delta, 0.0f, 1.0f);
+        clampedVal = audio_taper::travelToGain(newTravel);
+    } else {
+        float rawVal = initialValue_ + delta;
+        clampedVal = std::clamp(rawVal, config_.minValue, config_.maxValue);
 
-    if (config_.stepSnap > 0.0f) {
-        clampedVal = std::round((clampedVal - config_.minValue) / config_.stepSnap) * config_.stepSnap + config_.minValue;
-        clampedVal = std::clamp(clampedVal, config_.minValue, config_.maxValue);
-    }
+        if (config_.stepSnap > 0.0f) {
+            clampedVal = std::round((clampedVal - config_.minValue) / config_.stepSnap) * config_.stepSnap + config_.minValue;
+            clampedVal = std::clamp(clampedVal, config_.minValue, config_.maxValue);
+        }
 
-    if (config_.isInteger) {
-        clampedVal = std::round(clampedVal);
+        if (config_.isInteger) {
+            clampedVal = std::round(clampedVal);
+        }
     }
 
     if (std::abs(currentValue_ - clampedVal) > 1e-6f) {

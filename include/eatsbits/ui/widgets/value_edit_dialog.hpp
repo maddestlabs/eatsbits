@@ -100,6 +100,7 @@ private:
     ValueEditRequest req_{};
     bool isPercentMode_{false};
     TextFieldState textModel_{};
+    float inputScrollX_{0.0f};
     bool isDraggingSelection_{false};
     float cursorBlinkTimer_{0.0f};
 

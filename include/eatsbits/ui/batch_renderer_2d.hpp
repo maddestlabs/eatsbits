@@ -126,6 +126,31 @@ public:
     void resetRotation() noexcept;
     [[nodiscard]] bool isTransformActive() const noexcept { return transformActive_; }
 
+    // --- Scissor / Viewport Clipping ---
+    void pushScissor(float x, float y, float w, float h) {
+        if (scissorStack_.empty()) {
+            scissorStack_.push_back(Rect2D{x, y, w, h});
+        } else {
+            const auto& top = scissorStack_.back();
+            float x0 = std::max(top.x, x);
+            float y0 = std::max(top.y, y);
+            float x1 = std::min(top.x + top.w, x + w);
+            float y1 = std::min(top.y + top.h, y + h);
+            scissorStack_.push_back(Rect2D{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)});
+        }
+    }
+
+    void popScissor() noexcept {
+        if (!scissorStack_.empty()) {
+            scissorStack_.pop_back();
+        }
+    }
+
+    [[nodiscard]] bool hasScissor() const noexcept { return !scissorStack_.empty(); }
+    [[nodiscard]] Rect2D getActiveScissor() const noexcept {
+        return scissorStack_.empty() ? Rect2D{0.0f, 0.0f, 0.0f, 0.0f} : scissorStack_.back();
+    }
+
     // --- Contextual Shadows & Lighting ---
     void drawCircleDropShadow(float cx, float cy, float radius, float elevation, const LightSource2D& light, float opacity = 0.45f);
     void drawRectDropShadow(float x, float y, float w, float h, float cornerRadius, float elevation, const LightSource2D& light, float opacity = 0.40f);
@@ -203,6 +228,8 @@ private:
     float transformSin_{0.0f};
     float transformOriginX_{0.0f};
     float transformOriginY_{0.0f};
+
+    std::vector<Rect2D> scissorStack_{};
 
     inline void applyTransform(float& x, float& y) const noexcept {
         if (transformActive_) {

@@ -2,11 +2,13 @@
 
 #include "view_base.hpp"
 #include "../widgets/track_properties_drawer.hpp"
+#include "eatsbits/presenter/scalar_drag_presenter.hpp"
 #include <vector>
 #include <string>
 #include <memory>
 #include <algorithm>
 #include <unordered_map>
+#include <chrono>
 
 namespace eatsbits::ui {
 
@@ -19,6 +21,12 @@ enum class ModularMixerPreset {
     Full,
     FadersOnly,
     FadersAndMeters
+};
+
+enum class MixerDensityMode {
+    Comfortable, // Full 140px strips, backlit LCDs, dedicated rotary pan, full LED ladders
+    Compact,     // 78px strips, compact LCD, mini pan, stacked M/S buttons
+    Micro        // 50px strips, micro header badge, slim fader & dual meter, mobile optimized
 };
 
 struct MixerChannelStrip {
@@ -86,6 +94,9 @@ public:
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
 
+    [[nodiscard]] int getActiveFaderIndex() const noexcept { return activeFaderIndex_; }
+    [[nodiscard]] int getActivePanIndex() const noexcept { return activePanIndex_; }
+
     // Master Bus Controls
     [[nodiscard]] const Rect2D& getMasterBounds() const noexcept { return masterBounds_; }
     [[nodiscard]] const MixerChannelStrip& getMasterChannel() const noexcept { return masterChannel_; }
@@ -125,6 +136,19 @@ public:
     [[nodiscard]] bool isFadersVisible() const noexcept { return showFaders_; }
     void setFadersVisible(bool v) noexcept { showFaders_ = v; }
 
+    // Responsive Density & Options Toolbar
+    [[nodiscard]] MixerDensityMode getDensityMode() const noexcept { return densityMode_; }
+    void setDensityMode(MixerDensityMode mode) noexcept;
+    [[nodiscard]] bool isAutoDensityEnabled() const noexcept { return autoDensity_; }
+    void setAutoDensityEnabled(bool en) noexcept { autoDensity_ = en; }
+    [[nodiscard]] float getMasterStripWidth() const noexcept { return masterStripWidth_; }
+    [[nodiscard]] float getChannelStripWidth() const noexcept { return channelStripWidth_; }
+    [[nodiscard]] float getChannelGap() const noexcept { return channelGap_; }
+
+    [[nodiscard]] bool isToolbarVisible() const noexcept { return showToolbar_; }
+    void setToolbarVisible(bool v) noexcept { showToolbar_ = v; }
+    void toggleToolbar() noexcept { showToolbar_ = !showToolbar_; }
+
     // Master Bus Audio Processor Inserts
     [[nodiscard]] bool isMasterLimiterEnabled() const noexcept { return masterLimiterEnabled_; }
     void setMasterLimiterEnabled(bool en) noexcept { masterLimiterEnabled_ = en; }
@@ -147,6 +171,13 @@ public:
 
     std::function<void(uint32_t channelIdx, bool mute)> onMuteToggled;
     std::function<void(uint32_t channelIdx, bool solo)> onSoloToggled;
+    std::function<void(uint32_t channelIdx, bool freeze)> onFreezeToggled;
+    std::function<void(uint32_t channelIdx, float volume)> onVolumeChanged;
+    std::function<void(uint32_t channelIdx, float pan)> onPanChanged;
+    std::function<void(float volume)> onMasterVolumeChanged;
+    std::function<void(float pan)> onMasterPanChanged;
+    std::function<void(bool mute)> onMasterMuteToggled;
+    std::function<void(bool expanded, float width)> onPropertiesDrawerStateChanged;
     std::function<void(uint32_t channelIdx)> onTrackSelected;
     std::function<void(uint32_t channelIdx, const std::string& newName)> onTrackRename;
     std::function<void(uint32_t channelIdx)> onChooseTrackIcon;
@@ -158,6 +189,22 @@ public:
     std::function<void(uint32_t channelIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
+
+    // Structured Fader Geometry & Hit-Testing
+    struct FaderGeometry {
+        Rect2D well;
+        Rect2D thumb;
+        float trackX{0.0f};
+        float wellTopY{0.0f};
+        float wellBottomY{0.0f};
+        float wellH{0.0f};
+        float thumbY{0.0f};
+    };
+
+    [[nodiscard]] FaderGeometry getMasterFaderGeometry() const noexcept;
+    [[nodiscard]] FaderGeometry getChannelFaderGeometry(size_t index, float cx) const noexcept;
+    [[nodiscard]] bool hitTestMasterFader(float x, float y) const noexcept;
+    [[nodiscard]] bool hitTestChannelFader(size_t index, float cx, float x, float y) const noexcept;
 
     // Synchronization with DAW Window & Audio Engine
     void syncFromWindow(
@@ -235,17 +282,29 @@ private:
     bool showButtons_{true};
     bool showReadouts_{true};
 
+    // Responsive Density & Toolbar State
+    MixerDensityMode densityMode_{MixerDensityMode::Comfortable};
+    bool autoDensity_{true};
+    bool showToolbar_{false};
+    Rect2D optionsPillBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+
     // Active drag interaction tracking (Multi-Touch Multi-Fader Mixing)
     struct ActiveFaderSession {
         int faderIndex{-2}; // -1 = Master, >= 0 = Channel
         float dragStartY{0.0f};
         float initialFaderVal{0.0f};
+        float initialTravel{0.75f};
     };
     std::unordered_map<int, ActiveFaderSession> activeFaderSessions_; // pointerId -> ActiveFaderSession
 
     int activeFaderIndex_{-2}; // Legacy fallback / single-pointer query
     float dragStartY_{0.0f};
     float initialFaderVal_{0.0f};
+    float initialFaderTravel_{0.75f};
+
+    // Double-click to reset to unity tracking
+    std::chrono::steady_clock::time_point lastFaderClickTime_{};
+    int lastFaderClickIndex_{-2};
 
     int activePanIndex_{-2};
     float dragStartX_{0.0f};

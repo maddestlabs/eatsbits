@@ -99,41 +99,95 @@ public:
         anchor_ = cursor_;
     }
 
-    void backspace() {
+    [[nodiscard]] int findWordLeft(int pos) const noexcept {
+        if (pos <= 0) return 0;
+        int c = pos - 1;
+        while (c > 0 && std::isspace(static_cast<unsigned char>(text_[static_cast<size_t>(c)]))) {
+            c--;
+        }
+        bool isAlpha = std::isalnum(static_cast<unsigned char>(text_[static_cast<size_t>(c)])) || text_[static_cast<size_t>(c)] == '_';
+        while (c > 0) {
+            char prev = text_[static_cast<size_t>(c - 1)];
+            if (std::isspace(static_cast<unsigned char>(prev))) break;
+            bool prevAlpha = std::isalnum(static_cast<unsigned char>(prev)) || prev == '_';
+            if (prevAlpha != isAlpha) break;
+            c--;
+        }
+        return c;
+    }
+
+    [[nodiscard]] int findWordRight(int pos) const noexcept {
+        int len = static_cast<int>(text_.length());
+        if (pos >= len) return len;
+        int c = pos;
+        bool isAlpha = std::isalnum(static_cast<unsigned char>(text_[static_cast<size_t>(c)])) || text_[static_cast<size_t>(c)] == '_';
+        while (c < len) {
+            char ch = text_[static_cast<size_t>(c)];
+            if (std::isspace(static_cast<unsigned char>(ch))) break;
+            bool chAlpha = std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+            if (chAlpha != isAlpha) break;
+            c++;
+        }
+        while (c < len && std::isspace(static_cast<unsigned char>(text_[static_cast<size_t>(c)]))) {
+            c++;
+        }
+        return c;
+    }
+
+    void backspace(bool wordDelete = false) {
         if (deleteSelection()) return;
-        if (cursor_ > 0) {
+        if (cursor_ <= 0) return;
+        if (wordDelete) {
+            int target = findWordLeft(cursor_);
+            text_.erase(static_cast<size_t>(target), static_cast<size_t>(cursor_ - target));
+            cursor_ = target;
+            anchor_ = target;
+        } else {
             text_.erase(static_cast<size_t>(cursor_ - 1), 1);
             cursor_--;
             anchor_ = cursor_;
         }
     }
 
-    void forwardDelete() {
+    void forwardDelete(bool wordDelete = false) {
         if (deleteSelection()) return;
-        if (cursor_ < static_cast<int>(text_.length())) {
+        if (cursor_ >= static_cast<int>(text_.length())) return;
+        if (wordDelete) {
+            int target = findWordRight(cursor_);
+            text_.erase(static_cast<size_t>(cursor_), static_cast<size_t>(target - cursor_));
+            anchor_ = cursor_;
+        } else {
             text_.erase(static_cast<size_t>(cursor_), 1);
             anchor_ = cursor_;
         }
     }
 
-    void moveLeft(bool select = false) {
-        if (!select && hasSelection()) {
+    void moveLeft(bool select = false, bool wordJump = false) {
+        if (!select && hasSelection() && !wordJump) {
             cursor_ = getSelectionStart();
             anchor_ = cursor_;
+            return;
+        }
+        if (wordJump) {
+            cursor_ = findWordLeft(cursor_);
         } else if (cursor_ > 0) {
             cursor_--;
-            if (!select) anchor_ = cursor_;
         }
+        if (!select) anchor_ = cursor_;
     }
 
-    void moveRight(bool select = false) {
-        if (!select && hasSelection()) {
+    void moveRight(bool select = false, bool wordJump = false) {
+        if (!select && hasSelection() && !wordJump) {
             cursor_ = getSelectionEnd();
             anchor_ = cursor_;
+            return;
+        }
+        if (wordJump) {
+            cursor_ = findWordRight(cursor_);
         } else if (cursor_ < static_cast<int>(text_.length())) {
             cursor_++;
-            if (!select) anchor_ = cursor_;
         }
+        if (!select) anchor_ = cursor_;
     }
 
     void moveHome(bool select = false) {

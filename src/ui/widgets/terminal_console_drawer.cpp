@@ -233,19 +233,48 @@ bool TerminalConsoleDrawer::handlePointer(const PointerEvent& ev) {
 
 bool TerminalConsoleDrawer::handleKey(int key, int scancode, int action, int mods) {
     (void)scancode;
-    (void)mods;
     if (!isExpanded_) return false;
     if (action != 1 && action != 2) return false; // Press or Repeat
+
+    bool isCtrl = (mods & 0x0002) != 0;
 
     if (key == 257 || key == 13) { // Enter
         commitCurrentLine();
         return true;
     }
+
+    // Ctrl+W or Ctrl+Backspace: Word deletion
+    if ((isCtrl && (key == 87 || key == 119)) || (isCtrl && (key == 259 || key == 8))) {
+        if (!currentLine_.empty()) {
+            while (!currentLine_.empty() && std::isspace(static_cast<unsigned char>(currentLine_.back()))) {
+                currentLine_.pop_back();
+                parser_.parse("\b \b");
+            }
+            while (!currentLine_.empty() && !std::isspace(static_cast<unsigned char>(currentLine_.back()))) {
+                currentLine_.pop_back();
+                parser_.parse("\b \b");
+            }
+        }
+        return true;
+    }
+
     if (key == 259 || key == 8) { // Backspace
         if (!currentLine_.empty()) {
             currentLine_.pop_back();
             parser_.parse("\b \b");
         }
+        return true;
+    }
+
+    // Left Arrow
+    if (key == 263) {
+        parser_.parse("\x1b[D");
+        return true;
+    }
+
+    // Right Arrow
+    if (key == 262) {
+        parser_.parse("\x1b[C");
         return true;
     }
     if (key == 265) { // Up arrow (History Prev)

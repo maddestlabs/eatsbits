@@ -100,6 +100,22 @@ void drawMonoText(BatchRenderer2D& /*r*/, const std::string& str, float x, float
     drawMonoString(str, x, y, scale, red, green, blue, alpha);
 }
 
+void drawMonoTextClipped(BatchRenderer2D& /*r*/, const std::string& str, float x, float y, float size,
+                         float clipMinX, float clipMaxX,
+                         float red, float green, float blue, float alpha) {
+    if (clipMaxX <= clipMinX || str.empty()) return;
+    float charW = getMonoCharAdvance(size);
+    float scale = std::max(0.6f, size / 13.0f);
+
+    for (size_t i = 0; i < str.length(); ++i) {
+        float charX = x + static_cast<float>(i) * charW;
+        if (charX + charW > clipMinX && charX < clipMaxX) {
+            std::string singleChar(1, str[i]);
+            drawMonoString(singleChar, charX, y, scale, red, green, blue, alpha);
+        }
+    }
+}
+
 float getMonoCharAdvance(float size) {
     float scale = std::max(0.6f, size / 13.0f);
     float fontSize = std::max(11.0f, scale * 15.5f);

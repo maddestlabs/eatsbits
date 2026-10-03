@@ -16,6 +16,8 @@
 #include "eatsbits/ui/widgets/bottom_nav_bar.hpp"
 #include "eatsbits/ui/widgets/plugin_search_dialog.hpp"
 #include "eatsbits/ui/widgets/text_field_state.hpp"
+#include "eatsbits/ui/widgets/text_field_widget.hpp"
+#include "eatsbits/ui/widgets/text_editor_widget.hpp"
 #include "eatsbits/ui/widgets/value_edit_dialog.hpp"
 #include "eatsbits/ui/widgets/command_palette_dialog.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
@@ -422,6 +424,109 @@ void testMixerView() {
     assert(!mixer.isPropertiesExpanded());
     mixer.setPropertiesExpanded(true);
     assert(mixer.isPropertiesExpanded());
+
+    // Phase 3: Audio Taper Scaling Tests
+    using namespace eatsbits::presenter::audio_taper;
+    assertNear(travelToGain(0.75f), 1.0f); // 0 dB unity
+    assertNear(gainToTravel(1.0f), 0.75f);
+    assertNear(travelToGain(1.0f), 1.5f);  // Max gain
+    assertNear(gainToTravel(1.5f), 1.0f);
+    assertNear(travelToGain(0.0f), 0.0f);  // -inf
+    assertNear(gainToTravel(0.0f), 0.0f);
+    assert(formatDb(1.0f) == "0.0 dB");
+    assert(formatDb(0.0f) == "-inf dB");
+
+    // Phase 3: Structured Fader Geometry & Hit-Testing
+    auto mGeom = mixer.getMasterFaderGeometry();
+    assert(mGeom.wellH >= 100.0f);
+    assert(mGeom.thumb.w > 0.0f && mGeom.thumb.h > 0.0f);
+    assert(mixer.hitTestMasterFader(mGeom.thumb.x + 5.0f, mGeom.thumb.y + 5.0f));
+
+    auto chGeom = mixer.getChannelFaderGeometry(0, 195.0f);
+    assert(chGeom.wellH >= 100.0f);
+    assert(chGeom.thumb.w > 0.0f && chGeom.thumb.h > 0.0f);
+    assert(mixer.hitTestChannelFader(0, 195.0f, chGeom.thumb.x + 5.0f, chGeom.thumb.y + 5.0f));
+
+    // Phase 3: Double-click to reset fader to 0 dB unity (1.0f)
+    mixer.setMasterFader(0.2f);
+    assertNear(mixer.getMasterChannel().fader, 0.2f);
+    PointerEvent click1 = makePointer(mGeom.trackX, mGeom.thumbY, PointerAction::Down, PointerType::Mouse);
+    mixer.handlePointer(click1, ctx);
+    PointerEvent up1 = makePointer(mGeom.trackX, mGeom.thumbY, PointerAction::Up, PointerType::Mouse);
+    mixer.handlePointer(up1, ctx);
+    PointerEvent click2 = makePointer(mGeom.trackX, mGeom.thumbY, PointerAction::Down, PointerType::Mouse);
+    mixer.handlePointer(click2, ctx);
+    assertNear(mixer.getMasterChannel().fader, 1.0f); // Reset to unity!
+
+    // Phase 3: Shift+Drag Fine Trim vs Normal Drag
+    mixer.setMasterFader(1.0f);
+    mGeom = mixer.getMasterFaderGeometry();
+    PointerEvent dragStart = makePointer(mGeom.trackX, mGeom.thumbY, PointerAction::Down, PointerType::Mouse);
+    mixer.handlePointer(dragStart, ctx);
+    PointerEvent dragMoveNormal = makePointer(mGeom.trackX, mGeom.thumbY - 20.0f, PointerAction::Move, PointerType::Mouse);
+    mixer.handlePointer(dragMoveNormal, ctx);
+    float normalGain = mixer.getMasterChannel().fader;
+    PointerEvent dragEnd = makePointer(mGeom.trackX, mGeom.thumbY - 20.0f, PointerAction::Up, PointerType::Mouse);
+    mixer.handlePointer(dragEnd, ctx);
+
+    mixer.setMasterFader(1.0f);
+    mGeom = mixer.getMasterFaderGeometry();
+    PointerEvent dragStart2 = makePointer(mGeom.trackX, mGeom.thumbY, PointerAction::Down, PointerType::Mouse);
+    mixer.handlePointer(dragStart2, ctx);
+    PointerEvent dragMoveShift = makePointer(mGeom.trackX, mGeom.thumbY - 20.0f, PointerAction::Move, PointerType::Mouse);
+    dragMoveShift.mods.shift = true;
+    mixer.handlePointer(dragMoveShift, ctx);
+    float shiftGain = mixer.getMasterChannel().fader;
+    PointerEvent dragEnd2 = makePointer(mGeom.trackX, mGeom.thumbY - 20.0f, PointerAction::Up, PointerType::Mouse);
+    mixer.handlePointer(dragEnd2, ctx);
+
+    assert(normalGain > 1.0f);
+    assert(shiftGain > 1.0f);
+    assert((shiftGain - 1.0f) < (normalGain - 1.0f)); // Fine trim moved much less!
+
+    // Phase 4: Modular Density Modes & Responsive Auto-Density
+    assert(mixer.getDensityMode() == MixerDensityMode::Comfortable);
+    assert(!mixer.isToolbarVisible());
+    assertNear(mixer.getChannelStripWidth(), 140.0f);
+    assertNear(mixer.getMasterStripWidth(), 140.0f);
+
+    mixer.setDensityMode(MixerDensityMode::Compact);
+    assert(mixer.getDensityMode() == MixerDensityMode::Compact);
+    assertNear(mixer.getChannelStripWidth(), 78.0f);
+    assertNear(mixer.getMasterStripWidth(), 90.0f);
+
+    mixer.setDensityMode(MixerDensityMode::Micro);
+    assert(mixer.getDensityMode() == MixerDensityMode::Micro);
+    assertNear(mixer.getChannelStripWidth(), 50.0f);
+    assertNear(mixer.getMasterStripWidth(), 65.0f);
+
+    // Toolbar visibility toggle
+    mixer.toggleToolbar();
+    assert(mixer.isToolbarVisible());
+    mixer.setToolbarVisible(false);
+    assert(!mixer.isToolbarVisible());
+
+    // Responsive auto-density thresholds
+    mixer.setAutoDensityEnabled(true);
+    mixer.layout(Rect2D(0.0f, 56.0f, 500.0f, 600.0f), ctx);
+    assert(mixer.getDensityMode() == MixerDensityMode::Micro);
+
+    mixer.layout(Rect2D(0.0f, 56.0f, 750.0f, 600.0f), ctx);
+    assert(mixer.getDensityMode() == MixerDensityMode::Compact);
+
+    mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 600.0f), ctx);
+    assert(mixer.getDensityMode() == MixerDensityMode::Comfortable);
+
+    // Mobile force-micro test
+    ctx.isMobile = true;
+    mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 600.0f), ctx);
+    assert(mixer.getDensityMode() == MixerDensityMode::Micro);
+    ctx.isMobile = false;
+
+    // Reset back to Comfortable desktop for remaining tests
+    mixer.setAutoDensityEnabled(false);
+    mixer.setDensityMode(MixerDensityMode::Comfortable);
+    mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
 
     std::cout << "  [PASS] MixerView validated." << std::endl;
 }
@@ -945,6 +1050,33 @@ void testValueEditDialogAndBackdropBlur() {
         tf.moveHome(/*select=*/ false);
         assert(!tf.hasSelection());
         assert(tf.getCursor() == 0);
+    }
+
+    // 0.5. Test unified TextFieldWidget
+    {
+        FocusManager fm;
+        ViewContext ctx;
+        ctx.focusManager = &fm;
+
+        TextFieldWidget widget("My Track Name", "Enter name...");
+        widget.setBounds(100.0f, 100.0f, 200.0f, 32.0f);
+        assert(!widget.isFocused());
+        assert(widget.getText() == "My Track Name");
+
+        // Pointer click acquires focus
+        PointerEvent click = makePointer(120.0f, 115.0f, PointerAction::Down);
+        bool handled = widget.handlePointer(click, ctx);
+        assert(handled);
+        assert(widget.isFocused());
+        assert(fm.hasFocus(&widget));
+
+        // Typing via handleChar
+        widget.handleChar(U'!');
+        assert(widget.getText().find('!') != std::string::npos);
+
+        // Defocus via clearFocus
+        fm.clearFocus();
+        assert(!widget.isFocused());
     }
 
     // 1. Direct ValueEditDialog tests
@@ -1600,6 +1732,122 @@ void testCircularGradients() {
     std::cout << "  [PASS] Circular & Radial Gradient Tessellation validated." << std::endl;
 }
 
+void testTextEditorWidgetAndMinimap() {
+    std::cout << "[Test 17/17] TextEditorWidget, Code Minimap & Script Workstations..." << std::endl;
+
+    const ThemeTokens& theme = Theme::current();
+    BatchRenderer2D renderer;
+    FocusManager focusManager;
+    ViewContext ctx;
+    ctx.renderer = &renderer;
+    ctx.theme = &theme;
+    ctx.focusManager = &focusManager;
+
+    // 1. TextEditorWidget Layout and Bounds
+    TextEditorWidget editor;
+    Rect2D edBounds(0.0f, 0.0f, 800.0f, 600.0f);
+    editor.layout(edBounds, ctx);
+
+    assert(editor.getBounds().w == 800.0f);
+    assert(editor.getBounds().h == 600.0f);
+    assert(editor.getGutterBounds().w == 46.0f);
+    assert(editor.getMinimapBounds().w == 56.0f);
+    assertNear(editor.getTextAreaBounds().w, 800.0f - 46.0f - 56.0f);
+
+    // 2. Multiline Document Editing & Input Focus
+    std::string sampleCode =
+        "# --- Eatscript Bass Synth ---\n"
+        "import math\n\n"
+        "def init():\n"
+        "    eat.param(\"Cutoff\", 850.0)\n\n"
+        "def process():\n"
+        "    return 1.0\n";
+    editor.setText(sampleCode);
+
+    assert(editor.getPresenter().getDocument().getLineCount() >= 7);
+    assert(!editor.isFocused());
+
+    // Focus acquisition via pointer click
+    PointerEvent clickEd = makePointer(100.0f, 100.0f, PointerAction::Down);
+    editor.handlePointer(clickEd, ctx);
+    assert(editor.isFocused());
+    assert(focusManager.hasFocus(&editor));
+
+    // Type character
+    editor.handleChar(U'#', ctx);
+    assert(editor.getText().find('#') != std::string::npos);
+
+    // Enter key creates indented newline
+    editor.handleKey(257, 0, 1, 0, ctx); // Enter
+    assert(editor.getPresenter().getDocument().getLineCount() >= 8);
+
+    // Tab key indents
+    size_t lenBeforeTab = editor.getText().length();
+    editor.handleKey(258, 0, 1, 0, ctx); // Tab
+    assert(editor.getText().length() == lenBeforeTab + 4);
+
+    // Undo via Ctrl+Z
+    editor.handleKey(90, 0, 1, 2, ctx); // Ctrl+Z
+    assert(editor.getText().length() == lenBeforeTab);
+
+    // 3. Code Minimap Scrubber Navigation
+    // Create a 150-line script to test scrolling and minimap lens
+    std::string longScript = "# Start of long script\n";
+    for (int i = 0; i < 150; ++i) {
+        longScript += "    eat.param(\"Param_" + std::to_string(i) + "\", " + std::to_string(i * 10) + ")\n";
+    }
+    longScript += "# End of script\n";
+    editor.setText(longScript);
+    editor.layout(edBounds, ctx);
+
+    assert(editor.getPresenter().getMaxScrollY() > 0.0f);
+    assertNear(editor.getPresenter().getScrollY(), 0.0f);
+
+    // Click on Code Minimap at 60% of height (touch scrubber navigation)
+    const auto& mmb = editor.getMinimapBounds();
+    PointerEvent mapDown = makePointer(mmb.x + 20.0f, mmb.y + mmb.h * 0.60f, PointerAction::Down);
+    bool mapHandled = editor.handlePointer(mapDown, ctx);
+    assert(mapHandled);
+    float scrubbedScrollY = editor.getPresenter().getScrollY();
+    assert(scrubbedScrollY > 0.0f);
+
+    // Drag minimap further down to 90%
+    PointerEvent mapMove = makePointer(mmb.x + 20.0f, mmb.y + mmb.h * 0.90f, PointerAction::Move);
+    editor.handlePointer(mapMove, ctx);
+    assert(editor.getPresenter().getScrollY() > scrubbedScrollY);
+
+    // Release minimap scrubber
+    PointerEvent mapUp = makePointer(mmb.x + 20.0f, mmb.y + mmb.h * 0.90f, PointerAction::Up);
+    editor.handlePointer(mapUp, ctx);
+
+    // 4. Verification in DesignView (DESIGN > Code)
+    DesignView designView;
+    designView.setSubMode(DesignSubMode::Code);
+    designView.layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), ctx);
+
+    assert(!designView.getTextEditor().getText().empty());
+    assert(designView.getTextEditor().getPresenter().getDocument().getLineCount() > 5);
+
+    // Switch active target to TB-303
+    designView.selectTargetById("eats_303");
+    assert(designView.getTextEditor().getText().find("TB-303") != std::string::npos);
+
+    // 5. Verification in EditView (EDIT > Script)
+    EditView editView;
+    editView.setSubView(EditSubViewMode::Script);
+    editView.layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), ctx);
+
+    assert(!editView.getScriptEditor().getText().empty());
+    assert(editView.getScriptEditor().getText().find("Clip:") != std::string::npos);
+
+    // 6. Test BatchRenderer2D rendering pass
+    renderer.beginFrame(800.0f, 600.0f);
+    editor.render(ctx);
+    renderer.endFrame();
+
+    std::cout << "  [PASS] TextEditorWidget, Code Minimap & Script Workstations validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -1621,7 +1869,8 @@ int main() {
     testCommandPaletteDialog();
     testFileDragAndDrop();
     testCircularGradients();
+    testTextEditorWidgetAndMinimap();
 
-    std::cout << "\n>>> ALL 16 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 17 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }

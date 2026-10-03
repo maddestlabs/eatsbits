@@ -627,12 +627,36 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
   - **MixerView Multi-Fader Simultaneous Mixing**:
     - Implemented `std::unordered_map<int, ActiveFaderSession> activeFaderSessions_` keyed by `ev.id`.
     - Supports multi-finger volume fader adjustments across channel strips and master fader simultaneously.
+- **Mixer Architecture Phases 1-4: Pointer Delegation, DSP Decoupling, Audio Taper Presenters & Responsive Density Toolbar**:
+  - **Phase 1: Pointer Delegation & Precedence Alignment**:
+    - Removed legacy `hitTestMixer` interception in [gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), delegating all mouse/pointer events directly to `modularMixerView_->handlePointer(pev, ctx)`.
+    - Enforced strict sidebar drawer bounds isolation so clicks and gestures on `TrackPropertiesDrawer` never bleed or fall through into underlying mixer channels.
+    - Clipped channel strip hit boundaries dynamically to `propertiesDrawer_.getPullTabBounds().x`.
+  - **Phase 2: Decoupled Audio Graph DSP Nodes from Mixer Strips**:
+    - Removed raw canvas module scanning in `GuiWindow::updateMixerStrips()`.
+    - Locked mixer channel strips strictly 1:1 with Arranger Tracks + Busses + Master Bus, eliminating phantom channels created by internal/canvas `GainNode`s.
+    - Preserved Gain nodes as utility devices and track insert FX.
+  - **Phase 3: Systematized Fader Presenters & Logarithmic dB Taper**:
+    - Added structured Thumb & Well hit geometry (`getMasterFaderGeometry()`, `getChannelFaderGeometry()`, `hitTestMasterFader()`, `hitTestChannelFader()`), replacing hardcoded magic numbers while preserving legacy test hit box boundaries.
+    - Standardized fader dragging with audio taper dB scaling via `presenter::audio_taper`: unity 0 dB at 0.75 travel (1.0f gain), +6 dB at 1.0 travel (up to 1.5f max gain), cubic logarithmic taper down to $-\infty$ at 0.0 travel.
+    - Added double-click detection (<350ms) to reset fader directly to 0 dB unity gain (1.0f).
+    - Added Shift+Drag fine trim scaling (0.15 ratio) for precise 0.1 dB trimming.
+    - Standardized manual value edit entry dialogs to 1.0f (0 dB unity) default.
+    - Added calibrated dB tick marks (`+6`, `0`, `-6`, `-12`, `-inf`) along fader slots and real-time formatted dB tooltips.
+  - **Phase 4: Mobile Responsive Density & Section Options Toolbar**:
+    - Introduced `MixerDensityMode` with three modular layouts: `Comfortable` (140px strip), `Compact` (78px strip), and `Micro` (50px strip).
+    - Implemented a collapsible top options toolbar with interactive toggle pills:
+      - Density Mode selectors: `[COMFORT]`, `[COMPACT]`, `[MICRO]`.
+      - Modular section toggles: `[METERS]`, `[ROUTING]`, `[PAN]`, `[READOUT]`.
+      - Master channel position toggle: `[MST: LEFT]` / `[MST: RIGHT]`.
+      - Toolbar collapse toggle: `[^ HIDE]` and non-intrusive `[OPTS v]` trigger pill when collapsed.
+    - Added intelligent responsive auto-density switching: automatically sets `Micro` when `ctx.isMobile || bounds.w < 600px` (allowing 5-6 channels to cleanly fit on mobile screens without horizontal congestion) and `Compact` when `bounds.w < 850px`.
+    - Systematized channel strip element layout, scaling LED meters, LCD displays, pan dials, button columns (stacked, inline, and micro variants), and pointer hit boundaries across all density modes while strictly preserving backwards compatibility with legacy coordinates.
 - **Validation**:
-  - MSVC 17 Release build clean with zero warnings/errors.
-  - 100% pass on [test_ui_widgets.exe](file:///c:/git/eatsbits/tests/test_ui_widgets.cpp) testing `KineticScroller` momentum glide and `DrumPadGridWidget` multi-touch polyphony.
-  - 100% pass across all 37 test suites in CTest (113.54s execution) on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
+  - 100% pass across all 44 test suites in `build.ps1 -Test` on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
 
 ---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist

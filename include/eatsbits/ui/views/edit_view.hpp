@@ -25,6 +25,7 @@ namespace eatsbits::ui {
 
 #include "../score/score_layout_engine.hpp"
 #include "../widgets/circle_of_fifths_dialog.hpp"
+#include "../widgets/text_editor_widget.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 
 namespace eatsbits::ui {
@@ -71,6 +72,10 @@ public:
     void render(const ViewContext& ctx) override;
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
+    bool handleChar(char32_t codepoint, const ViewContext& ctx) override;
+
+    [[nodiscard]] TextEditorWidget& getScriptEditor() noexcept { return scriptEditor_; }
+    [[nodiscard]] const TextEditorWidget& getScriptEditor() const noexcept { return scriptEditor_; }
 
     // Sub-view mode
     void setSubView(EditSubViewMode mode) noexcept { subView_ = mode; }
@@ -257,7 +262,9 @@ private:
     // Script toolbar buttons
     Rect2D btnScriptApply_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnScriptRevert_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D scriptEditorBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     std::string scriptBuffer_{""};
+    TextEditorWidget scriptEditor_;
 
     // Note collections
     std::vector<PianoRollNote> notes_;

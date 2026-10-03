@@ -21,11 +21,23 @@ namespace eatsbits::ui {
 enum class WorkspaceView;
 enum class EditSubView;
 enum class DesignSubView;
+class FocusManager;
+
+struct IClipboard {
+    virtual ~IClipboard() = default;
+    virtual void setString(const std::string& text) = 0;
+    [[nodiscard]] virtual std::string getString() const = 0;
+
+    void setText(const std::string& text) { setString(text); }
+    [[nodiscard]] std::string getText() const { return getString(); }
+};
 
 struct ViewContext {
     BatchRenderer2D* renderer{nullptr};
     const ThemeTokens* theme{nullptr};
     audio::AudioEngine* audioEngine{nullptr};
+    IClipboard* clipboard{nullptr};
+    FocusManager* focusManager{nullptr};
 
     float screenWidth{1280.0f};
     float screenHeight{800.0f};
@@ -68,6 +80,10 @@ public:
     }
 
     virtual bool handleKey([[maybe_unused]] int key, [[maybe_unused]] int scancode, [[maybe_unused]] int action, [[maybe_unused]] int mods, [[maybe_unused]] const ViewContext& ctx) {
+        return false;
+    }
+
+    virtual bool handleChar([[maybe_unused]] char32_t codepoint, [[maybe_unused]] const ViewContext& ctx) {
         return false;
     }
 

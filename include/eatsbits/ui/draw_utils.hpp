@@ -85,6 +85,16 @@ inline void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, fl
     drawMonoText(r, str, x, y, size, col.r, col.g, col.b, alpha * col.a);
 }
 
+void drawMonoTextClipped(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+                         float clipMinX, float clipMaxX,
+                         float red, float green, float blue, float alpha = 1.0f);
+
+inline void drawMonoTextClipped(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+                                float clipMinX, float clipMaxX,
+                                const Color& col, float alpha = 1.0f) {
+    drawMonoTextClipped(r, str, x, y, size, clipMinX, clipMaxX, col.r, col.g, col.b, alpha * col.a);
+}
+
 inline void drawRect(BatchRenderer2D& r, float x, float y, float w, float h,
                      float red, float green, float blue, float alpha = 1.0f) {
     r.drawRect(x, y, w, h, red, green, blue, alpha);

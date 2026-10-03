@@ -40,6 +40,30 @@
 #include <GLFW/glfw3native.h>
 #endif
 
+namespace eatsbits::ui {
+
+void GlfwClipboard::setString(const std::string& text) {
+#if !defined(__EMSCRIPTEN__)
+    if (win_) {
+        glfwSetClipboardString(win_, text.c_str());
+    }
+#else
+    (void)text;
+#endif
+}
+
+std::string GlfwClipboard::getString() const {
+#if !defined(__EMSCRIPTEN__)
+    if (win_) {
+        const char* s = glfwGetClipboardString(win_);
+        return s ? std::string(s) : std::string{};
+    }
+#endif
+    return {};
+}
+
+} // namespace eatsbits::ui
+
 namespace {
 
 std::string promptOpenEatsFile() {
@@ -2384,26 +2408,30 @@ void GuiWindow::initDefaultKnobValues() {
 }
 
 void GuiWindow::updateMixerStrips() {
-    const auto& modules = canvas_.getModules();
-    for (const auto& m : modules) {
-        bool exists = false;
-        for (const auto& s : mixerStrips_) {
-            if (s.nodeId == m.id) {
-                exists = true;
-                break;
+    // Keep mixerStrips_ strictly 1:1 in sync with arrangerTracks_
+    if (!arrangerTracks_.empty()) {
+        if (mixerStrips_.size() < arrangerTracks_.size()) {
+            for (size_t i = mixerStrips_.size(); i < arrangerTracks_.size(); ++i) {
+                MixerStrip strip;
+                strip.name = arrangerTracks_[i].name;
+                strip.nodeId = static_cast<audio::NodeId>(i + 1);
+                strip.volume = arrangerTracks_[i].volume;
+                strip.pan = arrangerTracks_[i].pan;
+                strip.mute = arrangerTracks_[i].mute;
+                strip.solo = arrangerTracks_[i].solo;
+                strip.freeze = arrangerTracks_[i].freeze;
+                strip.peakL = 0.0f;
+                strip.peakR = 0.0f;
+                mixerStrips_.push_back(strip);
             }
+        } else if (mixerStrips_.size() > arrangerTracks_.size()) {
+            mixerStrips_.resize(arrangerTracks_.size());
         }
-        if (!exists) {
-            MixerStrip strip;
-            strip.name = m.name;
-            strip.nodeId = m.id;
-            strip.volume = (m.type == "gain") ? 0.85f : 0.75f;
-            strip.pan = 0.0f;
-            strip.mute = false;
-            strip.solo = false;
-            strip.peakL = 0.0f;
-            strip.peakR = 0.0f;
-            mixerStrips_.push_back(strip);
+        for (size_t i = 0; i < arrangerTracks_.size(); ++i) {
+            mixerStrips_[i].name = arrangerTracks_[i].name;
+            mixerStrips_[i].mute = arrangerTracks_[i].mute;
+            mixerStrips_[i].solo = arrangerTracks_[i].solo;
+            mixerStrips_[i].freeze = arrangerTracks_[i].freeze;
         }
     }
 }
@@ -4195,6 +4223,37 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     };
 
     if (modularMixerView_) {
+        modularMixerView_->onVolumeChanged = [this](uint32_t idx, float vol) {
+            if (idx < mixerStrips_.size()) mixerStrips_[idx].volume = vol;
+            if (idx < arrangerTracks_.size()) arrangerTracks_[idx].volume = vol;
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].volume = vol;
+            }
+            if (engine_) engine_->setTrackVolume(idx, vol);
+        };
+        modularMixerView_->onPanChanged = [this](uint32_t idx, float pan) {
+            if (idx < mixerStrips_.size()) mixerStrips_[idx].pan = pan;
+            if (idx < arrangerTracks_.size()) arrangerTracks_[idx].pan = pan;
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].pan = pan;
+            }
+            if (engine_) engine_->setTrackPan(idx, pan);
+        };
+        modularMixerView_->onMasterVolumeChanged = [this](float vol) {
+            masterVolume_ = vol;
+            if (engine_) engine_->setMasterVolume(masterMute_ ? 0.0f : vol);
+        };
+        modularMixerView_->onMasterPanChanged = [this](float pan) {
+            setMasterPan(pan);
+        };
+        modularMixerView_->onMasterMuteToggled = [this](bool mute) {
+            masterMute_ = mute;
+            if (engine_) engine_->setMasterVolume(mute ? 0.0f : masterVolume_);
+        };
+        modularMixerView_->onPropertiesDrawerStateChanged = [this](bool exp, float w) {
+            mixerPropertiesExpanded_ = exp;
+            mixerPropertiesWidth_ = w;
+        };
         modularMixerView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
             if (idx != selectedTrackIndex_) {
                 setSelectedTrackIndex(idx);
@@ -4207,6 +4266,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularMixerView_->onSoloToggled = [this](uint32_t idx, bool solo) {
             setTrackSoloState(idx, solo);
+        };
+        modularMixerView_->onFreezeToggled = [this](uint32_t idx, bool freeze) {
+            setTrackFreezeState(idx, freeze);
         };
         modularMixerView_->onTrackSelected = [this](uint32_t idx) {
             setSelectedTrackIndex(idx);
@@ -4387,6 +4449,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         std::cerr << "[GuiWindow] Warning: GLFW window creation failed (running in headless mode)." << std::endl;
         return true;
     }
+    clipboardBridge_.setWindow(window_);
 
     GLFWimage icons[2];
     icons[0].width = kAppIcon48Width;
@@ -4603,6 +4666,8 @@ ViewContext GuiWindow::createViewContext() noexcept {
     ctx.renderer = batchRenderer_.get();
     ctx.theme = &getTheme();
     ctx.audioEngine = engine_;
+    ctx.clipboard = &clipboardBridge_;
+    ctx.focusManager = &focusManager_;
     ctx.screenWidth = static_cast<float>(width_);
     ctx.screenHeight = static_cast<float>(height_);
     ctx.logicalWidth = static_cast<float>(width_);
@@ -5253,13 +5318,13 @@ void GuiWindow::renderFrame() {
             std::vector<bool> trackFreezes;
             std::vector<Color> trackColors;
 
-            size_t trkCount = std::max(mixerStrips_.size(), arrangerTracks_.size());
+            size_t trkCount = arrangerTracks_.empty() ? mixerStrips_.size() : arrangerTracks_.size();
             for (size_t i = 0; i < trkCount; ++i) {
-                std::string name = (i < mixerStrips_.size()) ? mixerStrips_[i].name : ((i < arrangerTracks_.size()) ? arrangerTracks_[i].name : ("Track " + std::to_string(i + 1)));
-                float vol = (i < mixerStrips_.size()) ? mixerStrips_[i].volume : ((i < arrangerTracks_.size()) ? arrangerTracks_[i].volume : 0.8f);
-                float pan = (i < mixerStrips_.size()) ? mixerStrips_[i].pan : ((i < arrangerTracks_.size()) ? arrangerTracks_[i].pan : 0.0f);
-                bool mute = (i < mixerStrips_.size()) ? mixerStrips_[i].mute : ((i < arrangerTracks_.size()) ? arrangerTracks_[i].mute : false);
-                bool solo = (i < mixerStrips_.size()) ? mixerStrips_[i].solo : ((i < arrangerTracks_.size()) ? arrangerTracks_[i].solo : false);
+                std::string name = (i < arrangerTracks_.size()) ? arrangerTracks_[i].name : ((i < mixerStrips_.size()) ? mixerStrips_[i].name : ("Track " + std::to_string(i + 1)));
+                float vol = (i < arrangerTracks_.size()) ? arrangerTracks_[i].volume : ((i < mixerStrips_.size()) ? mixerStrips_[i].volume : 0.8f);
+                float pan = (i < arrangerTracks_.size()) ? arrangerTracks_[i].pan : ((i < mixerStrips_.size()) ? mixerStrips_[i].pan : 0.0f);
+                bool mute = (i < arrangerTracks_.size()) ? arrangerTracks_[i].mute : ((i < mixerStrips_.size()) ? mixerStrips_[i].mute : false);
+                bool solo = (i < arrangerTracks_.size()) ? arrangerTracks_[i].solo : ((i < mixerStrips_.size()) ? mixerStrips_[i].solo : false);
                 bool freeze = (i < arrangerTracks_.size()) ? arrangerTracks_[i].freeze : ((i < mixerStrips_.size()) ? mixerStrips_[i].freeze : false);
                 Color col = (i < arrangerTracks_.size()) ? Color(arrangerTracks_[i].r, arrangerTracks_[i].g, arrangerTracks_[i].b) : Color(0.0f, 0.90f, 1.0f);
 
@@ -8915,8 +8980,22 @@ void GuiWindow::setArrangerPropertiesWidth(float width) noexcept {
     arrangerPropertiesWidth_ = std::clamp(width, kArrangerPropertiesMinW, kArrangerPropertiesMaxW);
 }
 
+void GuiWindow::setMixerPropertiesExpanded(bool expanded) noexcept {
+    mixerPropertiesExpanded_ = expanded;
+    if (modularMixerView_) {
+        modularMixerView_->getPropertiesDrawer().setExpanded(expanded);
+    }
+}
+
+void GuiWindow::toggleMixerProperties() noexcept {
+    setMixerPropertiesExpanded(!mixerPropertiesExpanded_);
+}
+
 void GuiWindow::setMixerPropertiesWidth(float width) noexcept {
     mixerPropertiesWidth_ = std::clamp(width, kMixerPropertiesMinW, kMixerPropertiesMaxW);
+    if (modularMixerView_) {
+        modularMixerView_->getPropertiesDrawer().setWidth(mixerPropertiesWidth_);
+    }
 }
 
 void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResult& inspHit, float x, float y) {
@@ -11271,6 +11350,8 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.dx = x - mouseX_;
         pev.dy = y - mouseY_;
         modularMixerView_->handlePointer(pev, ctx);
+        mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+        mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
     }
     if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_ && dragMode_ == DragMode::None) {
         ViewContext ctx = createViewContext();
@@ -12603,9 +12684,39 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     showMixerMeters_ = !showMixerMeters_;
                     setStatusMessage(std::string("[MIXER] LED Meters: ") + (showMixerMeters_ ? "ENABLED" : "HIDDEN"));
                     return;
+                } else if (mixerHit.isAutomation && mixerHit.channelIndex < mixerStrips_.size()) {
+                    mixerStrips_[mixerHit.channelIndex].automationMode = (mixerStrips_[mixerHit.channelIndex].automationMode + 1) % 4;
+                    const char* aModes[] = {"TRIM", "READ", "TOUCH", "LATCH"};
+                    setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + " Automation: " + aModes[mixerStrips_[mixerHit.channelIndex].automationMode]);
+                    return;
+                } else if (mixerHit.isPhase && mixerHit.channelIndex < mixerStrips_.size()) {
+                    mixerStrips_[mixerHit.channelIndex].phaseInvert = !mixerStrips_[mixerHit.channelIndex].phaseInvert;
+                    setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Phase " + (mixerStrips_[mixerHit.channelIndex].phaseInvert ? "INVERTED (180°)" : "NORMAL"));
+                    return;
+                } else if (mixerHit.isFreeze && mixerHit.channelIndex < mixerStrips_.size()) {
+                    bool currentFz = mixerStrips_[mixerHit.channelIndex].freeze;
+                    setTrackFreezeState(mixerHit.channelIndex, !currentFz);
+                    return;
+                } else if (mixerHit.isFxIn && mixerHit.channelIndex < mixerStrips_.size()) {
+                    mixerStrips_[mixerHit.channelIndex].fxIn = !mixerStrips_[mixerHit.channelIndex].fxIn;
+                    setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Inserts " + (mixerStrips_[mixerHit.channelIndex].fxIn ? "ACTIVE" : "BYPASSED"));
+                    return;
                 }
+            }
 
-                // Pull-Tab and Track Properties Sidebar Interactions
+            // Track Properties Sidebar Boundary Check & Hit Routing
+            const float w = static_cast<float>(width_);
+            const float propW = mixerPropertiesExpanded_ ? mixerPropertiesWidth_ : 0.0f;
+            const float pullTabW = kMixerPullTabW;
+            const float drawerTotalW = mixerPropertiesExpanded_ ? (pullTabW + propW) : pullTabW;
+            const float browserOffset = browserOpen_ ? ProjectBrowserDrawer::getDrawerWidth() : 0.0f;
+            const float rightBoundary = w - drawerTotalW - browserOffset;
+            const float pullTabX = rightBoundary;
+            const float propX = pullTabX + pullTabW;
+            const float topY = 56.0f;
+            const float bottomY = static_cast<float>(height_) - 48.0f - 6.0f;
+
+            if (mixerPropertiesExpanded_ && x >= pullTabX && x <= propX + propW && y >= topY && y <= bottomY) {
                 if (mixerHit.isPullTab) {
                     dragStartX_ = x;
                     dragStartValGeneric_ = mixerPropertiesWidth_;
@@ -12616,9 +12727,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     scfg.defaultWidth = 360.0f;
                     scfg.collapseThresholdMargin = 25.0f;
                     splitterDragPresenter_.startDrag(x, mixerPropertiesWidth_, mixerPropertiesExpanded_, scfg,
-                        [this](float w, bool exp) {
-                            mixerPropertiesWidth_ = w;
-                            mixerPropertiesExpanded_ = exp;
+                        [this](float widthVal, bool exp) {
+                            setMixerPropertiesWidth(widthVal);
+                            setMixerPropertiesExpanded(exp);
                             if (!exp) dragMode_ = DragMode::None;
                         });
                     activeDragHandler_ = &splitterDragPresenter_;
@@ -12626,124 +12737,78 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     return;
                 }
                 if (mixerHit.isPropertiesClose) {
-                    mixerPropertiesExpanded_ = false;
+                    setMixerPropertiesExpanded(false);
                     return;
                 }
                 if (mixerHit.trackInspectorHit.hit) {
                     handleTrackInspectorInteraction(mixerHit.trackInspectorHit, x, y);
                     return;
                 }
-
-                // LCD Screen Clicks (Selects track & opens/ensures sidebar expanded)
-                if (mixerHit.isLcdScreen) {
-                    if (!mixerHit.isMaster && mixerHit.channelIndex < mixerStrips_.size()) {
-                        setSelectedTrackIndex(mixerHit.channelIndex);
-                    }
-                    mixerPropertiesExpanded_ = true;
+                // Absorb click inside sidebar so it never clicks underlying mixer channels
+                return;
+            } else if (!mixerPropertiesExpanded_ && x >= pullTabX && x <= pullTabX + pullTabW && y >= topY && y <= bottomY) {
+                if (mixerHit.isPullTab) {
+                    dragStartX_ = x;
+                    dragStartValGeneric_ = mixerPropertiesWidth_;
+                    presenter::SplitterConfig scfg{};
+                    scfg.dragMode = DragMode::MixerPropertiesResize;
+                    scfg.minWidth = kMixerPropertiesMinW;
+                    scfg.maxWidth = kMixerPropertiesMaxW;
+                    scfg.defaultWidth = 360.0f;
+                    scfg.collapseThresholdMargin = 25.0f;
+                    splitterDragPresenter_.startDrag(x, mixerPropertiesWidth_, mixerPropertiesExpanded_, scfg,
+                        [this](float widthVal, bool exp) {
+                            setMixerPropertiesWidth(widthVal);
+                            setMixerPropertiesExpanded(exp);
+                            if (!exp) dragMode_ = DragMode::None;
+                        });
+                    activeDragHandler_ = &splitterDragPresenter_;
+                    dragMode_ = DragMode::MixerPropertiesResize;
                     return;
                 }
+            }
 
-                if (mixerHit.isMaster) {
-                    if (mixerHit.isMute) {
-                        setMasterMuted(!isMasterMuted());
-                    } else if (mixerHit.isFader) {
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = masterVolume_;
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::MasterFader;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = 0.0f;
-                        cfg.maxValue = 1.5f;
-                        cfg.sensitivity = 1.5f / 280.0f;
-                        scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
-                            [this](float v) { setMasterVolume(v); });
-                        activeDragHandler_ = &scalarDragPresenter_;
-                        dragMode_ = DragMode::MasterFader;
-                    } else if (mixerHit.isPan) {
+            if (modularMixerView_) {
+                ViewContext ctx = createViewContext();
+                modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+                PointerEvent pev;
+                pev.type = PointerType::Mouse;
+                pev.action = PointerAction::Down;
+                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+                pev.x = x;
+                pev.y = y;
+                pev.rawX = x;
+                pev.rawY = y;
+                if (modularMixerView_->handlePointer(pev, ctx)) {
+                    mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+                    mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
+                    if (modularMixerView_->getActivePanIndex() == -1) {
+                        dragMode_ = DragMode::MasterPan;
                         dragStartY_ = y;
                         dragStartValGeneric_ = masterPan_;
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::MasterPan;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = -1.0f;
-                        cfg.maxValue = 1.0f;
-                        cfg.sensitivity = 2.0f / 100.0f;
-                        scalarDragPresenter_.startDrag(x, y, masterPan_, cfg,
-                            [this](float p) { setMasterPan(p); });
-                        activeDragHandler_ = &scalarDragPresenter_;
-                        dragMode_ = DragMode::MasterPan;
-                    }
-                } else if (mixerHit.channelIndex < mixerStrips_.size()) {
-                    setSelectedTrackIndex(mixerHit.channelIndex);
-                    if (mixerHit.isEditButton) {
-                        // User constraint: The mixer shouldn't link to EDIT view at all.
-                        // Clicking only selects the track and updates/expands track properties.
-                        mixerPropertiesExpanded_ = true;
-                    } else if (mixerHit.isMute) {
-                        bool currentMute = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].mute : false;
-                        setTrackMuteState(mixerHit.channelIndex, !currentMute);
-                    } else if (mixerHit.isSolo) {
-                        bool currentSolo = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].solo : false;
-                        setTrackSoloState(mixerHit.channelIndex, !currentSolo);
-                    } else if (mixerHit.isFreeze) {
-                        bool currentFz = (mixerHit.channelIndex < mixerStrips_.size()) ? mixerStrips_[mixerHit.channelIndex].freeze : false;
-                        setTrackFreezeState(mixerHit.channelIndex, !currentFz);
-                    } else if (mixerHit.isPhase) {
-                        mixerStrips_[mixerHit.channelIndex].phaseInvert = !mixerStrips_[mixerHit.channelIndex].phaseInvert;
-                        setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Phase " + (mixerStrips_[mixerHit.channelIndex].phaseInvert ? "INVERTED (180deg)" : "NORMAL"));
-                    } else if (mixerHit.isFxIn) {
-                        mixerStrips_[mixerHit.channelIndex].fxIn = !mixerStrips_[mixerHit.channelIndex].fxIn;
-                        setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + ": Inserts " + (mixerStrips_[mixerHit.channelIndex].fxIn ? "ACTIVE" : "BYPASSED"));
-                    } else if (mixerHit.isAutomation) {
-                        mixerStrips_[mixerHit.channelIndex].automationMode = (mixerStrips_[mixerHit.channelIndex].automationMode + 1) % 4;
-                        const char* aModes[] = {"TRIM", "READ", "TOUCH", "LATCH"};
-                        setStatusMessage("Track " + std::to_string(mixerHit.channelIndex + 1) + " Automation: " + aModes[mixerStrips_[mixerHit.channelIndex].automationMode]);
-                    } else if (mixerHit.isFader) {
-                        activeMixerChannel_ = mixerHit.channelIndex;
+                    } else if (modularMixerView_->getActiveFaderIndex() == -1) {
+                        dragMode_ = DragMode::MasterFader;
                         dragStartY_ = y;
-                        dragStartValGeneric_ = mixerStrips_[mixerHit.channelIndex].volume;
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::MixerFader;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = 0.0f;
-                        cfg.maxValue = 1.5f;
-                        cfg.sensitivity = 1.5f / 280.0f;
-                        scalarDragPresenter_.startDrag(x, y, mixerStrips_[activeMixerChannel_].volume, cfg,
-                            [this, ch = activeMixerChannel_](float v) {
-                                if (ch < mixerStrips_.size()) mixerStrips_[ch].volume = v;
-                                if (ch < arrangerTracks_.size()) arrangerTracks_[ch].volume = v;
-                                if (engine_) {
-                                    if (ch < 4) engine_->setTrackVolume(ch, v);
-                                    else setMasterVolume(v);
-                                }
-                            });
-                        activeDragHandler_ = &scalarDragPresenter_;
-                        dragMode_ = DragMode::MixerFader;
-                    } else if (mixerHit.isPan) {
-                        activeMixerChannel_ = mixerHit.channelIndex;
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = mixerStrips_[mixerHit.channelIndex].pan;
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::MixerPan;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = -1.0f;
-                        cfg.maxValue = 1.0f;
-                        cfg.sensitivity = 2.0f / 100.0f;
-                        scalarDragPresenter_.startDrag(x, y, mixerStrips_[activeMixerChannel_].pan, cfg,
-                            [this, ch = activeMixerChannel_](float p) {
-                                if (ch < mixerStrips_.size()) mixerStrips_[ch].pan = p;
-                                if (ch < arrangerTracks_.size()) arrangerTracks_[ch].pan = p;
-                                if (engine_) {
-                                    if (ch < 4) engine_->setTrackPan(ch, p);
-                                    else setMasterPan(p);
-                                }
-                            });
-                        activeDragHandler_ = &scalarDragPresenter_;
+                        dragStartValGeneric_ = masterVolume_;
+                    } else if (modularMixerView_->getActivePanIndex() >= 0) {
                         dragMode_ = DragMode::MixerPan;
+                        activeMixerChannel_ = static_cast<size_t>(modularMixerView_->getActivePanIndex());
+                        dragStartY_ = y;
+                        if (activeMixerChannel_ < mixerStrips_.size()) {
+                            dragStartValGeneric_ = mixerStrips_[activeMixerChannel_].pan;
+                        }
+                    } else if (modularMixerView_->getActiveFaderIndex() >= 0) {
+                        dragMode_ = DragMode::MixerFader;
+                        activeMixerChannel_ = static_cast<size_t>(modularMixerView_->getActiveFaderIndex());
+                        dragStartY_ = y;
+                        if (activeMixerChannel_ < mixerStrips_.size()) {
+                            dragStartValGeneric_ = mixerStrips_[activeMixerChannel_].volume;
+                        }
                     }
+                    return;
                 }
+                return;
             }
-            return;
         }
 
         if (activeView_ == WorkspaceView::Tracker || activeView_ == WorkspaceView::Edit) {
@@ -13582,6 +13647,8 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         modularMixerView_->handlePointer(pev, ctx);
+        mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+        mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
     }
     if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
         ViewContext ctx = createViewContext();
@@ -13877,8 +13944,16 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
+    // Intercept keyboard input if an element has active keyboard focus
+    if (focusManager_.isAnyFocused()) {
+        if (focusManager_.dispatchKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
+
     // Spacebar: Global DAW playback toggle
-    if (key == 32 && !isCtrl && !isAlt && !valueEditDialog_.isOpen()) {
+    if (key == 32 && !isCtrl && !isAlt && !valueEditDialog_.isOpen() && !focusManager_.isAnyFocused()) {
         if (engine_) {
             if (engine_->getSequencer().isPlaying()) {
                 engine_->getSequencer().stop();
@@ -13890,7 +13965,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
 
     // Grave Accent / Tilde (` / ~): In-DAW WebGPU Terminal & REPL Toggle
-    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen()) {
+    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen() && !focusManager_.isAnyFocused()) {
         toggleTerminalConsole();
         markNeedsRedraw();
         return;
@@ -14542,6 +14617,12 @@ void GuiWindow::onChar(unsigned int codepoint) {
     if (valueEditDialog_.isOpen()) {
         return;
     }
+    if (focusManager_.isAnyFocused()) {
+        if (focusManager_.dispatchChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
+    }
     if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
         if (terminalConsoleDrawerWidget_->handleChar(static_cast<char32_t>(codepoint))) {
             markNeedsRedraw();
@@ -14559,6 +14640,20 @@ void GuiWindow::onChar(unsigned int codepoint) {
     if (audioToMidiDialog_.isOpen()) {
         audioToMidiDialog_.handleChar(codepoint);
         return;
+    }
+
+    // Active View text input fallback
+    ViewContext ctx = createViewContext();
+    if (activeView_ == WorkspaceView::Edit && modularEditView_) {
+        if (modularEditView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
+            markNeedsRedraw();
+            return;
+        }
+    } else if (activeView_ == WorkspaceView::Design && modularDesignView_) {
+        if (modularDesignView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
+            markNeedsRedraw();
+            return;
+        }
     }
 }
 

@@ -48,6 +48,13 @@ EditView::EditView() {
         updateDetectedChords();
     };
 
+    scriptEditor_.onCompileTriggered = [this]() {
+        parseNotesFromEatscript();
+    };
+    scriptEditor_.onTextChanged = [this](const std::string& text) {
+        scriptBuffer_ = text;
+    };
+
     formatEatscriptFromNotes();
     updateDetectedChords();
 }
@@ -511,6 +518,7 @@ void EditView::formatEatscriptFromNotes() {
     }
 
     scriptBuffer_ = ss.str();
+    scriptEditor_.setText(scriptBuffer_);
     updateDetectedChords();
     if (!isSyncing_ && onNotesChanged) {
         onNotesChanged(activeTrackIndex_, activeClipIndex_);
@@ -669,6 +677,11 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     btnScriptApply_ = Rect2D(contentBounds_.x + 14.0f, contentBounds_.y + 8.0f, 150.0f, 26.0f);
     btnScriptRevert_ = Rect2D(btnScriptApply_.x + 158.0f, contentBounds_.y + 8.0f, 120.0f, 26.0f);
+
+    scriptEditorBounds_ = Rect2D(contentBounds_.x + 10.0f, contentBounds_.y + 42.0f,
+                                 std::max(0.0f, contentBounds_.w - 20.0f),
+                                 std::max(60.0f, contentBounds_.h - 74.0f));
+    scriptEditor_.layout(scriptEditorBounds_, ctx);
 }
 
 void EditView::render(const ViewContext& ctx) {
@@ -1289,32 +1302,7 @@ void EditView::renderScript(const ViewContext& ctx) {
     drawText(r, "REVERT / SYNC", btnScriptRevert_.x + 14.0f, btnScriptRevert_.y + 7.0f, 10.0f,
              theme.textPrimary);
 
-    float gutterW = 44.0f;
-    float textStartY = contentBounds_.y + 46.0f;
-    drawRect(r, contentBounds_.x, textStartY, gutterW, contentBounds_.h - 46.0f,
-             theme.panelHeader, 0.95f);
-    drawLine(r, contentBounds_.x + gutterW, textStartY, contentBounds_.x + gutterW, contentBounds_.y + contentBounds_.h,
-             theme.borderSubtle, 0.8f, 1.5f);
-
-    std::istringstream stream(scriptBuffer_);
-    std::string line;
-    int lineIdx = 1;
-    float lineH = 18.0f;
-
-    while (std::getline(stream, line)) {
-        float ly = textStartY + static_cast<float>(lineIdx - 1) * lineH + 4.0f;
-        if (ly + lineH > contentBounds_.y + contentBounds_.h) break;
-
-        std::string lnStr = std::to_string(lineIdx);
-        drawMonoText(r, lnStr, contentBounds_.x + 10.0f, ly, 10.0f, theme.textMuted, 0.7f);
-
-        if (line.rfind("--", 0) == 0) {
-            drawMonoText(r, line, contentBounds_.x + gutterW + 12.0f, ly, 10.5f, Color(0.45f, 0.65f, 0.75f), 0.85f);
-        } else {
-            drawMonoText(r, line, contentBounds_.x + gutterW + 12.0f, ly, 10.5f, theme.textPrimary, 0.95f);
-        }
-        lineIdx++;
-    }
+    scriptEditor_.render(ctx);
 
     float statusH = 24.0f;
     Rect2D statusBounds(contentBounds_.x, contentBounds_.y + contentBounds_.h - statusH, contentBounds_.w, statusH);
@@ -1888,10 +1876,18 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
             if (btnScriptRevert_.contains(ev.x, ev.y)) {
                 formatEatscriptFromNotes();
+                scriptEditor_.setText(scriptBuffer_);
+                return true;
+            }
+            if (scriptEditor_.handlePointer(ev, ctx)) {
                 return true;
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (subView_ == EditSubViewMode::Script) {
+            if (scriptEditor_.handlePointer(ev, ctx)) return true;
+        }
+
         if (dragMode_ == DragMode::TouchGridPending) {
             float dist = std::hypot(ev.x - touchDownPos_.x, ev.y - touchDownPos_.y);
             auto now = std::chrono::steady_clock::now();
@@ -1994,6 +1990,10 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (subView_ == EditSubViewMode::Script) {
+            if (scriptEditor_.handlePointer(ev, ctx)) return true;
+        }
+
         if (dragMode_ == DragMode::TouchPan) {
             kineticScroller_.endDrag(ev.timestampMs);
             dragMode_ = DragMode::None;
@@ -2129,6 +2129,8 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             trackerScrollY_ = std::max(0.0f, trackerScrollY_ - ev.scrollY * 24.0f);
         } else if (subView_ == EditSubViewMode::Score) {
             scoreScrollX_ = std::max(0.0f, scoreScrollX_ - ev.scrollX * 34.0f);
+        } else if (subView_ == EditSubViewMode::Script) {
+            if (scriptEditor_.handlePointer(ev, ctx)) return true;
         }
         return true;
     }
@@ -2139,6 +2141,21 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 bool EditView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
     if (circleOfFifthsDialog_.isOpen()) {
         return circleOfFifthsDialog_.handleKey(key, scancode, action, mods);
+    }
+
+    if (subView_ == EditSubViewMode::Script) {
+        if (scriptEditor_.handleKey(key, scancode, action, mods, ctx)) {
+            return true;
+        }
+        if (action == 1) {
+            bool isCtrl = (mods & 2) != 0;
+            if ((isCtrl && (key == 257 || key == 10 || key == 13)) || key == 294) {
+                parseNotesFromEatscript();
+                if (ctx.onShowNotification) ctx.onShowNotification("Eatscript compiled to clip notes");
+                return true;
+            }
+        }
+        return false;
     }
 
     if (action != 1) return false;
@@ -2154,15 +2171,6 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
             } else {
                 seq.start();
             }
-            return true;
-        }
-    }
-
-    // Script shortcut: Ctrl+Enter or F5 to compile
-    if (subView_ == EditSubViewMode::Script) {
-        if ((isCtrl && (key == 257 || key == 10 || key == 13)) || key == 294) {
-            parseNotesFromEatscript();
-            if (ctx.onShowNotification) ctx.onShowNotification("Eatscript compiled to clip notes");
             return true;
         }
     }
@@ -2267,6 +2275,13 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
         }
     }
 
+    return false;
+}
+
+bool EditView::handleChar(char32_t codepoint, const ViewContext& ctx) {
+    if (subView_ == EditSubViewMode::Script) {
+        return scriptEditor_.handleChar(codepoint, ctx);
+    }
     return false;
 }
 

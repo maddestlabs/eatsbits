@@ -20,6 +20,7 @@ void ValueEditDialog::open(const ValueEditRequest& req) {
     isPercentMode_ = false;
     cursorBlinkTimer_ = 0.0f;
     isDraggingSelection_ = false;
+    inputScrollX_ = 0.0f;
 
     presenter::ValueEditConfig cfg;
     cfg.title = req.title;
@@ -225,37 +226,56 @@ void ValueEditDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
 
     // Formatted Text and Selection Highlight
     const std::string& textToShow = textModel_.getText();
-    float textStartX = inputFieldBounds_.x + 12.0f;
+    float pad = 12.0f;
+    float clipMinX = inputFieldBounds_.x + pad;
+    float clipMaxX = inputFieldBounds_.x + inputFieldBounds_.w - pad;
+    float availableW = std::max(10.0f, clipMaxX - clipMinX);
     float charW = getMonoCharAdvance(16.0f);
 
-    // Draw active text selection highlight if present
+    // Auto-scroll containment: keep cursor strictly inside field well
+    float curPixelX = static_cast<float>(textModel_.getCursor()) * charW;
+    if (curPixelX < inputScrollX_) {
+        inputScrollX_ = curPixelX;
+    } else if (curPixelX > inputScrollX_ + availableW) {
+        inputScrollX_ = curPixelX - availableW;
+    }
+    inputScrollX_ = std::max(0.0f, inputScrollX_);
+
+    float textStartX = clipMinX - inputScrollX_;
+
+    // Draw active text selection highlight if present (clipped to well)
     if (textModel_.hasSelection()) {
         int s = textModel_.getSelectionStart();
         int e = textModel_.getSelectionEnd();
-        float selX1 = textStartX + static_cast<float>(s) * charW;
-        float selX2 = textStartX + static_cast<float>(e) * charW;
-        float selW = std::max(2.0f, selX2 - selX1);
-        float selY = inputFieldBounds_.y + 6.0f;
-        float selH = inputFieldBounds_.h - 12.0f;
+        float selX1 = std::clamp(textStartX + static_cast<float>(s) * charW, clipMinX, clipMaxX);
+        float selX2 = std::clamp(textStartX + static_cast<float>(e) * charW, clipMinX, clipMaxX);
+        float selW = selX2 - selX1;
 
-        // Glowing selection backdrop pill
-        drawRoundedRect(r, selX1, selY, selW, selH, 3.0f,
-                        accent.r, accent.g, accent.b, 0.38f);
-        drawRoundedRectOutline(r, selX1, selY, selW, selH, 3.0f,
-                               accent.r, accent.g, accent.b, 0.70f, 1.0f);
+        if (selW > 0.5f) {
+            float selY = inputFieldBounds_.y + 6.0f;
+            float selH = inputFieldBounds_.h - 12.0f;
+            drawRoundedRect(r, selX1, selY, selW, selH, 3.0f,
+                            accent.r, accent.g, accent.b, 0.38f);
+            drawRoundedRectOutline(r, selX1, selY, selW, selH, 3.0f,
+                                   accent.r, accent.g, accent.b, 0.70f, 1.0f);
+        }
     }
 
-    drawMonoText(r, textToShow, textStartX, inputFieldBounds_.y + 11.0f, 16.0f,
-                 accent.r, accent.g, accent.b, 1.0f);
+    drawMonoTextClipped(r, textToShow, textStartX, inputFieldBounds_.y + 11.0f, 16.0f,
+                        clipMinX, clipMaxX, accent.r, accent.g, accent.b, 1.0f);
 
     // Suffix '%' or unit
     if (!req_.isTextMode) {
         if (isPercentMode_) {
             float suffixX = textStartX + 4.0f + static_cast<float>(textToShow.length()) * charW;
-            drawMonoText(r, "%", suffixX, inputFieldBounds_.y + 11.0f, 15.0f, accent.r, accent.g, accent.b, 0.85f);
+            if (suffixX >= clipMinX && suffixX <= clipMaxX) {
+                drawMonoText(r, "%", suffixX, inputFieldBounds_.y + 11.0f, 15.0f, accent.r, accent.g, accent.b, 0.85f);
+            }
         } else if (!req_.unit.empty()) {
             float suffixX = textStartX + 4.0f + static_cast<float>(textToShow.length()) * charW;
-            drawMonoText(r, req_.unit, suffixX, inputFieldBounds_.y + 12.0f, 13.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
+            if (suffixX >= clipMinX && suffixX <= clipMaxX) {
+                drawMonoText(r, req_.unit, suffixX, inputFieldBounds_.y + 12.0f, 13.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
+            }
         }
     }
 
@@ -264,8 +284,10 @@ void ValueEditDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     if (std::fmod(cursorBlinkTimer_, 1.0f) < 0.5f) {
         int cur = textModel_.getCursor();
         float curX = textStartX + static_cast<float>(cur) * charW;
-        drawLine(r, curX, inputFieldBounds_.y + 8.0f, curX, inputFieldBounds_.y + inputFieldBounds_.h - 8.0f,
-                 accent.r, accent.g, accent.b, 1.0f, 1.5f);
+        if (curX >= clipMinX && curX <= clipMaxX) {
+            drawLine(r, curX, inputFieldBounds_.y + 8.0f, curX, inputFieldBounds_.y + inputFieldBounds_.h - 8.0f,
+                     accent.r, accent.g, accent.b, 1.0f, 1.5f);
+        }
     }
 
     // Optional Action Link Button (e.g. [🎨 Choose Track Icon...]) in text mode
@@ -402,7 +424,8 @@ bool ValueEditDialog::handlePointer(const PointerEvent& ev) {
 
         // Click inside Input Field -> Place cursor or start drag selection
         if (inputFieldBounds_.contains(ev.x, ev.y)) {
-            float textStartX = inputFieldBounds_.x + 12.0f;
+            float pad = 12.0f;
+            float textStartX = inputFieldBounds_.x + pad - inputScrollX_;
             float charW = getMonoCharAdvance(16.0f);
             int idx = std::clamp(static_cast<int>(std::round((ev.x - textStartX) / charW)),
                                  0, static_cast<int>(textModel_.length()));
@@ -418,7 +441,8 @@ bool ValueEditDialog::handlePointer(const PointerEvent& ev) {
 
     if (ev.action == PointerAction::Move) {
         if (isDraggingSelection_) {
-            float textStartX = inputFieldBounds_.x + 12.0f;
+            float pad = 12.0f;
+            float textStartX = inputFieldBounds_.x + pad - inputScrollX_;
             float charW = getMonoCharAdvance(16.0f);
             int idx = std::clamp(static_cast<int>(std::round((ev.x - textStartX) / charW)),
                                  0, static_cast<int>(textModel_.length()));
@@ -499,14 +523,14 @@ bool ValueEditDialog::handleKey(int key, int /*scancode*/, int action, int mods)
 
     // Left Arrow
     if (key == 263 /* GLFW_KEY_LEFT */) {
-        textModel_.moveLeft(isShift);
+        textModel_.moveLeft(isShift, isCtrl);
         cursorBlinkTimer_ = 0.0f;
         return true;
     }
 
     // Right Arrow
     if (key == 262 /* GLFW_KEY_RIGHT */) {
-        textModel_.moveRight(isShift);
+        textModel_.moveRight(isShift, isCtrl);
         cursorBlinkTimer_ = 0.0f;
         return true;
     }
@@ -527,14 +551,14 @@ bool ValueEditDialog::handleKey(int key, int /*scancode*/, int action, int mods)
 
     // Backspace
     if (key == 259 /* GLFW_KEY_BACKSPACE */) {
-        textModel_.backspace();
+        textModel_.backspace(isCtrl);
         cursorBlinkTimer_ = 0.0f;
         return true;
     }
 
     // Delete
     if (key == 261 /* GLFW_KEY_DELETE */) {
-        textModel_.forwardDelete();
+        textModel_.forwardDelete(isCtrl);
         cursorBlinkTimer_ = 0.0f;
         return true;
     }
