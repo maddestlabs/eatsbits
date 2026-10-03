@@ -35,7 +35,26 @@ void testIconRegistryBasics() {
     auto synthMatches = reg.query("analog", "");
     assert(!synthMatches.empty());
 
-    std::cout << " -> IconRegistry queries passed successfully.\n";
+    // Verify all registered icons parse and produce valid non-empty geometry
+    for (const auto* ic : allIcons) {
+        assert(!ic->id.empty());
+        assert(!ic->svgPath.empty());
+        SvgPath path = SvgPath::parse(ic->svgPath);
+        assert(!path.empty());
+        assert(!path.getContours().empty());
+        auto tris = path.triangulate();
+        assert(!tris.empty());
+        assert(path.getBounds().width() > 0.0f);
+        assert(path.getBounds().height() > 0.0f);
+    }
+
+    // Verify new classic categories & icons
+    assert(reg.findIcon("inst_chiptune") != nullptr);
+    assert(reg.findIcon("inst_organ") != nullptr);
+    assert(reg.findIcon("fx_chorus") != nullptr);
+    assert(reg.findIcon("hw_midi") != nullptr);
+
+    std::cout << " -> IconRegistry queries and all " << allIcons.size() << " vector meshes passed successfully.\n";
 }
 
 void testSvgPasteParsing() {

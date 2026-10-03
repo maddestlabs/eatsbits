@@ -197,7 +197,8 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                              Rect2D{cx, cy + ch * 0.45f, cw, 20.0f}, 10.0f, theme.textMuted);
         }
     } else {
-        // Multi-column Card Grid
+        // Multi-column Card Grid with GPU scissoring containment
+        r.pushScissor(gridBounds_.x, gridBounds_.y, gridBounds_.w, gridBounds_.h);
         auto icons = getFilteredIcons();
         float cardW = 86.0f;
         float cardH = 74.0f;
@@ -224,8 +225,8 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                               (currentIconRef_ == ("preset:" + def->id) || currentIconRef_ == def->id));
 
             Color cardBg = isCurrent
-                               ? Color{theme.primaryAccent.r * 0.20f, theme.primaryAccent.g * 0.20f, theme.primaryAccent.b * 0.20f, 0.90f}
-                               : Color{theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.85f};
+                                ? Color{theme.primaryAccent.r * 0.20f, theme.primaryAccent.g * 0.20f, theme.primaryAccent.b * 0.20f, 0.90f}
+                                : Color{theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.85f};
             Color cardBorder = isCurrent ? theme.primaryAccent : Color{theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f};
 
             drawRoundedRect(r, cardX, cardY, cardW, cardH, 5.0f, cardBg);
@@ -246,6 +247,7 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         if (icons.empty()) {
             drawCenteredText(r, "No matching icons found.", gridBounds_, 12.0f, theme.textMuted);
         }
+        r.popScissor();
     }
 
     // 6. Bottom Bar: Paste Button and Status Message
