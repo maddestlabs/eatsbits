@@ -381,6 +381,10 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
     if (data.isMasterSelected || data.tab == TrackPropertiesTab::Master) {
         renderMasterSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
         if (needScrollbar_) renderScrollbar(r, theme);
+        if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
+            std::string tip = getTooltip(mouseX, mouseY, data);
+            if (!tip.empty()) drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, bounds_.x + bounds_.w);
+        }
         return;
     }
 
@@ -388,6 +392,10 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
     if (data.tab == TrackPropertiesTab::Clip) {
         renderClipSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
         if (needScrollbar_) renderScrollbar(r, theme);
+        if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
+            std::string tip = getTooltip(mouseX, mouseY, data);
+            if (!tip.empty()) drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, bounds_.x + bounds_.w);
+        }
         return;
     }
 
@@ -441,6 +449,13 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
 
     if (needScrollbar_) {
         renderScrollbar(r, theme);
+    }
+
+    if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
+        std::string tip = getTooltip(mouseX, mouseY, data);
+        if (!tip.empty()) {
+            drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, bounds_.x + bounds_.w);
+        }
     }
 }
 
@@ -1319,6 +1334,119 @@ void TrackPropertiesPanel::renderScrollbar(BatchRenderer2D& r, const ThemeTokens
     Color thumbColor = isDragging ? theme.primaryAccent : Color(0.40f, 0.45f, 0.55f, 0.70f);
     drawRoundedRect(r, scrollbarBounds_.x, thumbY, scrollbarBounds_.w, thumbH, 2.5f,
                     thumbColor, isDragging ? 1.0f : 0.70f);
+}
+
+std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept {
+    if (!bounds_.contains(mx, my)) return "";
+
+    auto hit = hitTest(mx, my, data);
+    if (!hit.hit) return "";
+
+    switch (hit.area) {
+        case TrackPropertiesHitArea::TrackIcon:
+            return "Change Track Icon & Color";
+        case TrackPropertiesHitArea::RenameButton:
+            return "Edit Track Name: " + data.trackName;
+        case TrackPropertiesHitArea::ColorSwatch:
+            return "Select Track Color Palette";
+        case TrackPropertiesHitArea::VolumeSlider: {
+            int volPct = static_cast<int>(std::round(data.volume * 100.0f));
+            return "Track Volume (" + std::to_string(volPct) + "%)";
+        }
+        case TrackPropertiesHitArea::PanKnob: {
+            std::string panStr = (std::abs(data.pan) < 0.04f) ? "Center" : ((data.pan < 0.0f) ? "Left " + std::to_string(static_cast<int>(std::round(-data.pan * 100.0f))) + "%" : "Right " + std::to_string(static_cast<int>(std::round(data.pan * 100.0f))) + "%");
+            return "Track Stereo Pan: " + panStr;
+        }
+        case TrackPropertiesHitArea::DesignButton:
+            return "Open in Design View (Modular / Code)";
+        case TrackPropertiesHitArea::PresetButton:
+            return "Browse Presets & Sound Library";
+        case TrackPropertiesHitArea::FullscreenInstrument:
+            return "Open Fullscreen Device Panel (F)";
+        case TrackPropertiesHitArea::ToggleInstrumentExpand:
+            return data.instrumentExpanded ? "Collapse Instrument Device" : "Expand Instrument Device";
+        case TrackPropertiesHitArea::ChangeInstrument:
+            return "Choose Instrument Plugin or Preset";
+        case TrackPropertiesHitArea::InstrumentKnob: {
+            if (hit.index >= 0 && static_cast<size_t>(hit.index) < data.knobs.size()) {
+                const auto& k = data.knobs[hit.index];
+                return k.label + ": " + k.display;
+            }
+            return "Instrument Parameter";
+        }
+        case TrackPropertiesHitArea::ChordFollowChip: {
+            const char* modes[5] = {"Off (Chromatic)", "Chord Follow", "Bass Root Follow", "Scale Snap", "Color / Harmonic Lead"};
+            if (hit.index >= 0 && hit.index < 5) {
+                return std::string("Harmonic Follow: ") + modes[hit.index];
+            }
+            return "Harmonic Chord Track Follow";
+        }
+        case TrackPropertiesHitArea::BakeChords:
+            return "Bake Transposed Notes into MIDI Clip";
+        case TrackPropertiesHitArea::AddMidiFx:
+            return "Add MIDI Effect (Arpeggiator, Chords, Humanize, Scale Snap)";
+        case TrackPropertiesHitArea::ToggleMidiFx:
+            return "Bypass / Enable MIDI Effect";
+        case TrackPropertiesHitArea::MoveMidiFxUp:
+            return "Move MIDI Effect Earlier in Chain";
+        case TrackPropertiesHitArea::MoveMidiFxDown:
+            return "Move MIDI Effect Later in Chain";
+        case TrackPropertiesHitArea::RemoveMidiFx:
+            return "Remove MIDI Effect";
+        case TrackPropertiesHitArea::FullscreenMidiFx:
+            return "Open Fullscreen Effect Editor";
+        case TrackPropertiesHitArea::ToggleMidiFxExpand:
+            return "Expand / Collapse MIDI Effect";
+        case TrackPropertiesHitArea::MidiFxKnob: {
+            size_t mi = static_cast<size_t>(hit.index / 10);
+            size_t ki = static_cast<size_t>(hit.index % 10);
+            if (mi < data.midiFx.size() && ki < data.midiFx[mi].knobs.size()) {
+                const auto& k = data.midiFx[mi].knobs[ki];
+                return k.label + ": " + k.display;
+            }
+            return "MIDI FX Parameter";
+        }
+        case TrackPropertiesHitArea::AddAudioFx:
+            return "Add Audio Effect (Reverb, Delay, Bitcrusher, Limiter)";
+        case TrackPropertiesHitArea::ToggleAudioFx:
+            return "Bypass / Enable Audio Effect";
+        case TrackPropertiesHitArea::MoveAudioFxUp:
+            return "Move Audio Effect Earlier in Chain";
+        case TrackPropertiesHitArea::MoveAudioFxDown:
+            return "Move Audio Effect Later in Chain";
+        case TrackPropertiesHitArea::RemoveAudioFx:
+            return "Remove Audio Effect";
+        case TrackPropertiesHitArea::FullscreenAudioFx:
+            return "Open Fullscreen Effect Editor";
+        case TrackPropertiesHitArea::ToggleAudioFxExpand:
+            return "Expand / Collapse Audio Effect";
+        case TrackPropertiesHitArea::AudioFxKnob: {
+            size_t fi = static_cast<size_t>(hit.index / 10);
+            size_t ki = static_cast<size_t>(hit.index % 10);
+            if (fi < data.audioFx.size() && ki < data.audioFx[fi].knobs.size()) {
+                const auto& k = data.audioFx[fi].knobs[ki];
+                return k.label + ": " + k.display;
+            }
+            return "Audio FX Parameter";
+        }
+        case TrackPropertiesHitArea::EqToggle:
+            return "Toggle 3-Band Parametric EQ";
+        case TrackPropertiesHitArea::ClipEditInPianoRoll:
+            return "Open Selected Clip in Piano Roll / MIDI Editor";
+        case TrackPropertiesHitArea::ClipLoopToggle:
+            return "Toggle Clip Loop Playback";
+        case TrackPropertiesHitArea::PullTab:
+            return "Properties Drawer Pull Tab";
+        case TrackPropertiesHitArea::CloseButton:
+            return "Close Properties (Esc)";
+        case TrackPropertiesHitArea::TabTrack:
+            return "Track Properties & Device Chain";
+        case TrackPropertiesHitArea::TabClip:
+            return "Clip Inspector & Playback Parameters";
+        default:
+            break;
+    }
+    return "";
 }
 
 TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept {

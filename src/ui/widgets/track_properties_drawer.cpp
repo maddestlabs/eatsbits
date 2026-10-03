@@ -8,6 +8,7 @@ namespace eatsbits::ui {
 
 TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.setShowTrackRibbon(false);
+    panel_.setIsInsideDrawer(true);
 
     // Bridge callbacks from panel_ to drawer callbacks
     panel_.onTrackSelected = [this](uint32_t idx) { if (onTrackSelected) onTrackSelected(idx); };
@@ -180,6 +181,41 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
 
     // 4. Delegate card stack & content rendering to TrackPropertiesPanel
     panel_.render(r, theme, data, mouseX, mouseY);
+
+    // 5. Floating tactile tooltip badge on hover
+    if (mouseX >= 0.0f && mouseY >= 0.0f) {
+        std::string tip = getTooltip(mouseX, mouseY, data);
+        if (!tip.empty()) {
+            drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, containerBounds_.x + containerBounds_.w);
+        }
+    }
+}
+
+std::string TrackPropertiesDrawer::getTooltip(float x, float y, const TrackPropertiesDrawerData& data) const noexcept {
+    if (pullTabBounds_.contains(x, y)) {
+        return isExpanded_ ? "Collapse Properties Drawer" : "Expand Properties Drawer";
+    }
+
+    if (isExpanded_ && animProgress_ > 0.05f) {
+        float cx = closeButtonBounds_.x + closeButtonBounds_.w * 0.5f;
+        float cy = closeButtonBounds_.y + closeButtonBounds_.h * 0.5f;
+        if (closeButtonBounds_.contains(x, y) || std::hypot(x - cx, y - cy) <= 12.0f) {
+            return "Close Properties (Esc)";
+        }
+
+        if (!data.isMixerMode && y >= drawerBounds_.y + 5.0f && y <= drawerBounds_.y + 31.0f) {
+            float tabW = (drawerBounds_.w - 60.0f) * 0.5f;
+            if (x >= drawerBounds_.x + 10.0f && x <= drawerBounds_.x + 10.0f + tabW) {
+                return "Track Properties & Device Chain";
+            }
+            if (x >= drawerBounds_.x + 14.0f + tabW && x <= drawerBounds_.x + 14.0f + tabW * 2.0f) {
+                return "Clip Inspector & Playback Parameters";
+            }
+        }
+
+        return panel_.getTooltip(x, y, data);
+    }
+    return "";
 }
 
 TrackPropertiesHitResult TrackPropertiesDrawer::hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept {

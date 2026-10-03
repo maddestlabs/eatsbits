@@ -97,9 +97,52 @@ void TransportHeader::render(BatchRenderer2D& r, const ThemeTokens& theme, audio
     Color brwBorder = isBrowserOpen ? theme.secondaryAccent : theme.borderSubtle;
     Color brwText = isBrowserOpen ? theme.secondaryAccent : theme.textPrimary;
     drawButton(r, browserBounds_, "[BROWSER]", brwBg, brwBorder, brwText, 10.5f, 4.0f, 1.0f);
+
+    // Floating tooltip badge on hover
+    if (hoverX_ >= 0.0f && hoverY_ >= 0.0f) {
+        std::string tip = getTooltip(hoverX_, hoverY_);
+        if (!tip.empty()) {
+            drawTooltipBadge(r, tip, hoverX_, bounds_.y + bounds_.h, theme, true, bounds_.w);
+        }
+    }
+}
+
+std::string TransportHeader::getTooltip(float x, float y) const noexcept {
+    if (logoBounds_.contains(x, y)) {
+        return "EATSBITS Project Hub & Settings";
+    }
+    if (playBounds_.contains(x, y)) {
+        return "Play / Pause (Space)";
+    }
+    if (stopBounds_.contains(x, y)) {
+        return "Stop Playback (Return)";
+    }
+    if (timeDisplayBounds_.contains(x, y)) {
+        return "Song Position (Bar : Beat : Tick)";
+    }
+    if (bpmBounds_.contains(x, y)) {
+        return "Project Tempo (BPM) - Click to Edit";
+    }
+    if (snapBounds_.contains(x, y)) {
+        return "Timeline Grid Snap (1/16)";
+    }
+    if (loopBounds_.contains(x, y)) {
+        return "Toggle Loop Playback (L)";
+    }
+    if (metroBounds_.contains(x, y)) {
+        return "Metronome Click (C)";
+    }
+    if (browserBounds_.contains(x, y)) {
+        return "Preset & Sample Browser (B)";
+    }
+    return "";
 }
 
 bool TransportHeader::handlePointer(const PointerEvent& ev, audio::AudioEngine* engine) {
+    if (ev.action == PointerAction::Move || ev.action == PointerAction::Down) {
+        hoverX_ = ev.x;
+        hoverY_ = ev.y;
+    }
     if (ev.action != PointerAction::Down) return false;
 
     if (logoBounds_.contains(ev.x, ev.y)) {

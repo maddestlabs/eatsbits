@@ -536,7 +536,7 @@ void TrackInspectorView::render(const ViewContext& ctx) {
              theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
     auto data = buildDrawerData();
-    panel_.render(r, theme, data);
+    panel_.render(r, theme, data, ctx.mouseX, ctx.mouseY);
 }
 
 bool TrackInspectorView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {

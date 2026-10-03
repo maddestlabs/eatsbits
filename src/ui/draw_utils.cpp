@@ -337,4 +337,37 @@ void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Col
     drawLine(r, midX2, canTopY + 2.0f, midX2, canBotY - 2.0f, c, 0.75f, t * 0.85f);
 }
 
+void drawTooltipBadge(BatchRenderer2D& r, const std::string& text, float targetX, float targetY,
+                      const ThemeTokens& theme, bool placeBelow, float screenW) {
+    if (text.empty()) return;
+
+    float tw = static_cast<float>(text.length()) * 6.5f + 18.0f;
+    float th = 22.0f;
+    float tx = targetX - tw * 0.5f;
+
+    // Boundary constraints
+    if (screenW > 0.0f) {
+        tx = std::clamp(tx, 8.0f, std::max(8.0f, screenW - tw - 8.0f));
+    }
+
+    float ty = placeBelow ? (targetY + 12.0f) : (targetY - th - 8.0f);
+
+    // Drop shadow
+    drawRoundedRect(r, tx + 1.0f, ty + 2.5f, tw, th, 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
+
+    if (theme.isLight) {
+        // High-contrast tactile dark badge in light mode
+        drawRoundedRect(r, tx, ty, tw, th, 4.0f, 0.12f, 0.13f, 0.16f, 0.96f);
+        drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, 0.30f, 0.32f, 0.38f, 0.8f, 1.0f);
+        drawText(r, text, tx + 9.0f, ty + 5.0f, 9.5f, 0.95f, 0.96f, 0.98f, 1.0f);
+    } else {
+        // Creamy studio label badge in dark mode (Eatsbeats analog hardware tape aesthetic)
+        drawRoundedRect(r, tx, ty, tw, th, 4.0f, 0.94f, 0.95f, 0.96f, 0.98f);
+        drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, 0.60f, 0.64f, 0.70f, 0.85f, 1.0f);
+        drawLine(r, tx + 2.0f, ty + 1.0f, tx + tw - 2.0f, ty + 1.0f,
+                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.6f, 1.0f);
+        drawText(r, text, tx + 9.0f, ty + 5.0f, 9.5f, 0.10f, 0.12f, 0.15f, 1.0f);
+    }
+}
+
 } // namespace eatsbits::ui

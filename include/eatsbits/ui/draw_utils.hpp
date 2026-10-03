@@ -77,6 +77,9 @@ void drawChevronDown(BatchRenderer2D& r, float cx, float cy, float size, const C
 
 void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness = 1.4f);
 
+void drawTooltipBadge(BatchRenderer2D& r, const std::string& text, float targetX, float targetY,
+                      const ThemeTokens& theme, bool placeBelow = false, float screenW = 0.0f);
+
 void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
                   float red, float green, float blue, float alpha = 1.0f);
 

@@ -2066,6 +2066,140 @@ void testPluginSearchDialog() {
     std::cout << "  [PASS] PluginSearchDialog Refined Text Filtering & Scissored Scrolling verified." << std::endl;
 }
 
+void testTooltips() {
+    std::cout << "[Test 20/20] Header Transport & Track Properties Tooltip System..." << std::endl;
+
+    // 1. GuiWindow Header Transport Tooltips
+    GuiWindow window(1280, 800, "Tooltip Test Window");
+    float wW = static_cast<float>(window.getWidth());
+    assert(wW > 600.0f);
+
+    // Test Logo tooltip
+    std::string logoTip = window.getTransportTooltip(25.0f, 25.0f);
+    assert(!logoTip.empty());
+    assert(logoTip.find("Project Hub") != std::string::npos);
+
+    // Test Play/Pause tooltip
+    std::string playTip = window.getTransportTooltip(70.0f, 25.0f);
+    assert(!playTip.empty());
+    assert(playTip.find("Play") != std::string::npos || playTip.find("Pause") != std::string::npos);
+
+    // Test Stop tooltip
+    std::string stopTip = window.getTransportTooltip(110.0f, 25.0f);
+    assert(!stopTip.empty());
+    assert(stopTip.find("Stop") != std::string::npos);
+
+    // Test Record tooltip
+    std::string recTip = window.getTransportTooltip(150.0f, 25.0f);
+    assert(!recTip.empty());
+    assert(recTip.find("Record") != std::string::npos);
+
+    // Test BPM tooltip
+    std::string bpmTip = window.getTransportTooltip(220.0f, 25.0f);
+    assert(!bpmTip.empty());
+    assert(bpmTip.find("BPM") != std::string::npos || bpmTip.find("Tempo") != std::string::npos);
+
+    // Test Timecode Position tooltip
+    std::string timeTip = window.getTransportTooltip(wW - 180.0f, 25.0f);
+    assert(!timeTip.empty());
+    assert(timeTip.find("Song Position") != std::string::npos || timeTip.find("Position") != std::string::npos);
+
+    // Test Lock tooltip
+    std::string lockTip = window.getTransportTooltip(wW - 105.0f, 25.0f);
+    assert(!lockTip.empty());
+    assert(lockTip.find("Lock") != std::string::npos);
+
+    // Test Fullscreen tooltip
+    std::string fsTip = window.getTransportTooltip(wW - 75.0f, 25.0f);
+    assert(!fsTip.empty());
+    assert(fsTip.find("Fullscreen") != std::string::npos);
+
+    // Test Browser tooltip
+    std::string brwTip = window.getTransportTooltip(wW - 25.0f, 25.0f);
+    assert(!brwTip.empty());
+    assert(brwTip.find("Browser") != std::string::npos);
+
+    // Outside header bounds should return empty
+    std::string outsideTip = window.getTransportTooltip(100.0f, 200.0f);
+    assert(outsideTip.empty());
+
+    // 2. TransportHeader Widget Tooltips
+    TransportHeader header;
+    header.layout(1280.0f, 48.0f);
+    assert(header.getTooltip(25.0f, 24.0f).find("Project Hub") != std::string::npos);
+    assert(header.getTooltip(75.0f, 24.0f).find("Play") != std::string::npos);
+    assert(header.getTooltip(115.0f, 24.0f).find("Stop") != std::string::npos);
+    assert(header.getTooltip(180.0f, 24.0f).find("Position") != std::string::npos);
+    assert(header.getTooltip(280.0f, 24.0f).find("BPM") != std::string::npos || header.getTooltip(280.0f, 24.0f).find("Tempo") != std::string::npos);
+    assert(header.getTooltip(360.0f, 24.0f).find("Snap") != std::string::npos);
+    assert(header.getTooltip(420.0f, 24.0f).find("Loop") != std::string::npos);
+    assert(header.getTooltip(480.0f, 24.0f).find("Metronome") != std::string::npos);
+    assert(header.getTooltip(1220.0f, 24.0f).find("Browser") != std::string::npos);
+
+    // 3. TrackPropertiesPanel Element Tooltips
+    TrackPropertiesPanel panel;
+    ViewContext pCtx;
+    pCtx.logicalWidth = 1280.0f;
+    pCtx.logicalHeight = 800.0f;
+    panel.layout(Rect2D(0.0f, 0.0f, 360.0f, 800.0f), pCtx);
+
+    TrackPropertiesDrawerData data;
+    data.trackName = "Retro Lead";
+    data.instrument = "TB-303";
+    data.instrumentExpanded = true;
+    data.volume = 0.85f;
+    data.pan = -0.30f;
+    data.midiFx.emplace_back("Arpeggiator", "ARP", true);
+    data.audioFx.emplace_back("8-Bit Crusher", "BITCRUSHER", 0.5f, 0.8f, true);
+    data.syncKnobsIfEmpty();
+
+    Rect2D headBounds = panel.getHeaderCardBounds();
+    float headY = headBounds.y + headBounds.h * 0.5f;
+
+    // Track icon button
+    std::string iconTip = panel.getTooltip(headBounds.x + 18.0f, headY, data);
+    assert(!iconTip.empty());
+    assert(iconTip.find("Icon") != std::string::npos);
+
+    // Edit button on right
+    std::string editTip = panel.getTooltip(headBounds.x + headBounds.w - 18.0f, headY, data);
+    assert(!editTip.empty());
+    assert(editTip.find("Edit Track Name") != std::string::npos);
+
+    // Color swatches card
+    std::string colorTip = panel.getTooltip(headBounds.x + 150.0f, headBounds.y + headBounds.h + 20.0f, data);
+    assert(!colorTip.empty());
+    assert(colorTip.find("Color") != std::string::npos);
+
+    // 4. TrackPropertiesDrawer Tooltips
+    TrackPropertiesDrawer drawer;
+    drawer.layout(Rect2D(0.0f, 0.0f, 1280.0f, 800.0f), 0.0f);
+
+    // Collapsed pull tab
+    Rect2D ptBounds = drawer.getPullTabBounds();
+    std::string ptTip = drawer.getTooltip(ptBounds.x + ptBounds.w * 0.5f, ptBounds.y + ptBounds.h * 0.5f, data);
+    assert(!ptTip.empty());
+    assert(ptTip.find("Properties Drawer") != std::string::npos);
+
+    // Expand drawer and check close button and tabs
+    drawer.setExpanded(true);
+    drawer.update(1.0f);
+    drawer.layout(Rect2D(0.0f, 0.0f, 1280.0f, 800.0f), 0.0f);
+
+    Rect2D clBounds = drawer.getCloseButtonBounds();
+    std::string clTip = drawer.getTooltip(clBounds.x + clBounds.w * 0.5f, clBounds.y + clBounds.h * 0.5f, data);
+    assert(!clTip.empty());
+    assert(clTip.find("Close") != std::string::npos);
+
+    // Top track vs clip tab
+    Rect2D drBounds = drawer.getDrawerBounds();
+    std::string tabTrkTip = drawer.getTooltip(drBounds.x + 40.0f, drBounds.y + 15.0f, data);
+    assert(!tabTrkTip.empty());
+    assert(tabTrkTip.find("Track") != std::string::npos);
+
+    std::cout << "  [PASS] Header Transport & Track Properties Tooltip System verified." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -2090,7 +2224,8 @@ int main() {
     testTextEditorWidgetAndMinimap();
     testArrangerMixerDrawer();
     testPluginSearchDialog();
+    testTooltips();
 
-    std::cout << "\n>>> ALL 19 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 20 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }

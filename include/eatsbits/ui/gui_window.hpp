@@ -741,6 +741,7 @@ public:
 
     // Hit-Testing logic
     [[nodiscard]] HitTestTransportResult hitTestTransport(float x, float y) const noexcept;
+    [[nodiscard]] std::string getTransportTooltip(float x, float y) const noexcept;
     [[nodiscard]] HitTestBottomNavResult hitTestBottomNav(float x, float y) const noexcept;
     [[nodiscard]] HitTestJackResult hitTestJack(float x, float y) const noexcept;
     [[nodiscard]] HitTestKnobResult hitTestKnob(float x, float y) const noexcept;

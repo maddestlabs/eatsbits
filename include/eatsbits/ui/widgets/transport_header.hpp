@@ -30,6 +30,8 @@ public:
 
     [[nodiscard]] Rect2D getBounds() const noexcept { return bounds_; }
     [[nodiscard]] Rect2D getBpmBounds() const noexcept { return bpmBounds_; }
+    [[nodiscard]] std::string getTooltip(float x, float y) const noexcept;
+    void setHoverPosition(float x, float y) noexcept { hoverX_ = x; hoverY_ = y; }
 
     std::function<void()> onToggleProjectHub;
     std::function<void()> onToggleBrowser;
@@ -53,6 +55,8 @@ private:
     bool loopActive_{true};
     bool metroActive_{false};
     float bpm_{128.0f};
+    float hoverX_{-1.0f};
+    float hoverY_{-1.0f};
 };
 
 } // namespace eatsbits::ui

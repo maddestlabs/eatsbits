@@ -57,6 +57,8 @@ public:
     [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return panel_.getPluginSearchDialog(); }
     [[nodiscard]] const PluginSearchDialog& getPluginSearchDialog() const noexcept { return panel_.getPluginSearchDialog(); }
 
+    [[nodiscard]] std::string getTooltip(float x, float y, const TrackPropertiesDrawerData& data) const noexcept;
+
     static constexpr float kPullTabWidth = 24.0f;
     static constexpr float kDefaultWidth = 360.0f;
     static constexpr float kMinWidth = 260.0f;

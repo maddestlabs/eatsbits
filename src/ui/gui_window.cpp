@@ -5201,6 +5201,24 @@ void GuiWindow::drawTopTransportBar() {
     drawRoundedRect(fX, fY + 3.0f, 17.0f, 11.5f, 1.5f, fldCol);
     drawLine(fX, fY + 5.0f, fX + 17.0f, fY + 5.0f, darkIcon, 1.0f);
     drawTactileSquareBtnOverlay(folderX, toolY, browserOpen_);
+
+    // 6. Floating tactile tooltip badge when hovering header transport elements
+    std::string tip = getTransportTooltip(mouseX_, mouseY_);
+    if (!tip.empty() && batchRenderer_) {
+        float tipX = mouseX_;
+        const float rW = static_cast<float>(width_);
+        if (mouseX_ >= 8.0f && mouseX_ <= 50.0f) tipX = 29.0f;
+        else if (mouseX_ >= 54.0f && mouseX_ < 92.0f) tipX = 73.0f;
+        else if (mouseX_ >= 92.0f && mouseX_ < 130.0f) tipX = 111.0f;
+        else if (mouseX_ >= 130.0f && mouseX_ < 168.0f) tipX = 149.0f;
+        else if (mouseX_ >= 176.0f && mouseX_ <= 296.0f) tipX = 236.0f;
+        else if (mouseX_ >= (rW - 228.0f) && mouseX_ < (rW - 132.0f)) tipX = rW - 180.0f;
+        else if (mouseX_ >= (rW - 132.0f) && mouseX_ < (rW - 96.0f)) tipX = rW - 103.0f;
+        else if (mouseX_ >= (rW - 96.0f) && mouseX_ < (rW - 66.0f)) tipX = rW - 63.0f;
+        else if (mouseX_ >= (rW - 66.0f) && mouseX_ <= (rW - 4.0f)) tipX = rW - 23.0f;
+
+        drawTooltipBadge(*batchRenderer_, tip, tipX, 56.0f, theme, true, rW);
+    }
 #endif
 }
 
@@ -6409,6 +6427,80 @@ bool GuiWindow::isFontLoaded() const noexcept {
 
 bool GuiWindow::isMonoFontLoaded() const noexcept {
     return fontRenderer_ && fontRenderer_->fontMono != FONS_INVALID;
+}
+
+std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
+    if (y < 0.0f || y > 56.0f) {
+        return "";
+    }
+
+    const float r = static_cast<float>(width_);
+
+    // 0. Top-Left Eatsbits Brand Logo (opens Project Hub / Settings dialog) [8 to 50]
+    if (x >= 8.0f && x <= 50.0f && y >= 8.0f && y <= 48.0f) {
+        return "EATSBITS Project Hub & Settings";
+    }
+
+    // 1. Tactile Clustered Transport Keys: Play [54..92], Stop [92..130], Record [130..168]
+    if (x >= 54.0f && x < 92.0f && y >= 8.0f && y <= 48.0f) {
+        const bool isPlaying = engine_ ? engine_->getSequencer().isPlaying() : false;
+        return isPlaying ? "Pause Playback (Space)" : "Play / Start Playback (Space)";
+    }
+    if (x >= 92.0f && x < 130.0f && y >= 8.0f && y <= 48.0f) {
+        return "Stop Playback (Return)";
+    }
+    if (x >= 130.0f && x < 168.0f && y >= 8.0f && y <= 48.0f) {
+        return "Toggle Recording (R)";
+    }
+
+    // 2. Minimal Recessed BPM Display Capsule [176 to 296]
+    if (x >= 176.0f && x <= 296.0f && y >= 8.0f && y <= 48.0f) {
+        int bpmVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getBpm())) : 120;
+        return "Project Tempo: " + std::to_string(bpmVal) + " BPM (Click to Edit)";
+    }
+
+    // Secondary Timecode / Bar:Beat:Div Readout [r - 228 to r - 132]
+    if (x >= (r - 228.0f) && x < (r - 132.0f) && y >= 8.0f && y <= 48.0f) {
+        return "Song Position (Bar : Beat : 16th)";
+    }
+
+    // 3. Right-Side Tactile Pushbuttons:
+    // Lock Button [r - 134 to r - 96]
+    if (x >= (r - 134.0f) && x < (r - 96.0f) && y >= 8.0f && y <= 48.0f) {
+        return projectLocked_ ? "Workspace Locked (Ctrl+L to Unlock)" : "Lock Workspace Editing (Ctrl+L)";
+    }
+
+    // Search / Fullscreen Button [r - 96 to r - 66]
+    if (x >= (r - 96.0f) && x < (r - 66.0f) && y >= 8.0f && y <= 48.0f) {
+        return isFullscreen_ ? "Exit Fullscreen Device Mode (F)" : "Fullscreen Device Mode / Finder (F)";
+    }
+
+    // Folder / Preset Library Button [r - 66 to r - 4]
+    if (x >= (r - 66.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
+        return browserOpen_ ? "Close Preset & Sample Browser (B)" : "Preset & Sample Browser (B)";
+    }
+
+    // Snap Selector Box [695, 11, 65, 34]
+    if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
+        return "Timeline Grid Snap (1/16)";
+    }
+
+    // Scale Selector Box [r - 345, 11, 72, 34]
+    if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
+        return "Musical Scale & Key Selector";
+    }
+
+    // Metronome Toggle [r - 265, 11, 75, 34]
+    if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
+        return "Metronome Click (C)";
+    }
+
+    // Loop Toggle [r - 180, 11, 65, 34]
+    if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
+        return "Loop Playback (L)";
+    }
+
+    return "";
 }
 
 HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexcept {

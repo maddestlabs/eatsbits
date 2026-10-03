@@ -492,6 +492,9 @@ public:
     void syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data);
     [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
     [[nodiscard]] GuiPanelDef& getGuiPanel() noexcept { return guiPanel_; }
+    [[nodiscard]] std::string getTooltip(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept;
+    void setIsInsideDrawer(bool inside) noexcept { isInsideDrawer_ = inside; }
+    [[nodiscard]] bool isInsideDrawer() const noexcept { return isInsideDrawer_; }
 
     // Embedded PluginSearchDialog modal overlay
     [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return pluginDialog_; }
@@ -628,6 +631,7 @@ private:
     int draggingWidget_{-1};
 
     PluginSearchDialog pluginDialog_;
+    bool isInsideDrawer_{false};
 };
 
 } // namespace eatsbits::ui
