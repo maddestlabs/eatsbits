@@ -63,10 +63,10 @@ To execute items automatically, run in Antigravity:
 
 ## 📋 Backlog / Ideas
 
-- [ ] **Icon Design Review**: Improve icon readability, consistency, and aesthetic appeal.
-  - **Context/Files**: `assets/icons/`, `src/eatsbits/gui/views/icon_font.*`
+- [x] **Icon Design Review**: Improve icon readability, consistency, and aesthetic appeal. (commit `e860f33`)
+  - **Context/Files**: `src/ui/icon_registry.cpp`, `src/ui/widgets/icon_search_dialog.cpp`, `tests/test_icon_system.cpp`
   - **Acceptance Criteria**: Icons are clear, follow the design system, and work well at small sizes.
-  - **Test/Validation**: Visual inspection in the UI.
+  - **Test/Validation**: `.\build.ps1 -Test`
 - [x] Add tooltips to header transport elements and Track Properties elements. (commit `cd2f33e`)
 - [x] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text. (commit `6245673`)
 ---

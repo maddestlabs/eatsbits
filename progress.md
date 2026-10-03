@@ -690,6 +690,43 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - Covers Track Icon ("Change Track Icon / Color"), Rename / Title ("Edit Track Name"), Color Swatch ("Set Track Accent Color"), Volume Slider ("Track Output Level"), Pan Dial ("Stereo Panning"), Fullscreen Mode ("Fullscreen Device GUI"), Preset Selector ("Cycle Previous / Next Preset"), Instrument ("Instrument Device"), Chord Follow Chips ("Harmonic Chord Following Mode"), Bake to MIDI ("Bake Chords to Sequencer MIDI"), MIDI FX & Audio FX Add Buttons ("Add MIDI FX Insert", "Add Audio FX Insert"), Bypass Toggles ("Bypass FX"), Reorder Up/Down buttons, Remove FX buttons, Fullscreen Device FX buttons, and Drawer Tabs ("Track Properties Inspector", "Clip Properties Inspector", "Close Properties Drawer").
   - **Automated Verification**:
     - Added Test 20 to `tests/test_modular_ui.cpp` verifying tooltip queries across GuiWindow, TransportHeader, TrackPropertiesPanel, and TrackPropertiesDrawer.
+- **Icon Design Review & Vector Rendering Refinements**:
+  - **Hole-Occlusion Fix & Disjoint Silhouette Architecture**:
+    - Identified and eliminated contour hole-occlusion issue where nested contours inside solid bounds rendered as filled blobs (affecting `inst_synth`, `inst_piano`, `drum_machine`, `drum_kick`, and `hw_cassette`).
+    - Redesigned all stock icons into crisp, disjoint geometric silhouettes with calibrated negative space gaps (1.5px - 2.5px), ensuring optimal sharpness and contrast at small sizes (16px, 20px, 24px, 32px).
+  - **Enhanced Vector Icon Library (`src/ui/icon_registry.cpp`)**:
+    - `inst_synth`: Sleek synthesizer chassis with LED rotary encoders and 5 white keys.
+    - `inst_piano`: Classic Grand Piano silhouette with raised prop stick, curved rim, and lyre pedals.
+    - `inst_bass`: High-amplitude sub-bass sine wave with punchy low-end sub pulses.
+    - `inst_guitar`: Electric guitar silhouette with cutaway horns and angled headstock.
+    - `inst_strings`: Classical violin/cello body with carved C-bout waist and scroll.
+    - `inst_brass`: Trumpet with 3 vertical piston valves and flared acoustic bell.
+    - `inst_vocal`: Studio condenser microphone capsule with shockmount cradle.
+    - `drum_kick`: Bass drumhead with angled kick spurs and kick pedal beater mallet.
+    - `drum_snare`: Dual-rim snare drum with tension lugs and crossed striking drumsticks.
+    - `drum_hihat`: Acoustic cymbal pair on tripod stand with center pull rod and pedal.
+    - `drum_clap`: Acoustic shockwave impact burst with radial energy rays.
+    - `drum_tom`: Angled rack tom drum with dual rim beads.
+    - `drum_machine`: 9-pad illuminated MPC grid with top display/encoder bar.
+    - `fx_reverb`: Parabolic acoustic reflections expanding over studio floor plane.
+    - `fx_delay`: Clock dial repeat loop with trailing echo taps.
+    - `fx_filter`: 24 dB/oct resonant lowpass filter frequency response curve with rolloff slope.
+    - `fx_distortion`: High-energy lightning drive bolt.
+    - `fx_compressor`: Clamping dynamic limiter arrows and side rails.
+    - `fx_eq`: Multi-band graphic parametric EQ sliders with calibrated fader caps.
+    - `fx_modular`: Eurorack 3.5mm jack socket and patch cable plug.
+    - `hw_speaker`: Studio monitor speaker with acoustic radiation wavefronts.
+    - `hw_headphones`: Studio monitoring headphones with headband, pivots, and ear cushions.
+    - `hw_cassette`: Retro cassette tape with twin hubs, tape bridge, and label strip.
+  - **New Classic DAW Icon Categories**:
+    - Added `inst_chiptune` (8-bit gamepad D-pad and action buttons for retro game audio tracks).
+    - Added `inst_organ` (B3 tonewheel organ drawbars and dual manual keyboard).
+    - Added `fx_chorus` (dual phase-shifted stereo chorus ribbons).
+    - Added `hw_midi` (classic 5-pin DIN MIDI port).
+  - **IconSearchDialog Scrolling Containment**:
+    - Added GPU hardware scissoring (`r.pushScissor` / `r.popScissor`) to `gridBounds_` in `IconSearchDialog::render`, preventing icon cards from bleeding outside dialog borders during scrolling.
+  - **Automated Verification**:
+    - Updated `tests/test_icon_system.cpp` to verify parsing, contour validation, and triangulation for all 32 stock vector meshes and new categories.
 - **Validation**:
   - 100% pass across all 44 test suites in `build.ps1 -Test` on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
 
