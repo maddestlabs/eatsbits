@@ -68,7 +68,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Icons are clear, follow the design system, and work well at small sizes.
   - **Test/Validation**: Visual inspection in the UI.
 - [ ] Add tooltips to header transport elements and Track Properties elements.
-- [x] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text.
+- [x] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text. (commit `6245673`)
 ---
 
 ## ✅ Completed Archive
