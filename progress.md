@@ -627,7 +627,7 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
   - **MixerView Multi-Fader Simultaneous Mixing**:
     - Implemented `std::unordered_map<int, ActiveFaderSession> activeFaderSessions_` keyed by `ev.id`.
     - Supports multi-finger volume fader adjustments across channel strips and master fader simultaneously.
-- **Mixer Architecture Phases 1-4: Pointer Delegation, DSP Decoupling, Audio Taper Presenters & Responsive Density Toolbar**:
+- **Mixer Architecture Phases 1-5: Pointer Delegation, DSP Decoupling, Audio Taper Presenters, Responsive Toolbar & Arranger Docked Bottom Mixer Drawer**:
   - **Phase 1: Pointer Delegation & Precedence Alignment**:
     - Removed legacy `hitTestMixer` interception in [gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), delegating all mouse/pointer events directly to `modularMixerView_->handlePointer(pev, ctx)`.
     - Enforced strict sidebar drawer bounds isolation so clicks and gestures on `TrackPropertiesDrawer` never bleed or fall through into underlying mixer channels.
@@ -652,6 +652,32 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
       - Toolbar collapse toggle: `[^ HIDE]` and non-intrusive `[OPTS v]` trigger pill when collapsed.
     - Added intelligent responsive auto-density switching: automatically sets `Micro` when `ctx.isMobile || bounds.w < 600px` (allowing 5-6 channels to cleanly fit on mobile screens without horizontal congestion) and `Compact` when `bounds.w < 850px`.
     - Systematized channel strip element layout, scaling LED meters, LCD displays, pan dials, button columns (stacked, inline, and micro variants), and pointer hit boundaries across all density modes while strictly preserving backwards compatibility with legacy coordinates.
+  - **Phase 5: Arranger Docked Bottom Mixer Drawer**:
+    - Created `ArrangerMixerDrawer` widget (`include/eatsbits/ui/widgets/arranger_mixer_drawer.hpp`, `src/ui/widgets/arranger_mixer_drawer.cpp`) adhering to the modular sliding drawer pattern with exponential damping (`kDamping = 18.0f`).
+    - Fixed Master Channel Strip pinned on the left with amber LCD badge, Mute button, audio-taper calibrated fader (unity 0 dB at 0.75, +6 dB at 1.0), and dual stereo peak meter.
+    - Viewport scissored channel strips with smooth horizontal scrolling via mouse wheel and drag scrollbar, keeping arranger channels aligned and mixed without navigating away from the composition timeline.
+    - Per-channel track color header pill, pan dial with center detent, mute & solo buttons, vertical fader well & thumb, stereo peak meter, and bottom dB readout.
+    - Resizable top edge handle (`kMinHeight = 140px`, `kMaxHeight = 340px`) and collapsible pull tab with tune sliders icon and active status indicator.
+    - Toggled via hotkey `M`, Command Palette (`view.drawer.arranger_mixer`), or pull-tab click; Escape dismisses drawer.
+    - Added comprehensive unit and integration suite in `tests/test_modular_ui.cpp` (Test 18) validating drawer layout, animation states, rendering, pointer routing, hotkey actions, and master control hooks.
+- **PluginSearchDialog Refinements (Scroll Scissoring, Real-Time Tokenized Filtering, & Interactive Text Box)**:
+  - **Vertical Scissor Containment**:
+    - Confined list rendering within `[listY, listY + listH]` using GPU scissoring (`r.pushScissor(dialogBounds_.x + 18.0f, listY, cardW + 4.0f, listH)` and `r.popScissor()`).
+    - Fixed card bleed over top headers, category chips, search bar, and dialog bottom margins.
+    - Clamped scrolling bounds to valid range `[0, maxScroll]` and strictly isolated pointer hits so scrolled-out cards cannot receive click events.
+  - **Interactive Filter Text Box**:
+    - Implemented focus states with glowing accent outline, blinking vertical cursor line, and scissored text rendering.
+    - Integrated clear `[X]` button when search query is active.
+    - Implemented whitespace-tokenized search matching across card `name`, `category`, `engineTag`, `description`, `author`, and `id`.
+    - Added empty state card feedback ("No plugins match '<query>'") with clear query action hint when 0 matches found.
+    - Added real-time match count pill in dialog header (e.g. `[12 PRESETS]` or `[0 MATCHES]`).
+  - **Keyboard & Char Input Integration**:
+    - Wired `handleChar(char32_t codepoint)` and `handleKey` for character input, caret navigation (`Left`/`Right`/`Home`/`End`), deletion (`Backspace`/`Delete`), clipboard paste (`Ctrl+V`), and select all (`Ctrl+A`).
+    - Escape key clears search query first if non-empty, and dismisses dialog on second press.
+    - Enter key commits active selection; Up/Down arrow keys navigate filtered items.
+    - Forwarded character input through `ArrangerView`, `MixerView`, and `TrackInspectorView` up to `GuiWindow::onChar` and `GuiWindow::onKeyDown`.
+  - **Automated Verification**:
+    - Added comprehensive unit tests in `tests/test_modular_ui.cpp` (Test 19) verifying tokenized search, character input, backspace, escape behavior, selection navigation, scrolling containment, and outside click dismissal.
 - **Validation**:
   - 100% pass across all 44 test suites in `build.ps1 -Test` on Dawn WebGPU NVIDIA GeForce GTX 1660 Ti hardware pipeline.
 

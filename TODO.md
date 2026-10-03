@@ -34,7 +34,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Implement modular density modes (`Comfortable` ~130px, `Compact` ~75px, `Micro` ~50px); add collapsible top toolbar with toggle pills for `[Meters]`, `[Routing/Inserts]`, `[Pan]`, `[Readouts]`; auto-switch to Micro/Compact mode when screen width < 700px (portrait) so at least 5-6 channels fit cleanly without clutter.
   - **Test/Validation**: `.\build.ps1 -Test`
 
-- [ ] **Mixer Architecture Phase 5: Arranger Docked Bottom Mixer Drawer**
+- [x] **Mixer Architecture Phase 5: Arranger Docked Bottom Mixer Drawer**
   - **Context/Files**: `include/eatsbits/ui/widgets/arranger_mixer_drawer.hpp`, `src/ui/widgets/arranger_mixer_drawer.cpp`, `src/ui/views/arranger_view.cpp`, `src/ui/gui_window.cpp`
   - **Acceptance Criteria**: Add a collapsible sliding bottom mixer drawer to the Arranger tab (toggled via hotkey `M` or bottom nav/transport button, matching `VirtualKeyboardDrawer` pattern); channels align with tracks or scroll horizontally to let users mix and balance levels without leaving composition view.
   - **Test/Validation**: `.\build.ps1 -Test`
@@ -68,7 +68,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Icons are clear, follow the design system, and work well at small sizes.
   - **Test/Validation**: Visual inspection in the UI.
 - [ ] Add tooltips to header transport elements and Track Properties elements.
-- [ ] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text.
+- [x] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text.
 ---
 
 ## ✅ Completed Archive

@@ -54,9 +54,24 @@ public:
     void render(BatchRenderer2D& r, const ThemeTokens& theme);
     bool handlePointer(const PointerEvent& ev);
     bool handleKey(int key, int scancode, int action, int mods);
+    bool handleChar(char32_t codepoint);
 
     [[nodiscard]] PluginDialogMode getMode() const noexcept { return mode_; }
     [[nodiscard]] uint32_t getTargetTrackIndex() const noexcept { return targetTrackIndex_; }
+
+    // Search query & filter state accessors
+    void setSearchQuery(const std::string& query);
+    [[nodiscard]] const std::string& getSearchQuery() const noexcept { return searchQuery_; }
+    void clearSearch();
+    [[nodiscard]] int getSelectedItemIndex() const noexcept { return selectedItemIndex_; }
+    void setSelectedItemIndex(int idx) noexcept { selectedItemIndex_ = idx; }
+    [[nodiscard]] int getSelectedCategoryIndex() const noexcept { return selectedCategoryIndex_; }
+    void setSelectedCategoryIndex(int idx) noexcept { selectedCategoryIndex_ = idx; }
+    [[nodiscard]] size_t getFilteredCount() const { return getFilteredEntries().size(); }
+
+    void setClipboardProvider(std::function<std::string()> provider) {
+        clipboardProvider_ = std::move(provider);
+    }
 
     std::function<void(PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex)> onPluginSelected;
     std::function<void(const project::PresetItem& item, uint32_t trackIndex)> onPresetSelected;
@@ -74,14 +89,19 @@ private:
     uint32_t targetTrackIndex_{0};
 
     std::string searchQuery_{""};
+    int searchCursorPos_{0};
+    bool searchFocused_{true};
+    float cursorBlinkTimer_{0.0f};
     int selectedCategoryIndex_{0}; // 0 = ALL
     int selectedItemIndex_{0};     // For keyboard navigation
+    std::function<std::string()> clipboardProvider_{nullptr};
 
     float screenWidth_{1280.0f};
     float screenHeight_{800.0f};
     Rect2D dialogBounds_{0.0f, 0.0f, 620.0f, 540.0f};
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D searchClearBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     ScrollableArea scrollArea_;
     float scrollY_{0.0f};

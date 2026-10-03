@@ -471,6 +471,12 @@ public:
     [[nodiscard]] TrackPropertiesHitResult hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept;
     bool handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data, const ViewContext& ctx);
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx);
+    bool handleChar(char32_t codepoint) {
+        if (pluginDialog_.isOpen()) {
+            return pluginDialog_.handleChar(codepoint);
+        }
+        return false;
+    }
 
     void setShowTrackRibbon(bool show) noexcept { showTrackRibbon_ = show; }
     [[nodiscard]] bool getShowTrackRibbon() const noexcept { return showTrackRibbon_; }

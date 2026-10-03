@@ -93,6 +93,7 @@ public:
     void render(const ViewContext& ctx) override;
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
+    bool handleChar(char32_t codepoint, const ViewContext& ctx) override;
 
     [[nodiscard]] int getActiveFaderIndex() const noexcept { return activeFaderIndex_; }
     [[nodiscard]] int getActivePanIndex() const noexcept { return activePanIndex_; }

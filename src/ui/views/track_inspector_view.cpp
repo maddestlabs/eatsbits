@@ -550,4 +550,9 @@ bool TrackInspectorView::handleKey(int key, int scancode, int action, int mods, 
     return panel_.handleKey(key, scancode, action, mods, ctx);
 }
 
+bool TrackInspectorView::handleChar(char32_t codepoint, [[maybe_unused]] const ViewContext& ctx) {
+    return panel_.handleChar(codepoint);
+}
+
 } // namespace eatsbits::ui
+

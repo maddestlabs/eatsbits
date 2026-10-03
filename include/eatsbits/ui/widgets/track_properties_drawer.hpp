@@ -27,6 +27,9 @@ public:
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
         return panel_.handleKey(key, scancode, action, mods, ctx);
     }
+    bool handleChar(char32_t codepoint) {
+        return panel_.handleChar(codepoint);
+    }
 
     [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
     void setExpanded(bool exp) noexcept { isExpanded_ = exp; }

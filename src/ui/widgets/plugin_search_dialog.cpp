@@ -114,9 +114,13 @@ void PluginSearchDialog::open(PluginDialogMode mode, const std::string& targetTr
     targetTrackIndex_ = targetTrackIndex;
     isOpen_ = true;
     searchQuery_.clear();
+    searchCursorPos_ = 0;
+    searchFocused_ = true;
+    cursorBlinkTimer_ = 0.0f;
     selectedCategoryIndex_ = 0;
     selectedItemIndex_ = 0;
     scrollY_ = 0.0f;
+    scrollArea_.setScrollY(0.0f);
 }
 
 void PluginSearchDialog::layout(float screenW, float screenH) {
@@ -131,6 +135,26 @@ void PluginSearchDialog::layout(float screenW, float screenH) {
     dialogBounds_ = Rect2D(dx, dy, dw, dh);
     closeBtnBounds_ = Rect2D(dx + dw - 36.0f, dy + 14.0f, 24.0f, 24.0f);
     searchBoxBounds_ = Rect2D(dx + 20.0f, dy + 92.0f, dw - 40.0f, 32.0f);
+    searchClearBtnBounds_ = Rect2D(searchBoxBounds_.x + searchBoxBounds_.w - 28.0f, searchBoxBounds_.y + 4.0f, 24.0f, 24.0f);
+}
+
+void PluginSearchDialog::setSearchQuery(const std::string& query) {
+    searchQuery_ = query;
+    searchCursorPos_ = static_cast<int>(searchQuery_.length());
+    selectedItemIndex_ = 0;
+    scrollY_ = 0.0f;
+    scrollArea_.setScrollY(0.0f);
+    cursorBlinkTimer_ = 0.0f;
+}
+
+void PluginSearchDialog::clearSearch() {
+    searchQuery_.clear();
+    searchCursorPos_ = 0;
+    selectedItemIndex_ = 0;
+    scrollY_ = 0.0f;
+    scrollArea_.setScrollY(0.0f);
+    cursorBlinkTimer_ = 0.0f;
+    searchFocused_ = true;
 }
 
 std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
@@ -165,6 +189,16 @@ std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
                                 ? (*cats)[selectedCategoryIndex_]
                                 : "ALL";
 
+    // Split search query into whitespace-separated tokens for intelligent multi-term search
+    std::vector<std::string> queryTokens;
+    if (!searchQuery_.empty()) {
+        std::istringstream iss(searchQuery_);
+        std::string token;
+        while (iss >> token) {
+            queryTokens.push_back(token);
+        }
+    }
+
     for (const auto& entry : *source) {
         if (activeCat != "ALL") {
             std::string entryCatUpper = toUpperStr(entry.category);
@@ -177,15 +211,21 @@ std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
             if (!catMatch) continue;
         }
 
-        if (!searchQuery_.empty()) {
-            if (!stringContainsCaseInsensitive(entry.name, searchQuery_) &&
-                !stringContainsCaseInsensitive(entry.description, searchQuery_) &&
-                !stringContainsCaseInsensitive(entry.engineTag, searchQuery_) &&
-                !stringContainsCaseInsensitive(entry.author, searchQuery_) &&
-                !stringContainsCaseInsensitive(entry.id, searchQuery_) &&
-                !stringContainsCaseInsensitive(entry.category, searchQuery_)) {
-                continue;
+        if (!queryTokens.empty()) {
+            bool allTokensMatch = true;
+            for (const auto& tok : queryTokens) {
+                bool tokMatches = stringContainsCaseInsensitive(entry.name, tok) ||
+                                  stringContainsCaseInsensitive(entry.description, tok) ||
+                                  stringContainsCaseInsensitive(entry.engineTag, tok) ||
+                                  stringContainsCaseInsensitive(entry.author, tok) ||
+                                  stringContainsCaseInsensitive(entry.id, tok) ||
+                                  stringContainsCaseInsensitive(entry.category, tok);
+                if (!tokMatches) {
+                    allTokensMatch = false;
+                    break;
+                }
             }
+            if (!allTokensMatch) continue;
         }
         results.push_back(entry);
     }
@@ -205,6 +245,10 @@ void PluginSearchDialog::scrollIndexIntoView(int index) {
     } else if (itemBottom > scrollY_ + listH) {
         scrollY_ = itemBottom - listH;
     }
+    auto entries = getFilteredEntries();
+    float totalContentH = static_cast<float>(entries.size()) * (cardH + cardSpacing);
+    float maxScroll = std::max(0.0f, totalContentH - listH);
+    scrollY_ = std::clamp(scrollY_, 0.0f, maxScroll);
     scrollArea_.setScrollY(scrollY_);
 }
 
@@ -267,16 +311,25 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawText(r, title, dialogBounds_.x + 36.0f, dialogBounds_.y + 20.0f, 13.0f,
              theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
-    // Preset count pill in header
+    // Dynamic Filter Count pill in header
     auto entries = getFilteredEntries();
-    std::string countStr = std::to_string(entries.size()) + " PRESETS";
+    std::string countStr;
+    if (entries.empty()) {
+        countStr = "0 MATCHES";
+    } else if (!searchQuery_.empty()) {
+        countStr = std::to_string(entries.size()) + (entries.size() == 1 ? " MATCH" : " MATCHES");
+    } else {
+        countStr = std::to_string(entries.size()) + " PRESETS";
+    }
     float countW = countStr.length() * 6.5f + 14.0f;
     float countX = closeBtnBounds_.x - countW - 14.0f;
     float countY = dialogBounds_.y + 18.0f;
     drawRoundedRect(r, countX, countY, countW, 18.0f, 4.0f,
                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
     drawCenteredText(r, countStr, countX, countY, countW, 18.0f, 9.0f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.95f);
+                     entries.empty() ? 0.9f : theme.textMuted.r,
+                     entries.empty() ? 0.4f : theme.textMuted.g,
+                     entries.empty() ? 0.4f : theme.textMuted.b, 0.95f);
 
     // Close button (metallic screw icon)
     float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
@@ -318,25 +371,68 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         chipX += chipW + 6.0f;
     }
 
-    // 5. Search Bar
-    drawRoundedRect(r, searchBoxBounds_.x, searchBoxBounds_.y, searchBoxBounds_.w, searchBoxBounds_.h, 4.0f,
-                    theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 0.95f);
-    drawRoundedRectOutline(r, searchBoxBounds_.x, searchBoxBounds_.y, searchBoxBounds_.w, searchBoxBounds_.h, 4.0f,
-                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
-
-    drawText(r, "[Q]", searchBoxBounds_.x + 10.0f, searchBoxBounds_.y + 8.0f, 10.0f,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f);
-
-    if (searchQuery_.empty()) {
-        drawText(r, "Search library by name, type, engine, tags, or author... (Arrow keys to navigate, Enter to load)",
-                 searchBoxBounds_.x + 36.0f, searchBoxBounds_.y + 8.5f, 10.5f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.5f);
+    // 5. Refined Filter Text Box with Focus Glow & Blinking Cursor
+    drawRoundedRect(r, searchBoxBounds_.x, searchBoxBounds_.y, searchBoxBounds_.w, searchBoxBounds_.h, 5.0f,
+                    theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 0.96f);
+    if (searchFocused_) {
+        drawRoundedRectOutline(r, searchBoxBounds_.x, searchBoxBounds_.y, searchBoxBounds_.w, searchBoxBounds_.h, 5.0f,
+                               theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
     } else {
-        drawMonoText(r, searchQuery_, searchBoxBounds_.x + 36.0f, searchBoxBounds_.y + 8.0f, 11.0f,
-                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
+        drawRoundedRectOutline(r, searchBoxBounds_.x, searchBoxBounds_.y, searchBoxBounds_.w, searchBoxBounds_.h, 5.0f,
+                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
     }
 
-    // 6. Plugin Cards List with ScrollableArea
+    drawText(r, "[Q]", searchBoxBounds_.x + 10.0f, searchBoxBounds_.y + 8.5f, 10.0f,
+             searchFocused_ ? theme.primaryAccent.r : theme.textMuted.r,
+             searchFocused_ ? theme.primaryAccent.g : theme.textMuted.g,
+             searchFocused_ ? theme.primaryAccent.b : theme.textMuted.b, 0.9f);
+
+    float textStartX = searchBoxBounds_.x + 36.0f;
+    float textMaxW = searchBoxBounds_.w - 68.0f;
+    float charW = getMonoCharAdvance(11.0f);
+
+    if (searchQuery_.empty()) {
+        std::string placeholder = "Search library by name, type, engine, tags, or author... (Arrow keys to navigate, Enter to load)";
+        drawText(r, placeholder, textStartX, searchBoxBounds_.y + 8.5f, 10.5f,
+                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, searchFocused_ ? 0.45f : 0.6f);
+        if (searchFocused_) {
+            cursorBlinkTimer_ += (1.0f / 60.0f);
+            if (fmod(cursorBlinkTimer_, 1.0f) < 0.55f) {
+                drawLine(r, textStartX, searchBoxBounds_.y + 7.0f, textStartX, searchBoxBounds_.y + searchBoxBounds_.h - 7.0f,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f, 1.5f);
+            }
+        }
+    } else {
+        // Scissor search text strictly within the search box boundaries
+        r.pushScissor(textStartX - 2.0f, searchBoxBounds_.y, textMaxW, searchBoxBounds_.h);
+        drawMonoText(r, searchQuery_, textStartX, searchBoxBounds_.y + 8.0f, 11.0f,
+                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
+
+        if (searchFocused_) {
+            cursorBlinkTimer_ += (1.0f / 60.0f);
+            if (fmod(cursorBlinkTimer_, 1.0f) < 0.55f) {
+                float cursorX = textStartX + static_cast<float>(searchCursorPos_) * charW;
+                drawLine(r, cursorX, searchBoxBounds_.y + 7.0f, cursorX, searchBoxBounds_.y + searchBoxBounds_.h - 7.0f,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f, 1.5f);
+            }
+        }
+        r.popScissor();
+
+        // Clear [X] Button on Right of Search Box
+        bool clearHov = searchClearBtnBounds_.contains(lastMouseX_, lastMouseY_);
+        drawRoundedRect(r, searchClearBtnBounds_.x, searchClearBtnBounds_.y,
+                        searchClearBtnBounds_.w, searchClearBtnBounds_.h, 4.0f,
+                        clearHov ? 0.35f : 0.22f,
+                        clearHov ? 0.38f : 0.24f,
+                        clearHov ? 0.42f : 0.28f, clearHov ? 0.95f : 0.75f);
+        drawCenteredText(r, "x", searchClearBtnBounds_.x, searchClearBtnBounds_.y,
+                         searchClearBtnBounds_.w, searchClearBtnBounds_.h, 11.0f,
+                         clearHov ? 1.0f : 0.8f,
+                         clearHov ? 1.0f : 0.8f,
+                         clearHov ? 1.0f : 0.8f, 1.0f);
+    }
+
+    // 6. Plugin Cards List with ScrollableArea & STRICT SCISSOR CONTAINMENT
     float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
     float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
     float cardW = dialogBounds_.w - 40.0f;
@@ -349,86 +445,107 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     scrollArea_.setScrollY(scrollY_);
     scrollY_ = scrollArea_.getScrollY();
 
-    for (size_t i = 0; i < entries.size(); ++i) {
-        float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
-        if (!scrollArea_.isVisible(cy, cardH)) continue;
+    // STRICT SCISSOR CONTAINMENT: Completely confines scrolling within vertical layout bounds
+    r.pushScissor(dialogBounds_.x + 18.0f, listY, cardW + 4.0f, listH);
 
-        const auto& entry = entries[i];
-        bool isKeyboardHighlighted = (static_cast<int>(i) == selectedItemIndex_);
-        bool isHovered = Rect2D(dialogBounds_.x + 20.0f, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
+    if (entries.empty()) {
+        float emptyY = listY + listH * 0.32f;
+        drawCenteredText(r, "NO MATCHING PRESETS OR PLUGINS FOUND",
+                         dialogBounds_.x + 20.0f, emptyY, cardW, 20.0f, 12.0f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
-        // Card Container
-        drawRoundedRect(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                        isKeyboardHighlighted ? theme.controlBackground.r * 1.35f :
-                        (isHovered ? theme.controlBackground.r * 1.15f : theme.controlBackground.r),
-                        isKeyboardHighlighted ? theme.controlBackground.g * 1.35f :
-                        (isHovered ? theme.controlBackground.g * 1.15f : theme.controlBackground.g),
-                        isKeyboardHighlighted ? theme.controlBackground.b * 1.35f :
-                        (isHovered ? theme.controlBackground.b * 1.15f : theme.controlBackground.b), 0.96f);
+        std::string queryHint = "No results matching \"" + searchQuery_ + "\"";
+        drawCenteredText(r, queryHint,
+                         dialogBounds_.x + 20.0f, emptyY + 24.0f, cardW, 16.0f, 10.0f,
+                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f);
 
-        if (isKeyboardHighlighted) {
-            drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                                   theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
-        } else {
-            drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, isHovered ? 0.9f : 0.6f, 1.0f);
+        drawCenteredText(r, "Click [X] or press Esc to clear filter",
+                         dialogBounds_.x + 20.0f, emptyY + 44.0f, cardW, 16.0f, 9.5f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f);
+    } else {
+        for (size_t i = 0; i < entries.size(); ++i) {
+            float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
+            if (!scrollArea_.isVisible(cy, cardH)) continue;
+
+            const auto& entry = entries[i];
+            bool isKeyboardHighlighted = (static_cast<int>(i) == selectedItemIndex_);
+            bool isHovered = Rect2D(dialogBounds_.x + 20.0f, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
+
+            // Card Container
+            drawRoundedRect(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                            isKeyboardHighlighted ? theme.controlBackground.r * 1.35f :
+                            (isHovered ? theme.controlBackground.r * 1.15f : theme.controlBackground.r),
+                            isKeyboardHighlighted ? theme.controlBackground.g * 1.35f :
+                            (isHovered ? theme.controlBackground.g * 1.15f : theme.controlBackground.g),
+                            isKeyboardHighlighted ? theme.controlBackground.b * 1.35f :
+                            (isHovered ? theme.controlBackground.b * 1.15f : theme.controlBackground.b), 0.96f);
+
+            if (isKeyboardHighlighted) {
+                drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                                       theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
+            } else {
+                drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                                       theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, isHovered ? 0.9f : 0.6f, 1.0f);
+            }
+
+            // Color tag strip on left
+            drawRoundedRect(r, dialogBounds_.x + 22.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
+                            entry.r, entry.g, entry.b, 1.0f);
+
+            // Category Badge
+            std::string catBadge = toUpperStr(entry.category);
+            float catW = catBadge.length() * 6.0f + 10.0f;
+            drawRoundedRect(r, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 3.0f,
+                            entry.r * 0.25f, entry.g * 0.25f, entry.b * 0.25f, 0.9f);
+            drawCenteredText(r, catBadge, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 8.0f,
+                             entry.r, entry.g, entry.b, 1.0f);
+
+            // Title
+            float titleX = dialogBounds_.x + 36.0f + catW + 8.0f;
+            drawText(r, entry.name, titleX, cy + 8.0f, 12.0f,
+                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
+
+            // Engine Tag
+            if (!entry.engineTag.empty()) {
+                float engX = titleX + entry.name.length() * 7.5f + 10.0f;
+                float engW = entry.engineTag.length() * 6.5f + 10.0f;
+                drawRoundedRect(r, engX, cy + 8.0f, engW, 14.0f, 3.0f,
+                                0.2f, 0.22f, 0.28f, 0.8f);
+                drawText(r, entry.engineTag, engX + 5.0f, cy + 9.5f, 8.5f,
+                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.95f);
+            }
+
+            // Author (if provided)
+            if (!entry.author.empty() && entry.author != "Eatsbeats / Eatsbits") {
+                drawText(r, "by " + entry.author, dialogBounds_.x + cardW - 190.0f, cy + 9.5f, 8.5f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
+            }
+
+            // Description
+            std::string desc = entry.description;
+            if (desc.length() > 95) desc = desc.substr(0, 92) + "...";
+            drawText(r, desc, dialogBounds_.x + 36.0f, cy + 29.0f, 9.5f,
+                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+
+            // Action Button on Right (+ LOAD / + ADD)
+            float btnW = 68.0f;
+            float btnH = 26.0f;
+            float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
+            float btnY = cy + (cardH - btnH) * 0.5f;
+
+            bool btnHover = Rect2D(btnX, btnY, btnW, btnH).contains(lastMouseX_, lastMouseY_);
+            Color addBg{entry.r * (btnHover ? 0.38f : 0.20f),
+                        entry.g * (btnHover ? 0.38f : 0.20f),
+                        entry.b * (btnHover ? 0.38f : 0.20f), 0.95f};
+            Color addBorder{entry.r, entry.g, entry.b, btnHover ? 1.0f : 0.85f};
+            Color addText{entry.r, entry.g, entry.b, 1.0f};
+
+            std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" : "+ ADD";
+            drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, btnLabel, addBg, addBorder, addText, 10.0f, 4.0f, 1.0f);
         }
-
-        // Color tag strip on left
-        drawRoundedRect(r, dialogBounds_.x + 22.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
-                        entry.r, entry.g, entry.b, 1.0f);
-
-        // Category Badge
-        std::string catBadge = toUpperStr(entry.category);
-        float catW = catBadge.length() * 6.0f + 10.0f;
-        drawRoundedRect(r, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 3.0f,
-                        entry.r * 0.25f, entry.g * 0.25f, entry.b * 0.25f, 0.9f);
-        drawCenteredText(r, catBadge, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 8.0f,
-                         entry.r, entry.g, entry.b, 1.0f);
-
-        // Title
-        float titleX = dialogBounds_.x + 36.0f + catW + 8.0f;
-        drawText(r, entry.name, titleX, cy + 8.0f, 12.0f,
-                 theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-
-        // Engine Tag
-        if (!entry.engineTag.empty()) {
-            float engX = titleX + entry.name.length() * 7.5f + 10.0f;
-            float engW = entry.engineTag.length() * 6.5f + 10.0f;
-            drawRoundedRect(r, engX, cy + 8.0f, engW, 14.0f, 3.0f,
-                            0.2f, 0.22f, 0.28f, 0.8f);
-            drawText(r, entry.engineTag, engX + 5.0f, cy + 9.5f, 8.5f,
-                     theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.95f);
-        }
-
-        // Author (if provided)
-        if (!entry.author.empty() && entry.author != "Eatsbeats / Eatsbits") {
-            drawText(r, "by " + entry.author, dialogBounds_.x + cardW - 190.0f, cy + 9.5f, 8.5f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
-        }
-
-        // Description
-        std::string desc = entry.description;
-        if (desc.length() > 95) desc = desc.substr(0, 92) + "...";
-        drawText(r, desc, dialogBounds_.x + 36.0f, cy + 29.0f, 9.5f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
-
-        // Action Button on Right (+ LOAD / + ADD)
-        float btnW = 68.0f;
-        float btnH = 26.0f;
-        float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
-        float btnY = cy + (cardH - btnH) * 0.5f;
-
-        bool btnHover = Rect2D(btnX, btnY, btnW, btnH).contains(lastMouseX_, lastMouseY_);
-        Color addBg{entry.r * (btnHover ? 0.38f : 0.20f),
-                    entry.g * (btnHover ? 0.38f : 0.20f),
-                    entry.b * (btnHover ? 0.38f : 0.20f), 0.95f};
-        Color addBorder{entry.r, entry.g, entry.b, btnHover ? 1.0f : 0.85f};
-        Color addText{entry.r, entry.g, entry.b, 1.0f};
-
-        std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" : "+ ADD";
-        drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, btnLabel, addBg, addBorder, addText, 10.0f, 4.0f, 1.0f);
     }
+
+    r.popScissor();
 
     // Scrollbar rendering
     if (scrollArea_.canScroll()) {
@@ -442,7 +559,13 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     lastMouseY_ = ev.y;
 
     auto entries = getFilteredEntries();
-    float maxScroll = std::max(0.0f, static_cast<float>(entries.size()) * 62.0f - (dialogBounds_.h - 180.0f));
+    float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
+    float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
+    float cardW = dialogBounds_.w - 40.0f;
+    float cardH = 54.0f;
+    float cardSpacing = 8.0f;
+    float totalContentH = static_cast<float>(entries.size()) * (cardH + cardSpacing);
+    float maxScroll = std::max(0.0f, totalContentH - listH);
 
     if (scrollArea_.handlePointer(ev)) {
         scrollY_ = scrollArea_.getScrollY();
@@ -455,6 +578,7 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
             return true;
         }
         scrollY_ = std::clamp(scrollY_ - ev.scrollY * 28.0f, 0.0f, maxScroll);
+        scrollArea_.setScrollY(scrollY_);
         return true;
     }
 
@@ -489,6 +613,24 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
         return true;
     }
 
+    // Clear Button [X] inside search box
+    if (!searchQuery_.empty() && searchClearBtnBounds_.contains(ev.x, ev.y)) {
+        clearSearch();
+        return true;
+    }
+
+    // Search Box Click: Acquire focus and place cursor
+    if (searchBoxBounds_.contains(ev.x, ev.y)) {
+        searchFocused_ = true;
+        cursorBlinkTimer_ = 0.0f;
+        float textStartX = searchBoxBounds_.x + 36.0f;
+        float charW = getMonoCharAdvance(11.0f);
+        int idx = std::clamp(static_cast<int>(std::round((ev.x - textStartX) / charW)),
+                             0, static_cast<int>(searchQuery_.length()));
+        searchCursorPos_ = idx;
+        return true;
+    }
+
     // Category Chips
     const auto& cats = (mode_ == PluginDialogMode::SelectPreset) ? selectPresetCategories_ :
                        (mode_ == PluginDialogMode::AddInstrument) ? instrumentCategories_ :
@@ -506,50 +648,77 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
             selectedCategoryIndex_ = static_cast<int>(i);
             selectedItemIndex_ = 0;
             scrollY_ = 0.0f;
+            scrollArea_.setScrollY(0.0f);
             return true;
         }
         chipX += chipW + 6.0f;
     }
 
-    // Card Add Buttons / Card Selection
-    float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
-    float cardW = dialogBounds_.w - 40.0f;
-    float cardH = 54.0f;
-    float cardSpacing = 8.0f;
+    // Card Add Buttons / Card Selection: Strictly confined to vertical list bounds [listY, listY + listH]
+    if (ev.y >= listY && ev.y <= listY + listH) {
+        for (size_t i = 0; i < entries.size(); ++i) {
+            float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
+            if (cy + cardH < listY || cy > listY + listH) continue;
 
-    for (size_t i = 0; i < entries.size(); ++i) {
-        float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
-        float btnW = 68.0f;
-        float btnH = 26.0f;
-        float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
-        float btnY = cy + (cardH - btnH) * 0.5f;
+            float btnW = 68.0f;
+            float btnH = 26.0f;
+            float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
+            float btnY = cy + (cardH - btnH) * 0.5f;
 
-        Rect2D cardRect(dialogBounds_.x + 20.0f, cy, cardW, cardH);
-        Rect2D btnRect(btnX, btnY, btnW, btnH);
+            Rect2D cardRect(dialogBounds_.x + 20.0f, cy, cardW, cardH);
+            Rect2D btnRect(btnX, btnY, btnW, btnH);
 
-        if (btnRect.contains(ev.x, ev.y) || cardRect.contains(ev.x, ev.y)) {
-            selectedItemIndex_ = static_cast<int>(i);
-            selectHighlightedCard();
-            return true;
+            if (btnRect.contains(ev.x, ev.y) || cardRect.contains(ev.x, ev.y)) {
+                selectedItemIndex_ = static_cast<int>(i);
+                selectHighlightedCard();
+                return true;
+            }
         }
     }
 
     return true; // Modal absorbed
 }
 
-bool PluginSearchDialog::handleKey(int key, [[maybe_unused]] int scancode, int action, [[maybe_unused]] int mods) {
+bool PluginSearchDialog::handleChar(char32_t codepoint) {
+    if (!isOpen_) return false;
+    if (codepoint >= 32 && codepoint <= 126) {
+        char ch = static_cast<char>(codepoint);
+        if (searchCursorPos_ >= 0 && searchCursorPos_ <= static_cast<int>(searchQuery_.length())) {
+            searchQuery_.insert(searchCursorPos_, 1, ch);
+            searchCursorPos_++;
+        } else {
+            searchQuery_ += ch;
+            searchCursorPos_ = static_cast<int>(searchQuery_.length());
+        }
+        selectedItemIndex_ = 0;
+        scrollY_ = 0.0f;
+        scrollArea_.setScrollY(0.0f);
+        cursorBlinkTimer_ = 0.0f;
+        return true;
+    }
+    return false;
+}
+
+bool PluginSearchDialog::handleKey(int key, [[maybe_unused]] int scancode, int action, int mods) {
     if (!isOpen_) return false;
     if (action != 1 && action != 2) return false;
 
     auto entries = getFilteredEntries();
+    bool isCtrl = (mods & 0x0002) != 0;
 
-    if (key == 256) { // Escape
+    // Escape: clear search query first if non-empty, otherwise close dialog
+    if (key == 256) {
+        if (!searchQuery_.empty()) {
+            clearSearch();
+            return true;
+        }
         close();
         if (onClose) onClose();
         return true;
     }
 
-    if (key == 264) { // Down Arrow
+    // Down Arrow: navigate list down
+    if (key == 264) {
         if (!entries.empty()) {
             selectedItemIndex_ = (selectedItemIndex_ + 1) % static_cast<int>(entries.size());
             scrollIndexIntoView(selectedItemIndex_);
@@ -557,7 +726,8 @@ bool PluginSearchDialog::handleKey(int key, [[maybe_unused]] int scancode, int a
         return true;
     }
 
-    if (key == 265) { // Up Arrow
+    // Up Arrow: navigate list up
+    if (key == 265) {
         if (!entries.empty()) {
             selectedItemIndex_ = (selectedItemIndex_ - 1 + static_cast<int>(entries.size())) % static_cast<int>(entries.size());
             scrollIndexIntoView(selectedItemIndex_);
@@ -565,28 +735,126 @@ bool PluginSearchDialog::handleKey(int key, [[maybe_unused]] int scancode, int a
         return true;
     }
 
-    if (key == 257 || key == 335) { // Enter / Numpad Enter
-        selectHighlightedCard();
-        return true;
-    }
-
-    if (key == 259) { // Backspace
-        if (!searchQuery_.empty()) {
-            searchQuery_.pop_back();
-            selectedItemIndex_ = 0;
-            scrollY_ = 0.0f;
+    // Left Arrow: move search cursor left
+    if (key == 263) {
+        if (searchCursorPos_ > 0) {
+            searchCursorPos_--;
+            cursorBlinkTimer_ = 0.0f;
         }
         return true;
     }
 
-    if (key >= 32 && key <= 126) {
-        searchQuery_ += static_cast<char>(key);
-        selectedItemIndex_ = 0;
-        scrollY_ = 0.0f;
+    // Right Arrow: move search cursor right
+    if (key == 262) {
+        if (searchCursorPos_ < static_cast<int>(searchQuery_.length())) {
+            searchCursorPos_++;
+            cursorBlinkTimer_ = 0.0f;
+        }
         return true;
     }
 
-    return false;
+    // Home: move search cursor to beginning
+    if (key == 268) {
+        searchCursorPos_ = 0;
+        cursorBlinkTimer_ = 0.0f;
+        return true;
+    }
+
+    // End: move search cursor to end
+    if (key == 269) {
+        searchCursorPos_ = static_cast<int>(searchQuery_.length());
+        cursorBlinkTimer_ = 0.0f;
+        return true;
+    }
+
+    // Enter / Numpad Enter: commit selection
+    if (key == 257 || key == 335) {
+        selectHighlightedCard();
+        return true;
+    }
+
+    // Backspace: delete character or word before cursor
+    if (key == 259) {
+        if (isCtrl) {
+            while (searchCursorPos_ > 0 && searchQuery_[searchCursorPos_ - 1] == ' ') {
+                searchQuery_.erase(searchCursorPos_ - 1, 1);
+                searchCursorPos_--;
+            }
+            while (searchCursorPos_ > 0 && searchQuery_[searchCursorPos_ - 1] != ' ') {
+                searchQuery_.erase(searchCursorPos_ - 1, 1);
+                searchCursorPos_--;
+            }
+        } else if (searchCursorPos_ > 0 && !searchQuery_.empty()) {
+            searchQuery_.erase(searchCursorPos_ - 1, 1);
+            searchCursorPos_--;
+        }
+        selectedItemIndex_ = 0;
+        scrollY_ = 0.0f;
+        scrollArea_.setScrollY(0.0f);
+        cursorBlinkTimer_ = 0.0f;
+        return true;
+    }
+
+    // Delete: delete character at cursor
+    if (key == 261) {
+        if (searchCursorPos_ < static_cast<int>(searchQuery_.length())) {
+            searchQuery_.erase(searchCursorPos_, 1);
+            selectedItemIndex_ = 0;
+            scrollY_ = 0.0f;
+            scrollArea_.setScrollY(0.0f);
+            cursorBlinkTimer_ = 0.0f;
+        }
+        return true;
+    }
+
+    // Ctrl+A: select all / clear
+    if (isCtrl && (key == 65 || key == 97)) {
+        clearSearch();
+        return true;
+    }
+
+    // Ctrl+V: paste from clipboard
+    if (isCtrl && (key == 86 || key == 118)) {
+        if (clipboardProvider_) {
+            std::string clipText = clipboardProvider_();
+            std::string valid;
+            for (char c : clipText) {
+                if (c >= 32 && c <= 126) valid += c;
+            }
+            if (!valid.empty()) {
+                searchQuery_.insert(searchCursorPos_, valid);
+                searchCursorPos_ += static_cast<int>(valid.length());
+                selectedItemIndex_ = 0;
+                scrollY_ = 0.0f;
+                scrollArea_.setScrollY(0.0f);
+                cursorBlinkTimer_ = 0.0f;
+            }
+        }
+        return true;
+    }
+
+    // Fallback printable character input (e.g. headless unit testing without GLFW onChar)
+    if (!isCtrl && (mods & 0x0004) == 0 && key >= 32 && key <= 126) {
+        char ch = static_cast<char>(key);
+        bool isShift = (mods & 0x0001) != 0;
+        if (!isShift && ch >= 'A' && ch <= 'Z') {
+            ch = static_cast<char>(ch + 32);
+        }
+        if (searchCursorPos_ >= 0 && searchCursorPos_ <= static_cast<int>(searchQuery_.length())) {
+            searchQuery_.insert(searchCursorPos_, 1, ch);
+            searchCursorPos_++;
+        } else {
+            searchQuery_ += ch;
+            searchCursorPos_ = static_cast<int>(searchQuery_.length());
+        }
+        selectedItemIndex_ = 0;
+        scrollY_ = 0.0f;
+        scrollArea_.setScrollY(0.0f);
+        cursorBlinkTimer_ = 0.0f;
+        return true;
+    }
+
+    return true; // Modal absorbs all other keystrokes
 }
 
 } // namespace eatsbits::ui

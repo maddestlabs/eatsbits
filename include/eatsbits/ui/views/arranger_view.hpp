@@ -5,6 +5,7 @@
 #include "../widgets/circle_of_fifths_dialog.hpp"
 #include "../widgets/icon_search_dialog.hpp"
 #include "../widgets/track_properties_drawer.hpp"
+#include "../widgets/arranger_mixer_drawer.hpp"
 #include "../icon_registry.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include <vector>
@@ -97,6 +98,7 @@ public:
     void render(const ViewContext& ctx) override;
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
+    bool handleChar(char32_t codepoint, const ViewContext& ctx) override;
     bool handleFileDrop(const std::vector<std::string>& filePaths, float x, float y, const ViewContext& ctx) override;
 
     [[nodiscard]] bool isFollowPlayback() const noexcept { return followPlayback_; }
@@ -129,6 +131,15 @@ public:
 
     TrackPropertiesDrawer& getPropertiesDrawer() noexcept { return propertiesDrawer_; }
     const TrackPropertiesDrawer& getPropertiesDrawer() const noexcept { return propertiesDrawer_; }
+
+    // Docked Bottom Mixer Drawer Controls
+    [[nodiscard]] bool isMixerDrawerOpen() const noexcept { return mixerDrawer_.isExpanded(); }
+    void setMixerDrawerOpen(bool open) noexcept { mixerDrawer_.setExpanded(open); }
+    void toggleMixerDrawer() noexcept { mixerDrawer_.toggle(); }
+    [[nodiscard]] ArrangerMixerDrawer& getMixerDrawer() noexcept { return mixerDrawer_; }
+    [[nodiscard]] const ArrangerMixerDrawer& getMixerDrawer() const noexcept { return mixerDrawer_; }
+    void setMasterLevels(float masterVol, float masterPan, bool masterMute, float masterPeakL, float masterPeakR,
+                         const float* chPeaksL = nullptr, const float* chPeaksR = nullptr, size_t numPeaks = 0);
 
     // Track addition / modification API
     void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b);
@@ -195,6 +206,9 @@ public:
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
+    std::function<void(float masterVol)> onMasterVolumeChanged;
+    std::function<void(float masterPan)> onMasterPanChanged;
+    std::function<void(bool masterMute)> onMasterMuteToggled;
 
 private:
     void renderGrid(const ViewContext& ctx);
@@ -291,6 +305,16 @@ private:
     // Shared Decoupled Track Properties Drawer
     TrackPropertiesDrawer propertiesDrawer_;
     TrackPropertiesDrawerData drawerData_;
+
+    // Docked Bottom Mixer Drawer
+    ArrangerMixerDrawer mixerDrawer_;
+    float masterVolume_{0.85f};
+    float masterPan_{0.0f};
+    bool masterMute_{false};
+    float masterPeakL_{0.0f};
+    float masterPeakR_{0.0f};
+    std::vector<float> chPeaksL_;
+    std::vector<float> chPeaksR_;
 
     // Contextual Dialogs
     PluginSearchDialog pluginDialog_;

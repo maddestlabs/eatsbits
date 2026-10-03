@@ -737,6 +737,7 @@ public:
                                   const std::string& name = "");
     void closeAudioToMidiConverter() noexcept;
     [[nodiscard]] bool isAudioToMidiDialogOpen() const noexcept;
+    [[nodiscard]] PluginSearchDialog* getActivePluginSearchDialog() noexcept;
 
     // Hit-Testing logic
     [[nodiscard]] HitTestTransportResult hitTestTransport(float x, float y) const noexcept;

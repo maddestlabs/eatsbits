@@ -193,6 +193,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/gui_window.cpp
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
+    src/ui/widgets/arranger_mixer_drawer.cpp
     src/ui/widgets/drum_pad_grid_widget.cpp
     src/ui/widgets/project_browser_drawer.cpp
     src/ui/widgets/transport_header.cpp

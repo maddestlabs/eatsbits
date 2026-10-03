@@ -1608,5 +1608,13 @@ bool MixerView::handleKey(int key, int scancode, int action, int mods, const Vie
     return false;
 }
 
+bool MixerView::handleChar(char32_t codepoint, [[maybe_unused]] const ViewContext& ctx) {
+    if (propertiesDrawer_.isPluginDialogOpen()) {
+        return propertiesDrawer_.handleChar(codepoint);
+    }
+    return false;
+}
+
 } // namespace eatsbits::ui
+
 

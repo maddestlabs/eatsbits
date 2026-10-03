@@ -3755,6 +3755,17 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::View, "K", [this]() { toggleVirtualKeyboardDrawer(); }
     });
     commandPaletteDialog_.registerCommand({
+        "view.drawer.arranger_mixer", "Toggle Arranger Mixer Drawer", "Slide-up bottom mixing console in Arranger timeline",
+        CommandCategory::View, "M", [this]() {
+            if (activeView_ != WorkspaceView::Arranger) {
+                setActiveView(WorkspaceView::Arranger);
+            }
+            if (modularArrangerView_) {
+                modularArrangerView_->toggleMixerDrawer();
+            }
+        }
+    });
+    commandPaletteDialog_.registerCommand({
         "view.drawer.browser", "Toggle Project Browser Drawer", "Projects, presets, macros, and history timeline",
         CommandCategory::View, "B", [this]() { toggleBrowser(); }
     });
@@ -3962,6 +3973,15 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (engine_) {
                 engine_->setTrackAudioFxParam(idx, fxIdx, paramName, normVal);
             }
+        };
+        modularArrangerView_->onMasterVolumeChanged = [this](float vol) {
+            setMasterVolume(vol);
+        };
+        modularArrangerView_->onMasterPanChanged = [this](float pan) {
+            setMasterPan(pan);
+        };
+        modularArrangerView_->onMasterMuteToggled = [this](bool mute) {
+            setMasterMuted(mute);
         };
     }
 
@@ -5281,6 +5301,12 @@ void GuiWindow::renderFrame() {
                 ViewContext ctx = createViewContext();
                 float topY = 56.0f;
                 float bottomY = static_cast<float>(height_) - 48.0f;
+                modularArrangerView_->setMasterLevels(
+                    masterVolume_, masterPan_, masterMute_,
+                    masterPeakL_, masterPeakR_,
+                    chPeakL_.data(), chPeakR_.data(),
+                    std::min(chPeakL_.size(), arrangerTracks_.size())
+                );
                 modularArrangerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
                 modularArrangerView_->render(ctx);
             }
@@ -6116,21 +6142,7 @@ void GuiWindow::renderFrame() {
         }
 
         // 7b. REUSABLE MODAL PLUGIN / FX / PRESET SEARCH DIALOG (Full-Screen Backdrop)
-        PluginSearchDialog* activePluginDialog = nullptr;
-        if (presetSearchDialog_.isOpen()) {
-            activePluginDialog = &presetSearchDialog_;
-        } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-            if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
-                activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
-            } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-                activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
-            }
-        } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-            if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-                activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
-            }
-        }
-
+        PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
         if (activePluginDialog && activePluginDialog->isOpen()) {
             activePluginDialog->layout(static_cast<float>(width_), static_cast<float>(height_));
             if (batchRenderer_) {
@@ -11199,21 +11211,7 @@ void GuiWindow::onMouseMove(float x, float y) {
     }
 
     // Intercept if Plugin / Preset Search Modal Dialog is open
-    PluginSearchDialog* activePluginDialog = nullptr;
-    if (presetSearchDialog_.isOpen()) {
-        activePluginDialog = &presetSearchDialog_;
-    } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
-            activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
-        } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
-        }
-    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
-        }
-    }
-
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -11852,8 +11850,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
     }
 
-    // Modal Preset Search Dialog intercepts clicks
-    if (presetSearchDialog_.isOpen()) {
+    // Modal Preset / Plugin Search Dialog intercepts clicks
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
         pev.action = PointerAction::Down;
@@ -11862,38 +11861,8 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (presetSearchDialog_.handlePointer(pev)) return;
+        activePluginDialog->handlePointer(pev);
         return; // Absorb events behind modal
-    }
-
-    // Modal Plugin Search Dialog intercepts clicks in Arranger and Mixer Views
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
-            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularArrangerView_->handlePointer(pev, ctx)) return;
-        }
-    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularMixerView_->handlePointer(pev, ctx)) return;
-        }
     }
 
     if (button == 0) { // Left click
@@ -13585,21 +13554,7 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         projectHubScrollArea_.stopDragging();
     }
 
-    PluginSearchDialog* activePluginDialog = nullptr;
-    if (presetSearchDialog_.isOpen()) {
-        activePluginDialog = &presetSearchDialog_;
-    } else if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
-            activePluginDialog = &modularArrangerView_->getPluginSearchDialog();
-        } else if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            activePluginDialog = &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
-        }
-    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            activePluginDialog = &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
-        }
-    }
-
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -13781,23 +13736,10 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     if (audioToMidiDialog_.isOpen()) {
         return;
     }
-    if (presetSearchDialog_.isOpen()) {
-        presetSearchDialog_.handlePointer(pev);
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        activePluginDialog->handlePointer(pev);
         return;
-    }
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
-            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            modularArrangerView_->handlePointer(pev, ctx);
-            return;
-        }
-    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            modularMixerView_->handlePointer(pev, ctx);
-            return;
-        }
     }
 
     // 2. Eatsbits Settings / Project Hub (context-based scroll via reusable ScrollableArea)
@@ -14015,12 +13957,18 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    // Intercept keyboard input if Preset Search Modal Dialog is open
-    if (presetSearchDialog_.isOpen()) {
-        if (presetSearchDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+    // Intercept keyboard input if Plugin / Preset Search Modal Dialog is open
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        // If printable key and not Ctrl/Alt, let onChar handle text insertion
+        if (key >= 32 && key <= 126 && !isCtrl && !isAlt) {
+            return; // Absorbed, onChar will receive the character
+        }
+        if (activePluginDialog->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
             return;
         }
-        return; // Absorb keys while modal is open
+        return; // Absorb all keys while modal is open
     }
 
     // Intercept keyboard input if Dedicated Full-Display Device GUI is open
@@ -14038,24 +13986,19 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    // Intercept keyboard input if Plugin Search Modal Dialog is open
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (modularArrangerView_->getPluginSearchDialog().isOpen() ||
-            modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            if (modularArrangerView_->handleKey(key, 0, 1, mods, ctx)) return;
-        }
-    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
-        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
-            ViewContext ctx = createViewContext();
-            if (modularMixerView_->handleKey(key, 0, 1, mods, ctx)) return;
-        }
-    }
-
     // Ctrl+M: Open Audio to MIDI Converter Modal Dialog
     if (isCtrl && (key == 77 || key == 109)) { // 'M'
         openAudioToMidiConverter();
         return;
+    }
+
+    // 'M' in Arranger View: Toggle Docked Bottom Mixer Drawer
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (!isCtrl && !isAlt && (key == 77 || key == 109)) {
+            modularArrangerView_->toggleMixerDrawer();
+            markNeedsRedraw();
+            return;
+        }
     }
 
     // Ctrl+P or Ctrl+K: Toggle Universal Quick Command Palette
@@ -14629,9 +14572,13 @@ void GuiWindow::onChar(unsigned int codepoint) {
             return;
         }
     }
-    if (presetSearchDialog_.isOpen()) {
-        presetSearchDialog_.handleKey(static_cast<int>(codepoint), 0, 1, 0);
-        return;
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        if (activePluginDialog->handleChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
+        return; // Absorb characters behind modal
     }
     if (commandPaletteDialog_.isOpen()) {
         commandPaletteDialog_.handleChar(codepoint);
@@ -14644,13 +14591,28 @@ void GuiWindow::onChar(unsigned int codepoint) {
 
     // Active View text input fallback
     ViewContext ctx = createViewContext();
-    if (activeView_ == WorkspaceView::Edit && modularEditView_) {
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
+            markNeedsRedraw();
+            return;
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
+            markNeedsRedraw();
+            return;
+        }
+    } else if (activeView_ == WorkspaceView::Edit && modularEditView_) {
         if (modularEditView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
             markNeedsRedraw();
             return;
         }
     } else if (activeView_ == WorkspaceView::Design && modularDesignView_) {
         if (modularDesignView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
+            markNeedsRedraw();
+            return;
+        }
+    } else if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
+        if (modularTrackInspectorView_->handleChar(static_cast<char32_t>(codepoint), ctx)) {
             markNeedsRedraw();
             return;
         }
@@ -14687,6 +14649,29 @@ void GuiWindow::closePresetDialog() noexcept {
 
 bool GuiWindow::isPresetDialogOpen() const noexcept {
     return presetSearchDialog_.isOpen();
+}
+
+PluginSearchDialog* GuiWindow::getActivePluginSearchDialog() noexcept {
+    if (presetSearchDialog_.isOpen()) {
+        return &presetSearchDialog_;
+    }
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPluginSearchDialog().isOpen()) {
+            return &modularArrangerView_->getPluginSearchDialog();
+        }
+        if (modularArrangerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            return &modularArrangerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isPluginDialogOpen()) {
+            return &modularMixerView_->getPropertiesDrawer().getPluginSearchDialog();
+        }
+    } else if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
+        if (modularTrackInspectorView_->getPluginSearchDialog().isOpen()) {
+            return &modularTrackInspectorView_->getPluginSearchDialog();
+        }
+    }
+    return nullptr;
 }
 
 void GuiWindow::renderCrtTweakerModal() {

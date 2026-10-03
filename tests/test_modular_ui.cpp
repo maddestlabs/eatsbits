@@ -11,6 +11,7 @@
 #include "eatsbits/ui/views/mixer_view.hpp"
 #include "eatsbits/ui/views/design_view.hpp"
 #include "eatsbits/ui/widgets/virtual_keyboard_drawer.hpp"
+#include "eatsbits/ui/widgets/arranger_mixer_drawer.hpp"
 #include "eatsbits/ui/widgets/project_browser_drawer.hpp"
 #include "eatsbits/ui/widgets/transport_header.hpp"
 #include "eatsbits/ui/widgets/bottom_nav_bar.hpp"
@@ -1848,6 +1849,223 @@ void testTextEditorWidgetAndMinimap() {
     std::cout << "  [PASS] TextEditorWidget, Code Minimap & Script Workstations validated." << std::endl;
 }
 
+void testArrangerMixerDrawer() {
+    std::cout << "[Test 18] ArrangerMixerDrawer Docked Bottom Console & Composition Parity..." << std::endl;
+
+    ArrangerMixerDrawer drawer;
+    assert(!drawer.isExpanded());
+    assert(drawer.getAnimProgress() == 0.0f);
+
+    Rect2D bounds(0.0f, 56.0f, 1280.0f, 720.0f - 56.0f - 48.0f);
+    drawer.layout(bounds, 0.0f);
+
+    assert(drawer.getPullTabBounds().w == ArrangerMixerDrawer::kPullTabWidth);
+    assert(drawer.getPullTabBounds().h == ArrangerMixerDrawer::kPullTabHeight);
+
+    // Toggle expansion
+    drawer.toggle();
+    assert(drawer.isExpanded());
+
+    // Step animation to completion
+    for (int i = 0; i < 30; ++i) {
+        drawer.update(0.016f);
+    }
+    assertNear(drawer.getAnimProgress(), 1.0f, 0.01f);
+    drawer.layout(bounds, 0.0f);
+
+    assert(drawer.getDrawerBounds().h > 100.0f);
+    assert(drawer.getCloseButtonBounds().w > 0.0f);
+
+    // Setup mock tracks
+    std::vector<ArrangerTimelineTrack> tracks;
+    ArrangerTimelineTrack t1;
+    t1.name = "Kick"; t1.volume = 0.8f; t1.pan = 0.0f; t1.mute = false; t1.solo = false;
+    ArrangerTimelineTrack t2;
+    t2.name = "Bass"; t2.volume = 0.7f; t2.pan = -0.3f; t2.mute = false; t2.solo = false;
+    tracks.push_back(t1);
+    tracks.push_back(t2);
+
+    uint32_t activeTrack = 0;
+    float masterVol = 1.0f;
+    float masterPan = 0.0f;
+    bool masterMute = false;
+
+    BatchRenderer2D renderer;
+    ThemeTokens theme = Theme::current();
+    ViewContext ctx;
+    ctx.renderer = &renderer;
+    ctx.theme = &theme;
+
+    // Render pass without crashes
+    renderer.beginFrame(1280.0f, 720.0f);
+    float chPeaksL[2] = {0.5f, 0.3f};
+    float chPeaksR[2] = {0.5f, 0.3f};
+    drawer.render(renderer, theme, tracks, activeTrack, masterVol, masterPan, masterMute,
+                  0.6f, 0.6f, chPeaksL, chPeaksR, 2);
+    renderer.endFrame();
+
+    // Hotkey 'M' toggles drawer
+    bool handledM = drawer.handleKey('M', 0, 1, 0, ctx);
+    assert(handledM);
+    assert(!drawer.isExpanded()); // Toggled closed
+
+    drawer.handleKey('M', 0, 1, 0, ctx);
+    assert(drawer.isExpanded()); // Toggled open
+
+    // Hotkey Escape closes drawer
+    bool handledEsc = drawer.handleKey(256, 0, 1, 0, ctx);
+    assert(handledEsc);
+    assert(!drawer.isExpanded()); // Closed via Escape
+
+    drawer.setExpanded(true);
+    for (int i = 0; i < 30; ++i) drawer.update(0.016f);
+    drawer.layout(bounds, 0.0f);
+
+    // Pull-tab click toggles closed
+    PointerEvent tabClick = makePointer(drawer.getPullTabBounds().x + 10.0f, drawer.getPullTabBounds().y + 5.0f, PointerAction::Down);
+    bool hitTab = drawer.handlePointer(tabClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
+    assert(hitTab);
+    assert(!drawer.isExpanded());
+
+    // Pull-tab click toggles open
+    hitTab = drawer.handlePointer(tabClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
+    assert(hitTab);
+    assert(drawer.isExpanded());
+
+    // Test close button
+    for (int i = 0; i < 30; ++i) drawer.update(0.016f);
+    drawer.layout(bounds, 0.0f);
+    PointerEvent closeClick = makePointer(drawer.getCloseButtonBounds().x + 5.0f, drawer.getCloseButtonBounds().y + 5.0f, PointerAction::Down);
+    bool hitClose = drawer.handlePointer(closeClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
+    assert(hitClose);
+    assert(!drawer.isExpanded());
+
+    // Re-open and test ArrangerView integration
+    ArrangerView arranger;
+    arranger.layout(bounds, ctx);
+    assert(!arranger.isMixerDrawerOpen());
+
+    arranger.toggleMixerDrawer();
+    assert(arranger.isMixerDrawerOpen());
+
+    arranger.handleKey('M', 0, 1, 0, ctx);
+    assert(!arranger.isMixerDrawerOpen());
+
+    std::cout << "  [PASS] ArrangerMixerDrawer Docked Bottom Console & Hotkeys verified." << std::endl;
+}
+
+void testPluginSearchDialog() {
+    std::cout << "Running Test 19: PluginSearchDialog Refined Text Filtering & Scissored Scrolling..." << std::endl;
+
+    PluginSearchDialog dialog;
+    assert(!dialog.isOpen());
+
+    // 1. Open dialog in AddInstrument mode
+    dialog.open(PluginDialogMode::AddInstrument, "Lead 303", 2);
+    assert(dialog.isOpen());
+    assert(dialog.getMode() == PluginDialogMode::AddInstrument);
+    assert(dialog.getTargetTrackIndex() == 2);
+    assert(dialog.getSearchQuery().empty());
+
+    size_t initialCount = dialog.getFilteredCount();
+    assert(initialCount > 0);
+
+    // 2. Layout calculations
+    dialog.layout(1280.0f, 800.0f);
+
+    // 3. Typing via handleChar
+    dialog.handleChar(U'3');
+    dialog.handleChar(U'0');
+    dialog.handleChar(U'3');
+    assert(dialog.getSearchQuery() == "303");
+    size_t count303 = dialog.getFilteredCount();
+    assert(count303 > 0);
+    assert(count303 <= initialCount);
+
+    // 4. Tokenized multi-word search ("303 bass" or "acid 303")
+    dialog.clearSearch();
+    assert(dialog.getSearchQuery().empty());
+    assert(dialog.getFilteredCount() == initialCount);
+
+    dialog.setSearchQuery("synth lead");
+    assert(dialog.getSearchQuery() == "synth lead");
+    size_t multiWordCount = dialog.getFilteredCount();
+    assert(multiWordCount <= initialCount);
+
+    // 5. Headless typing fallback via handleKey
+    dialog.clearSearch();
+    dialog.handleKey('a', 0, 1, 0);
+    dialog.handleKey('c', 0, 1, 0);
+    dialog.handleKey('i', 0, 1, 0);
+    dialog.handleKey('d', 0, 1, 0);
+    assert(dialog.getSearchQuery() == "acid");
+
+    // Backspace via handleKey
+    dialog.handleKey(259, 0, 1, 0); // Backspace
+    assert(dialog.getSearchQuery() == "aci");
+
+    // 6. Escape behavior: first Esc clears search query, second Esc closes dialog
+    dialog.handleKey(256, 0, 1, 0); // Escape
+    assert(dialog.getSearchQuery().empty());
+    assert(dialog.isOpen()); // Dialog stays open on query clear
+
+    dialog.handleKey(256, 0, 1, 0); // Escape when query is empty
+    assert(!dialog.isOpen()); // Dialog closes!
+
+    // 7. Re-open and verify selection commit
+    bool pluginSelected = false;
+    std::string selectedName;
+    uint32_t selectedTrack = 999;
+    dialog.onPluginSelected = [&](PluginDialogMode, const PluginEntry& entry, uint32_t trk) {
+        pluginSelected = true;
+        selectedName = entry.name;
+        selectedTrack = trk;
+    };
+
+    dialog.open(PluginDialogMode::AddInstrument, "Track 1", 1);
+    dialog.setSearchQuery("303");
+    dialog.layout(1280.0f, 800.0f);
+    assert(dialog.getFilteredCount() > 0);
+
+    // Arrow navigation
+    dialog.handleKey(264, 0, 1, 0); // Down arrow
+    dialog.handleKey(257, 0, 1, 0); // Enter (commit)
+    assert(pluginSelected);
+    assert(selectedTrack == 1);
+    assert(!dialog.isOpen());
+
+    // 8. Scrolling containment and bounds checks
+    dialog.open(PluginDialogMode::SelectPreset, "All Presets", 0);
+    dialog.layout(1280.0f, 800.0f);
+    assert(dialog.getFilteredCount() >= 10);
+
+    // Mouse scroll
+    PointerEvent scrollEv;
+    scrollEv.action = PointerAction::Scroll;
+    scrollEv.scrollY = -4.0f;
+    scrollEv.x = 640.0f;
+    scrollEv.y = 350.0f;
+    bool handledScroll = dialog.handlePointer(scrollEv);
+    assert(handledScroll);
+
+    // Clicks outside the visible card list (above search box) do NOT click cards
+    PointerEvent clickHeader;
+    clickHeader.action = PointerAction::Down;
+    clickHeader.type = PointerType::Mouse;
+    clickHeader.x = 640.0f;
+    clickHeader.y = 150.0f; // in header region above list
+    dialog.handlePointer(clickHeader);
+    assert(dialog.isOpen()); // Did not commit a card
+
+    // Clear button [X] interaction
+    dialog.setSearchQuery("filtertest");
+    assert(dialog.getFilteredCount() == 0); // Zero matches empty state
+    dialog.clearSearch();
+    assert(dialog.getFilteredCount() > 0);
+
+    std::cout << "  [PASS] PluginSearchDialog Refined Text Filtering & Scissored Scrolling verified." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -1870,7 +2088,9 @@ int main() {
     testFileDragAndDrop();
     testCircularGradients();
     testTextEditorWidgetAndMinimap();
+    testArrangerMixerDrawer();
+    testPluginSearchDialog();
 
-    std::cout << "\n>>> ALL 17 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 19 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
