@@ -32,7 +32,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Add `-msimd128` to Emscripten compile and link options for `eatsbits_web` and DSP core; strip debug flags and assertions (`-g -sASSERTIONS=1`) in release link flags, ensuring `-O3` and `-DNDEBUG` are applied to eliminate scalar math and validation overhead across voice engines and effects.
   - **Test/Validation**: `.\build-web.ps1 -NoServe`
 
-- [ ] **Web Audio Optimization Phase 3: Hardware Sample Rate Negotiation & Audio Unlock Fix**
+- [x] **Web Audio Optimization Phase 3: Hardware Sample Rate Negotiation & Audio Unlock Fix** (commit `cb39c21`)
   - **Context/Files**: `src/audio/audio_engine.cpp`, `web/index.html`
   - **Acceptance Criteria**: Update `AudioEngine::initialize` so `polySynth_`, `tb303_`, and `masterMixer_` properly re-align when `impl_->device.sampleRate` negotiates the native browser hardware rate (e.g. 44.1 kHz vs 48 kHz), eliminating browser resampler jitter; fix `unlockAudio()` in `web/index.html` to iterate `window.miniaudio.devices` and call `resume()` on `dev.webaudio` instead of querying non-existent `device_instances`.
   - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`

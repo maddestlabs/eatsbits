@@ -786,6 +786,23 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Web Audio Optimization Phase 3: Hardware Sample Rate Negotiation & Audio Unlock Fix (commit `cb39c21`)
+- **Architectural Context**:
+  - In browsers and professional audio interfaces, the hardware output sample rate frequently negotiates 44.1 kHz, 48.0 kHz, or 96.0 kHz based on the system DAC.
+  - Previously, `AudioEngine::initialize` configured `polySynth_`, `tb303_`, `masterMixer_`, and `sequencer_.getTransport()` with the initially requested sample rate, but failed to re-align them when `impl_->device.sampleRate` negotiated a different hardware rate. This caused tuning pitch shifts and sequencer tempo drift when connected to 44.1 kHz devices.
+  - In `web/index.html`, `unlockAudio()` attempted to query `window.miniaudio.device_instances` and `dev.audioContext`, which did not exist on miniaudio's Emscripten runtime, failing to resume suspended WebAudio contexts on mobile/desktop browsers without user retry.
+- **Key Changes Implemented**:
+  - **Dynamic Sample Rate Re-alignment**:
+    - Updated `AudioEngine::initialize` in `src/audio/audio_engine.cpp` to re-align `polySynth_.setSampleRate(...)`, `tb303_.setSampleRate(...)`, `masterMixer_.prepare(...)`, and `sequencer_.getTransport().setSampleRate(...)` immediately upon miniaudio device initialization with `impl_->device.sampleRate`.
+    - Eliminates browser resampler jitter and maintains pitch/time accuracy across 44.1 kHz and 48 kHz hardware.
+  - **Miniaudio Device Context Audio Unlocker**:
+    - Fixed `unlockAudio()` in `web/index.html` to inspect `window.miniaudio.devices` and call `resume()` on `dev.webaudio` / `dev.audioContext`.
+    - Removed dummy `AudioContext` instantiation that caused browser context leaks on tap/click events.
+- **Validation**:
+  - Verified 100% pass across all 44 native test suites (`.\build.ps1 -Test -NoRun`) and clean WebAssembly/WebGPU build (`.\build-web.ps1 -NoServe`).
+
+---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
