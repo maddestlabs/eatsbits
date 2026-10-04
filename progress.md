@@ -803,6 +803,25 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading (commit `a667758`)
+- **Architectural Context**:
+  - Traditional Web Audio script processor / legacy callbacks execute on the main browser thread. Main-thread execution causes audio glitching, dropouts, and stutter whenever UI rendering, WebGPU passes, garbage collection, or window resizing occurs.
+  - Miniaudio supports native Web Audio `AudioWorkletNode` backed by dedicated Wasm Worker threads (`emscripten_create_wasm_audio_worklet_node`), completely decoupling real-time DSP callback execution from the main JavaScript thread.
+- **Key Changes Implemented**:
+  - **AudioWorklet & Wasm Worker Integration**:
+    - Configured `-DMA_ENABLE_AUDIO_WORKLETS` in `CMakeLists.txt` and `src/audio/audio_engine.cpp`.
+    - Added `-pthread` to global Emscripten compiler options to enable WebAssembly `atomics` and `bulk-memory` feature flags required for shared memory.
+    - Linked with `-sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY -pthread -msimd128` on `eatsbits_web`.
+    - Removed incompatible `-fwasm-exceptions` flag to ensure smooth async worklet initialization through Emscripten's asyncify event loop yielding.
+  - **Server & Deployment Infrastructure**:
+    - Leveraged existing COOP (`same-origin`) and COEP (`require-corp`) HTTP security headers in `build-web.ps1` to satisfy browser cross-origin isolation requirements for `SharedArrayBuffer` and `AudioWorklet`.
+    - Updated payload analyzer in `build-web.ps1` to track `eatsbits.aw.js` and `eatsbits.ww.js` worklet bridges alongside core binaries.
+- **Validation**:
+  - Clean WebAssembly build verified with `.\build-web.ps1 -Clean -NoServe`.
+  - Full native test suite pass verified across all 44 suites with `.\build.ps1 -Test -NoRun`.
+
+---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
