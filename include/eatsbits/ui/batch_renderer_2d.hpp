@@ -56,6 +56,8 @@ public:
     virtual void setBlendMode(BlendMode /*mode*/) {}
     virtual void renderRgba(float /*x*/, float /*y*/, float /*w*/, float /*h*/, const uint8_t* /*rgba*/, int /*imgW*/, int /*imgH*/, float /*opacity*/) {}
     virtual void applyBackdropBlur(float /*radius*/ = 3.0f, float /*dimFactor*/ = 0.50f) {}
+    virtual void setScissorRect(float /*x*/, float /*y*/, float /*w*/, float /*h*/) {}
+    virtual void clearScissorRect() {}
     virtual void* getNativeDevice() const noexcept { return nullptr; }
     virtual void* getNativeSurface() const noexcept { return nullptr; }
     virtual void setCustomRenderTargetView(void* /*view*/) {}
@@ -127,24 +129,8 @@ public:
     [[nodiscard]] bool isTransformActive() const noexcept { return transformActive_; }
 
     // --- Scissor / Viewport Clipping ---
-    void pushScissor(float x, float y, float w, float h) {
-        if (scissorStack_.empty()) {
-            scissorStack_.push_back(Rect2D{x, y, w, h});
-        } else {
-            const auto& top = scissorStack_.back();
-            float x0 = std::max(top.x, x);
-            float y0 = std::max(top.y, y);
-            float x1 = std::min(top.x + top.w, x + w);
-            float y1 = std::min(top.y + top.h, y + h);
-            scissorStack_.push_back(Rect2D{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)});
-        }
-    }
-
-    void popScissor() noexcept {
-        if (!scissorStack_.empty()) {
-            scissorStack_.pop_back();
-        }
-    }
+    void pushScissor(float x, float y, float w, float h);
+    void popScissor() noexcept;
 
     [[nodiscard]] bool hasScissor() const noexcept { return !scissorStack_.empty(); }
     [[nodiscard]] Rect2D getActiveScissor() const noexcept {

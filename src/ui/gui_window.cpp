@@ -4373,6 +4373,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     }
 
     if (modularEditView_) {
+        modularEditView_->onSubViewChanged = [this](EditSubViewMode mode) {
+            switch (mode) {
+                case EditSubViewMode::PianoRoll: editSubView_ = EditSubView::PianoRoll; break;
+                case EditSubViewMode::Tracker:   editSubView_ = EditSubView::Tracker; break;
+                case EditSubViewMode::Score:     editSubView_ = EditSubView::Score; break;
+                case EditSubViewMode::Script:    editSubView_ = EditSubView::Script; break;
+            }
+        };
         modularEditView_->onNotesChanged = [this](uint32_t tIdx, int cIdx) {
             if (!modularArrangerView_) return;
             auto& tracks = modularArrangerView_->getTracks();
@@ -8471,6 +8479,18 @@ HitTestEatscriptResult GuiWindow::hitTestEatscript(float x, float y) const noexc
     return res;
 }
 
+void GuiWindow::setEditSubView(EditSubView subView) noexcept {
+    editSubView_ = subView;
+    if (modularEditView_) {
+        switch (subView) {
+            case EditSubView::PianoRoll: modularEditView_->setSubView(EditSubViewMode::PianoRoll); break;
+            case EditSubView::Tracker:   modularEditView_->setSubView(EditSubViewMode::Tracker); break;
+            case EditSubView::Score:     modularEditView_->setSubView(EditSubViewMode::Score); break;
+            case EditSubView::Script:    modularEditView_->setSubView(EditSubViewMode::Script); break;
+        }
+    }
+}
+
 void GuiWindow::setDesignSubView(DesignSubView subView) {
     designSubView_ = subView;
     if (modularDesignView_) {
@@ -9941,9 +9961,33 @@ HitTestStepResult GuiWindow::hitTestStep(float x, float y) const noexcept {
 
 HitTestEditSubNavResult GuiWindow::hitTestEditSubNav(float x, float y) const noexcept {
     HitTestEditSubNavResult res{};
+    if (modularEditView_ && modularEditView_->getBtnPianoRoll().w > 0.0f) {
+        if (modularEditView_->getBtnPianoRoll().contains(x, y)) {
+            res.hit = true;
+            res.subView = EditSubView::PianoRoll;
+            return res;
+        }
+        if (modularEditView_->getBtnTracker().contains(x, y)) {
+            res.hit = true;
+            res.subView = EditSubView::Tracker;
+            return res;
+        }
+        if (modularEditView_->getBtnScore().contains(x, y)) {
+            res.hit = true;
+            res.subView = EditSubView::Score;
+            return res;
+        }
+        if (modularEditView_->getBtnScript().contains(x, y)) {
+            res.hit = true;
+            res.subView = EditSubView::Script;
+            return res;
+        }
+        return res;
+    }
+
     if (y < 60.0f || y > 95.0f) return res;
 
-    // Subnav buttons:
+    // Subnav buttons fallback for uninitialized / legacy tests:
     // [ PIANO ROLL ] : 830..928
     // [ TRACKER ]    : 940..1038
     // [ SCORE ]      : 1050..1148
@@ -12430,18 +12474,28 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
         // 4. Dispatch clicks according to Active View
         if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
-            ViewContext ctx = createViewContext();
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
-            if (modularEditView_->handlePointer(pev, ctx)) {
-                return;
+            bool skipModularEdit = false;
+            if (editSubView_ == EditSubView::Tracker) {
+                float folX = static_cast<float>(width_) - 250.0f;
+                bool isFol = (x >= folX && x <= (folX + 105.0f) && y >= 103.0f && y <= 127.0f);
+                if (isFol || hitTestTracker(x, y).hit) {
+                    skipModularEdit = true;
+                }
+            }
+            if (!skipModularEdit) {
+                ViewContext ctx = createViewContext();
+                PointerEvent pev;
+                pev.type = PointerType::Mouse;
+                pev.action = PointerAction::Down;
+                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+                pev.x = x;
+                pev.y = y;
+                pev.rawX = x;
+                pev.rawY = y;
+                modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
+                if (modularEditView_->handlePointer(pev, ctx)) {
+                    return;
+                }
             }
         }
         if (activeView_ == WorkspaceView::Arranger) {
@@ -14299,8 +14353,10 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
     // Edit View Hotkeys (Piano Roll, Tracker, Score, Script)
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
-        ViewContext ctx = createViewContext();
-        if (modularEditView_->handleKey(key, 0, 1, mods, ctx)) return;
+        if (editSubView_ != EditSubView::Tracker) {
+            ViewContext ctx = createViewContext();
+            if (modularEditView_->handleKey(key, 0, 1, mods, ctx)) return;
+        }
     }
     // Track Inspector View Hotkeys & Plugin Search Dialog Input
     if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {

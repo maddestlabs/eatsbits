@@ -632,7 +632,7 @@ public:
     void setActiveView(WorkspaceView view) noexcept { activeView_ = view; }
 
     [[nodiscard]] EditSubView getEditSubView() const noexcept { return editSubView_; }
-    void setEditSubView(EditSubView subView) noexcept { editSubView_ = subView; }
+    void setEditSubView(EditSubView subView) noexcept;
 
     [[nodiscard]] DesignSubView getDesignSubView() const noexcept { return designSubView_; }
     void setDesignSubView(DesignSubView subView);

@@ -634,7 +634,7 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     contentBounds_ = Rect2D(bounds_.x, bounds_.y + headerH, bounds_.w - sidebarW, bounds_.h - headerH);
     sidebarBounds_ = Rect2D(bounds_.x + bounds_.w - sidebarW, bounds_.y + headerH, sidebarW, bounds_.h - headerH);
 
-    float btnW = ctx.isMobile ? 32.0f : 88.0f;
+    float btnW = ctx.isMobile ? 32.0f : ((bounds_.w < 950.0f) ? std::clamp((bounds_.w - 480.0f) / 4.5f, 60.0f, 88.0f) : 88.0f);
     float btnH = 26.0f;
     float btnY = bounds_.y + 4.0f;
     float rightMargin = bounds_.x + bounds_.w - 12.0f;
@@ -644,8 +644,10 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     btnTracker_ = Rect2D(btnScore_.x - btnW - 6.0f, btnY, btnW, btnH);
     btnPianoRoll_ = Rect2D(btnTracker_.x - btnW - 6.0f, btnY, btnW, btnH);
 
-    ghostToggleBtn_ = Rect2D(btnPianoRoll_.x - 170.0f, btnY, 65.0f, btnH);
-    ghostSliderBounds_ = Rect2D(btnPianoRoll_.x - 100.0f, btnY, 90.0f, btnH);
+    float sliderW = (bounds_.w < 850.0f) ? 70.0f : 90.0f;
+    float ghostW = (bounds_.w < 850.0f) ? 54.0f : 65.0f;
+    ghostSliderBounds_ = Rect2D(btnPianoRoll_.x - sliderW - 8.0f, btnY, sliderW, btnH);
+    ghostToggleBtn_ = Rect2D(ghostSliderBounds_.x - ghostW - 6.0f, btnY, ghostW, btnH);
 
     float gutterW = 80.0f;
     float velocityH = 72.0f;
@@ -758,8 +760,8 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
                         isGhostActive ? (theme.primaryAccent * 0.25f) : theme.controlBackground, 0.85f);
         drawRoundedRectOutline(r, ghostToggleBtn_.x, ghostToggleBtn_.y, ghostToggleBtn_.w, ghostToggleBtn_.h, 4.0f,
                                isGhostActive ? theme.primaryAccent : theme.borderSubtle, 0.9f, 1.0f);
-        drawText(r, "GHOST", ghostToggleBtn_.x + 12.0f, ghostToggleBtn_.y + 7.0f, 9.5f,
-                 isGhostActive ? theme.primaryAccent : theme.textMuted);
+        drawCenteredText(r, "GHOST", ghostToggleBtn_, 9.5f,
+                         isGhostActive ? theme.primaryAccent : theme.textMuted);
 
         drawRoundedRect(r, ghostSliderBounds_.x, ghostSliderBounds_.y, ghostSliderBounds_.w, ghostSliderBounds_.h, 4.0f,
                         theme.backgroundDark, 0.8f);
@@ -769,8 +771,8 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
                             theme.primaryAccent * 0.35f, 0.95f);
         }
         std::string ghostPct = isGhostActive ? (std::to_string(static_cast<int>(ghostOpacity_ * 100.0f)) + "%") : "OFF";
-        drawText(r, ghostPct, ghostSliderBounds_.x + 30.0f, ghostSliderBounds_.y + 7.0f, 9.5f,
-                 isGhostActive ? theme.primaryAccent : theme.textMuted);
+        drawCenteredText(r, ghostPct, ghostSliderBounds_, 9.5f,
+                         isGhostActive ? theme.primaryAccent : theme.textMuted);
     }
 
     auto drawSubBtn = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {

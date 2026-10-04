@@ -7,6 +7,7 @@ namespace eatsbits::ui {
 
 TextEditorWidget::TextEditorWidget() {
     focusGainTime_ = std::chrono::steady_clock::now();
+    charWidth_ = getMonoCharAdvance(10.0f);
 }
 
 void TextEditorWidget::layout(const Rect2D& bounds, const ViewContext& ctx) {
@@ -17,6 +18,7 @@ void TextEditorWidget::layout(const Rect2D& bounds, const ViewContext& ctx) {
     float textW = std::max(0.0f, bounds_.w - gutterW_ - minimapW_);
     textAreaBounds_ = Rect2D(bounds_.x + gutterW_, bounds_.y, textW, bounds_.h);
 
+    charWidth_ = getMonoCharAdvance(10.0f);
     presenter_.setViewport(textAreaBounds_.w, textAreaBounds_.h, lineHeight_, charWidth_);
 }
 
@@ -182,8 +184,16 @@ void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
     if (lineCount == 0) return;
 
     // High-performance Code Silhouette Micro-bars
-    float microSlotH = minimapBounds_.h / static_cast<float>(std::max<size_t>(lineCount, 1));
-    float microBarH = std::clamp(microSlotH * 0.85f, 1.2f, 2.5f);
+    // Compact fixed line pitch (2.0px bar with 1.0px separator = 3.0px pitch) anchored from top;
+    // only scales slot height down when document lines exceed minimap bounds.
+    constexpr float kFixedBarH = 2.0f;
+    constexpr float kFixedPitch = 3.0f;
+    float microSlotH = (static_cast<float>(lineCount) * kFixedPitch > minimapBounds_.h)
+        ? (minimapBounds_.h / static_cast<float>(lineCount))
+        : kFixedPitch;
+    float microBarH = (microSlotH >= kFixedPitch)
+        ? kFixedBarH
+        : std::clamp(microSlotH * 0.75f, 0.8f, kFixedBarH);
 
     for (size_t i = 0; i < lineCount; ++i) {
         const auto& line = doc.getLine(i);
@@ -214,15 +224,17 @@ void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
     }
 
     // Viewport Lens Overlay / Scrubber
-    auto [thumbY, thumbH] = presenter_.getMinimapThumbBounds(minimapBounds_.h);
-    float lensX = minimapBounds_.x + 2.0f;
-    float lensW = minimapBounds_.w - 4.0f;
-    float lensY = minimapBounds_.y + thumbY;
+    if (presenter_.getMaxScrollY() > 0.0f) {
+        auto [thumbY, thumbH] = presenter_.getMinimapThumbBounds(minimapBounds_.h);
+        float lensX = minimapBounds_.x + 2.0f;
+        float lensW = minimapBounds_.w - 4.0f;
+        float lensY = minimapBounds_.y + thumbY;
 
-    drawRoundedRect(r, lensX, lensY, lensW, thumbH, 3.0f,
-                    theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.18f);
-    drawRoundedRectOutline(r, lensX, lensY, lensW, thumbH, 3.0f,
-                           theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.75f, 1.2f);
+        drawRoundedRect(r, lensX, lensY, lensW, thumbH, 3.0f,
+                        theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.18f);
+        drawRoundedRectOutline(r, lensX, lensY, lensW, thumbH, 3.0f,
+                               theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.75f, 1.2f);
+    }
 }
 
 bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {

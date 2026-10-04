@@ -14,6 +14,34 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [ ] **Text Editor Widget Refinement: Cursor Advance Alignment & Minimap Vertical Spacing**
+  - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Align `charWidth_` in `TextEditorWidget` with actual font metrics (`getMonoCharAdvance(10.0f)` $\approx 7.01\text{px}$) instead of hardcoded `8.5f`, eliminating the cumulative drift where the cursor renders ~3 chars to the right and creates phantom trailing whitespace at the ends of lines.
+    2. Refactor minimap line layout in `TextEditorWidget::renderMinimap` from full-height slot stretching (`minimapBounds_.h / lineCount`) to a compact fixed line pitch (e.g., 2.0px bar with 1.0px separator) anchored from the top, only scaling slot height down when document lines exceed minimap bounds, eliminating double-spaced gaps on shorter scripts.
+    3. Verify cursor positioning, click-to-column hit testing (`coordFromPoint`), selection highlight bounds, and minimap lens scrubber alignment remain pixel-accurate in both `DESIGN > Code` and `EDIT > Script`.
+  - **Test/Validation**: `.\build.ps1 -Test`
+
+- [ ] **Web Audio Optimization Phase 1: Callback Chunking & Buffer Frame Size Tuning**
+  - **Context/Files**: `src/audio/audio_engine.cpp`, `src/gui_main.cpp`, `include/eatsbits/audio/audio_engine.hpp`
+  - **Acceptance Criteria**: Refactor `AudioEngine::audioCallbackInternal` to process arbitrary `frameCount` requests in a loop of chunks up to `MAX_BLOCK_SIZE` so buffer sizes >= 2048 or odd period counts never truncate or leave silence in the output buffer; increase Emscripten default buffer frame size in `gui_main.cpp` from 512 to 1024 or 2048 to prevent audio scheduler underruns.
+  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
+
+- [ ] **Web Audio Optimization Phase 2: WebAssembly SIMD & Compiler Optimization Flags**
+  - **Context/Files**: `CMakeLists.txt`
+  - **Acceptance Criteria**: Add `-msimd128` to Emscripten compile and link options for `eatsbits_web` and DSP core; strip debug flags and assertions (`-g -sASSERTIONS=1`) in release link flags, ensuring `-O3` and `-DNDEBUG` are applied to eliminate scalar math and validation overhead across voice engines and effects.
+  - **Test/Validation**: `.\build-web.ps1 -NoServe`
+
+- [ ] **Web Audio Optimization Phase 3: Hardware Sample Rate Negotiation & Audio Unlock Fix**
+  - **Context/Files**: `src/audio/audio_engine.cpp`, `web/index.html`
+  - **Acceptance Criteria**: Update `AudioEngine::initialize` so `polySynth_`, `tb303_`, and `masterMixer_` properly re-align when `impl_->device.sampleRate` negotiates the native browser hardware rate (e.g. 44.1 kHz vs 48 kHz), eliminating browser resampler jitter; fix `unlockAudio()` in `web/index.html` to iterate `window.miniaudio.devices` and call `resume()` on `dev.webaudio` instead of querying non-existent `device_instances`.
+  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
+
+- [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
+  - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
+  - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
+  - **Test/Validation**: `.\build-web.ps1 -NoServe`
+
 - [x] **Mixer Architecture Phase 1: Pointer Delegation & Precedence Alignment**
   - **Context/Files**: `src/ui/gui_window.cpp`, `src/ui/views/mixer_view.cpp`, `include/eatsbits/ui/views/mixer_view.hpp`
   - **Acceptance Criteria**: Remove legacy `hitTestMixer` interception in `GuiWindow::onMouseButton`; delegate all mouse/pointer events directly to `modularMixerView_->handlePointer(pev, ctx)`; enforce strict sidebar drawer bounds isolation so clicks on `TrackPropertiesDrawer` never fall through to channels underneath; clip channel strip hit boundaries to `propertiesDrawer_.getPullTabBounds().x`.

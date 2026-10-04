@@ -101,6 +101,7 @@ public:
         viewportWidth_ = static_cast<uint32_t>(width);
         viewportHeight_ = static_cast<uint32_t>(height);
         blendMode_ = BlendMode::Normal;
+        scissorEnabled_ = false;
         size_t totalPixels = static_cast<size_t>(viewportWidth_) * viewportHeight_;
         if (framebuffer_.size() != totalPixels) {
             framebuffer_.assign(totalPixels, 0xFF14171E);
@@ -264,13 +265,38 @@ public:
     void setBlendMode(BlendMode mode) override { blendMode_ = mode; }
     size_t getTotalVerticesRendered() const noexcept { return totalVerticesRendered_; }
 
+    void setScissorRect(float x, float y, float w, float h) override {
+        scissorEnabled_ = true;
+        scissor_ = Rect2D{x, y, w, h};
+    }
+
+    void clearScissorRect() override {
+        scissorEnabled_ = false;
+    }
+
+    inline void getClipBounds(int& clipMinX, int& clipMaxX, int& clipMinY, int& clipMaxY) const noexcept {
+        if (scissorEnabled_) {
+            clipMinX = std::max(0, static_cast<int>(std::floor(scissor_.x)));
+            clipMaxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(scissor_.x + scissor_.w)) - 1);
+            clipMinY = std::max(0, static_cast<int>(std::floor(scissor_.y)));
+            clipMaxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(scissor_.y + scissor_.h)) - 1);
+        } else {
+            clipMinX = 0;
+            clipMaxX = static_cast<int>(viewportWidth_) - 1;
+            clipMinY = 0;
+            clipMaxY = static_cast<int>(viewportHeight_) - 1;
+        }
+    }
+
     void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
         if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || framebuffer_.empty() || opacity <= 0.001f) return;
 
-        int minX = std::max(0, static_cast<int>(std::floor(x)));
-        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(x + w)));
-        int minY = std::max(0, static_cast<int>(std::floor(y)));
-        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(y + h)));
+        int clipMinX, clipMaxX, clipMinY, clipMaxY;
+        getClipBounds(clipMinX, clipMaxX, clipMinY, clipMaxY);
+        int minX = std::max(clipMinX, static_cast<int>(std::floor(x)));
+        int maxX = std::min(clipMaxX, static_cast<int>(std::ceil(x + w)));
+        int minY = std::max(clipMinY, static_cast<int>(std::floor(y)));
+        int maxY = std::min(clipMaxY, static_cast<int>(std::ceil(y + h)));
 
         if (minX > maxX || minY > maxY) return;
 
@@ -461,10 +487,12 @@ private:
         float fMinY = std::min({q0.y, q1.y, q2.y, q3.y});
         float fMaxY = std::max({q0.y, q1.y, q2.y, q3.y});
 
-        int minX = std::max(0, static_cast<int>(std::floor(fMinX)));
-        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(fMaxX)));
-        int minY = std::max(0, static_cast<int>(std::floor(fMinY)));
-        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(fMaxY)));
+        int clipMinX, clipMaxX, clipMinY, clipMaxY;
+        getClipBounds(clipMinX, clipMaxX, clipMinY, clipMaxY);
+        int minX = std::max(clipMinX, static_cast<int>(std::floor(fMinX)));
+        int maxX = std::min(clipMaxX, static_cast<int>(std::ceil(fMaxX)));
+        int minY = std::max(clipMinY, static_cast<int>(std::floor(fMinY)));
+        int maxY = std::min(clipMaxY, static_cast<int>(std::ceil(fMaxY)));
 
         if (minX > maxX || minY > maxY) return;
 
@@ -583,10 +611,12 @@ private:
         float fMinY = std::min({q0.y, q1.y, q2.y, q3.y});
         float fMaxY = std::max({q0.y, q1.y, q2.y, q3.y});
 
-        int minX = std::max(0, static_cast<int>(std::floor(fMinX)));
-        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(fMaxX)));
-        int minY = std::max(0, static_cast<int>(std::floor(fMinY)));
-        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(fMaxY)));
+        int clipMinX, clipMaxX, clipMinY, clipMaxY;
+        getClipBounds(clipMinX, clipMaxX, clipMinY, clipMaxY);
+        int minX = std::max(clipMinX, static_cast<int>(std::floor(fMinX)));
+        int maxX = std::min(clipMaxX, static_cast<int>(std::ceil(fMaxX)));
+        int minY = std::max(clipMinY, static_cast<int>(std::floor(fMinY)));
+        int maxY = std::min(clipMaxY, static_cast<int>(std::ceil(fMaxY)));
 
         if (minX > maxX || minY > maxY) return;
 
@@ -595,10 +625,10 @@ private:
                               std::abs(q2.y - q3.y) < 0.01f && std::abs(q3.x - q0.x) < 0.01f);
 
         if (isAxisAligned) {
-            int rMinX = std::max(0, static_cast<int>(std::round(fMinX)));
-            int rMaxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::round(fMaxX)) - 1);
-            int rMinY = std::max(0, static_cast<int>(std::round(fMinY)));
-            int rMaxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::round(fMaxY)) - 1);
+            int rMinX = std::max(clipMinX, static_cast<int>(std::round(fMinX)));
+            int rMaxX = std::min(clipMaxX, static_cast<int>(std::round(fMaxX)) - 1);
+            int rMinY = std::max(clipMinY, static_cast<int>(std::round(fMinY)));
+            int rMaxY = std::min(clipMaxY, static_cast<int>(std::round(fMaxY)) - 1);
 
             if (rMinX <= rMaxX && rMinY <= rMaxY) {
                 if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
@@ -804,10 +834,12 @@ private:
     }
 
     void rasterizeTriangle(const Vertex2D& v0, const Vertex2D& v1, const Vertex2D& v2) {
-        int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
-        int maxX = std::min(static_cast<int>(viewportWidth_) - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
-        int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
-        int maxY = std::min(static_cast<int>(viewportHeight_) - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
+        int clipMinX, clipMaxX, clipMinY, clipMaxY;
+        getClipBounds(clipMinX, clipMaxX, clipMinY, clipMaxY);
+        int minX = std::max(clipMinX, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
+        int maxX = std::min(clipMaxX, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
+        int minY = std::max(clipMinY, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
+        int maxY = std::min(clipMaxY, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
 
         if (minX > maxX || minY > maxY) return;
 
@@ -1022,6 +1054,8 @@ private:
         }
     }
 
+    bool scissorEnabled_{false};
+    Rect2D scissor_{0.0f, 0.0f, 0.0f, 0.0f};
     std::vector<unsigned char> fontAtlas_;
     std::vector<uint8_t> monospaceAtlas_{};
     std::vector<uint32_t> framebuffer_;
@@ -1733,9 +1767,11 @@ void BatchRenderer2D::beginFrame(float width, float height) {
     vertices_.clear();
     inFrame_ = true;
     blendMode_ = BlendMode::Normal;
+    scissorStack_.clear();
     resetRotation();
 
     if (backend_) {
+        backend_->clearScissorRect();
         float passW = width * renderScaleX_;
         float passH = height * renderScaleY_;
         backend_->beginPass(passW, passH);
@@ -1784,6 +1820,8 @@ void BatchRenderer2D::endFrame() {
             backend_->renderBatch(vertices_);
             vertices_.clear();
         }
+        backend_->clearScissorRect();
+        scissorStack_.clear();
         backend_->endPass();
     }
 }
@@ -1818,6 +1856,39 @@ void BatchRenderer2D::applyBackdropBlur(float radius, float dimFactor) {
     flush();
     if (backend_) {
         backend_->applyBackdropBlur(radius, dimFactor);
+    }
+}
+
+void BatchRenderer2D::pushScissor(float x, float y, float w, float h) {
+    flush();
+    if (scissorStack_.empty()) {
+        scissorStack_.push_back(Rect2D{x, y, w, h});
+    } else {
+        const auto& top = scissorStack_.back();
+        float x0 = std::max(top.x, x);
+        float y0 = std::max(top.y, y);
+        float x1 = std::min(top.x + top.w, x + w);
+        float y1 = std::min(top.y + top.h, y + h);
+        scissorStack_.push_back(Rect2D{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)});
+    }
+    if (backend_) {
+        const auto& s = scissorStack_.back();
+        backend_->setScissorRect(s.x * renderScaleX_, s.y * renderScaleY_, s.w * renderScaleX_, s.h * renderScaleY_);
+    }
+}
+
+void BatchRenderer2D::popScissor() noexcept {
+    flush();
+    if (!scissorStack_.empty()) {
+        scissorStack_.pop_back();
+    }
+    if (backend_) {
+        if (scissorStack_.empty()) {
+            backend_->clearScissorRect();
+        } else {
+            const auto& s = scissorStack_.back();
+            backend_->setScissorRect(s.x * renderScaleX_, s.y * renderScaleY_, s.w * renderScaleX_, s.h * renderScaleY_);
+        }
     }
 }
 

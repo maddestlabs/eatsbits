@@ -78,8 +78,18 @@ public:
     [[nodiscard]] const TextEditorWidget& getScriptEditor() const noexcept { return scriptEditor_; }
 
     // Sub-view mode
-    void setSubView(EditSubViewMode mode) noexcept { subView_ = mode; }
+    void setSubView(EditSubViewMode mode) noexcept {
+        subView_ = mode;
+        if (onSubViewChanged) {
+            onSubViewChanged(subView_);
+        }
+    }
     [[nodiscard]] EditSubViewMode getSubView() const noexcept { return subView_; }
+
+    [[nodiscard]] const Rect2D& getBtnPianoRoll() const noexcept { return btnPianoRoll_; }
+    [[nodiscard]] const Rect2D& getBtnTracker() const noexcept { return btnTracker_; }
+    [[nodiscard]] const Rect2D& getBtnScore() const noexcept { return btnScore_; }
+    [[nodiscard]] const Rect2D& getBtnScript() const noexcept { return btnScript_; }
 
     // Ghost notes
     void setGhostNotesOpacity(float opacity) noexcept { ghostOpacity_ = std::clamp(opacity, 0.0f, 1.0f); }
@@ -135,6 +145,7 @@ public:
     void writeBackToArrangerClip(ArrangerTimelineClip& clip) const;
 
     std::function<void(uint32_t trackIdx, int clipIdx)> onNotesChanged;
+    std::function<void(EditSubViewMode mode)> onSubViewChanged;
 
     // Auto-center viewport vertically on existing notes (Eatsbeats parity)
     void autoCenterOnNotesOrDefault() noexcept;
@@ -165,7 +176,7 @@ private:
 
     // State
     EditSubViewMode subView_{EditSubViewMode::PianoRoll};
-    float ghostOpacity_{0.35f};
+    float ghostOpacity_{0.0f}; // Default OFF
     float lastNonZeroGhostOpacity_{0.35f};
     int auditioningPitch_{-1};
 

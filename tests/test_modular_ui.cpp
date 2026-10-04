@@ -1754,8 +1754,10 @@ void testTextEditorWidgetAndMinimap() {
     assert(editor.getGutterBounds().w == 46.0f);
     assert(editor.getMinimapBounds().w == 56.0f);
     assertNear(editor.getTextAreaBounds().w, 800.0f - 46.0f - 56.0f);
+    assertNear(editor.getCharWidth(), getMonoCharAdvance(10.0f), 0.01f);
+    assertNear(editor.getCharWidth(), 7.01f, 0.02f);
 
-    // 2. Multiline Document Editing & Input Focus
+    // 2. Multiline Document Editing, Input Focus & Hit-Testing Alignment
     std::string sampleCode =
         "# --- Eatscript Bass Synth ---\n"
         "import math\n\n"
@@ -1764,9 +1766,21 @@ void testTextEditorWidgetAndMinimap() {
         "def process():\n"
         "    return 1.0\n";
     editor.setText(sampleCode);
+    editor.layout(edBounds, ctx);
 
     assert(editor.getPresenter().getDocument().getLineCount() >= 7);
     assert(!editor.isFocused());
+
+    // Verify click-to-column hit testing (coordFromPoint) matches exact font metrics without drift
+    float textStartX = editor.getTextAreaBounds().x + 6.0f;
+    float textLine0Y = editor.getTextAreaBounds().y + 5.0f;
+    auto ptCol10 = editor.coordFromPoint(textStartX + 10.0f * editor.getCharWidth(), textLine0Y);
+    assert(ptCol10.line == 0);
+    assert(ptCol10.column == 10);
+
+    auto ptCol25 = editor.coordFromPoint(textStartX + 25.0f * editor.getCharWidth(), textLine0Y);
+    assert(ptCol25.line == 0);
+    assert(ptCol25.column == 25);
 
     // Focus acquisition via pointer click
     PointerEvent clickEd = makePointer(100.0f, 100.0f, PointerAction::Down);

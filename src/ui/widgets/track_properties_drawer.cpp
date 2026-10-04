@@ -124,9 +124,17 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
     drawRoundedRectOutline(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, drawerBounds_.h, 0.0f,
                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f, 1.0f);
 
-    // 3. Top Title Header Bar (36px high)
+    // 3. Delegate card stack & content rendering to TrackPropertiesPanel
+    // Scissor strictly to content area below 36px header bar
+    float contentY = drawerBounds_.y + 36.0f;
+    float contentH = std::max(0.0f, drawerBounds_.h - 36.0f);
+    r.pushScissor(drawerBounds_.x, contentY, drawerBounds_.w, contentH);
+    panel_.render(r, theme, data, mouseX, mouseY);
+    r.popScissor();
+
+    // 4. Top Title Header Bar (36px high) - Rendered over content so scrolling never overwrites header
     drawRect(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, 36.0f,
-             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 0.95f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 0.98f);
     drawLine(r, drawerBounds_.x, drawerBounds_.y + 36.0f, drawerBounds_.x + drawerBounds_.w, drawerBounds_.y + 36.0f,
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.5f);
 
@@ -146,7 +154,7 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
                                isTrk ? theme.primaryAccent.g : theme.borderSubtle.g,
                                isTrk ? theme.primaryAccent.b : theme.borderSubtle.b,
                                isTrk ? 0.9f : 0.4f, 1.0f);
-        drawCenteredText(r, "TRACK PROPERTIES", drawerBounds_.x + 10.0f, tabY, tabW, tabH, 9.5f,
+        drawCenteredText(r, "TRACK", drawerBounds_.x + 10.0f, tabY, tabW, tabH, 9.5f,
                          isTrk ? theme.primaryAccent.r : theme.textMuted.r,
                          isTrk ? theme.primaryAccent.g : theme.textMuted.g,
                          isTrk ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
@@ -161,7 +169,7 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
                                isClp ? theme.primaryAccent.g : theme.borderSubtle.g,
                                isClp ? theme.primaryAccent.b : theme.borderSubtle.b,
                                isClp ? 0.9f : 0.4f, 1.0f);
-        drawCenteredText(r, "CLIP PROPERTIES", drawerBounds_.x + 14.0f + tabW, tabY, tabW, tabH, 9.5f,
+        drawCenteredText(r, "CLIP", drawerBounds_.x + 14.0f + tabW, tabY, tabW, tabH, 9.5f,
                          isClp ? theme.primaryAccent.r : theme.textMuted.r,
                          isClp ? theme.primaryAccent.g : theme.textMuted.g,
                          isClp ? theme.primaryAccent.b : theme.textMuted.b, 1.0f);
@@ -178,9 +186,6 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
     float cy = closeButtonBounds_.y + closeButtonBounds_.h * 0.5f;
     bool closeHov = closeButtonBounds_.contains(mouseX, mouseY) || std::hypot(mouseX - cx, mouseY - cy) <= 12.0f;
     drawScrewCloseButton(r, cx, cy, 9.0f, closeHov, theme.primaryAccent);
-
-    // 4. Delegate card stack & content rendering to TrackPropertiesPanel
-    panel_.render(r, theme, data, mouseX, mouseY);
 
     // 5. Floating tactile tooltip badge on hover
     if (mouseX >= 0.0f && mouseY >= 0.0f) {

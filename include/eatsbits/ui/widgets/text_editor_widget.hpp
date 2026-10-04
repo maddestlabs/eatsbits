@@ -65,12 +65,16 @@ public:
     [[nodiscard]] const Rect2D& getTextAreaBounds() const noexcept { return textAreaBounds_; }
     [[nodiscard]] const Rect2D& getGutterBounds() const noexcept { return gutterBounds_; }
 
+    [[nodiscard]] float getCharWidth() const noexcept { return charWidth_; }
+    [[nodiscard]] float getLineHeight() const noexcept { return lineHeight_; }
+
+    [[nodiscard]] core::TextCoord coordFromPoint(float px, float py) const;
+
     // Callbacks
     std::function<void(const std::string& text)> onTextChanged;
     std::function<void()> onCompileTriggered; // Ctrl+Enter or F5
 
 private:
-    [[nodiscard]] core::TextCoord coordFromPoint(float px, float py) const;
     void renderMinimap(const ViewContext& ctx);
     void renderGutterAndText(const ViewContext& ctx);
 
@@ -83,7 +87,7 @@ private:
     float gutterW_{46.0f};
     float minimapW_{56.0f};
     float lineHeight_{18.0f};
-    float charWidth_{8.5f};
+    float charWidth_{7.01f}; // Synchronized with getMonoCharAdvance(10.0f)
 
     bool isFocused_{false};
     bool readOnly_{false};
