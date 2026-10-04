@@ -98,6 +98,20 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
     // Scissor text area so nothing spills into gutter or minimap
     r.pushScissor(textAreaBounds_.x, textAreaBounds_.y, textAreaBounds_.w, textAreaBounds_.h);
 
+    static auto packColorU32 = [](float red, float green, float blue, float alpha = 1.0f) noexcept -> uint32_t {
+        uint8_t cr = static_cast<uint8_t>(std::clamp(red, 0.0f, 1.0f) * 255.0f);
+        uint8_t cg = static_cast<uint8_t>(std::clamp(green, 0.0f, 1.0f) * 255.0f);
+        uint8_t cb = static_cast<uint8_t>(std::clamp(blue, 0.0f, 1.0f) * 255.0f);
+        uint8_t ca = static_cast<uint8_t>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
+        return (static_cast<uint32_t>(ca) << 24) |
+               (static_cast<uint32_t>(cb) << 16) |
+               (static_cast<uint32_t>(cg) << 8) |
+                static_cast<uint32_t>(cr);
+    };
+
+    const float charH = std::min(lineHeight_ - 2.0f, std::round(charWidth_ * 2.0f));
+    const float textOffsetY = (lineHeight_ - charH) * 0.5f;
+
     // Render Selection Highlighting
     if (presenter_.hasSelection()) {
         auto sel = presenter_.getSelectionRange();
@@ -108,32 +122,34 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
 
             float selX = textAreaBounds_.x + 6.0f + static_cast<float>(sCol) * charWidth_ - presenter_.getScrollX();
             float selW = static_cast<float>(std::max(1, eCol - sCol)) * charWidth_;
-            float selY = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY();
+            float selY = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
 
-            drawRect(r, selX, selY, selW, lineHeight_,
+            drawRect(r, selX, selY, selW, charH,
                      theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.35f);
         }
     }
 
-    // Render Text Lines
+    // Render Text Lines via Monospace Cell Pipeline (zero metric drift & exact CLI cursor alignment)
     for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
-        float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + 3.0f;
+        float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
         float textX = textAreaBounds_.x + 6.0f - presenter_.getScrollX();
         const auto& line = doc.getLine(static_cast<size_t>(l));
+        if (line.empty()) continue;
 
+        uint32_t fgColor = packColorU32(theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f);
         if (line.starts_with("#") || line.starts_with("--")) {
-            drawMonoText(r, line, textX, ly, 10.0f, 0.38f, 0.49f, 0.55f, 1.0f);
+            fgColor = packColorU32(0.38f, 0.49f, 0.55f, 1.0f);
         } else if (line.find("def ") != std::string::npos || line.find("import ") != std::string::npos ||
                    line.find("function ") != std::string::npos || line.find("return ") != std::string::npos ||
                    line.find("for ") != std::string::npos || line.find("if ") != std::string::npos) {
-            drawMonoText(r, line, textX, ly, 10.0f, 1.0f, 0.85f, 0.20f, 1.0f);
+            fgColor = packColorU32(1.0f, 0.85f, 0.20f, 1.0f);
         } else if (line.find("eat.") != std::string::npos || line.find("param") != std::string::npos) {
-            drawMonoText(r, line, textX, ly, 10.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+            fgColor = packColorU32(theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
         } else if (line.find('"') != std::string::npos || line.find('\'') != std::string::npos) {
-            drawMonoText(r, line, textX, ly, 10.0f, 0.96f, 0.65f, 0.35f, 1.0f);
-        } else {
-            drawMonoText(r, line, textX, ly, 10.0f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f);
+            fgColor = packColorU32(0.96f, 0.65f, 0.35f, 1.0f);
         }
+
+        r.drawMonospaceText(textX, ly, charWidth_, charH, line, fgColor);
     }
 
     // Render Blinking Cursor
@@ -145,9 +161,9 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
         if (showCursor) {
             auto cur = presenter_.getCursor();
             float curX = textAreaBounds_.x + 6.0f + static_cast<float>(cur.column) * charWidth_ - presenter_.getScrollX();
-            float curY = textAreaBounds_.y + 2.0f + static_cast<float>(cur.line) * lineHeight_ - presenter_.getScrollY();
+            float curY = textAreaBounds_.y + static_cast<float>(cur.line) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
 
-            drawRect(r, curX, curY, 2.0f, lineHeight_ - 4.0f,
+            drawRect(r, curX, curY, 2.0f, charH,
                      theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
         }
     }
@@ -156,16 +172,14 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
 
     // Render Gutter Line Numbers
     for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
-        float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + 3.0f;
+        float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
         std::string numStr = std::to_string(l + 1);
         bool isActive = (l == presenter_.getCursor().line);
 
-        float numX = gutterBounds_.x + gutterBounds_.w - 8.0f - static_cast<float>(numStr.length()) * 7.5f;
-        if (isActive) {
-            drawMonoText(r, numStr, numX, ly, 9.5f, 1.0f, 1.0f, 1.0f, 0.95f);
-        } else {
-            drawMonoText(r, numStr, numX, ly, 9.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
-        }
+        float numX = gutterBounds_.x + gutterBounds_.w - 8.0f - static_cast<float>(numStr.length()) * charWidth_;
+        uint32_t numCol = isActive ? packColorU32(1.0f, 1.0f, 1.0f, 0.95f)
+                                   : packColorU32(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
+        r.drawMonospaceText(numX, ly, charWidth_, charH, numStr, numCol);
     }
 }
 

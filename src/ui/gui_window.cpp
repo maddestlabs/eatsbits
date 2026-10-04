@@ -12271,6 +12271,11 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             pev.rawX = x;
             pev.rawY = y;
             if (terminalConsoleDrawerWidget_->handlePointer(pev)) {
+                if (terminalConsoleDrawerWidget_->isExpanded()) {
+                    focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
+                } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
+                    focusManager_.clearFocus();
+                }
                 markNeedsRedraw();
                 return;
             }
@@ -14061,6 +14066,14 @@ void GuiWindow::onKeyDown(int key, int mods) {
 
     // Intercept keyboard input if In-DAW Terminal Console is expanded
     if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
+        if (key == 256) { // Escape closes/dismisses terminal console
+            terminalConsoleDrawerWidget_->setExpanded(false);
+            if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
+                focusManager_.clearFocus();
+            }
+            markNeedsRedraw();
+            return;
+        }
         if (terminalConsoleDrawerWidget_->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
             markNeedsRedraw();
             return;

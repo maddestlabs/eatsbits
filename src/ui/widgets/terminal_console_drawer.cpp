@@ -113,8 +113,11 @@ void TerminalConsoleDrawer::printPrompt() {
 void TerminalConsoleDrawer::setExpanded(bool exp) noexcept {
     isExpanded_ = exp;
     if (isExpanded_) {
+        isFocused_ = true;
         cursorBlinkTimer_ = 0.0;
         cursorBlinkState_ = true;
+    } else {
+        isFocused_ = false;
     }
 }
 
@@ -225,6 +228,7 @@ bool TerminalConsoleDrawer::handlePointer(const PointerEvent& ev) {
             return true;
         }
         if (isExpanded_ && drawerBounds_.contains(ev.x, ev.y)) {
+            isFocused_ = true;
             return true; // Consume clicks within terminal drawer
         }
     }
@@ -234,12 +238,44 @@ bool TerminalConsoleDrawer::handlePointer(const PointerEvent& ev) {
 bool TerminalConsoleDrawer::handleKey(int key, int scancode, int action, int mods) {
     (void)scancode;
     if (!isExpanded_) return false;
-    if (action != 1 && action != 2) return false; // Press or Repeat
+    if (action != 1 && action != 2) return true; // Consume key release events when expanded
 
     bool isCtrl = (mods & 0x0002) != 0;
+    bool isAlt = (mods & 0x0004) != 0;
+
+    // Universal DAW bypasses that must still work across the DAW:
+    // F11 (300): Fullscreen toggle
+    if (key == 300) {
+        return false;
+    }
+    // Alt+F4: Window exit
+    if (isAlt && key == 293) {
+        return false;
+    }
+
+    if (key == 256) { // Escape
+        setExpanded(false);
+        isFocused_ = false;
+        return true;
+    }
 
     if (key == 257 || key == 13) { // Enter
         commitCurrentLine();
+        return true;
+    }
+
+    // Ctrl+L: Clear terminal screen
+    if (isCtrl && (key == 76 || key == 108)) {
+        clear();
+        return true;
+    }
+
+    // Ctrl+C: Cancel current input line
+    if (isCtrl && (key == 67 || key == 99)) {
+        parser_.parse("^C\r\n");
+        currentLine_.clear();
+        printPrompt();
+        grid_.swapBuffers();
         return true;
     }
 
@@ -321,12 +357,10 @@ bool TerminalConsoleDrawer::handleKey(int key, int scancode, int action, int mod
         }
         return true;
     }
-    if (key == 256) { // Escape
-        setExpanded(false);
-        return true;
-    }
 
-    return false;
+    // Absorb all other keystrokes when expanded (letters like 'p', 'b', numbers, space, punctuation)
+    // to shield the terminal from DAW hotkey hijacking. Characters will be delivered to handleChar.
+    return true;
 }
 
 bool TerminalConsoleDrawer::handleChar(char32_t codepoint) {

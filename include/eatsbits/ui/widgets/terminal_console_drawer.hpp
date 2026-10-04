@@ -15,6 +15,7 @@
 #include "eatsbits/input/pointer_event.hpp"
 #include "eatsbits/core/geometry.hpp"
 #include "eatsbits/presenter/frame_time_context.hpp"
+#include "eatsbits/ui/input/focus_manager.hpp"
 
 namespace eatsbits::audio {
     class AudioEngine;
@@ -29,18 +30,33 @@ namespace eatsbits::ui {
  * zero-allocation ANSI escape stream parser, and the Pythonic Eatscript REPL with live
  * Host ABI audio engine reflection.
  */
-class TerminalConsoleDrawer {
+class TerminalConsoleDrawer : public IFocusable {
 public:
     TerminalConsoleDrawer();
-    ~TerminalConsoleDrawer();
+    ~TerminalConsoleDrawer() override;
 
     void layout(float screenWidth, float bottomNavTopY, float uiScale = 1.0f);
     void update(const FrameTimeContext& time) noexcept;
     void render(BatchRenderer2D& r, const ThemeTokens& theme, float uiScale = 1.0f);
 
     bool handlePointer(const PointerEvent& ev);
-    bool handleKey(int key, int scancode, int action, int mods);
-    bool handleChar(char32_t codepoint);
+    bool handleKey(int key, int scancode, int action, int mods) override;
+    bool handleChar(char32_t codepoint) override;
+
+    bool onFocusGained() override {
+        isFocused_ = true;
+        setExpanded(true);
+        return true;
+    }
+    void onFocusLost() override {
+        isFocused_ = false;
+    }
+    [[nodiscard]] bool isFocused() const noexcept override {
+        return isFocused_ || isExpanded_;
+    }
+    void setFocused(bool focused) noexcept {
+        isFocused_ = focused;
+    }
 
     void bindAudioEngine(audio::AudioEngine* engine);
 
@@ -75,6 +91,7 @@ private:
     static constexpr float kCellHeight{16.0f};
 
     bool isExpanded_{false};
+    bool isFocused_{false};
     float drawerHeight_{kDefaultDrawerHeight};
     core::Rect2D drawerBounds_{};
     core::Rect2D pullTabBounds_{};

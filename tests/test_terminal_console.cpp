@@ -108,12 +108,33 @@ void testTerminalInputHandling() {
     assert(res.resultValue.isNumber());
     assert(res.resultValue.asNumber() == 84.0);
 
+    // Verify IFocusable and FocusManager integration
+    eatsbits::ui::IFocusable* focusable = &drawer;
+    assert(focusable != nullptr);
+    assert(drawer.isFocused());
+
+    eatsbits::ui::FocusManager fm;
+    fm.requestFocus(&drawer);
+    assert(fm.hasFocus(&drawer));
+
+    // Verify keystroke shielding: 'P' (80), 'B' (66), Space (32) are absorbed to protect DAW shortcuts
+    assert(drawer.handleKey(80, 0, 1, 0) == true); // 'P' (Preset Dialog protected)
+    assert(drawer.handleKey(66, 0, 1, 0) == true); // 'B' (Browser protected)
+    assert(drawer.handleKey(32, 0, 1, 0) == true); // Space (Sequencer Playback protected)
+
+    // Verify universal DAW shortcuts bypass: F11 returns false to allow host fullscreen toggle
+    assert(drawer.handleKey(300, 0, 1, 0) == false); // F11 Fullscreen
+
     // Test history
     drawer.getRepl().addHistory("x * 2");
     std::string histPrev = drawer.getRepl().historyPrev();
     assert(histPrev == "x * 2");
 
-    std::cout << "  [PASS] Pointer, character, backspace, and history routing verified." << std::endl;
+    // Escape key dismisses/collapses drawer
+    assert(drawer.handleKey(256, 0, 1, 0) == true); // Escape
+    assert(!drawer.isExpanded());
+
+    std::cout << "  [PASS] Pointer, character, backspace, focus shielding, and history routing verified." << std::endl;
 }
 
 void testTerminalWebGpuRendering() {

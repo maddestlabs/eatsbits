@@ -1782,6 +1782,12 @@ void testTextEditorWidgetAndMinimap() {
     assert(ptCol25.line == 0);
     assert(ptCol25.column == 25);
 
+    // Verify end-of-line hit testing has zero phantom space drift
+    int line0Len = static_cast<int>(editor.getPresenter().getDocument().getLineLength(0));
+    auto ptEndOfLine = editor.coordFromPoint(textStartX + static_cast<float>(line0Len) * editor.getCharWidth(), textLine0Y);
+    assert(ptEndOfLine.line == 0);
+    assert(ptEndOfLine.column == line0Len);
+
     // Focus acquisition via pointer click
     PointerEvent clickEd = makePointer(100.0f, 100.0f, PointerAction::Down);
     editor.handlePointer(clickEd, ctx);

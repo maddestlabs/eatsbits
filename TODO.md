@@ -14,6 +14,15 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [x] **Terminal CLI Keyboard Focus Isolation & Monospace Text Editor Parity**
+  - **Context/Files**: `include/eatsbits/ui/widgets/terminal_console_drawer.hpp`, `src/ui/widgets/terminal_console_drawer.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_terminal_console.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Implement `IFocusable` on `TerminalConsoleDrawer` and synchronize focus state with `FocusManager` upon expanding, collapsing, or pointer clicking in drawer bounds.
+    2. Absorb non-universal keystrokes in `TerminalConsoleDrawer::handleKey` when focused/expanded to shield terminal typing from triggering DAW shortcuts (such as 'p' for Preset Dialog, 'b' for Browser, and Space for playback), while strictly preserving DAW universals (Escape to dismiss drawer, F11 for fullscreen).
+    3. Transition `TextEditorWidget` text line and gutter rendering to `BatchRenderer2D::drawMonospaceText`, establishing 1:1 cell metric parity with the CLI tool and eliminating font metric cumulative drift and phantom whitespace at ends of lines.
+    4. Validate unit test suites across `test_terminal_console.exe`, `test_modular_ui.exe`, and ensure WebAssembly clean compilation with `build-web.ps1 -NoServe`.
+  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
+
 - [x] **Text Editor Widget Refinement: Cursor Advance Alignment & Minimap Vertical Spacing** (commit `fa33fa6`)
   - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_modular_ui.cpp`
   - **Acceptance Criteria**:

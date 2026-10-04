@@ -700,10 +700,24 @@ public:
         return terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded();
     }
     void toggleTerminalConsole() noexcept {
-        if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->toggleExpanded();
+        if (terminalConsoleDrawerWidget_) {
+            terminalConsoleDrawerWidget_->toggleExpanded();
+            if (terminalConsoleDrawerWidget_->isExpanded()) {
+                focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
+            } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
+                focusManager_.clearFocus();
+            }
+        }
     }
     void setTerminalConsoleOpen(bool open) noexcept {
-        if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->setExpanded(open);
+        if (terminalConsoleDrawerWidget_) {
+            terminalConsoleDrawerWidget_->setExpanded(open);
+            if (open) {
+                focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
+            } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
+                focusManager_.clearFocus();
+            }
+        }
     }
     [[nodiscard]] KineticScroller& getKineticScroller() noexcept { return kineticScroller_; }
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
