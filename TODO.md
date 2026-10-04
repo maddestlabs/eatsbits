@@ -14,7 +14,7 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Text Editor Widget Refinement: Cursor Advance Alignment & Minimap Vertical Spacing**
+- [x] **Text Editor Widget Refinement: Cursor Advance Alignment & Minimap Vertical Spacing** (commit `fa33fa6`)
   - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_modular_ui.cpp`
   - **Acceptance Criteria**:
     1. Align `charWidth_` in `TextEditorWidget` with actual font metrics (`getMonoCharAdvance(10.0f)` $\approx 7.01\text{px}$) instead of hardcoded `8.5f`, eliminating the cumulative drift where the cursor renders ~3 chars to the right and creates phantom trailing whitespace at the ends of lines.

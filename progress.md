@@ -732,6 +732,25 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Text Editor Widget Refinement: Font Metric Alignment & Minimap Vertical Pitch (commit `fa33fa6`)
+- **Architectural Context**:
+  - `TextEditorWidget` powers script editing in both `DESIGN > Code` (Eatscript live DSP script coding) and `EDIT > Script` (MIDI Clip generator scripts).
+  - Cursor advance was using a legacy hardcoded `charWidth_ = 8.5f`, whereas `drawMonoText(..., 10.0f)` renders monospace text at font metric scale `getMonoCharAdvance(10.0f) = 7.01px`.
+  - Code silhouette minimap was stretching slots vertically across the entire widget height (`minimapBounds_.h / lineCount`), causing short scripts (e.g. 7-20 lines) to show massive 30-80px blank vertical gaps between lines.
+- **Key Changes Implemented**:
+  - **Font Metric Alignment**:
+    - Initialized and synchronized `charWidth_` with `getMonoCharAdvance(10.0f)` (~7.01px) in `TextEditorWidget` constructor and `layout()`.
+    - Made `coordFromPoint`, `getCharWidth()`, and `getLineHeight()` public methods on `TextEditorWidget`.
+    - Eliminated cursor drift and phantom trailing whitespace: clicking on column 10 or 25 now resolves with exact pixel alignment, and text selection highlights hug character bounds precisely.
+  - **Minimap Vertical Pitch Refactoring**:
+    - Replaced full-height stretching in `TextEditorWidget::renderMinimap` with a compact fixed line pitch (2.0px bar + 1.0px separator = 3.0px pitch) anchored from the top.
+    - Slot height only scales down proportionally when line count exceeds minimap bounds (`lineCount * 3.0f > minimapBounds_.h`), preserving compact code silhouette density on scripts of all sizes.
+    - Viewport lens scrubber and outline now only render when `getMaxScrollY() > 0.0f`, preventing phantom full-height overlays on non-scrollable documents.
+  - **Automated Verification**:
+    - Updated `testTextEditorWidgetAndMinimap()` in `tests/test_modular_ui.cpp` with assertions verifying `charWidth_` parity with `getMonoCharAdvance(10.0f)`, column hit testing without drift, and verified test execution across all 44 suites in `build.ps1 -Test`.
+
+---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
