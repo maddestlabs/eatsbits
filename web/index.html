@@ -262,20 +262,22 @@
 
         // Automatic audio unlocker without manual button click requirement
         function unlockAudio() {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (window.miniaudio && window.miniaudio.device_instances) {
-                for (var k in window.miniaudio.device_instances) {
-                    var dev = window.miniaudio.device_instances[k];
-                    if (dev && dev.audioContext && dev.audioContext.state === 'suspended') {
-                        dev.audioContext.resume();
+            if (window.miniaudio) {
+                // miniaudio stores active devices in window.miniaudio.devices
+                var devs = window.miniaudio.devices || window.miniaudio.device_instances || [];
+                for (var k in devs) {
+                    var dev = devs[k];
+                    if (!dev) continue;
+                    var ctx = dev.webaudio || dev.audioContext;
+                    if (ctx && typeof ctx.resume === 'function' && ctx.state === 'suspended') {
+                        ctx.resume().catch(function(e) {
+                            console.warn('[Audio] Failed to resume WebAudio context:', e);
+                        });
                     }
                 }
             }
-            if (AudioContext) {
-                var dummyCtx = new AudioContext();
-                if (dummyCtx.state === 'suspended') {
-                    dummyCtx.resume();
-                }
+            if (window.audioContext && window.audioContext.state === 'suspended') {
+                window.audioContext.resume().catch(function() {});
             }
         }
 

@@ -80,6 +80,12 @@ bool AudioEngine::initialize(const AudioEngineConfig& config) {
     config_.sampleRate = impl_->device.sampleRate;
     config_.bufferFrameSize = impl_->device.playback.internalPeriodSizeInFrames;
 
+    // Re-align DSP voice engines, mixer, and transport with the negotiated hardware sample rate
+    polySynth_.setSampleRate(static_cast<float>(config_.sampleRate));
+    tb303_.setSampleRate(static_cast<float>(config_.sampleRate));
+    masterMixer_.prepare(static_cast<double>(config_.sampleRate), config_.bufferFrameSize);
+    sequencer_.getTransport().setSampleRate(config_.sampleRate);
+
     std::cout << "[Eatsbits] Audio device initialized: " << impl_->device.playback.name
               << " | " << config_.sampleRate << " Hz | Buffer: " << config_.bufferFrameSize << " frames" << std::endl;
 
