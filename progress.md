@@ -751,6 +751,22 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Web Audio Optimization Phase 1: Callback Chunking & Buffer Frame Size Tuning (commit `bc91f5f`)
+- **Architectural Context**:
+  - In browser/WebAudio environments, miniaudio and browser audio contexts negotiate variable and larger audio buffer sizes (such as 1024, 2048, 4096 frames, or non-power-of-two period sizes).
+  - Previously, `AudioEngine::audioCallbackInternal` clamped requested frames via `const uint32_t framesToRender = std::min(frameCount, static_cast<uint32_t>(MAX_BLOCK_SIZE))` with a single render call. Any request exceeding `MAX_BLOCK_SIZE` (2048) was truncated, leaving trailing audio unrendered or silent and causing severe 50% duty-cycle choppiness.
+- **Key Changes Implemented**:
+  - **Zero-Allocation Callback Chunking**:
+    - Refactored `AudioEngine::audioCallbackInternal` into a wait-free chunking loop: processes arbitrary `frameCount` in consecutive blocks of up to `MAX_BLOCK_SIZE` using pre-allocated `scratchL_` and `scratchR_` buffers.
+    - Accurately computes sub-bass energy tracking and interleaves planar stereo channels into destination buffer offsets `pOutput + (2 * framesRendered)`.
+  - **Emscripten Default Buffer Frame Size**:
+    - Increased default buffer frame size in `src/gui_main.cpp` for Emscripten builds from 512 to 1024 frames (~21.3ms at 48kHz), substantially reducing audio scheduler jitter and underruns without introducing perceptible latency.
+  - **Automated Verification**:
+    - Added `testAudioCallbackArbitraryChunking()` to `tests/test_audio_realtime.cpp`: tests 4096-frame requests (verifying continuous audio across first and second halves beyond `MAX_BLOCK_SIZE`), as well as odd period counts (3000 frames and 777 frames).
+    - Verified all 44 native suites pass (`.\build.ps1 -Test -NoRun`) and verified clean WebAssembly/WebGPU compilation (`.\build-web.ps1 -NoServe`).
+
+---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist

@@ -22,7 +22,7 @@ To execute items automatically, run in Antigravity:
     3. Verify cursor positioning, click-to-column hit testing (`coordFromPoint`), selection highlight bounds, and minimap lens scrubber alignment remain pixel-accurate in both `DESIGN > Code` and `EDIT > Script`.
   - **Test/Validation**: `.\build.ps1 -Test`
 
-- [ ] **Web Audio Optimization Phase 1: Callback Chunking & Buffer Frame Size Tuning**
+- [x] **Web Audio Optimization Phase 1: Callback Chunking & Buffer Frame Size Tuning** (commit `bc91f5f`)
   - **Context/Files**: `src/audio/audio_engine.cpp`, `src/gui_main.cpp`, `include/eatsbits/audio/audio_engine.hpp`
   - **Acceptance Criteria**: Refactor `AudioEngine::audioCallbackInternal` to process arbitrary `frameCount` requests in a loop of chunks up to `MAX_BLOCK_SIZE` so buffer sizes >= 2048 or odd period counts never truncate or leave silence in the output buffer; increase Emscripten default buffer frame size in `gui_main.cpp` from 512 to 1024 or 2048 to prevent audio scheduler underruns.
   - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
