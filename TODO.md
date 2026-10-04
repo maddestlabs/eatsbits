@@ -37,7 +37,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Update `AudioEngine::initialize` so `polySynth_`, `tb303_`, and `masterMixer_` properly re-align when `impl_->device.sampleRate` negotiates the native browser hardware rate (e.g. 44.1 kHz vs 48 kHz), eliminating browser resampler jitter; fix `unlockAudio()` in `web/index.html` to iterate `window.miniaudio.devices` and call `resume()` on `dev.webaudio` instead of querying non-existent `device_instances`.
   - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
 
-- [x] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading** (commit `a667758`)
+- [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
   - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
   - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
   - **Test/Validation**: `.\build-web.ps1 -NoServe`

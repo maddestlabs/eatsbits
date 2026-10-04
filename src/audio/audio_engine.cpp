@@ -7,12 +7,6 @@
 
 #include "eatsbits/audio/audio_engine.hpp"
 
-#if defined(__EMSCRIPTEN__)
-#ifndef MA_ENABLE_AUDIO_WORKLETS
-#define MA_ENABLE_AUDIO_WORKLETS
-#endif
-#endif
-
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 

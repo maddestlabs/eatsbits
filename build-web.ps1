@@ -209,8 +209,6 @@ if (Get-Command "emcmake" -ErrorAction SilentlyContinue) {
         @{ Name = "eatsbits.wasm"; Desc = "WebAssembly Core Binary" },
         @{ Name = "eatsbits.data"; Desc = "Preloaded Assets (Fonts/Presets)" },
         @{ Name = "eatsbits.js";   Desc = "Emscripten JS Runtime Bridge" },
-        @{ Name = "eatsbits.aw.js";Desc = "AudioWorklet Dedicated Thread Bridge" },
-        @{ Name = "eatsbits.ww.js";Desc = "Wasm Worker Thread Bridge" },
         @{ Name = "eatsbits.html"; Desc = "HTML5 WebGPU Canvas Host" },
         @{ Name = "index.html";    Desc = "WebGPU Entry & PWA Host" },
         @{ Name = "sw.js";         Desc = "Offline PWA Service Worker" },
