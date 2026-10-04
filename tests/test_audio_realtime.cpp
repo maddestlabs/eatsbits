@@ -196,6 +196,59 @@ void testAudioEnginePanic() {
     std::cout << "  [PASS] AudioEngine::panic() halted sequencer and flushed all audio buffers." << std::endl;
 }
 
+void testAudioCallbackArbitraryChunking() {
+    std::cout << "[Test] AudioEngine::audioCallbackInternal arbitrary frameCount chunking..." << std::endl;
+    AudioEngine engine;
+    engine.initialize();
+    engine.setupDefaultAcidBeatGraph();
+    engine.getSequencer().start();
+
+    // 1. Test standard chunking with frameCount > MAX_BLOCK_SIZE (4096 frames = 2 x 2048)
+    constexpr uint32_t LARGE_FRAMES = 4096;
+    std::vector<float> largeBuf(LARGE_FRAMES * 2, -999.0f); // Poison with -999.0f to detect untouched memory
+    engine.audioCallbackInternal(largeBuf.data(), LARGE_FRAMES);
+
+    float peakFirstHalf = 0.0f;
+    float peakSecondHalf = 0.0f;
+    for (uint32_t i = 0; i < LARGE_FRAMES; ++i) {
+        float l = largeBuf[2 * i + 0];
+        float r = largeBuf[2 * i + 1];
+        assert(!std::isnan(l) && !std::isinf(l));
+        assert(!std::isnan(r) && !std::isinf(r));
+        assert(l != -999.0f); // Entire buffer must be computed without truncation
+        assert(r != -999.0f);
+        if (i < 2048) {
+            peakFirstHalf = std::max(peakFirstHalf, std::max(std::abs(l), std::abs(r)));
+        } else {
+            peakSecondHalf = std::max(peakSecondHalf, std::max(std::abs(l), std::abs(r)));
+        }
+    }
+    assert(peakFirstHalf > 0.001f);
+    assert(peakSecondHalf > 0.001f); // Second half (beyond MAX_BLOCK_SIZE) must contain valid audio, not silence
+    std::cout << "  -> 4096-frame chunking verified (First half peak: " << peakFirstHalf
+              << ", Second half peak: " << peakSecondHalf << ")" << std::endl;
+
+    // 2. Test odd non-power-of-two frameCount requests (e.g., 3000 frames, 777 frames)
+    constexpr uint32_t ODD_FRAMES = 3000;
+    std::vector<float> oddBuf(ODD_FRAMES * 2, -888.0f);
+    engine.audioCallbackInternal(oddBuf.data(), ODD_FRAMES);
+    for (uint32_t i = 0; i < ODD_FRAMES * 2; ++i) {
+        assert(oddBuf[i] != -888.0f);
+        assert(!std::isnan(oddBuf[i]) && !std::isinf(oddBuf[i]));
+    }
+    std::cout << "  -> 3000-frame odd chunking verified." << std::endl;
+
+    constexpr uint32_t SMALL_ODD_FRAMES = 777;
+    std::vector<float> smallOddBuf(SMALL_ODD_FRAMES * 2, -777.0f);
+    engine.audioCallbackInternal(smallOddBuf.data(), SMALL_ODD_FRAMES);
+    for (uint32_t i = 0; i < SMALL_ODD_FRAMES * 2; ++i) {
+        assert(smallOddBuf[i] != -777.0f);
+        assert(!std::isnan(smallOddBuf[i]) && !std::isinf(smallOddBuf[i]));
+    }
+    std::cout << "  -> 777-frame odd chunking verified." << std::endl;
+    std::cout << "  [PASS] Arbitrary audio callback frame count chunking verified successfully." << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits Audio & Real-Time DSP Test Suite ===" << std::endl;
     testRingBufferConcurrency();
@@ -206,6 +259,7 @@ int main() {
     testTb303DspStressTest();
     testTb303CutoffSweepStability();
     testAudioEnginePanic();
+    testAudioCallbackArbitraryChunking();
     std::cout << "=== ALL AUDIO TESTS PASSED SUCCESSFULLY! ===" << std::endl;
     return 0;
 }

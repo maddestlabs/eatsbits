@@ -915,9 +915,7 @@ void AudioEngine::renderOfflineBlock(float* outL, float* outR, uint32_t frameCou
 }
 
 void AudioEngine::audioCallbackInternal(float* pOutput, uint32_t frameCount) noexcept {
-    const uint32_t framesToRender = std::min(frameCount, static_cast<uint32_t>(MAX_BLOCK_SIZE));
-
-    renderOfflineBlock(scratchL_, scratchR_, framesToRender);
+    if (!pOutput || frameCount == 0) return;
 
     // Track real-time sub-bass energy (<90Hz) with 2-pole lowpass & peak follower
     const float dt = 1.0f / (config_.sampleRate > 0 ? static_cast<float>(config_.sampleRate) : 48000.0f);
@@ -926,25 +924,38 @@ void AudioEngine::audioCallbackInternal(float* pOutput, uint32_t frameCount) noe
     const float decay = std::exp(-dt / 0.075f); // 75ms smooth release
 
     float maxBlockSub = subEnv_;
-    for (uint32_t i = 0; i < framesToRender; ++i) {
-        float mono = 0.5f * (scratchL_[i] + scratchR_[i]);
-        subLp1_ += alpha * (mono - subLp1_);
-        subLp2_ += alpha * (subLp1_ - subLp2_);
-        float mag = std::abs(subLp2_);
-        if (mag > maxBlockSub) {
-            maxBlockSub = mag;
-        } else {
-            maxBlockSub *= decay;
+    uint32_t framesRendered = 0;
+
+    // Process arbitrary frameCount in chunks up to MAX_BLOCK_SIZE to prevent buffer truncation/silence
+    while (framesRendered < frameCount) {
+        const uint32_t chunkFrames = std::min(frameCount - framesRendered, static_cast<uint32_t>(MAX_BLOCK_SIZE));
+
+        renderOfflineBlock(scratchL_, scratchR_, chunkFrames);
+
+        for (uint32_t i = 0; i < chunkFrames; ++i) {
+            float mono = 0.5f * (scratchL_[i] + scratchR_[i]);
+            subLp1_ += alpha * (mono - subLp1_);
+            subLp2_ += alpha * (subLp1_ - subLp2_);
+            float mag = std::abs(subLp2_);
+            if (mag > maxBlockSub) {
+                maxBlockSub = mag;
+            } else {
+                maxBlockSub *= decay;
+            }
         }
+
+        // Interleave planar scratch buffers into target stereo output offset
+        float* chunkOutput = pOutput + (2 * framesRendered);
+        for (uint32_t i = 0; i < chunkFrames; ++i) {
+            chunkOutput[2 * i + 0] = scratchL_[i];
+            chunkOutput[2 * i + 1] = scratchR_[i];
+        }
+
+        framesRendered += chunkFrames;
     }
+
     subEnv_ = maxBlockSub;
     subBassEnergy_.store(subEnv_, std::memory_order_relaxed);
-
-    // Interleave planar scratch buffers into interleaved stereo output
-    for (uint32_t i = 0; i < framesToRender; ++i) {
-        pOutput[2 * i + 0] = scratchL_[i];
-        pOutput[2 * i + 1] = scratchR_[i];
-    }
 }
 
 bool AudioEngine::saveProject(const std::string& path, const std::string& title) {

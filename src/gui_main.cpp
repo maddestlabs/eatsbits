@@ -59,7 +59,7 @@ int main(int /*argc*/, char** /*argv*/) {
     AudioEngineConfig cfg{};
     cfg.sampleRate = 48000;
 #if defined(__EMSCRIPTEN__)
-    cfg.bufferFrameSize = 512; // 10.6ms buffer prevents WebAudio scheduler underruns
+    cfg.bufferFrameSize = 1024; // 21.3ms buffer prevents WebAudio scheduler underruns
 #else
     cfg.bufferFrameSize = 128;
 #endif
