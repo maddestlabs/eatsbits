@@ -767,6 +767,25 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Web Audio Optimization Phase 2: WebAssembly SIMD & Compiler Optimization Flags (commit `333edd5`)
+- **Architectural Context**:
+  - DSP voice engines (PolySynth, TB-303, YM2612 FM, SNES DSP, Karplus-Strong physical modeling, convolution reverb, and biquad filters) require intensive floating-point vector math per audio sample.
+  - Emscripten builds previously linked with `-g` and `-sASSERTIONS=1`, which injected DWARF symbol overhead, hindered post-link binaryen optimizations, kept assertion instrumentation in production loops, and restricted math to scalar instructions.
+- **Key Changes Implemented**:
+  - **128-bit Wasm SIMD Acceleration (`-msimd128`)**:
+    - Added `-msimd128` to global Emscripten compile options, `eats_audio` DSP core library, and `eatsbits_web` compile/link options in `CMakeLists.txt`, auto-vectorizing inner sample processing loops to 4-wide float operations.
+  - **Release Optimization Flags & Overhead Stripping**:
+    - Removed debug flags (`-g`) and assertions (`-sASSERTIONS=1`) from `eatsbits_web` link flags.
+    - Explicitly enforced `-O3` and `-DNDEBUG` across compilation and linking.
+  - **Payload & Binary Footprint Results**:
+    - `eatsbits.wasm` binary size dropped from **10.75 MB down to 3.46 MB** (68% raw size reduction; 1.10 MB gzipped wire size).
+    - `eatsbits.js` runtime bridge dropped from **375.5 KB down to 173.1 KB** (54% reduction).
+    - Total CDN distribution footprint dropped from **13.26 MB to 5.77 MB** (1.67 MB wire footprint), eliminating binaryen post-link optimization warnings.
+- **Validation**:
+  - Verified clean compilation with `.\build-web.ps1 -NoServe`.
+
+---
+
 
 
 ## 5. Cruft Prevention & Code Hygiene Checklist

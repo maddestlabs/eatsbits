@@ -27,7 +27,7 @@ To execute items automatically, run in Antigravity:
   - **Acceptance Criteria**: Refactor `AudioEngine::audioCallbackInternal` to process arbitrary `frameCount` requests in a loop of chunks up to `MAX_BLOCK_SIZE` so buffer sizes >= 2048 or odd period counts never truncate or leave silence in the output buffer; increase Emscripten default buffer frame size in `gui_main.cpp` from 512 to 1024 or 2048 to prevent audio scheduler underruns.
   - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
 
-- [ ] **Web Audio Optimization Phase 2: WebAssembly SIMD & Compiler Optimization Flags**
+- [x] **Web Audio Optimization Phase 2: WebAssembly SIMD & Compiler Optimization Flags** (commit `333edd5`)
   - **Context/Files**: `CMakeLists.txt`
   - **Acceptance Criteria**: Add `-msimd128` to Emscripten compile and link options for `eatsbits_web` and DSP core; strip debug flags and assertions (`-g -sASSERTIONS=1`) in release link flags, ensuring `-O3` and `-DNDEBUG` are applied to eliminate scalar math and validation overhead across voice engines and effects.
   - **Test/Validation**: `.\build-web.ps1 -NoServe`
