@@ -196,6 +196,9 @@ void DesignView::syncGuiPanelToScript() {
     ss << "        \"title\": \"" << guiPanel_.title << "\",\n";
     ss << "        \"subtitle\": \"" << guiPanel_.subtitle << "\",\n";
     ss << "        \"chassis\": " << static_cast<int>(guiPanel_.chassisStyle) << ",\n";
+    if (guiPanel_.chassisTint.has_value()) {
+        ss << "        \"chassisTint\": " << guiPanel_.chassisTint->toRgba8() << ",\n";
+    }
     ss << "        \"woodCheeks\": " << (guiPanel_.woodCheeks ? "True" : "False") << ",\n";
     ss << "        \"rows\": [\n";
 
@@ -1383,6 +1386,7 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
     // 3. Right Property Inspector Sidebar
     inspectorThemeBtns_.clear();
     inspectorAccentBtns_.clear();
+    inspectorChassisTintBtns_.clear();
     inspectorParamBtns_.clear();
     inspectorKnobStyleBtns_.clear();
     inspectorSizeBtns_.clear();
@@ -1404,7 +1408,7 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
             drawText(r, "Subtitle: " + guiPanel_.subtitle, inspR.x + 12.0f, iy, 8.5f, 0.7f, 0.75f, 0.85f, 0.9f);
             iy += 24.0f;
 
-            drawText(r, "BACKGROUND THEME", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            drawText(r, "BACKGROUND MATERIAL", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
             iy += 14.0f;
 
             auto addThemeChip = [&](const std::string& name, GuiChassisStyle style) {
@@ -1420,16 +1424,48 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
             };
 
             addThemeChip("Dark Chassis", GuiChassisStyle::DarkChassis);
+            addThemeChip("Brushed Aluminum", GuiChassisStyle::BrushedAluminum);
+            addThemeChip("Brushed Steel", GuiChassisStyle::BrushedSteel);
+            addThemeChip("Matte Powder-Coat", GuiChassisStyle::MattePowderCoat);
+            addThemeChip("Crinkle Wrinkle", GuiChassisStyle::CrinklePaint);
+            addThemeChip("Bakelite Swirl", GuiChassisStyle::Bakelite);
+            addThemeChip("Walnut Wood", GuiChassisStyle::Walnut);
+            addThemeChip("Rosewood", GuiChassisStyle::Rosewood);
             addThemeChip("PCB Green", GuiChassisStyle::PcbGreen);
             addThemeChip("Silver Console", GuiChassisStyle::Silver);
             addThemeChip("SNES Vintage", GuiChassisStyle::Snes);
             addThemeChip("Aged Grunge", GuiChassisStyle::Grunge);
-            addThemeChip("Walnut Wood", GuiChassisStyle::Walnut);
-            addThemeChip("Rosewood", GuiChassisStyle::Rosewood);
-            addThemeChip("Brushed Steel", GuiChassisStyle::BrushedSteel);
             addThemeChip("Carbon Fibre", GuiChassisStyle::Carbon);
 
             iy += 6.0f;
+            drawText(r, "CHASSIS TINT / FINISH", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            iy += 14.0f;
+
+            struct TintPreset {
+                std::optional<Color> color;
+                std::string label;
+            };
+            TintPreset tints[6] = {
+                {std::nullopt, "NAT"},
+                {Color(0.12f, 0.45f, 0.95f), "BLU"},
+                {Color(0.85f, 0.72f, 0.45f), "GLD"},
+                {Color(0.08f, 0.42f, 0.18f), "GRN"},
+                {Color(0.55f, 0.08f, 0.12f), "RED"},
+                {Color(0.18f, 0.20f, 0.24f), "SLT"}
+            };
+            for (int t = 0; t < 6; ++t) {
+                Rect2D tintR(inspR.x + 8.0f + (t * 31.0f), iy, 27.0f, 20.0f);
+                inspectorChassisTintBtns_.push_back({tints[t].color, tintR});
+                bool isSel = (tints[t].color == guiPanel_.chassisTint);
+                Color btnBg = tints[t].color.has_value() ? *tints[t].color : Color(0.25f, 0.26f, 0.30f);
+                drawRoundedRect(r, tintR.x, tintR.y, tintR.w, tintR.h, 3.0f, btnBg.r, btnBg.g, btnBg.b, 1.0f);
+                if (isSel) {
+                    drawRoundedRectOutline(r, tintR.x, tintR.y, tintR.w, tintR.h, 3.0f, 1.0f, 1.0f, 1.0f, 0.95f, 1.5f);
+                }
+                drawText(r, tints[t].label, tintR.x + 4.0f, tintR.y + 6.0f, 7.5f, 1.0f, 1.0f, 1.0f, 0.9f);
+            }
+            iy += 30.0f;
+
             drawText(r, "ACCENT COLOR", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
             iy += 14.0f;
 
@@ -1812,6 +1848,13 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                         for (const auto& aBtn : inspectorAccentBtns_) {
                             if (aBtn.second.contains(ev.x, ev.y)) {
                                 guiPanel_.accentColor = aBtn.first;
+                                syncGuiPanelToScript();
+                                return true;
+                            }
+                        }
+                        for (const auto& cBtn : inspectorChassisTintBtns_) {
+                            if (cBtn.second.contains(ev.x, ev.y)) {
+                                guiPanel_.chassisTint = cBtn.first;
                                 syncGuiPanelToScript();
                                 return true;
                             }

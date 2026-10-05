@@ -99,6 +99,11 @@ public:
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
+    std::function<void(uint32_t trackIndex)> onAddClip;
+    std::function<void(uint32_t trackIndex)> onDeleteTrack;
+    std::function<void(uint32_t trackIndex)> onDuplicateTrack;
+    std::function<void(uint32_t trackIndex, int clipIndex)> onDuplicateClip;
+    std::function<void(uint32_t trackIndex, int clipIndex)> onDeleteClip;
 
 private:
     bool isExpanded_{true};

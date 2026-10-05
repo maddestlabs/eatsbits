@@ -137,6 +137,11 @@ public:
     bool toggleFreezeTrack(uint32_t trackIndex, const trackfreeze::FreezeOptions& options = {});
     [[nodiscard]] bool isTrackFrozen(uint32_t trackIndex) const noexcept;
 
+    // Track Topology Management
+    uint32_t addTrack(const std::string& name, NodeId targetNodeId = 0, uint32_t numSteps = 16);
+    void removeTrack(uint32_t trackIndex);
+    void invalidateTrackStripCache() noexcept;
+
     // Headless offline processing test helper (renders N frames directly for testing)
     void renderOfflineBlock(float* outL, float* outR, uint32_t frameCount) noexcept;
 
@@ -147,7 +152,6 @@ private:
     void processEvents() noexcept;
 
     [[nodiscard]] NodeId getTrackGainNodeId(uint32_t trackIndex) const;
-    void invalidateTrackStripCache() noexcept;
 
     AudioEngineConfig config_;
     std::atomic<bool> isRunning_{false};

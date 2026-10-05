@@ -115,6 +115,11 @@ public:
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
+    std::function<void(uint32_t trackIdx)> onAddClip;
+    std::function<void(uint32_t trackIdx)> onDeleteTrack;
+    std::function<void(uint32_t trackIdx)> onDuplicateTrack;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onDuplicateClip;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onDeleteClip;
 
     [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
     void setScrollY(float y) noexcept { panel_.setScrollY(y); }

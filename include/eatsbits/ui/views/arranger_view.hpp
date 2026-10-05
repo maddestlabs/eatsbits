@@ -143,6 +143,12 @@ public:
 
     // Track addition / modification API
     void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b);
+    void addClipToTrack(uint32_t trackIdx, uint32_t startBar = 1, uint32_t lengthBars = 4);
+    void createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars = 4);
+    void duplicateClip(uint32_t trackIdx, int clipIdx);
+    void deleteClip(uint32_t trackIdx, int clipIdx);
+    void deleteTrack(uint32_t trackIdx);
+    void duplicateTrack(uint32_t trackIdx);
     void addMidiFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
     void addAudioFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
 
@@ -206,9 +212,15 @@ public:
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
-    std::function<void(float masterVol)> onMasterVolumeChanged;
+    std::function<void(float masterVolume)> onMasterVolumeChanged;
     std::function<void(float masterPan)> onMasterPanChanged;
     std::function<void(bool masterMute)> onMasterMuteToggled;
+    std::function<void(uint32_t trackIdx)> onTrackAdded;
+    std::function<void(uint32_t trackIdx)> onTrackDeleted;
+    std::function<void(uint32_t trackIdx)> onTrackDuplicated;
+    std::function<void(uint32_t trackIdx)> onAddClip;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onDuplicateClip;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onDeleteClip;
 
 private:
     void renderGrid(const ViewContext& ctx);
@@ -235,6 +247,9 @@ private:
     std::chrono::steady_clock::time_point lastClipClickTime_{};
     int lastClickedClipIdx_{-1};
     int lastClickedClipTrack_{-1};
+    std::chrono::steady_clock::time_point lastEmptyClickTime_{};
+    int lastEmptyClickedTrack_{-1};
+    uint32_t lastEmptyClickedBar_{0};
     std::chrono::steady_clock::time_point lastOverviewClickTime_{};
     int lastClickedOverviewChordIdx_{-1};
 

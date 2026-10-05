@@ -424,6 +424,19 @@ void AudioEngine::flushMeterFeedback() noexcept {
     while (feedbackQueue_.pop(dummyFeedback)) {}
 }
 
+uint32_t AudioEngine::addTrack(const std::string& name, NodeId targetNodeId, uint32_t numSteps) {
+    size_t idx = sequencer_.addTrack(name, targetNodeId, numSteps);
+    invalidateTrackStripCache();
+    updateMuteSoloRouting();
+    return static_cast<uint32_t>(idx);
+}
+
+void AudioEngine::removeTrack(uint32_t trackIndex) {
+    sequencer_.removeTrack(trackIndex);
+    invalidateTrackStripCache();
+    updateMuteSoloRouting();
+}
+
 void AudioEngine::invalidateTrackStripCache() noexcept {
     trackGainNodeCache_.clear();
     trackSourceNodeCache_.clear();

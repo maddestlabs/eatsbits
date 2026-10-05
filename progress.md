@@ -803,7 +803,65 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-04] Script Editor Scrolling, Gutter Scissoring, Blink Reset & Mobile Input Roadmap
+- **Architectural Context**:
+  - The script editor (`TextEditorWidget`) is the core coding environment for Eatscript DSP sound generation, audio FX, and custom synthesis.
+  - Previous issues identified:
+    1. Mouse wheel scrolling was inert in the primary script workstation (`DESIGN > <> CODE`) due to omitted event routing to `modularDesignView_` and `fullscreenDeviceModal_`.
+    2. Gutter line numbers spilled outside scroll bounds during fractional scrolling because scissoring was popped before drawing line numbers.
+    3. Cursor blinking was tied exclusively to focus gain, leaving the cursor hidden for up to 450ms when moving the cursor across the buffer.
+    4. Touch devices and phones lacked an ergonomic code entry pipeline without fighting virtual keyboard symbol menus and unwanted autocorrect.
+- **Key Changes Implemented**:
+  - **Universal Mouse Wheel & Shift-Scroll Routing**:
+    - Dispatched scroll events to `modularDesignView_` and `fullscreenDeviceModal_` in `GuiWindow::onMouseScroll`.
+    - Added Shift-modified horizontal scrolling in `TextEditorWidget::handlePointer`.
+  - **Strict Gutter Line Number Scissoring**:
+    - Wrapped line numbers in `r.pushScissor(gutterBounds_)` / `r.popScissor()` and scissored active line highlights, guaranteeing clean clipping against top and bottom borders.
+  - **Immediate Solid Cursor Blink Reset**:
+    - Introduced `resetCursorBlink()` and `lastCursor_` tracking. Any cursor movement, tap, text drag, keypress, or insertion resets blink phase immediately to solid visible ($t=0$).
+  - **Mobile Code Accessory Toolbar (`CodeAccessoryToolbar`)**:
+    - 27 touch-friendly coding buttons: `⇥` (Indent), `⇤` (Outdent), `( )`, `[ ]`, `{ }`, `"`, `'`, `:`, `=`, `+`, `-`, `*`, `/`, `.`, `,`, `_`, `#`, `->`, `param`, `ret`, `◀`, `▶`, `▲`, `▼`, `↶` (Undo), `↷` (Redo), `▶ RUN` (Compile & Run).
+    - Intelligent auto-pairing and selection wrapping for `()`, `[]`, `{}`, `""`, `''`.
+    - Smooth horizontal touch drag and wheel scrolling with viewport clamping.
+    - Automatic activation when `ctx.isMobile == true` or width < 650px (with manual override via `setAccessoryToolbarVisible`).
+  - **WebAssembly Soft Keyboard Input Proxy Bridge**:
+    - Invisible DOM `<textarea id="mobile-text-proxy">` bridge with `autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text"`.
+    - Streams `keydown` (Backspace, Enter, Tab, Escape, Arrows) and `input` (typing, swipe, dictation) events directly into C++ via exported `eats_on_web_char_input` and `eats_on_web_key_input`.
+    - Automatic show/hide synchronization on `onFocusGained()` and `onFocusLost()`.
+- **Validation**:
+  - Verified 100% pass across all 44 test suites in `.\build.ps1 -Test` (including `testTextEditorWidgetAndMinimap` suite 8 testing layout, taps, auto-pairing, math buttons, focus, and rendering).
+  - Verified clean WebAssembly/WebGPU compilation via `.\build-web.ps1 -NoServe`.
 
+---
+
+### [2026-10-05] Clip Duplicate & Delete Parity, Clean Empty Rendering, Track Deletion Sidebar Fix & Project History Integration
+- **Architectural Context**:
+  - Resolved phantom note rendering where empty clips generated fake visual notes.
+  - Resolved track deletion bug where deleting a track resulted in clip properties remaining blank or disappearing.
+  - Implemented Eatsbeats parity for clip duplication and deletion across views, sidebars, and keyboard hotkeys.
+  - Connected Track Properties and timeline manipulations to `HistoryManager` (`diffHistory_`) and enabled full undo/redo state restoration.
+- **Key Changes Implemented**:
+  - **Clean Clip Rendering**:
+    - Removed synthetic note fallback loop in `ArrangerView::renderClips`. Empty MIDI clips render clean empty lanes. Audio clips render stylized audio waveforms.
+  - **Track Deletion Sidebar Fix & Re-indexing**:
+    - Eliminated double track erasure between `ArrangerView::deleteTrack` and `GuiWindow::deleteTrack`.
+    - Automatically re-indexed all remaining clips' `clip.trackIndex` across remaining tracks on track deletion.
+    - Reset `inspectorTab_` to Track and `selectedClipIndex_` to -1 if deleted track was selected.
+    - Dynamically refreshed `allTrackNames` in drawer data so track dropdowns never display stale names.
+    - Added automatic clip 0 selection when switching to the Clip tab if clips exist on the track.
+  - **Clip Action Parity (`DUPLICATE` & `DELETE`)**:
+    - Added `DUPLICATE` and `DELETE` action cards to Track Properties sidebar (`TrackPropertiesPanel`) under the Clip section matching Eatsbeats `arranger_context_inspector.dart`.
+    - Added `duplicateClip(trackIdx, clipIdx)` and `deleteClip(trackIdx, clipIdx)` methods to `ArrangerView` and `GuiWindow`.
+    - Mapped keyboard shortcuts: Ctrl+D to duplicate selected clip, Delete / Backspace to delete selected clip.
+    - Supported empty clip state with "NO CLIP SELECTED" and `+ NEW CLIP` button.
+  - **Project History Undo & Redo Integration**:
+    - Wired `recordProjectHistory` for track deletion, track addition, track duplication, clip addition, clip duplication, clip deletion, and instrument/FX changes.
+    - Enhanced `undoHistory()`, `redoHistory()`, and `jumpToHistoryIndex()` to call `syncArrangerFromSequencer()`, cleanly restoring Arranger tracks/clips, Mixer channel strips, and Track Inspector state.
+- **Validation**:
+  - Verified with new Test 22 in `test_modular_ui.exe` (22/22 test suites passing cleanly).
+  - Verified full desktop Release build via `.\build.ps1`.
+
+---
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
 

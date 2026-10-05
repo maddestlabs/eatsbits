@@ -384,6 +384,84 @@
             });
         }
     </script>
+
+    <!-- Mobile Soft Keyboard Input Proxy Bridge for Touch Devices & Phones -->
+    <textarea id="mobile-text-proxy" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" style="position:fixed; opacity:0; pointer-events:none; left:-9999px; top:-9999px; width:1px; height:1px; font-size:16px;" tabindex="-1"></textarea>
+    <script>
+        (function() {
+            var proxy = document.getElementById('mobile-text-proxy');
+            if (!proxy) return;
+
+            window.eatsbitsShowSoftKeyboard = function() {
+                proxy.value = '';
+                proxy.focus({ preventScroll: true });
+            };
+            window.eatsbitsHideSoftKeyboard = function() {
+                proxy.blur();
+                proxy.value = '';
+            };
+
+            function sendChar(charStr) {
+                if (typeof Module === 'undefined') return;
+                for (var i = 0; i < charStr.length; i++) {
+                    var code = charStr.charCodeAt(i);
+                    if (Module._eats_on_web_char_input) {
+                        Module._eats_on_web_char_input(code);
+                    } else if (Module.ccall) {
+                        Module.ccall('eats_on_web_char_input', null, ['number'], [code]);
+                    }
+                }
+            }
+
+            function sendKey(glfwKey, mods) {
+                if (typeof Module === 'undefined') return;
+                if (Module._eats_on_web_key_input) {
+                    Module._eats_on_web_key_input(glfwKey, 1, mods || 0);
+                } else if (Module.ccall) {
+                    Module.ccall('eats_on_web_key_input', null, ['number', 'number', 'number'], [glfwKey, 1, mods || 0]);
+                }
+            }
+
+            proxy.addEventListener('keydown', function(e) {
+                if (e.key === 'Backspace') {
+                    sendKey(259, 0); // GLFW_KEY_BACKSPACE
+                    e.preventDefault();
+                    proxy.value = '';
+                } else if (e.key === 'Enter') {
+                    sendKey(257, 0); // GLFW_KEY_ENTER
+                    e.preventDefault();
+                    proxy.value = '';
+                } else if (e.key === 'Tab') {
+                    sendKey(258, e.shiftKey ? 1 : 0); // GLFW_KEY_TAB
+                    e.preventDefault();
+                } else if (e.key === 'Escape') {
+                    sendKey(256, 0); // GLFW_KEY_ESCAPE
+                    proxy.blur();
+                } else if (e.key === 'ArrowLeft') {
+                    sendKey(263, 0);
+                } else if (e.key === 'ArrowRight') {
+                    sendKey(262, 0);
+                } else if (e.key === 'ArrowUp') {
+                    sendKey(265, 0);
+                } else if (e.key === 'ArrowDown') {
+                    sendKey(264, 0);
+                }
+            });
+
+            proxy.addEventListener('input', function(e) {
+                if (e.inputType === 'deleteContentBackward') {
+                    sendKey(259, 0); // GLFW_KEY_BACKSPACE
+                    proxy.value = '';
+                    return;
+                }
+                var val = proxy.value;
+                if (val && val.length > 0) {
+                    sendChar(val);
+                    proxy.value = '';
+                }
+            });
+        })();
+    </script>
     {{{ SCRIPT }}}
 </body>
 </html>

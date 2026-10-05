@@ -270,6 +270,7 @@ private:
     std::vector<PaletteItemDef> paletteItems_;
     std::vector<std::pair<GuiChassisStyle, Rect2D>> inspectorThemeBtns_;
     std::vector<std::pair<Color, Rect2D>> inspectorAccentBtns_;
+    std::vector<std::pair<std::optional<Color>, Rect2D>> inspectorChassisTintBtns_;
     Rect2D inspectorWoodCheeksBtn_{0.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::pair<std::string, Rect2D>> inspectorParamBtns_;
     std::vector<std::pair<GuiKnobStyle, Rect2D>> inspectorKnobStyleBtns_;

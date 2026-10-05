@@ -150,6 +150,7 @@ add_library(eats_render_wgpu STATIC
     src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
+    src/ui/procedural_texture_system.cpp
     third_party/nanovg/nanovg.c
 )
 target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter)
@@ -513,5 +514,9 @@ add_test(NAME TerminalConsoleTest COMMAND test_terminal_console)
 add_executable(test_text_engine tests/test_text_engine.cpp)
 target_link_libraries(test_text_engine PRIVATE eats_core)
 add_test(NAME TextEngineTest COMMAND test_text_engine)
+
+add_executable(test_procedural_textures tests/test_procedural_textures.cpp)
+target_link_libraries(test_procedural_textures PRIVATE eatsbits_gui_core)
+add_test(NAME ProceduralTexturesTest COMMAND test_procedural_textures)
 
 endif() # BUILD_TESTING

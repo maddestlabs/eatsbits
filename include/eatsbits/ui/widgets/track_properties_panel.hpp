@@ -440,6 +440,10 @@ enum class TrackPropertiesHitArea {
     ClipTransposeDown,
     ClipEditInPianoRoll,
     ClipDuplicate,
+    ClipDelete,
+    AddClipButton,
+    DuplicateTrackButton,
+    DeleteTrackButton,
     ScrollbarThumb,
     ScrollbarTrack
 };
@@ -538,6 +542,13 @@ public:
     std::function<void(uint32_t trackIndex)> onMidiFxChanged;
     std::function<void(uint32_t trackIndex)> onAudioFxChanged;
     std::function<void(float scrollY)> onScrollChanged;
+    std::function<void(uint32_t trackIndex)> onAddClip;
+    std::function<void(uint32_t trackIndex)> onDeleteTrack;
+    std::function<void(uint32_t trackIndex)> onDuplicateTrack;
+    std::function<void(uint32_t trackIndex, int clipIndex)> onDuplicateClip;
+    std::function<void(uint32_t trackIndex, int clipIndex)> onDeleteClip;
+
+    bool executeHitAction(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data, const ViewContext& ctx);
 
 private:
     void renderTrackSelectorRibbon(BatchRenderer2D& r, const ThemeTokens& theme, const TrackPropertiesDrawerData& data);
@@ -555,6 +566,8 @@ private:
                           float cx, float cy, float cw, bool isWide);
     void renderAudioFxCard(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
                            float cx, float cy, float cw, bool isWide);
+    void renderTrackActionsCard(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
+                                float cx, float cy, float cw, bool isWide, float mouseX = -1.0f, float mouseY = -1.0f);
     void renderColorPalette(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
                             float cx, float cy, float cw);
     void renderMasterSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
@@ -562,7 +575,6 @@ private:
     void renderClipSection(BatchRenderer2D& r, const ThemeTokens& theme, TrackPropertiesDrawerData& data,
                            float cx, float cy, float cw, float mouseX, float mouseY);
     void renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme);
-    bool executeHitAction(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data, const ViewContext& ctx);
     bool openValueEditForHit(const TrackPropertiesHitResult& hit, TrackPropertiesDrawerData& data,
                              const std::function<void(const ValueEditRequest&)>& onOpenValueEdit);
     void update(float dt) noexcept;
@@ -615,6 +627,9 @@ private:
     Rect2D midiFxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D audioFxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D colorPaletteBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D trackActionsBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D headerMuteBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D headerSoloBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Active drag interaction state
     float dragStartY_{0.0f};

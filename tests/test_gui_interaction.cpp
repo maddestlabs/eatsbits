@@ -1771,9 +1771,9 @@ void testProjectHubAndTopLeftMenu() {
 
     // Modal layout geometry
     const float hubW = 540.0f;
-    const float hubH = 580.0f;
+    const float hubH = 620.0f;
     const float hubX = std::max(12.0f, (1280.0f - hubW) * 0.5f); // 370.0f
-    const float hubY = std::max(12.0f, (800.0f - hubH) * 0.5f);  // Centered vertically (110.0f)
+    const float hubY = std::max(12.0f, (800.0f - hubH) * 0.5f);  // Centered vertically (90.0f)
 
     // 2. Hit-test Top-Right Close Button
     float closeX = hubX + hubW - 20.0f;
@@ -2054,16 +2054,40 @@ void testProjectHubAndTopLeftMenu() {
     window.toggleHiDpi();
     REQUIRE(window.isHiDpiEnabled() == prevHiDpi);
 
-    // 8. Test Section 3: CRT Shader Drawer Constraints & Scrollbar Area
+    // 8. Test Section 3: Chassis & Panel Textures
     window.setProjectHubSection(3);
+    window.renderFrame();
+    {
+        const float topContentY = hubY + 50.0f;
+        const float headerStep = 36.0f;
+        float drawerX = hubX + 16.0f;
+        float drawerW = hubW - 32.0f;
+        float drawerY = topContentY + 4 * headerStep;
+
+        // Click texture chip (Brushed Aluminum, index 1)
+        float chipGap = 4.0f;
+        float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
+        float chip1X = drawerX + 12.0f + 1 * (chipW + chipGap) + 5.0f;
+        float chip1Y = drawerY + 22.0f + 5.0f;
+        auto texHit = window.hitTestProjectHub(chip1X, chip1Y);
+        REQUIRE(texHit.hit);
+        REQUIRE(texHit.action == ProjectHubAction::SetPanelTexture);
+        REQUIRE(texHit.panelStyle == GuiChassisStyle::BrushedAluminum);
+        window.onMouseDown(0, chip1X, chip1Y);
+        window.onMouseUp(0, chip1X, chip1Y);
+        REQUIRE(window.getPanelChassisTexture() == GuiChassisStyle::BrushedAluminum);
+    }
+
+    // 8b. Test Section 4: CRT Shader Drawer Constraints & Scrollbar Area
+    window.setProjectHubSection(4);
     window.renderFrame();
 
     const auto& crtScrollArea = window.getProjectHubScrollArea();
     REQUIRE(crtScrollArea.canScroll());
     REQUIRE(crtScrollArea.getViewport().w == hubW - 32.0f);
-    REQUIRE(crtScrollArea.getViewport().h == 272.0f);
+    REQUIRE(crtScrollArea.getViewport().h == 276.0f);
     REQUIRE(crtScrollArea.getContentHeight() == 586.0f);
-    REQUIRE(crtScrollArea.getMaxScroll() == 586.0f - 272.0f); // 314.0f
+    REQUIRE(crtScrollArea.getMaxScroll() == 586.0f - 276.0f); // 310.0f
 
     // Verify Scrollbar Track Bounds strictly inside drawer
     auto sbTrack = crtScrollArea.getScrollbarTrackBounds();
@@ -2086,7 +2110,7 @@ void testProjectHubAndTopLeftMenu() {
     const float topContentY = hubY + 50.0f;
     const float headerStep = 36.0f;
     float drawerX = hubX + 16.0f;
-    float drawerY = topContentY + 4 * headerStep;
+    float drawerY = topContentY + 5 * headerStep;
     float presetMaxClarityX = drawerX + 180.0f;
     float presetMaxClarityY = drawerY + 48.0f;
     auto presetHit = window.hitTestProjectHub(presetMaxClarityX, presetMaxClarityY);
@@ -2111,15 +2135,15 @@ void testProjectHubAndTopLeftMenu() {
     // Test switching to another section resets scroll
     window.onMouseScroll(0.0, -3.0);
     REQUIRE(window.getProjectHubScrollY() > 0.0f);
-    // Click Section 4 Header (Audio Engine Config)
-    float sec4HeaderY = drawerY + 272.0f + 6.0f;
-    auto sec4Hit = window.hitTestProjectHub(hubX + 50.0f, sec4HeaderY + 10.0f);
-    REQUIRE(sec4Hit.hit);
-    REQUIRE(sec4Hit.action == ProjectHubAction::SectionHeader);
-    REQUIRE(sec4Hit.sectionIndex == 4);
-    window.onMouseDown(0, hubX + 50.0f, sec4HeaderY + 10.0f);
-    window.onMouseUp(0, hubX + 50.0f, sec4HeaderY + 10.0f);
-    REQUIRE(window.getProjectHubSection() == 4);
+    // Click Section 5 Header (Audio Engine Config)
+    float sec5HeaderY = drawerY + 276.0f + 6.0f;
+    auto sec5Hit = window.hitTestProjectHub(hubX + 50.0f, sec5HeaderY + 10.0f);
+    REQUIRE(sec5Hit.hit);
+    REQUIRE(sec5Hit.action == ProjectHubAction::SectionHeader);
+    REQUIRE(sec5Hit.sectionIndex == 5);
+    window.onMouseDown(0, hubX + 50.0f, sec5HeaderY + 10.0f);
+    window.onMouseUp(0, hubX + 50.0f, sec5HeaderY + 10.0f);
+    REQUIRE(window.getProjectHubSection() == 5);
     REQUIRE(window.getProjectHubScrollY() == 0.0f);
 
     // 9. Test Global Keyboard Shortcuts for Project Operations

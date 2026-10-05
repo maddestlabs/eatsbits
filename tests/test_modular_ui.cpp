@@ -185,6 +185,47 @@ void testArrangerView() {
     PointerEvent miniScrub = makePointer(300.0f, 92.0f, PointerAction::Down);
     arranger.handlePointer(miniScrub, ctx);
 
+    // 9. Add new track: MUST NOT add default clip (clips.empty() == true)
+    bool trackAddedNotified = false;
+    uint32_t addedTrackIdx = 999;
+    arranger.onTrackAdded = [&](uint32_t idx) {
+        trackAddedNotified = true;
+        addedTrackIdx = idx;
+    };
+    arranger.addTrack("Audio Vocals", "audio", 0.3f, 0.7f, 1.0f);
+    assert(trackAddedNotified);
+    assert(addedTrackIdx == 5);
+    assert(arranger.getTracks().size() == 6);
+    assert(arranger.getTracks()[5].clips.empty()); // Zero default clips!
+
+    // 10. Double click empty grid to create new empty clip
+    // Track 5 row is at y: 100 + 5*64 = 420. Bar 3 is at x: 190 + 2*64 = 318
+    bool clipsChangedNotified = false;
+    arranger.onClipsChanged = [&]() { clipsChangedNotified = true; };
+    arranger.handlePointer(makePointer(320.0f, 440.0f, PointerAction::Down), ctx);
+    arranger.handlePointer(makePointer(320.0f, 440.0f, PointerAction::Down), ctx); // Double click
+    assert(arranger.getTracks()[5].clips.size() == 1);
+    assert(arranger.getTracks()[5].clips[0].startBar == 3);
+    assert(arranger.getTracks()[5].clips[0].notes.empty());
+    assert(clipsChangedNotified);
+
+    // 11. addClipToTrack appends after existing clips
+    arranger.addClipToTrack(5);
+    assert(arranger.getTracks()[5].clips.size() == 2);
+    assert(arranger.getTracks()[5].clips[1].startBar >= 7);
+
+    // 12. Duplicate track
+    size_t countBeforeDup = arranger.getTracks().size();
+    arranger.duplicateTrack(5);
+    assert(arranger.getTracks().size() == countBeforeDup + 1);
+    assert(arranger.getTracks().back().name.find("Copy") != std::string::npos);
+    assert(arranger.getTracks().back().clips.size() == 2);
+
+    // 13. Delete track
+    size_t countBeforeDel = arranger.getTracks().size();
+    arranger.deleteTrack(static_cast<uint32_t>(countBeforeDel - 1));
+    assert(arranger.getTracks().size() == countBeforeDel - 1);
+
     std::cout << "  [PASS] ArrangerView validated." << std::endl;
 }
 
@@ -528,6 +569,19 @@ void testMixerView() {
     mixer.setAutoDensityEnabled(false);
     mixer.setDensityMode(MixerDensityMode::Comfortable);
     mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+
+    // Verify channel shrinking when tracks are deleted
+    std::vector<std::string> names3 = {"Track 1", "Track 2", "Track 3"};
+    std::vector<float> vols3 = {0.8f, 0.8f, 0.8f};
+    std::vector<float> pans3 = {0.0f, 0.0f, 0.0f};
+    std::vector<bool> mutes3 = {false, false, false};
+    std::vector<bool> solos3 = {false, false, false};
+    std::vector<bool> freezes3 = {false, false, false};
+    std::vector<Color> cols3 = {Color(1.0f, 0.0f, 0.0f), Color(0.0f, 1.0f, 0.0f), Color(0.0f, 0.0f, 1.0f)};
+    mixer.syncFromWindow(names3, vols3, pans3, mutes3, solos3, freezes3, cols3,
+                         0, 1.0f, 0.0f, false, 0.0f, 0.0f, nullptr, nullptr, 0,
+                         false, 300.0f, true, true, true, true, true, true, false, 0.0f);
+    assert(mixer.getChannels().size() == 3);
 
     std::cout << "  [PASS] MixerView validated." << std::endl;
 }
@@ -1841,7 +1895,30 @@ void testTextEditorWidgetAndMinimap() {
     PointerEvent mapUp = makePointer(mmb.x + 20.0f, mmb.y + mmb.h * 0.90f, PointerAction::Up);
     editor.handlePointer(mapUp, ctx);
 
-    // 4. Verification in DesignView (DESIGN > Code)
+    // 4. Mouse Wheel Scrolling on Native & Web
+    editor.getPresenter().setScrollY(0.0f);
+    PointerEvent scrollDown = makePointer(100.0f, 100.0f, PointerAction::Scroll);
+    scrollDown.scrollY = -2.0f; // Wheel down
+    bool scrollHandled = editor.handlePointer(scrollDown, ctx);
+    assert(scrollHandled);
+    assert(editor.getPresenter().getScrollY() > 0.0f);
+
+    float scrolledY = editor.getPresenter().getScrollY();
+    PointerEvent scrollUp = makePointer(100.0f, 100.0f, PointerAction::Scroll);
+    scrollUp.scrollY = 1.0f; // Wheel up
+    editor.handlePointer(scrollUp, ctx);
+    assert(editor.getPresenter().getScrollY() < scrolledY);
+
+    // Horizontal scroll with Shift modifier
+    float initScrollX = editor.getPresenter().getScrollX();
+    PointerEvent shiftScroll = makePointer(100.0f, 100.0f, PointerAction::Scroll);
+    shiftScroll.scrollY = -2.0f;
+    shiftScroll.scrollX = 0.0f;
+    shiftScroll.mods.shift = true;
+    editor.handlePointer(shiftScroll, ctx);
+    assert(editor.getPresenter().getScrollX() > initScrollX);
+
+    // 5. Verification in DesignView (DESIGN > Code)
     DesignView designView;
     designView.setSubMode(DesignSubMode::Code);
     designView.layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), ctx);
@@ -1849,11 +1926,18 @@ void testTextEditorWidgetAndMinimap() {
     assert(!designView.getTextEditor().getText().empty());
     assert(designView.getTextEditor().getPresenter().getDocument().getLineCount() > 5);
 
+    // Mouse wheel scroll through DesignView in Code mode
+    const auto& desEdBounds = designView.getTextEditor().getBounds();
+    PointerEvent desScroll = makePointer(desEdBounds.x + 50.0f, desEdBounds.y + 50.0f, PointerAction::Scroll);
+    desScroll.scrollY = -2.0f;
+    bool desScrollHandled = designView.handlePointer(desScroll, ctx);
+    assert(desScrollHandled);
+
     // Switch active target to TB-303
     designView.selectTargetById("eats_303");
     assert(designView.getTextEditor().getText().find("TB-303") != std::string::npos);
 
-    // 5. Verification in EditView (EDIT > Script)
+    // 6. Verification in EditView (EDIT > Script)
     EditView editView;
     editView.setSubView(EditSubViewMode::Script);
     editView.layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), ctx);
@@ -1861,9 +1945,80 @@ void testTextEditorWidgetAndMinimap() {
     assert(!editView.getScriptEditor().getText().empty());
     assert(editView.getScriptEditor().getText().find("Clip:") != std::string::npos);
 
-    // 6. Test BatchRenderer2D rendering pass
+    // Mouse wheel scroll through EditView in Script mode
+    const auto& editEdBounds = editView.getScriptEditor().getBounds();
+    PointerEvent editScroll = makePointer(editEdBounds.x + 50.0f, editEdBounds.y + 50.0f, PointerAction::Scroll);
+    editScroll.scrollY = -2.0f;
+    bool editScrollHandled = editView.handlePointer(editScroll, ctx);
+    assert(editScrollHandled);
+
+    // 7. Test BatchRenderer2D rendering pass (validating gutter and line number scissoring)
     renderer.beginFrame(800.0f, 600.0f);
     editor.render(ctx);
+    renderer.endFrame();
+
+    // 8. Mobile Code Accessory Toolbar
+    TextEditorWidget mobileEditor;
+    ViewContext mobileCtx = ctx;
+    mobileCtx.isMobile = true;
+    mobileEditor.setText("x = 10\n");
+    mobileEditor.layout(Rect2D(0.0f, 0.0f, 400.0f, 500.0f), mobileCtx);
+
+    // Verify toolbar layout when mobile
+    assert(mobileEditor.getAccessoryToolbarBounds().h == 36.0f);
+    assert(mobileEditor.getAccessoryToolbarBounds().y == 500.0f - 36.0f);
+    assert(mobileEditor.getGutterBounds().h == 500.0f - 36.0f);
+    assert(mobileEditor.getTextAreaBounds().h == 500.0f - 36.0f);
+
+    // Test tap on Tab/Indent button (first button at x ~ tb.x + 15, y ~ tb.y + 15)
+    const auto& tb = mobileEditor.getAccessoryToolbarBounds();
+    PointerEvent tapIndent = makePointer(tb.x + 15.0f, tb.y + 15.0f, PointerAction::Down);
+    bool indentHandled = mobileEditor.handlePointer(tapIndent, mobileCtx);
+    assert(indentHandled);
+    assert(mobileEditor.getText().find("    x = 10") != std::string::npos);
+
+    // Test tap on Parens button (third button at x ~ tb.x + 95)
+    mobileEditor.setText("");
+    PointerEvent tapParens = makePointer(tb.x + 95.0f, tb.y + 15.0f, PointerAction::Down);
+    mobileEditor.handlePointer(tapParens, mobileCtx);
+    assert(mobileEditor.getText() == "()");
+    // Cursor placed inside parens at column 1
+    assert(mobileEditor.getPresenter().getCursor().column == 1);
+
+    // Test selection auto-wrapping with Parens
+    mobileEditor.setText("signal");
+    mobileEditor.getPresenter().setSelection({0, 0}, {0, 6});
+    mobileEditor.handlePointer(tapParens, mobileCtx);
+    assert(mobileEditor.getText() == "(signal)");
+
+    // Test tap on Plus button (tenth button at x ~ tb.x + 343)
+    mobileEditor.setText("out = a ");
+    mobileEditor.getPresenter().setCursor({0, 8}, false);
+    PointerEvent tapPlus = makePointer(tb.x + 343.0f, tb.y + 15.0f, PointerAction::Down);
+    mobileEditor.handlePointer(tapPlus, mobileCtx);
+    assert(mobileEditor.getText() == "out = a +");
+
+    // Test compile callback triggered from toolbar
+    bool compileTriggered = false;
+    mobileEditor.onCompileTriggered = [&]() { compileTriggered = true; };
+    // Scroll toolbar to reveal RunCompile at the end
+    PointerEvent scrollEv;
+    scrollEv.action = PointerAction::Scroll;
+    scrollEv.x = tb.x + 50.0f;
+    scrollEv.y = tb.y + 15.0f;
+    scrollEv.scrollX = -20.0f; // Scroll right
+    mobileEditor.handlePointer(scrollEv, mobileCtx);
+
+    // Test focus gain & lost
+    assert(!mobileEditor.isFocused());
+    mobileEditor.onFocusGained();
+    assert(mobileEditor.isFocused());
+    mobileEditor.onFocusLost();
+    assert(!mobileEditor.isFocused());
+
+    // Test rendering pass of mobile editor with accessory toolbar
+    renderer.beginFrame(400.0f, 500.0f);
+    mobileEditor.render(mobileCtx);
     renderer.endFrame();
 
     std::cout << "  [PASS] TextEditorWidget, Code Minimap & Script Workstations validated." << std::endl;
@@ -2220,6 +2375,222 @@ void testTooltips() {
     std::cout << "  [PASS] Header Transport & Track Properties Tooltip System verified." << std::endl;
 }
 
+void testTrackPropertiesActionsAndMuteSoloFix() {
+    std::cout << "[Test 21] Track Properties Parity (+ Add Clip, Duplicate, Delete) & Mute/Solo Bug Fix..." << std::endl;
+
+    audio::AudioEngine engine;
+    GuiWindow window(1280, 800);
+    bool initOk = window.initialize(engine);
+    assert(initOk);
+
+    size_t initialTracks = window.getArrangerTracks().size();
+    assert(initialTracks >= 5);
+    assert(window.getMixerStrips().size() == initialTracks);
+    assert(engine.getSequencer().getNumTracks() == initialTracks);
+
+    // 1. Add new track to project -> clean track with zero default clips
+    window.addTrackToProject("Synth Lead 2", "synth", 0.9f, 0.4f, 0.2f);
+    uint32_t newTrackIdx = static_cast<uint32_t>(initialTracks);
+
+    assert(window.getArrangerTracks().size() == initialTracks + 1);
+    assert(window.getMixerStrips().size() == initialTracks + 1);
+    assert(engine.getSequencer().getNumTracks() == initialTracks + 1);
+    assert(window.getArrangerTracks()[newTrackIdx].clips.empty());
+
+    // 2. Mute / Solo bug fix: newly added track can now be muted and soloed cleanly!
+    assert(!window.getArrangerTracks()[newTrackIdx].mute);
+    assert(!engine.getSequencer().isTrackMuted(newTrackIdx));
+
+    window.setTrackMuteState(newTrackIdx, true);
+    assert(window.getArrangerTracks()[newTrackIdx].mute);
+    assert(window.getMixerStrips()[newTrackIdx].mute);
+    assert(engine.getSequencer().isTrackMuted(newTrackIdx));
+
+    window.setTrackMuteState(newTrackIdx, false);
+    assert(!window.getArrangerTracks()[newTrackIdx].mute);
+    assert(!engine.getSequencer().isTrackMuted(newTrackIdx));
+
+    window.setTrackSoloState(newTrackIdx, true);
+    assert(window.getArrangerTracks()[newTrackIdx].solo);
+    assert(window.getMixerStrips()[newTrackIdx].solo);
+    assert(engine.getSequencer().isTrackSoloed(newTrackIdx));
+
+    window.setTrackSoloState(newTrackIdx, false);
+    assert(!window.getArrangerTracks()[newTrackIdx].solo);
+    assert(!engine.getSequencer().isTrackSoloed(newTrackIdx));
+
+    // 3. Duplicate track
+    size_t beforeDup = window.getArrangerTracks().size();
+    window.duplicateTrack(newTrackIdx);
+    assert(window.getArrangerTracks().size() == beforeDup + 1);
+    assert(window.getMixerStrips().size() == beforeDup + 1);
+    assert(engine.getSequencer().getNumTracks() == beforeDup + 1);
+
+    // 4. Add clip to track
+    size_t dupIdx = window.getArrangerTracks().size() - 1;
+    window.addClipToTrack(static_cast<uint32_t>(dupIdx));
+    assert(!window.getArrangerTracks()[dupIdx].clips.empty());
+
+    // 5. Delete track: ensure mixer config, audio engine, and sequencer get cleanly updated
+    size_t beforeDel = window.getArrangerTracks().size();
+    window.deleteTrack(static_cast<uint32_t>(dupIdx));
+    assert(window.getArrangerTracks().size() == beforeDel - 1);
+    assert(window.getMixerStrips().size() == beforeDel - 1);
+    assert(engine.getSequencer().getNumTracks() == beforeDel - 1);
+
+    // 6. Test Track Properties Action Card hit handling
+    TrackPropertiesPanel panel;
+    TrackPropertiesDrawerData data;
+    data.trackIndex = 0;
+    data.totalTracks = 5;
+
+    bool addClipHandled = false;
+    panel.onAddClip = [&](uint32_t) { addClipHandled = true; };
+    ViewContext dummyCtx;
+    TrackPropertiesHitResult hitAddClip{true, TrackPropertiesHitArea::AddClipButton, 0, 0.0f};
+    panel.executeHitAction(hitAddClip, data, dummyCtx);
+    assert(addClipHandled);
+
+    bool dupHandled = false;
+    panel.onDuplicateTrack = [&](uint32_t) { dupHandled = true; };
+    TrackPropertiesHitResult hitDup{true, TrackPropertiesHitArea::DuplicateTrackButton, 0, 0.0f};
+    panel.executeHitAction(hitDup, data, dummyCtx);
+    assert(dupHandled);
+
+    bool delHandled = false;
+    panel.onDeleteTrack = [&](uint32_t) { delHandled = true; };
+    TrackPropertiesHitResult hitDel{true, TrackPropertiesHitArea::DeleteTrackButton, 0, 0.0f};
+    panel.executeHitAction(hitDel, data, dummyCtx);
+    assert(delHandled);
+
+    std::cout << "  [PASS] Parity actions and mute/solo fix validated." << std::endl;
+}
+
+void testClipActionsAndHistoryRestoration() {
+    std::cout << "[Test 22/22] Clip Duplicate/Delete Parity, Clean Empty Rendering & History Undo/Redo..." << std::endl;
+
+    // 1. Verify ArrangerView empty clip behavior: zero notes, no phantom notes
+    ArrangerView arranger;
+    ViewContext ctx;
+    arranger.layout(Rect2D{0.0f, 0.0f, 1280.0f, 800.0f}, ctx);
+    assert(!arranger.getTracks().empty());
+
+    // Add a clean track
+    arranger.addTrack("Test Clean Track", "synth", 0.5f, 0.8f, 0.2f);
+    uint32_t cleanTrkIdx = static_cast<uint32_t>(arranger.getTracks().size() - 1);
+    assert(arranger.getTracks()[cleanTrkIdx].clips.empty());
+
+    // Add empty clip
+    arranger.addClipToTrack(cleanTrkIdx);
+    assert(arranger.getTracks()[cleanTrkIdx].clips.size() == 1);
+    const auto& emptyClip = arranger.getTracks()[cleanTrkIdx].clips[0];
+    assert(emptyClip.notes.empty()); // Must be clean with zero phantom notes
+    assert(!emptyClip.isAudio);
+
+    // 2. Test Clip Duplicate in ArrangerView
+    arranger.duplicateClip(cleanTrkIdx, 0);
+    assert(arranger.getTracks()[cleanTrkIdx].clips.size() == 2);
+    assert(arranger.getTracks()[cleanTrkIdx].clips[1].name.find("Copy") != std::string::npos);
+    assert(arranger.getTracks()[cleanTrkIdx].clips[1].startBar == emptyClip.startBar + emptyClip.lengthBars);
+    assert(arranger.getSelectedClipIndex() == 1);
+
+    // 3. Test Clip Delete in ArrangerView
+    arranger.deleteClip(cleanTrkIdx, 1);
+    assert(arranger.getTracks()[cleanTrkIdx].clips.size() == 1);
+    arranger.deleteClip(cleanTrkIdx, 0);
+    assert(arranger.getTracks()[cleanTrkIdx].clips.empty());
+    assert(arranger.getSelectedClipIndex() == -1);
+
+    // 4. Test Track Deletion resets clip index and re-indexes remaining clips
+    size_t trkCount = arranger.getTracks().size();
+    arranger.deleteTrack(cleanTrkIdx);
+    assert(arranger.getTracks().size() == trkCount - 1);
+    assert(arranger.getSelectedClipIndex() == -1);
+
+    // 5. Test TrackPropertiesPanel Clip Duplicate & Delete Hit Handling
+    TrackPropertiesPanel panel;
+    TrackPropertiesDrawerData data;
+    data.tab = TrackPropertiesTab::Clip;
+    data.trackIndex = 0;
+    data.selectedClipIndex = 0;
+    data.clipName = "Test Clip";
+
+    bool clipDupHandled = false;
+    uint32_t dupTrk = 99;
+    int dupClip = -1;
+    panel.onDuplicateClip = [&](uint32_t t, int c) {
+        clipDupHandled = true;
+        dupTrk = t;
+        dupClip = c;
+    };
+
+    ViewContext dummyCtx;
+    TrackPropertiesHitResult hitClipDup{true, TrackPropertiesHitArea::ClipDuplicate, 0, 0.0f};
+    panel.executeHitAction(hitClipDup, data, dummyCtx);
+    assert(clipDupHandled);
+    assert(dupTrk == 0 && dupClip == 0);
+
+    bool clipDelHandled = false;
+    uint32_t delTrk = 99;
+    int delClip = -1;
+    panel.onDeleteClip = [&](uint32_t t, int c) {
+        clipDelHandled = true;
+        delTrk = t;
+        delClip = c;
+    };
+
+    TrackPropertiesHitResult hitClipDel{true, TrackPropertiesHitArea::ClipDelete, 0, 0.0f};
+    panel.executeHitAction(hitClipDel, data, dummyCtx);
+    assert(clipDelHandled);
+    assert(delTrk == 0 && delClip == 0);
+
+    // 6. Test GuiWindow History Undo & Redo for Track Add/Delete and Clip Add/Duplicate/Delete
+    audio::AudioEngine engine;
+    GuiWindow window(1280, 800);
+    bool ok = window.initialize(engine);
+    assert(ok);
+
+    size_t baseTracks = window.getArrangerTracks().size();
+
+    // Add track
+    window.addTrackToProject("Undoable Synth", "synth", 0.4f, 0.7f, 0.9f);
+    assert(window.getArrangerTracks().size() == baseTracks + 1);
+
+    // Undo track addition
+    bool undone = window.undoHistory();
+    assert(undone);
+    assert(window.getArrangerTracks().size() == baseTracks);
+
+    // Redo track addition
+    bool redone = window.redoHistory();
+    assert(redone);
+    assert(window.getArrangerTracks().size() == baseTracks + 1);
+
+    // Add clip to the new track
+    uint32_t addedIdx = static_cast<uint32_t>(baseTracks);
+    window.addClipToTrack(addedIdx);
+    assert(window.getArrangerTracks()[addedIdx].clips.size() == 1);
+
+    // Duplicate clip
+    window.duplicateClip(addedIdx, 0);
+    assert(window.getArrangerTracks()[addedIdx].clips.size() == 2);
+
+    // Delete clip
+    window.deleteClip(addedIdx, 1);
+    assert(window.getArrangerTracks()[addedIdx].clips.size() == 1);
+
+    // Delete track
+    window.deleteTrack(addedIdx);
+    assert(window.getArrangerTracks().size() == baseTracks);
+
+    // Undo track deletion
+    bool undoDelete = window.undoHistory();
+    assert(undoDelete);
+    assert(window.getArrangerTracks().size() == baseTracks + 1);
+
+    std::cout << "  [PASS] Clip Duplicate/Delete, clean empty rendering and History Undo/Redo validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -2245,7 +2616,10 @@ int main() {
     testArrangerMixerDrawer();
     testPluginSearchDialog();
     testTooltips();
+    testTrackPropertiesActionsAndMuteSoloFix();
+    testClipActionsAndHistoryRestoration();
 
-    std::cout << "\n>>> ALL 20 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 22 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
+

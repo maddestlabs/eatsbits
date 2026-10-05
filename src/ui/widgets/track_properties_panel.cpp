@@ -442,7 +442,12 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
     float afxH = computeAudioFxRackHeight(data);
     audioFxBounds_ = Rect2D(contentX, curCardY, contentW, afxH);
     renderAudioFxCard(r, theme, data, audioFxBounds_.x, audioFxBounds_.y, audioFxBounds_.w, isWide);
-    curCardY += afxH + 12.0f;
+    curCardY += afxH + 8.0f;
+
+    float actionsH = 68.0f;
+    trackActionsBounds_ = Rect2D(contentX, curCardY, contentW, actionsH);
+    renderTrackActionsCard(r, theme, data, trackActionsBounds_.x, trackActionsBounds_.y, trackActionsBounds_.w, isWide, mouseX, mouseY);
+    curCardY += actionsH + 12.0f;
 
     totalContentHeight_ = (curCardY + scrollY_) - (bounds_.y + 8.0f);
     needScrollbar_ = (totalContentHeight_ > bounds_.h);
@@ -532,6 +537,39 @@ void TrackPropertiesPanel::renderHeaderCard(BatchRenderer2D& r, const ThemeToken
                     mouseY >= cy && mouseY <= cy + h);
     Color editColor = editHov ? theme.primaryAccent : theme.textSecondary;
     drawIconEdit(r, editBtnX + (editBtnW - editSize) * 0.5f, editBtnY + (editBtnH - editSize) * 0.5f, editSize, editColor);
+
+    // Mute and Solo Buttons on header card
+    float btnW = 20.0f;
+    float btnH = 20.0f;
+    float btnY = cy + (h - btnH) * 0.5f;
+    float soloX = editBtnX - 4.0f - btnW;
+    float muteX = soloX - 4.0f - btnW;
+    headerMuteBounds_ = Rect2D(muteX, btnY, btnW, btnH);
+    headerSoloBounds_ = Rect2D(soloX, btnY, btnW, btnH);
+
+    bool muteHov = (mouseX >= muteX && mouseX <= muteX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+    drawRoundedRect(r, muteX, btnY, btnW, btnH, 3.0f,
+                    data.mute ? 0.90f : (muteHov ? 0.28f : 0.18f),
+                    data.mute ? 0.22f : (muteHov ? 0.26f : 0.20f),
+                    data.mute ? 0.22f : (muteHov ? 0.28f : 0.24f), 0.95f);
+    drawRoundedRectOutline(r, muteX, btnY, btnW, btnH, 3.0f,
+                           data.mute ? 1.0f : (muteHov ? 0.55f : 0.30f),
+                           data.mute ? 0.35f : (muteHov ? 0.52f : 0.32f),
+                           data.mute ? 0.35f : (muteHov ? 0.55f : 0.36f), 0.8f, 1.0f);
+    drawCenteredText(r, "M", muteX, btnY + 2.0f, btnW, 14.0f, 9.5f,
+                     1.0f, 1.0f, 1.0f, 1.0f);
+
+    bool soloHov = (mouseX >= soloX && mouseX <= soloX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+    drawRoundedRect(r, soloX, btnY, btnW, btnH, 3.0f,
+                    data.solo ? 0.95f : (soloHov ? 0.28f : 0.18f),
+                    data.solo ? 0.80f : (soloHov ? 0.26f : 0.20f),
+                    data.solo ? 0.10f : (soloHov ? 0.28f : 0.24f), 0.95f);
+    drawRoundedRectOutline(r, soloX, btnY, btnW, btnH, 3.0f,
+                           data.solo ? 1.0f : (soloHov ? 0.55f : 0.30f),
+                           data.solo ? 0.85f : (soloHov ? 0.52f : 0.32f),
+                           data.solo ? 0.20f : (soloHov ? 0.55f : 0.36f), 0.8f, 1.0f);
+    drawCenteredText(r, "S", soloX, btnY + 2.0f, btnW, 14.0f, 9.5f,
+                     data.solo ? 0.05f : 1.0f, data.solo ? 0.05f : 1.0f, data.solo ? 0.05f : 1.0f, 1.0f);
 
     // Track Title (vertically centered on single line, size 10.0f matching clip title text)
     float titleX = iconBtnX + iconBtnW + 6.0f;
@@ -1219,6 +1257,76 @@ void TrackPropertiesPanel::renderColorPalette(BatchRenderer2D& r, const ThemeTok
     }
 }
 
+void TrackPropertiesPanel::renderTrackActionsCard(BatchRenderer2D& r, const ThemeTokens& theme,
+                                                  TrackPropertiesDrawerData& data, float cx, float cy, float cw,
+                                                  bool isWide, float mouseX, float mouseY) {
+    (void)isWide;
+    float h = 68.0f;
+    if (cy + h < bounds_.y || cy > bounds_.y + bounds_.h) return;
+
+    drawRoundedRect(r, cx, cy, cw, h, 6.0f,
+                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
+    drawRoundedRectOutline(r, cx, cy, cw, h, 6.0f,
+                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
+
+    // Header label: TRACK ACTIONS
+    drawText(r, "TRACK ACTIONS", cx + 10.0f, cy + 7.5f, 9.0f,
+             data.r, data.g, data.b, 1.0f);
+    std::string trkNumStr = "TRACK " + std::to_string(data.trackIndex + 1) + " OF " + std::to_string(data.totalTracks);
+    drawText(r, trkNumStr, cx + cw - 10.0f - (static_cast<float>(trkNumStr.size()) * 5.5f), cy + 7.5f, 8.5f,
+             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
+
+    // Action buttons row
+    float btnY = cy + 26.0f;
+    float btnH = 30.0f;
+    float gap = 6.0f;
+    float btnW = (cw - 20.0f - (gap * 2.0f)) / 3.0f;
+
+    float b1X = cx + 10.0f;
+    float b2X = b1X + btnW + gap;
+    float b3X = b2X + btnW + gap;
+
+    bool b1Hov = (mouseX >= b1X && mouseX <= b1X + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+    bool b2Hov = (mouseX >= b2X && mouseX <= b2X + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+    bool b3Hov = (mouseX >= b3X && mouseX <= b3X + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+
+    // Button 1: + ADD CLIP
+    drawRoundedRect(r, b1X, btnY, btnW, btnH, 4.0f,
+                    b1Hov ? 0.22f : 0.14f, b1Hov ? 0.25f : 0.16f, b1Hov ? 0.28f : 0.18f, 0.95f);
+    drawRoundedRectOutline(r, b1X, btnY, btnW, btnH, 4.0f,
+                           data.r, data.g, data.b, b1Hov ? 0.95f : 0.65f, 1.2f);
+    drawCenteredText(r, "+ ADD CLIP", b1X, btnY + 8.0f, btnW, 14.0f, 9.5f,
+                     data.r, data.g, data.b, 1.0f);
+
+    // Button 2: DUPLICATE
+    drawRoundedRect(r, b2X, btnY, btnW, btnH, 4.0f,
+                    b2Hov ? 0.22f : 0.14f, b2Hov ? 0.25f : 0.16f, b2Hov ? 0.28f : 0.18f, 0.95f);
+    drawRoundedRectOutline(r, b2X, btnY, btnW, btnH, 4.0f,
+                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, b2Hov ? 0.90f : 0.50f, 1.0f);
+    drawCenteredText(r, "DUPLICATE", b2X, btnY + 8.0f, btnW, 14.0f, 9.5f,
+                     b2Hov ? 1.0f : theme.textSecondary.r,
+                     b2Hov ? 1.0f : theme.textSecondary.g,
+                     b2Hov ? 1.0f : theme.textSecondary.b, 1.0f);
+
+    // Button 3: DELETE (disabled if only 1 track left)
+    bool canDelete = (data.totalTracks > 1);
+    if (canDelete) {
+        drawRoundedRect(r, b3X, btnY, btnW, btnH, 4.0f,
+                        b3Hov ? 0.35f : 0.18f, b3Hov ? 0.12f : 0.10f, b3Hov ? 0.14f : 0.11f, 0.95f);
+        drawRoundedRectOutline(r, b3X, btnY, btnW, btnH, 4.0f,
+                               1.0f, 0.30f, 0.40f, b3Hov ? 0.95f : 0.60f, 1.2f);
+        drawCenteredText(r, "DELETE", b3X, btnY + 8.0f, btnW, 14.0f, 9.5f,
+                         1.0f, 0.35f, 0.45f, 1.0f);
+    } else {
+        drawRoundedRect(r, b3X, btnY, btnW, btnH, 4.0f,
+                        0.10f, 0.10f, 0.12f, 0.60f);
+        drawRoundedRectOutline(r, b3X, btnY, btnW, btnH, 4.0f,
+                               0.25f, 0.25f, 0.28f, 0.40f, 1.0f);
+        drawCenteredText(r, "DELETE", b3X, btnY + 8.0f, btnW, 14.0f, 9.5f,
+                         0.40f, 0.40f, 0.45f, 0.6f);
+    }
+}
+
 void TrackPropertiesPanel::renderMasterSection(BatchRenderer2D& r, const ThemeTokens& theme,
                                                TrackPropertiesDrawerData& data, float cx, float cy, float cw,
                                                float mouseX, float mouseY) {
@@ -1286,6 +1394,22 @@ void TrackPropertiesPanel::renderClipSection(BatchRenderer2D& r, const ThemeToke
     (void)mouseX; (void)mouseY;
     float curY = cy;
 
+    if (data.selectedClipIndex < 0 || data.clipName.empty()) {
+        float emptyH = 120.0f;
+        drawRoundedRect(r, cx, curY, cw, emptyH, 6.0f, theme.controlBackground, 0.95f);
+        drawRoundedRectOutline(r, cx, curY, cw, emptyH, 6.0f, theme.borderSubtle, 0.6f, 1.0f);
+        drawText(r, "NO CLIP SELECTED", cx + 16.0f, curY + 16.0f, 12.0f,
+                 theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 1.0f);
+        drawText(r, "Select an existing clip on the timeline or create a new one.",
+                 cx + 16.0f, curY + 38.0f, 9.5f,
+                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.9f);
+        float addBtnW = 120.0f;
+        drawButton(r, Rect2D(cx + 16.0f, curY + 68.0f, addBtnW, 28.0f),
+                   "+ NEW CLIP", theme.primaryAccent * 0.25f, theme.primaryAccent, theme.primaryAccent,
+                   9.5f, 4.0f, 1.0f);
+        return;
+    }
+
     float headH = 50.0f;
     drawRoundedRect(r, cx, curY, cw, headH, 6.0f, theme.controlBackground, 0.95f);
     drawRoundedRectOutline(r, cx, curY, cw, headH, 6.0f, theme.borderSubtle, 0.6f, 1.0f);
@@ -1316,6 +1440,29 @@ void TrackPropertiesPanel::renderClipSection(BatchRenderer2D& r, const ThemeToke
     drawButton(r, Rect2D(cx + cw - editBtnW - 12.0f, curY + 54.0f, editBtnW, 24.0f),
                "[ EDIT IN PIANO ROLL ]", theme.secondaryAccent * 0.25f, theme.secondaryAccent, theme.secondaryAccent,
                8.5f, 3.0f, 1.0f);
+    curY += timeH + 8.0f;
+
+    // Clip Actions Card (Duplicate & Delete Parity with Eatsbeats)
+    float actH = 50.0f;
+    drawRoundedRect(r, cx, curY, cw, actH, 6.0f, theme.controlBackground, 0.95f);
+    drawRoundedRectOutline(r, cx, curY, cw, actH, 6.0f, theme.borderSubtle, 0.6f, 1.0f);
+
+    float actBtnW = (cw - 32.0f) * 0.5f;
+    Rect2D dupRect(cx + 12.0f, curY + 12.0f, actBtnW, 26.0f);
+    Rect2D delRect(cx + 20.0f + actBtnW, curY + 12.0f, actBtnW, 26.0f);
+
+    // Duplicate Clip button
+    drawButton(r, dupRect, "DUPLICATE",
+               theme.primaryAccent * 0.25f, theme.primaryAccent, theme.primaryAccent,
+               9.0f, 3.5f, 1.0f);
+
+    // Delete Clip button (crimson red)
+    Color delBg(0.25f, 0.08f, 0.12f, 0.85f);
+    Color delBorder(1.0f, 0.30f, 0.43f, 0.90f);
+    Color delText(1.0f, 0.40f, 0.50f, 1.0f);
+    drawButton(r, delRect, "DELETE",
+               delBg, delBorder, delText,
+               9.0f, 3.5f, 1.0f);
 }
 
 void TrackPropertiesPanel::renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme) {
@@ -1431,6 +1578,20 @@ std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackProp
         }
         case TrackPropertiesHitArea::EqToggle:
             return "Toggle 3-Band Parametric EQ";
+        case TrackPropertiesHitArea::MuteButton:
+            return data.mute ? "Unmute Track (M)" : "Mute Track (M)";
+        case TrackPropertiesHitArea::SoloButton:
+            return data.solo ? "Deactivate Solo (S)" : "Solo Track (S)";
+        case TrackPropertiesHitArea::AddClipButton:
+            return "Create New Empty Clip on Track";
+        case TrackPropertiesHitArea::DuplicateTrackButton:
+            return "Duplicate Track & Settings";
+        case TrackPropertiesHitArea::DeleteTrackButton:
+            return (data.totalTracks <= 1) ? "Cannot delete only remaining track" : "Delete Track";
+        case TrackPropertiesHitArea::ClipDuplicate:
+            return "Duplicate Selected Clip";
+        case TrackPropertiesHitArea::ClipDelete:
+            return "Delete Selected Clip";
         case TrackPropertiesHitArea::ClipEditInPianoRoll:
             return "Open Selected Clip in Piano Roll / MIDI Editor";
         case TrackPropertiesHitArea::ClipLoopToggle:
@@ -1475,6 +1636,63 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         }
     }
 
+    // Clip Mode Hits
+    if (data.tab == TrackPropertiesTab::Clip) {
+        float cx = bounds_.x + 8.0f;
+        float cw = bounds_.w - 16.0f;
+        float curY = bounds_.y + 8.0f - scrollY_;
+
+        if (data.selectedClipIndex < 0 || data.clipName.empty()) {
+            // Check "+ NEW CLIP" button hit
+            float addBtnW = 120.0f;
+            Rect2D addRect(cx + 16.0f, curY + 68.0f, addBtnW, 28.0f);
+            if (addRect.contains(mx, my)) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::AddClipButton;
+                return res;
+            }
+            return res;
+        }
+
+        float headH = 50.0f;
+        curY += headH + 8.0f;
+
+        // Timing & Looping Card
+        float timeH = 90.0f;
+        float loopBtnW = 90.0f;
+        Rect2D loopBtn(cx + 12.0f, curY + 54.0f, loopBtnW, 24.0f);
+        if (loopBtn.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::ClipLoopToggle;
+            return res;
+        }
+
+        float editBtnW = 140.0f;
+        Rect2D editBtn(cx + cw - editBtnW - 12.0f, curY + 54.0f, editBtnW, 24.0f);
+        if (editBtn.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::ClipEditInPianoRoll;
+            return res;
+        }
+        curY += timeH + 8.0f;
+
+        // Clip Actions Card (Duplicate & Delete)
+        float actBtnW = (cw - 32.0f) * 0.5f;
+        Rect2D dupRect(cx + 12.0f, curY + 12.0f, actBtnW, 26.0f);
+        Rect2D delRect(cx + 20.0f + actBtnW, curY + 12.0f, actBtnW, 26.0f);
+        if (dupRect.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::ClipDuplicate;
+            return res;
+        }
+        if (delRect.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::ClipDelete;
+            return res;
+        }
+        return res;
+    }
+
     // Header Card Hits: [Icon] [Title] [EDIT]
     if (headerCardBounds_.contains(mx, my)) {
         float cx = headerCardBounds_.x;
@@ -1499,6 +1717,19 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         float editBtnH = 20.0f;
         float editBtnX = cx + cw - 12.0f - editBtnW;
         float editBtnY = cy + (h - editBtnH) * 0.5f;
+
+        // Check Mute & Solo buttons on header card
+        if (headerMuteBounds_.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MuteButton;
+            return res;
+        }
+        if (headerSoloBounds_.contains(mx, my)) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::SoloButton;
+            return res;
+        }
+
         if (mx >= editBtnX - 4.0f && mx <= editBtnX + editBtnW + 4.0f && my >= cy && my <= cy + h) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::RenameButton;
@@ -1885,6 +2116,40 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         }
     }
 
+    // Track Actions Hits (+ Add Clip, Duplicate, Delete Track)
+    if (trackActionsBounds_.contains(mx, my)) {
+        float cx = trackActionsBounds_.x;
+        float cy = trackActionsBounds_.y;
+        float cw = trackActionsBounds_.w;
+        float btnY = cy + 26.0f;
+        float btnH = 30.0f;
+        float gap = 6.0f;
+        float btnW = (cw - 20.0f - (gap * 2.0f)) / 3.0f;
+        float b1X = cx + 10.0f;
+        float b2X = b1X + btnW + gap;
+        float b3X = b2X + btnW + gap;
+
+        if (my >= btnY && my <= btnY + btnH) {
+            if (mx >= b1X && mx <= b1X + btnW) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::AddClipButton;
+                return res;
+            }
+            if (mx >= b2X && mx <= b2X + btnW) {
+                res.hit = true;
+                res.area = TrackPropertiesHitArea::DuplicateTrackButton;
+                return res;
+            }
+            if (mx >= b3X && mx <= b3X + btnW) {
+                if (data.totalTracks > 1) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::DeleteTrackButton;
+                }
+                return res;
+            }
+        }
+    }
+
     return res;
 }
 
@@ -1956,6 +2221,45 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
     if (hit.area == TrackPropertiesHitArea::FreezeButton) {
         data.freeze = !data.freeze;
         if (onFreezeToggled) onFreezeToggled(data.trackIndex, data.freeze);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::AddClipButton) {
+        if (onAddClip) onAddClip(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::DuplicateTrackButton) {
+        if (onDuplicateTrack) onDuplicateTrack(data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::DeleteTrackButton) {
+        if (data.totalTracks > 1 && onDeleteTrack) {
+            onDeleteTrack(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ClipDuplicate) {
+        if (onDuplicateClip) onDuplicateClip(data.trackIndex, data.selectedClipIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ClipDelete) {
+        if (onDeleteClip) onDeleteClip(data.trackIndex, data.selectedClipIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ClipEditInPianoRoll) {
+        if (ctx.onJumpToClipEdit && data.selectedClipIndex >= 0) {
+            ctx.onJumpToClipEdit(data.trackIndex, data.selectedClipIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ClipLoopToggle) {
+        data.clipLooped = !data.clipLooped;
         return true;
     }
 

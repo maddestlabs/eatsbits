@@ -41,6 +41,13 @@ struct Color {
         return (ur << 24) | (ug << 16) | (ub << 8) | ua;
     }
 
+    [[nodiscard]] constexpr bool operator==(const Color& o) const noexcept {
+        return toRgba8() == o.toRgba8();
+    }
+    [[nodiscard]] constexpr bool operator!=(const Color& o) const noexcept {
+        return toRgba8() != o.toRgba8();
+    }
+
     [[nodiscard]] constexpr Color withAlpha(float newAlpha) const noexcept {
         return Color(r, g, b, std::clamp(newAlpha, 0.0f, 1.0f));
     }

@@ -274,6 +274,7 @@ public:
     SequencerTrack* getTrack(size_t trackIdx) noexcept;
     const SequencerTrack* getTrack(size_t trackIdx) const noexcept;
     size_t addTrack(const std::string& name, audio::NodeId targetNodeId, uint32_t numSteps = 16);
+    void removeTrack(size_t trackIdx);
 
     // Musical time context for live MIDI FX transformations
     void setTimeContext(const eatscript::TimeContext& ctx) noexcept { timeContext_ = ctx; }

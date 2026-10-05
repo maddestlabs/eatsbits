@@ -146,6 +146,21 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
     };
+    panel_.onAddClip = [this](uint32_t trackIdx) {
+        if (onAddClip) onAddClip(trackIdx);
+    };
+    panel_.onDeleteTrack = [this](uint32_t trackIdx) {
+        if (onDeleteTrack) onDeleteTrack(trackIdx);
+    };
+    panel_.onDuplicateTrack = [this](uint32_t trackIdx) {
+        if (onDuplicateTrack) onDuplicateTrack(trackIdx);
+    };
+    panel_.onDuplicateClip = [this](uint32_t trackIdx, int clipIdx) {
+        if (onDuplicateClip) onDuplicateClip(trackIdx, clipIdx);
+    };
+    panel_.onDeleteClip = [this](uint32_t trackIdx, int clipIdx) {
+        if (onDeleteClip) onDeleteClip(trackIdx, clipIdx);
+    };
 
     // Configure embedded PluginSearchDialog callback to sync track identity
     panel_.getPluginSearchDialog().onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex) {
@@ -505,6 +520,12 @@ void TrackInspectorView::syncFromWindow(
         nt.name = "Track " + std::to_string(tracks_.size() + 1);
         syncKnobsForTrack(nt);
         tracks_.push_back(nt);
+    }
+    if (tracks_.size() > count) {
+        tracks_.resize(count);
+    }
+    if (selectedTrackIndex_ >= tracks_.size() && !tracks_.empty()) {
+        selectedTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
     }
 
     for (size_t i = 0; i < count; ++i) {

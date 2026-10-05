@@ -1,5 +1,6 @@
 #include "eatsbits/ui/gui_panel_def.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/procedural_texture_system.hpp"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
@@ -24,25 +25,36 @@ void drawGuiFaceplate(BatchRenderer2D& r,
     // 1. Chassis background style
     float cr = 0.14f, cg = 0.16f, cb = 0.20f;
     switch (panel.chassisStyle) {
-        case GuiChassisStyle::DarkChassis: cr = 0.13f; cg = 0.14f; cb = 0.18f; break;
-        case GuiChassisStyle::PcbGreen:    cr = 0.06f; cg = 0.24f; cb = 0.12f; break;
-        case GuiChassisStyle::MinimalWhite:cr = 0.92f; cg = 0.93f; cb = 0.95f; break;
-        case GuiChassisStyle::Silver:      cr = 0.76f; cg = 0.77f; cb = 0.80f; break;
-        case GuiChassisStyle::Snes:        cr = 0.78f; cg = 0.77f; cb = 0.75f; break;
-        case GuiChassisStyle::Grunge:      cr = 0.18f; cg = 0.14f; cb = 0.12f; break;
-        case GuiChassisStyle::Walnut:      cr = 0.28f; cg = 0.17f; cb = 0.10f; break;
-        case GuiChassisStyle::Rosewood:    cr = 0.22f; cg = 0.08f; cb = 0.06f; break;
-        case GuiChassisStyle::BrushedSteel:cr = 0.25f; cg = 0.27f; cb = 0.32f; break;
-        case GuiChassisStyle::Carbon:      cr = 0.08f; cg = 0.09f; cb = 0.11f; break;
+        case GuiChassisStyle::DarkChassis:     cr = 0.13f; cg = 0.14f; cb = 0.18f; break;
+        case GuiChassisStyle::PcbGreen:        cr = 0.06f; cg = 0.24f; cb = 0.12f; break;
+        case GuiChassisStyle::MinimalWhite:    cr = 0.92f; cg = 0.93f; cb = 0.95f; break;
+        case GuiChassisStyle::Silver:          cr = 0.76f; cg = 0.77f; cb = 0.80f; break;
+        case GuiChassisStyle::Snes:            cr = 0.78f; cg = 0.77f; cb = 0.75f; break;
+        case GuiChassisStyle::Grunge:          cr = 0.18f; cg = 0.14f; cb = 0.12f; break;
+        case GuiChassisStyle::Walnut:          cr = 0.28f; cg = 0.17f; cb = 0.10f; break;
+        case GuiChassisStyle::Rosewood:        cr = 0.22f; cg = 0.08f; cb = 0.06f; break;
+        case GuiChassisStyle::BrushedSteel:    cr = 0.25f; cg = 0.27f; cb = 0.32f; break;
+        case GuiChassisStyle::BrushedAluminum: cr = 0.75f; cg = 0.77f; cb = 0.82f; break;
+        case GuiChassisStyle::MattePowderCoat: cr = 0.15f; cg = 0.16f; cb = 0.19f; break;
+        case GuiChassisStyle::Bakelite:        cr = 0.32f; cg = 0.11f; cb = 0.06f; break;
+        case GuiChassisStyle::CrinklePaint:    cr = 0.16f; cg = 0.16f; cb = 0.18f; break;
+        case GuiChassisStyle::Carbon:          cr = 0.08f; cg = 0.09f; cb = 0.11f; break;
+    }
+
+    if (panel.chassisTint.has_value()) {
+        cr = panel.chassisTint->r;
+        cg = panel.chassisTint->g;
+        cb = panel.chassisTint->b;
     }
 
     bool isLightChassis = (panel.chassisStyle == GuiChassisStyle::MinimalWhite);
-    drawRoundedRect(r, fpX, fpY, fpW, fpH, panel.cornerRadius, cr, cg, cb, 1.0f);
-    if (isLightChassis) {
-        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius, 0.68f, 0.71f, 0.76f, 0.9f, 1.2f);
+    if (!isLightChassis) {
+        ProceduralTextureSystem::instance().drawFaceplateBackground(&r, rect, panel.chassisStyle, theme,
+                                                                   panel.chassisTint, panel.textureWear,
+                                                                   panel.cornerRadius);
     } else {
-        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius,
-                               panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.75f, 1.8f);
+        drawRoundedRect(r, fpX, fpY, fpW, fpH, panel.cornerRadius, cr, cg, cb, 1.0f);
+        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius, 0.68f, 0.71f, 0.76f, 0.9f, 1.2f);
     }
 
     // 2. Vintage Wood Cheeks on sides (skipped for clean minimal white or when disabled)

@@ -82,6 +82,14 @@ size_t StepSequencer::addTrack(const std::string& name, audio::NodeId targetNode
     return patterns_[activePatternIndex_].tracks.size() - 1;
 }
 
+void StepSequencer::removeTrack(size_t trackIdx) {
+    for (auto& pat : patterns_) {
+        if (trackIdx < pat.tracks.size() && pat.tracks.size() > 1) {
+            pat.tracks.erase(pat.tracks.begin() + trackIdx);
+        }
+    }
+}
+
 void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) noexcept {
     if (!transport_.isPlaying()) {
         return;

@@ -422,6 +422,32 @@ ArrangerView::ArrangerView() {
             }
         }
     };
+    propertiesDrawer_.onAddClip = [this](uint32_t trackIdx) {
+        addClipToTrack(trackIdx);
+        if (onAddClip) onAddClip(trackIdx);
+    };
+    propertiesDrawer_.onDeleteTrack = [this](uint32_t trackIdx) {
+        if (onTrackDeleted) {
+            onTrackDeleted(trackIdx);
+        } else {
+            deleteTrack(trackIdx);
+        }
+    };
+    propertiesDrawer_.onDuplicateTrack = [this](uint32_t trackIdx) {
+        if (onTrackDuplicated) {
+            onTrackDuplicated(trackIdx);
+        } else {
+            duplicateTrack(trackIdx);
+        }
+    };
+    propertiesDrawer_.onDuplicateClip = [this](uint32_t trackIdx, int clipIdx) {
+        duplicateClip(trackIdx, clipIdx);
+        if (onDuplicateClip) onDuplicateClip(trackIdx, clipIdx);
+    };
+    propertiesDrawer_.onDeleteClip = [this](uint32_t trackIdx, int clipIdx) {
+        deleteClip(trackIdx, clipIdx);
+        if (onDeleteClip) onDeleteClip(trackIdx, clipIdx);
+    };
 
     // Docked ArrangerMixerDrawer callbacks
     mixerDrawer_.onTrackSelected = [this](uint32_t trackIdx) {
@@ -497,14 +523,143 @@ void ArrangerView::addTrack(const std::string& name, const std::string& instrume
     t.instrumentEngine = "synth";
     t.iconRef = "preset:inst_synth";
     t.r = r; t.g = g; t.b = b;
-    // Add default initial clip
-    std::string cid = "clip_" + std::to_string(tracks_.size() + 1);
-    t.clips.push_back({cid, name + " Clip", static_cast<uint32_t>(tracks_.size()), 1, 4, r, g, b, false, false, false, 4, 0, 1.0f, false});
+    // Clean track ready for audio or MIDI clips - no default clip inserted
+    t.clips.clear();
     tracks_.push_back(t);
     activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
     selectedClipIndex_ = -1;
     inspectorTab_ = ArrangerInspectorTab::Track;
     inspectorOpen_ = true;
+    if (onTrackAdded) {
+        onTrackAdded(activeTrackIndex_);
+    }
+    if (onTrackSelected) {
+        onTrackSelected(activeTrackIndex_);
+    }
+}
+
+void ArrangerView::addClipToTrack(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    if (startBar == 1 && !track.clips.empty()) {
+        uint32_t endB = 1;
+        for (const auto& c : track.clips) {
+            endB = std::max(endB, c.startBar + c.lengthBars);
+        }
+        startBar = endB;
+    }
+    createEmptyClipAt(trackIdx, startBar, lengthBars);
+}
+
+void ArrangerView::createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    std::string cid = "clip_" + std::to_string(trackIdx + 1) + "_" + std::to_string(startBar);
+    ArrangerTimelineClip cl;
+    cl.id = cid;
+    cl.name = track.name + " Clip " + std::to_string(track.clips.size() + 1);
+    cl.trackIndex = trackIdx;
+    cl.startBar = startBar;
+    cl.lengthBars = lengthBars;
+    cl.r = track.r;
+    cl.g = track.g;
+    cl.b = track.b;
+    cl.isAudio = false;
+    cl.isLooped = false;
+    cl.loopLengthBars = lengthBars;
+    cl.volumeScale = 1.0f;
+    cl.mute = false;
+    track.clips.push_back(cl);
+    selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
+    activeTrackIndex_ = trackIdx;
+    inspectorTab_ = ArrangerInspectorTab::Clip;
+    inspectorOpen_ = true;
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
+}
+
+void ArrangerView::duplicateClip(uint32_t trackIdx, int clipIdx) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    if (clipIdx < 0 || clipIdx >= static_cast<int>(track.clips.size())) return;
+
+    const auto& src = track.clips[clipIdx];
+    ArrangerTimelineClip dup = src;
+    dup.id = "clip_" + std::to_string(trackIdx + 1) + "_" + std::to_string(track.clips.size() + 1);
+    dup.name = src.name + " (Copy)";
+    dup.startBar = src.startBar + src.lengthBars;
+    track.clips.push_back(dup);
+
+    activeTrackIndex_ = trackIdx;
+    selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
+    inspectorTab_ = ArrangerInspectorTab::Clip;
+    inspectorOpen_ = true;
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
+}
+
+void ArrangerView::deleteClip(uint32_t trackIdx, int clipIdx) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    if (clipIdx < 0 || clipIdx >= static_cast<int>(track.clips.size())) return;
+
+    track.clips.erase(track.clips.begin() + clipIdx);
+    if (track.clips.empty()) {
+        selectedClipIndex_ = -1;
+        inspectorTab_ = ArrangerInspectorTab::Track;
+    } else {
+        selectedClipIndex_ = std::min(clipIdx, static_cast<int>(track.clips.size() - 1));
+        inspectorTab_ = ArrangerInspectorTab::Clip;
+    }
+    activeTrackIndex_ = trackIdx;
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
+}
+
+void ArrangerView::deleteTrack(uint32_t trackIdx) {
+    if (tracks_.size() <= 1 || trackIdx >= tracks_.size()) return;
+    tracks_.erase(tracks_.begin() + trackIdx);
+    if (activeTrackIndex_ >= tracks_.size()) {
+        activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
+    }
+    for (size_t t = 0; t < tracks_.size(); ++t) {
+        for (auto& cl : tracks_[t].clips) {
+            cl.trackIndex = static_cast<uint32_t>(t);
+        }
+    }
+    selectedClipIndex_ = -1;
+    inspectorTab_ = ArrangerInspectorTab::Track;
+    drawerData_.tab = TrackPropertiesTab::Track;
+    drawerData_.selectedClipIndex = -1;
+    drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+    drawerData_.trackIndex = activeTrackIndex_;
+    drawerData_.allTrackNames.clear();
+    for (const auto& trk : tracks_) {
+        drawerData_.allTrackNames.push_back(trk.name);
+    }
+    if (onTrackDeleted) onTrackDeleted(trackIdx);
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
+}
+
+void ArrangerView::duplicateTrack(uint32_t trackIdx) {
+    if (trackIdx >= tracks_.size()) return;
+    ArrangerTimelineTrack dup = tracks_[trackIdx];
+    dup.name += " (Copy)";
+    uint32_t newTrackIdx = static_cast<uint32_t>(tracks_.size());
+    for (size_t i = 0; i < dup.clips.size(); ++i) {
+        dup.clips[i].id = "clip_" + std::to_string(newTrackIdx + 1) + "_" + std::to_string(i + 1);
+        dup.clips[i].trackIndex = newTrackIdx;
+    }
+    tracks_.push_back(dup);
+    activeTrackIndex_ = newTrackIdx;
+    selectedClipIndex_ = -1;
+    drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+    drawerData_.trackIndex = activeTrackIndex_;
+    if (onTrackDuplicated) onTrackDuplicated(trackIdx);
+    if (onTrackAdded) onTrackAdded(activeTrackIndex_);
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 }
 
 void ArrangerView::addMidiFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type) {
@@ -1203,23 +1358,17 @@ void ArrangerView::renderClips(const ViewContext& ctx) {
                         // Pure sharp rectangle (performant single-quad draw)
                         drawRect(r, nx, ny, nw, nh, nr, ng, nb, na);
                     }
-                } else {
-                    for (int step = 0; step < 16; ++step) {
-                        if ((step % 2 == 0) || (step == 7) || (step == 11)) {
-                            float nx = cycleStartX + static_cast<float>(step) * (patternW / 16.0f) + 1.5f;
-                            float nw = std::max(4.0f, (patternW / 16.0f) - 3.0f);
-                            if (nx + nw > cx + cw) continue;
-
-                            float ny = noteAreaY + static_cast<float>((step * 3) % static_cast<int>(std::max(1.0f, noteAreaH - 6.0f)));
-                            float vel = (step % 4 == 0) ? 1.0f : ((step == 7 || step == 11) ? 0.85f : 0.60f);
-                            float intensity = 0.35f + 0.65f * vel;
-                            float nr = std::clamp(clip.r * intensity, 0.0f, 1.0f);
-                            float ng = std::clamp(clip.g * intensity, 0.0f, 1.0f);
-                            float nb = std::clamp(clip.b * intensity, 0.0f, 1.0f);
-                            float na = 0.50f + 0.50f * vel;
-
-                            drawRect(r, nx, ny, nw, 5.0f, nr, ng, nb, na);
-                        }
+                } else if (clip.isAudio) {
+                    // Stylized audio waveform preview for audio clips
+                    int waveSegments = static_cast<int>(patternW / 4.0f);
+                    for (int s = 0; s < waveSegments; ++s) {
+                        float wx = cycleStartX + static_cast<float>(s) * 4.0f;
+                        if (wx > cx + cw) break;
+                        float phase = static_cast<float>(s) * 0.28f;
+                        float amp = std::abs(std::sin(phase) * 0.65f + std::sin(phase * 2.3f) * 0.35f);
+                        float wh = std::max(2.0f, amp * (noteAreaH - 6.0f));
+                        float wy = noteAreaY + (noteAreaH - wh) * 0.5f;
+                        drawRect(r, wx, wy, 2.5f, wh, clip.r * 0.75f, clip.g * 0.75f, clip.b * 0.75f, 0.65f);
                     }
                 }
             }
@@ -1498,6 +1647,16 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
         drawerData_.knob3Name = track.knob3Name;
         drawerData_.knob4Name = track.knob4Name;
 
+        drawerData_.allTrackNames.clear();
+        for (const auto& trk : tracks_) {
+            drawerData_.allTrackNames.push_back(trk.name);
+        }
+
+        // If in Clip tab and no clip was selected, auto-select clip 0 if available
+        if (inspectorTab_ == ArrangerInspectorTab::Clip && selectedClipIndex_ < 0 && !track.clips.empty()) {
+            selectedClipIndex_ = 0;
+        }
+
         drawerData_.selectedClipIndex = selectedClipIndex_;
         if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
             const auto& cl = track.clips[selectedClipIndex_];
@@ -1507,6 +1666,13 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
             drawerData_.clipLooped = cl.isLooped;
             drawerData_.clipLoopLengthBars = cl.loopLengthBars;
             drawerData_.clipTranspose = cl.transposeSemitones;
+        } else {
+            drawerData_.clipName.clear();
+            drawerData_.clipStartBar = 0;
+            drawerData_.clipLengthBars = 0;
+            drawerData_.clipLooped = false;
+            drawerData_.clipLoopLengthBars = 0;
+            drawerData_.clipTranspose = 0;
         }
 
         drawerData_.midiFx = track.midiFx;
@@ -2114,6 +2280,24 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
             if (clickedTrack >= 0 && clickedTrack < static_cast<int>(tracks_.size())) {
                 activeTrackIndex_ = static_cast<uint32_t>(clickedTrack);
                 inspectorTab_ = ArrangerInspectorTab::Track;
+                if (onTrackSelected) onTrackSelected(activeTrackIndex_);
+
+                uint32_t clickedBar = std::max(1u, static_cast<uint32_t>(localX / barWidth_) + 1);
+                auto now = std::chrono::steady_clock::now();
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastEmptyClickTime_).count();
+                if (lastEmptyClickedTrack_ == clickedTrack &&
+                    std::abs(static_cast<int>(lastEmptyClickedBar_) - static_cast<int>(clickedBar)) <= 1 &&
+                    elapsedMs < 400) {
+                    lastEmptyClickTime_ = std::chrono::steady_clock::time_point{};
+                    lastEmptyClickedTrack_ = -1;
+                    lastEmptyClickedBar_ = 0;
+                    dragMode_ = ClipDragMode::None;
+                    createEmptyClipAt(static_cast<uint32_t>(clickedTrack), clickedBar);
+                    return true;
+                }
+                lastEmptyClickTime_ = now;
+                lastEmptyClickedTrack_ = clickedTrack;
+                lastEmptyClickedBar_ = clickedBar;
             }
 
             if (ev.type == PointerType::Touch) {
@@ -2242,28 +2426,20 @@ bool ArrangerView::handleKey(int key, [[maybe_unused]] int scancode, int action,
     // Ctrl+D -> Duplicate Selected Clip
     if ((key == 'D' || key == 'd') && (mods & 2)) {
         if (activeTrackIndex_ < tracks_.size() && selectedClipIndex_ >= 0) {
-            auto& track = tracks_[activeTrackIndex_];
-            if (selectedClipIndex_ < static_cast<int>(track.clips.size())) {
-                auto newClip = track.clips[selectedClipIndex_];
-                newClip.id = "c_" + std::to_string(track.clips.size() + 1);
-                newClip.startBar += newClip.lengthBars;
-                track.clips.push_back(newClip);
-                selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
-                return true;
-            }
+            int cIdx = selectedClipIndex_;
+            duplicateClip(activeTrackIndex_, cIdx);
+            if (onDuplicateClip) onDuplicateClip(activeTrackIndex_, cIdx);
+            return true;
         }
     }
 
     // Delete or Backspace -> Delete Selected Clip
     if (key == 261 || key == 259) {
         if (activeTrackIndex_ < tracks_.size() && selectedClipIndex_ >= 0) {
-            auto& track = tracks_[activeTrackIndex_];
-            if (selectedClipIndex_ < static_cast<int>(track.clips.size())) {
-                track.clips.erase(track.clips.begin() + selectedClipIndex_);
-                selectedClipIndex_ = -1;
-                inspectorTab_ = ArrangerInspectorTab::Track;
-                return true;
-            }
+            int cIdx = selectedClipIndex_;
+            deleteClip(activeTrackIndex_, cIdx);
+            if (onDeleteClip) onDeleteClip(activeTrackIndex_, cIdx);
+            return true;
         }
     }
 

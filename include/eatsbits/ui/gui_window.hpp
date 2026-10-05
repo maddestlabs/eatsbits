@@ -216,6 +216,9 @@ enum class ProjectHubAction {
     ToggleAnimations,
     SetAntiAliasing,
     ToggleHiDpi,
+    SetPanelTexture,
+    SetPanelTint,
+    SetPanelWear,
     Scrollbar,
     ContentDrag,
     OpenCrtTweaker,
@@ -265,6 +268,9 @@ struct HitTestProjectHubResult {
     int themeBank{0};
     int aaMode{2};
     int crtSliderIndex{-1};
+    GuiChassisStyle panelStyle{GuiChassisStyle::DarkChassis};
+    std::optional<Color> panelTint{std::nullopt};
+    float panelWear{0.20f};
 };
 
 struct HitTestJackResult {
@@ -605,6 +611,15 @@ public:
     void setHiDpiEnabled(bool enable) noexcept;
     void toggleHiDpi() noexcept;
 
+    [[nodiscard]] GuiChassisStyle getPanelChassisTexture() const noexcept { return panelChassisTexture_; }
+    void setPanelChassisTexture(GuiChassisStyle style) noexcept { panelChassisTexture_ = style; markNeedsRedraw(); }
+
+    [[nodiscard]] const std::optional<Color>& getPanelChassisTint() const noexcept { return panelChassisTint_; }
+    void setPanelChassisTint(const std::optional<Color>& tint) noexcept { panelChassisTint_ = tint; markNeedsRedraw(); }
+
+    [[nodiscard]] float getPanelChassisWear() const noexcept { return panelChassisWear_; }
+    void setPanelChassisWear(float wear) noexcept { panelChassisWear_ = wear; markNeedsRedraw(); }
+
     [[nodiscard]] GLFWwindow* getWindowHandle() const noexcept { return window_; }
     [[nodiscard]] BatchRenderer2D* getBatchRenderer() noexcept { return batchRenderer_.get(); }
 
@@ -736,7 +751,7 @@ public:
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
     [[nodiscard]] ViewContext createViewContext() noexcept;
 
-    [[nodiscard]] DialogLayout computeDialogLayout(float w = 540.0f, float h = 580.0f) const noexcept;
+    [[nodiscard]] DialogLayout computeDialogLayout(float w = 540.0f, float h = 620.0f) const noexcept;
     DialogLayout drawModalDialogFrame(const DialogFrameConfig& config);
     [[nodiscard]] HitTestProjectHubResult hitTestProjectHub(float x, float y) const noexcept;
     void resetToDefaultProject();
@@ -932,6 +947,13 @@ public:
 
     [[nodiscard]] uint32_t getSelectedTrackIndex() const noexcept { return selectedTrackIndex_; }
     void setSelectedTrackIndex(uint32_t idx) noexcept;
+    void addTrackToProject(const std::string& name = "", const std::string& instrumentEngine = "", float r = 1.0f, float g = 0.55f, float b = 0.0f);
+    void deleteTrack(uint32_t trackIdx);
+    void duplicateTrack(uint32_t trackIdx);
+    void addClipToTrack(uint32_t trackIdx);
+    void duplicateClip(uint32_t trackIdx, int clipIdx);
+    void deleteClip(uint32_t trackIdx, int clipIdx);
+    void handleTrackAdded(uint32_t trackIdx);
     void setTrackMuteState(uint32_t trackIdx, bool mute);
     void setTrackSoloState(uint32_t trackIdx, bool solo);
     void setTrackFreezeState(uint32_t trackIdx, bool freeze);
@@ -1161,6 +1183,9 @@ private:
     bool autoSaveEnabled_{true};
     int activeThemePreset_{0};
     int userThemeBankOverride_{-1};
+    GuiChassisStyle panelChassisTexture_{GuiChassisStyle::DarkChassis};
+    std::optional<Color> panelChassisTint_{std::nullopt};
+    float panelChassisWear_{0.20f};
     bool crtShaderEnabled_{false};
     bool crtTweakerOpen_{false};
     int crtTweakerSliderIndex_{-1};

@@ -35,16 +35,12 @@ public:
     bool handleChar(char32_t codepoint, const ViewContext& ctx);
 
     // IFocusable implementation
-    bool onFocusGained() override {
-        isFocused_ = true;
-        focusGainTime_ = std::chrono::steady_clock::now();
-        return true;
+    void resetCursorBlink() noexcept {
+        cursorBlinkResetTime_ = std::chrono::steady_clock::now();
     }
-    void onFocusLost() override {
-        isFocused_ = false;
-        isDraggingText_ = false;
-        isDraggingMinimap_ = false;
-    }
+
+    bool onFocusGained() override;
+    void onFocusLost() override;
     [[nodiscard]] bool isFocused() const noexcept override { return isFocused_; }
 
     void setClipboard(IClipboard* clipboard) noexcept { clipboard_ = clipboard; }
@@ -64,6 +60,15 @@ public:
     [[nodiscard]] const Rect2D& getMinimapBounds() const noexcept { return minimapBounds_; }
     [[nodiscard]] const Rect2D& getTextAreaBounds() const noexcept { return textAreaBounds_; }
     [[nodiscard]] const Rect2D& getGutterBounds() const noexcept { return gutterBounds_; }
+    [[nodiscard]] const Rect2D& getAccessoryToolbarBounds() const noexcept { return toolbarBounds_; }
+
+    void setAccessoryToolbarVisible(bool visible) noexcept {
+        showToolbar_ = visible;
+        autoToolbar_ = false;
+    }
+    [[nodiscard]] bool isAccessoryToolbarVisible() const noexcept { return showToolbar_; }
+    void setAccessoryToolbarAuto(bool enable) noexcept { autoToolbar_ = enable; }
+    [[nodiscard]] bool isAccessoryToolbarAuto() const noexcept { return autoToolbar_; }
 
     [[nodiscard]] float getCharWidth() const noexcept { return charWidth_; }
     [[nodiscard]] float getLineHeight() const noexcept { return lineHeight_; }
@@ -77,12 +82,15 @@ public:
 private:
     void renderMinimap(const ViewContext& ctx);
     void renderGutterAndText(const ViewContext& ctx);
+    void renderAccessoryToolbar(const ViewContext& ctx);
+    bool handleToolbarPointer(const PointerEvent& ev, const ViewContext& ctx);
 
     presenter::MultiLineTextPresenter presenter_;
     Rect2D bounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D gutterBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D textAreaBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D minimapBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D toolbarBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     float gutterW_{46.0f};
     float minimapW_{56.0f};
@@ -93,10 +101,17 @@ private:
     bool readOnly_{false};
     bool isDraggingText_{false};
     bool isDraggingMinimap_{false};
+    bool showToolbar_{false};
+    bool autoToolbar_{true};
+    float toolbarScrollX_{0.0f};
+    float lastToolbarDragX_{0.0f};
+    int pressedToolbarBtn_{-1};
 
     std::chrono::steady_clock::time_point lastClickTime_{};
     Point2D lastClickPos_{0.0f, 0.0f};
     std::chrono::steady_clock::time_point focusGainTime_{};
+    std::chrono::steady_clock::time_point cursorBlinkResetTime_{};
+    core::TextCoord lastCursor_{0, 0};
     IClipboard* clipboard_{nullptr};
 };
 

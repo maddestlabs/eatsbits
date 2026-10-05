@@ -395,6 +395,11 @@ public:
         anchor_ = cursor_;
     }
 
+    void setSelection(core::TextCoord anchor, core::TextCoord cursor) noexcept {
+        anchor_ = doc_.clampCoord(anchor);
+        cursor_ = doc_.clampCoord(cursor);
+    }
+
     void selectWordAt(core::TextCoord coord) noexcept {
         core::TextRange range = doc_.getWordRangeAt(coord);
         anchor_ = range.start;

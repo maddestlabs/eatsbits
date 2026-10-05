@@ -63,6 +63,8 @@ Repeat the following procedure for each uncompleted task in [TODO.md](file:///c:
 - Update [TODO.md](file:///c:/git/eatsbits/TODO.md):
   - Change `- [ ]` to `- [x]`.
   - Add the short commit hash and date/time.
+  - Move the completed task under `## 🕒 Recent Completions (Reference Context)`.
+  - **Auto-Archive Maintenance**: Check the count of completed `- [x]` items in [TODO.md](file:///c:/git/eatsbits/TODO.md). If there are more than 5 completed items, move the oldest completed items to the top of [TODO-ARCHIVE.md](file:///c:/git/eatsbits/TODO-ARCHIVE.md), keeping strictly the 5 most recent completed items in [TODO.md](file:///c:/git/eatsbits/TODO.md) for active reference context.
 - Append a concise entry to [progress.md](file:///c:/git/eatsbits/progress.md) documenting what was changed and verified, keeping the progress log updated.
 
 ### Step 7: Proceed to Next Item

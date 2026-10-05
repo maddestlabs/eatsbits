@@ -43,6 +43,10 @@ enum class GuiChassisStyle {
     Walnut,
     Rosewood,
     BrushedSteel,
+    BrushedAluminum,
+    MattePowderCoat,
+    Bakelite,
+    CrinklePaint,
     Carbon
 };
 
@@ -71,6 +75,8 @@ struct GuiPanelDef {
     std::string subtitle{"Analog Diode Ladder Bassline"};
     GuiChassisStyle chassisStyle{GuiChassisStyle::DarkChassis};
     Color accentColor{0.0f, 0.95f, 1.0f};
+    std::optional<Color> chassisTint{std::nullopt};
+    float textureWear{0.20f};
     bool woodCheeks{true};
     bool hideHeader{false};
     float cornerRadius{8.0f};

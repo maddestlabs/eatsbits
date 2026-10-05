@@ -3,6 +3,8 @@
 This backlog powers the autonomous refinement workflow in Antigravity.
 You can add bugs, UI tweaks, DSP optimizations, and features below.
 
+> 📦 **Task Archive**: Completed tasks older than the 5 most recent are preserved in [TODO-ARCHIVE.md](file:///c:/git/eatsbits/TODO-ARCHIVE.md) for historical context, architectural reference, and test recipes.
+
 To execute items automatically, run in Antigravity:
 ```text
 /goal Work through the unchecked items in TODO.md using the todo-runner skill.
@@ -13,6 +15,68 @@ To execute items automatically, run in Antigravity:
 ## 🚀 Active Queue (Prioritized)
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
+
+- [ ] **Eatsbeats Parity: Dedicated Single Chord Track, Harmonic Track Follow Modes (BASS, CHORD, SCALE, COLOR) Playback Integration, MIDI FX Pipeline Synchronization & Piano Roll Chord Strip Removal**
+  - **Context/Files**: `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/edit_view.hpp`, `src/ui/views/edit_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Dedicated Single Chord Track Parity (Eatsbeats Parity)**:
+       - Eliminate arbitrary track chord leader / dynamic fallback routing in `ArrangerView` (`isChordLeader`, `cl.detectedChords` search in `getHarmonicOverviewChords` and `getActiveChordAtBar`).
+       - Revert to the single authoritative project `chordTrack_` lane on the Arranger timeline as the sole harmonic reference, matching original `eatsbeats/lib/models/daw_state.dart` and `eatsbeats/lib/ui/arranger_view.dart`.
+       - Retain chord detection strictly as an explicit tool/action (`"Extract Chords to Chord Track"` from Audio-to-MIDI and clips) that writes directly to the canonical Chord Track lane.
+    2. **Harmonic Track Follow Modes Playback Integration (`BASS`, `CHORD`, `SCALE`, `COLOR`)**:
+       - Wire `track.chordFollowMode` into playback in `StepSequencer::processStep` / `AudioEngine`.
+       - When `track.chordFollowMode != ChordFollowMode::Off`, sample `getActiveChordAtBar(currentBar)` from the project Chord Track. If an active chord is present, dynamically remap note and step pitches via `theory::ChordTheory::remapPitchForChord(pitch, *activeChord, mode)` during playback (matching `eatsbeats/lib/models/daw_state.dart:3295`).
+       - Verify `[ ⚡ BAKE TO MIDI ]` commits the transformed pitches to clip notes and resets follow mode to `OFF`.
+    3. **Active Chord Synchronization with Live MIDI FX Pipeline**:
+       - Ensure `timeContext_.activeChordRoot`, `quality`, and `bass` in `StepSequencer` are updated each step from the active chord on the project Chord Track.
+       - Verify that `eatscript::MidiFxType::ChordFollow`, `ChordStabs`, `ChordArp`, and `.eats` MIDI FX scripts audibly modify and conform playback notes in real time.
+    4. **Piano Roll Chord Strip & Selection Removal**:
+       - Remove `chordStripBounds_`, `chordHeaderBadgeBounds_`, `detectedChords_`, and associated click/dialog handlers from `EditView` (Piano Roll).
+       - Keep chord creation, selection, and editing centralized in the Arranger Chord Track lane and Circle of Fifths dialog.
+  - **Test/Validation**: `.\build.ps1 -Test` (specifically `test_chord_track.exe`, `test_modular_ui.exe`, and audio playback assertions), plus clean Wasm build with `.\build-web.ps1 -NoServe`.
+
+- [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
+  - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
+  - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
+  - **Test/Validation**: `.\build-web.ps1 -NoServe`
+
+---
+
+## 🕒 Recent Completions (Reference Context)
+
+<!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Clip Rendering Parity (No Phantom Notes), Clip Duplicate & Delete Parity, Track Deletion Sidebar Fix & Project History Undo/Redo Integration**
+  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Eliminate Phantom Note Rendering**: Removed default/fake note quad loop in `ArrangerView::renderClips`. Empty MIDI clips render cleanly with zero notes. Audio clips render stylized audio waveforms.
+    2. **Track Deletion Clip Properties Fix**: Fixed bug where deleting a track caused Clip properties in Track Properties sidebar to disappear or stay blank. Resolved double track deletion bug between ArrangerView and GuiWindow, re-indexed all remaining clips' `trackIndex`, reset inspector tab to Track if selected clip becomes invalid, dynamically refreshed track list and clip fields, and auto-selected clip 0 upon entering Clip tab.
+    3. **Clip Action Parity (`DUPLICATE` & `DELETE`)**: Added `DUPLICATE` and `DELETE` action buttons in Track Properties sidebar Clip section matching original Eatsbeats (`arranger_context_inspector.dart`). Implemented `duplicateClip` and `deleteClip` in `ArrangerView` and `GuiWindow`, and mapped Ctrl+D and Delete/Backspace hotkeys.
+    4. **History Manager Integration**: Connected all Track Properties and Arranger operations to `diffHistory_.recordState(...)` via `recordProjectHistory` (track add, track delete, track duplicate, clip add, clip duplicate, clip delete, instrument selection, and FX changes). Updated `undoHistory()`, `redoHistory()`, and `jumpToHistoryIndex()` to call `syncArrangerFromSequencer()`, fully restoring Arranger tracks/clips, Mixer channel strips, and Track Inspector state.
+  - **Test/Validation**: `test_modular_ui.exe` Test 22 validated all 6 sub-cases cleanly, and `.\build.ps1` completed with 0 errors.
+
+- [x] **Track Creation Without Default Clips, Empty Grid Double Click Clip Creation, Mute/Solo Desync Fix & Track Properties Actions Parity**
+  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/mixer_view.hpp`, `src/ui/views/mixer_view.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. New track/instrument creation creates a clean, clip-free track so users can place audio clips or MIDI clips freely.
+    2. Double-click or double-touch on any empty area within a track row on the Arranger timeline creates an empty 4-bar clip aligned to that bar position.
+    3. Fix mute/solo bug where newly created tracks could not be muted or soloed due to local ArrangerView tracks desynchronizing from `GuiWindow::arrangerTracks_`, `mixerStrips_`, and `AudioEngine::sequencer_`.
+    4. Restore Eatsbeats parity action card at bottom of Track Properties panel (`+ ADD CLIP`, `DUPLICATE`, `DELETE` with 1-track minimum guard and header mute/solo buttons), functional across Arranger View drawer, Mixer View drawer, and Track Inspector View.
+    5. Track deletion automatically cascades and updates/shrinks the mixer channel strips, audio engine sequencer patterns, audio channel nodes, and inspector selection.
+  - **Test/Validation**: `test_modular_ui.exe` Test 21 validated clean end-to-end.
+
+- [x] **Script Editor Scrolling, Gutter Scissoring, Immediate Cursor Blink Reset & Mobile Input Roadmap**
+  - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `src/ui/gui_window.cpp`, `include/eatsbits/presenter/text_presenter.hpp`, `tests/test_modular_ui.cpp`, `web/index.html`
+  - **Acceptance Criteria**:
+    1. Wire mouse wheel scroll event routing in `GuiWindow::onMouseScroll` to `modularDesignView_` (`WorkspaceView::Design` / `ModularRack`) and `fullscreenDeviceModal_`, and support horizontal Shift-scroll in `TextEditorWidget::handlePointer`.
+    2. Enforce strict scissoring (`r.pushScissor(gutterBounds_)` / `r.popScissor()`) on gutter line numbers and active line highlight in `TextEditorWidget` to eliminate line numbers bleeding above or below content borders during fractional scrolls.
+    3. Implement `resetCursorBlink()` and track `lastCursor_` so that moving the cursor, clicking, selecting text, or typing immediately resets the blink timer to $t=0$ (solid 100% visibility) without lagging in the invisible phase.
+    4. Implement the optimal Mobile Code Input Roadmap architecture:
+       - In-engine `CodeAccessoryToolbar` with 27 touch-friendly coding buttons: `⇥` (Indent), `⇤` (Outdent), `( )`, `[ ]`, `{ }`, `"`, `'`, `:`, `=`, `+`, `-`, `*`, `/`, `.`, `,`, `_`, `#`, `->`, `param`, `ret`, `◀`, `▶`, `▲`, `▼`, `↶` (Undo), `↷` (Redo), `▶ RUN` (Compile & Run).
+       - Smart auto-pairing and selection wrapping for `()`, `[]`, `{}`, `""`, `''`.
+       - WebAssembly soft-keyboard bridge in `web/index.html` using a hidden proxy `<textarea>` with full `input` and `keydown` event streaming to `eats_on_web_char_input` and `eats_on_web_key_input`.
+       - Automatic mobile context detection (`ctx.isMobile`) on Web (touch/agent/screen detection) and desktop.
+  - **Test/Validation**: `.\build.ps1 -Test` (44/44 test suites passing) and `.\build-web.ps1 -NoServe` (clean Wasm build)
 
 - [x] **Theme System Syntax Foundation, Micro-Lexer & Theme Browser Dialog**
   - **Context/Files**: `include/eatsbits/ui/theme.hpp`, `src/ui/theme.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `include/eatsbits/ui/widgets/theme_browser_dialog.hpp`, `src/ui/widgets/theme_browser_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_theme.cpp`
@@ -33,92 +97,26 @@ To execute items automatically, run in Antigravity:
     4. Validate unit test suites across `test_terminal_console.exe`, `test_modular_ui.exe`, and ensure WebAssembly clean compilation with `build-web.ps1 -NoServe`.
   - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
 
-- [x] **Text Editor Widget Refinement: Cursor Advance Alignment & Minimap Vertical Spacing** (commit `fa33fa6`)
-  - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_modular_ui.cpp`
+- [ ] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration**
+  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
   - **Acceptance Criteria**:
-    1. Align `charWidth_` in `TextEditorWidget` with actual font metrics (`getMonoCharAdvance(10.0f)` $\approx 7.01\text{px}$) instead of hardcoded `8.5f`, eliminating the cumulative drift where the cursor renders ~3 chars to the right and creates phantom trailing whitespace at the ends of lines.
-    2. Refactor minimap line layout in `TextEditorWidget::renderMinimap` from full-height slot stretching (`minimapBounds_.h / lineCount`) to a compact fixed line pitch (e.g., 2.0px bar with 1.0px separator) anchored from the top, only scaling slot height down when document lines exceed minimap bounds, eliminating double-spaced gaps on shorter scripts.
-    3. Verify cursor positioning, click-to-column hit testing (`coordFromPoint`), selection highlight bounds, and minimap lens scrubber alignment remain pixel-accurate in both `DESIGN > Code` and `EDIT > Script`.
-  - **Test/Validation**: `.\build.ps1 -Test`
+    1. Fix Audio FX Preset UI extraction: When adding an Audio FX from `PluginSearchDialog` or `ProjectBrowserDrawer`, load its `PresetDefinition` via `PresetManager::loadPresetDefinition` (matching instrument preset loading) and populate `TrackAudioFxItem::knobs` from the script's `def init()` and `def gui()`.
+    2. Expand `TrackAudioFxItem::ensureDefaultKnobs()` with dedicated fallback layouts and knob definitions for `EQ` / `PARAMETRIC` (Low, Mid, High, Q, Gain), `LIMITER` (Ceiling, Release, Gain), `FILTER` / `SVF` (Cutoff, Reso, Type, Drive), and ensure devices do not inappropriately fall through to the Tube Distortion fallback (`drive`, `tone`, `bias`, `mix`).
+    3. Wire parameter dispatch in `AudioEngine::setTrackAudioFxParam`:
+       - Add routing for `ParametricEqNode` (frequency, gain, Q) and `LimiterNode` (ceiling, release, gain).
+       - Add `tone` and `bias` parameter handling to `WaveShaperNode` (implementing a tilt/lowpass filter and DC bias offset in DSP).
+    4. Fix WaveShaper saturation & volume ramp-up: In `WaveShaperNode::processBlock`, recalibrate input pre-gain boost and implement output makeup/wet gain compensation so that turning the Drive knob produces rich harmonic saturation/overdrive rather than behaving as a linear volume amplifier.
+    5. Wire `projectBrowserDrawerWidget_->onAddAudioFx` in `GuiWindow` so adding FX cards from the Project Browser drawer inserts the effect into the active track.
+  - **Test/Validation**: Add unit tests in `test_studio_fx.cpp` and `test_modular_ui.cpp` verifying Audio FX knob generation, parameter routing, and distortion wave shaping.
 
-- [x] **Web Audio Optimization Phase 1: Callback Chunking & Buffer Frame Size Tuning** (commit `bc91f5f`)
-  - **Context/Files**: `src/audio/audio_engine.cpp`, `src/gui_main.cpp`, `include/eatsbits/audio/audio_engine.hpp`
-  - **Acceptance Criteria**: Refactor `AudioEngine::audioCallbackInternal` to process arbitrary `frameCount` requests in a loop of chunks up to `MAX_BLOCK_SIZE` so buffer sizes >= 2048 or odd period counts never truncate or leave silence in the output buffer; increase Emscripten default buffer frame size in `gui_main.cpp` from 512 to 1024 or 2048 to prevent audio scheduler underruns.
-  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
-
-- [x] **Web Audio Optimization Phase 2: WebAssembly SIMD & Compiler Optimization Flags** (commit `333edd5`)
-  - **Context/Files**: `CMakeLists.txt`
-  - **Acceptance Criteria**: Add `-msimd128` to Emscripten compile and link options for `eatsbits_web` and DSP core; strip debug flags and assertions (`-g -sASSERTIONS=1`) in release link flags, ensuring `-O3` and `-DNDEBUG` are applied to eliminate scalar math and validation overhead across voice engines and effects.
-  - **Test/Validation**: `.\build-web.ps1 -NoServe`
-
-- [x] **Web Audio Optimization Phase 3: Hardware Sample Rate Negotiation & Audio Unlock Fix** (commit `cb39c21`)
-  - **Context/Files**: `src/audio/audio_engine.cpp`, `web/index.html`
-  - **Acceptance Criteria**: Update `AudioEngine::initialize` so `polySynth_`, `tb303_`, and `masterMixer_` properly re-align when `impl_->device.sampleRate` negotiates the native browser hardware rate (e.g. 44.1 kHz vs 48 kHz), eliminating browser resampler jitter; fix `unlockAudio()` in `web/index.html` to iterate `window.miniaudio.devices` and call `resume()` on `dev.webaudio` instead of querying non-existent `device_instances`.
-  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
-
-- [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
-  - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
-  - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
-  - **Test/Validation**: `.\build-web.ps1 -NoServe`
-
-- [x] **Mixer Architecture Phase 1: Pointer Delegation & Precedence Alignment**
-  - **Context/Files**: `src/ui/gui_window.cpp`, `src/ui/views/mixer_view.cpp`, `include/eatsbits/ui/views/mixer_view.hpp`
-  - **Acceptance Criteria**: Remove legacy `hitTestMixer` interception in `GuiWindow::onMouseButton`; delegate all mouse/pointer events directly to `modularMixerView_->handlePointer(pev, ctx)`; enforce strict sidebar drawer bounds isolation so clicks on `TrackPropertiesDrawer` never fall through to channels underneath; clip channel strip hit boundaries to `propertiesDrawer_.getPullTabBounds().x`.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Mixer Architecture Phase 2: Decouple Audio Graph DSP Nodes from Mixer Channels**
-  - **Context/Files**: `src/ui/gui_window.cpp`, `src/ui/views/mixer_view.cpp`, `src/audio/audio_engine.cpp`
-  - **Acceptance Criteria**: Remove canvas module scanning in `GuiWindow::updateMixerStrips()`; lock mixer channel strips strictly 1:1 with Arranger Tracks + Busses + Master Bus; eliminate phantom channels from internal/canvas `GainNode`s; verify Gain nodes remain fully functional as Track Audio FX inserts / utility devices.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Mixer Architecture Phase 3: Systematized Fader Presenters & Logarithmic dB Taper**
-  - **Context/Files**: `src/ui/views/mixer_view.cpp`, `include/eatsbits/presenter/scalar_drag_presenter.hpp`, `src/presenter/scalar_drag_presenter.cpp`
-  - **Acceptance Criteria**: Replace hardcoded magic-number pixel boxes with structured Thumb & Well hit geometry; standardize fader dragging with audio taper dB scaling (unity 0 dB at 0.75, +6 dB at 1.0, logarithmic down to -inf); support double-click to reset to unity, Shift+Drag for fine 0.1 dB trim, and right-click manual value entry dialog.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Mixer Architecture Phase 4: Mobile Responsive Density & Section Options Toolbar**
-  - **Context/Files**: `include/eatsbits/ui/views/mixer_view.hpp`, `src/ui/views/mixer_view.cpp`
-  - **Acceptance Criteria**: Implement modular density modes (`Comfortable` ~130px, `Compact` ~75px, `Micro` ~50px); add collapsible top toolbar with toggle pills for `[Meters]`, `[Routing/Inserts]`, `[Pan]`, `[Readouts]`; auto-switch to Micro/Compact mode when screen width < 700px (portrait) so at least 5-6 channels fit cleanly without clutter.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Mixer Architecture Phase 5: Arranger Docked Bottom Mixer Drawer**
-  - **Context/Files**: `include/eatsbits/ui/widgets/arranger_mixer_drawer.hpp`, `src/ui/widgets/arranger_mixer_drawer.cpp`, `src/ui/views/arranger_view.cpp`, `src/ui/gui_window.cpp`
-  - **Acceptance Criteria**: Add a collapsible sliding bottom mixer drawer to the Arranger tab (toggled via hotkey `M` or bottom nav/transport button, matching `VirtualKeyboardDrawer` pattern); channels align with tracks or scroll horizontally to let users mix and balance levels without leaving composition view.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Text Engine Phase 1: Headless TextDocument, Presenters & FocusManager**
-  - **Context/Files**: `include/eatsbits/core/text_document.hpp`, `include/eatsbits/presenter/text_presenter.hpp`, `include/eatsbits/ui/input/focus_manager.hpp`, `tests/test_text_engine.cpp`
-  - **Acceptance Criteria**: Multi-line buffer edits, undo/redo stack, selection range math, word navigation (`Ctrl+Arrows`, `Ctrl+Backspace`), and focus state transitions pass all unit assertions headlessly.
-  - **Test/Validation**: `.\build.ps1 -Test` or running `ctest -R test_text_engine`
-
-- [x] **Text Engine Phase 2: Core Platform Services, Scissoring & Clipboard**
-  - **Context/Files**: `include/eatsbits/ui/views/view_base.hpp`, `include/eatsbits/ui/batch_renderer_2d.hpp`, `src/ui/gui_window.cpp`
-  - **Acceptance Criteria**: `IClipboard` added to `ViewContext` with GLFW bridge, `pushScissor`/`popScissor` clipping in `BatchRenderer2D`, `handleChar` added to `ViewBase`, and input routed through `FocusManager` so typing never triggers DAW global shortcuts (like Spacebar playback).
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Text Engine Phase 3: TextFieldWidget & Terminal Prompt Integration**
-  - **Context/Files**: `include/eatsbits/ui/widgets/text_field_widget.hpp`, `src/ui/widgets/value_edit_dialog.cpp`, `src/ui/widgets/terminal_console_drawer.cpp`
-  - **Acceptance Criteria**: Reusable single-line `TextFieldWidget` with horizontal auto-scroll containment (no text overflow outside bounds), drag/double-click selection, native clipboard (`Ctrl+C/V/X`), replacing raw text fields in `ValueEditDialog` and giving `TerminalConsoleDrawer` in-line cursor navigation and clipboard paste.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
-- [x] **Text Engine Phase 4: TextEditorWidget with High-Performance Code Minimap**
-  - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/views/design_view.cpp`, `src/ui/views/edit_view.cpp`
-  - **Acceptance Criteria**: Full multi-line script editor with line number gutter, active line highlight, syntax micro-bar minimap with wide touch/scrub lens (replacing thin vertical scrollbar), multi-line selection, block indentation, and `Ctrl+Enter` compile trigger wired into `DESIGN > Code` and `EDIT > Script`.
-  - **Test/Validation**: `.\build.ps1 -Test`
-
----
-
-## 📋 Backlog / Ideas
-
-- [x] **Icon Design Review**: Improve icon readability, consistency, and aesthetic appeal. (commit `e860f33`)
-  - **Context/Files**: `src/ui/icon_registry.cpp`, `src/ui/widgets/icon_search_dialog.cpp`, `tests/test_icon_system.cpp`
-  - **Acceptance Criteria**: Icons are clear, follow the design system, and work well at small sizes.
-  - **Test/Validation**: `.\build.ps1 -Test`
-- [x] Add tooltips to header transport elements and Track Properties elements. (commit `cd2f33e`)
-- [x] Refine '+ ADD' dialogs for instruments, FX, MIDI FX, etc. Scrolling needs to be confined within its vertical layout bounds (it currently extends a bit past top and bottom of its bounds). Filter text box needs to be implemented and needs to be able to filter the list of items below. List needs to be filtered based on that text. (commit `6245673`)
----
-
-## ✅ Completed Archive
-
-<!-- Completed items will be logged here with commit hashes and timestamps -->
-- [x] Initialized autonomous refinement pipeline & todo-runner skill
+- [ ] **Design Tab Live Project Track, Instrument & Insert FX Synchronization**
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Replace hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` (`eats_kick`, `eats_snare`, `eats_hats`, `eats_303`, dummy distortion inserts) with dynamic project synchronization.
+    2. Implement `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, instrument replacement, and FX insertion/removal.
+    3. Ensure the Design Tab left sidebar "In Use" section accurately reflects:
+       - Real active tracks and their assigned synth/instrument DSP engines.
+       - Actual Audio FX and MIDI FX inserts assigned to each track (with their real names, types, and script/preset parameters).
+       - Active pattern/clip scripts for each track.
+    4. Fix `selectTargetByTrackAndType` so clicking the "Design Chip" icon from `FullscreenDeviceModal` on any Audio FX, MIDI FX, or instrument on any track navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
+  - **Test/Validation**: Unit tests in `test_modular_ui.cpp` verifying `DesignView` tracks dynamically update when arranger tracks or FX are modified, and verifying navigation selects the corresponding active device.

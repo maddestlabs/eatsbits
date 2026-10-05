@@ -45,6 +45,11 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onMidiFxParamChanged) onMidiFxParamChanged(idx, p, v); };
     panel_.onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(idx, fi); };
     panel_.onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(idx, fi); };
+    panel_.onAddClip = [this](uint32_t idx) { if (onAddClip) onAddClip(idx); };
+    panel_.onDeleteTrack = [this](uint32_t idx) { if (onDeleteTrack) onDeleteTrack(idx); };
+    panel_.onDuplicateTrack = [this](uint32_t idx) { if (onDuplicateTrack) onDuplicateTrack(idx); };
+    panel_.onDuplicateClip = [this](uint32_t tIdx, int cIdx) { if (onDuplicateClip) onDuplicateClip(tIdx, cIdx); };
+    panel_.onDeleteClip = [this](uint32_t tIdx, int cIdx) { if (onDeleteClip) onDeleteClip(tIdx, cIdx); };
 }
 
 void TrackPropertiesDrawer::update(float dt) noexcept {

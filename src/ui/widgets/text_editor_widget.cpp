@@ -3,20 +3,136 @@
 #include <algorithm>
 #include <cmath>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 namespace eatsbits::ui {
+
+namespace {
+
+enum class ToolbarAction : uint8_t {
+    Indent,
+    Outdent,
+    Parens,
+    Brackets,
+    Braces,
+    DoubleQuote,
+    SingleQuote,
+    Colon,
+    Equals,
+    Plus,
+    Minus,
+    Asterisk,
+    Slash,
+    Dot,
+    Comma,
+    Underscore,
+    Comment,
+    Arrow,
+    Params,
+    Return,
+    NudgeLeft,
+    NudgeRight,
+    NudgeUp,
+    NudgeDown,
+    Undo,
+    Redo,
+    RunCompile
+};
+
+struct ToolbarItem {
+    ToolbarAction action;
+    std::string label;
+    float width;
+};
+
+const std::vector<ToolbarItem>& getToolbarItems() {
+    static const std::vector<ToolbarItem> sItems = {
+        {ToolbarAction::Indent, "⇥", 34.0f},
+        {ToolbarAction::Outdent, "⇤", 34.0f},
+        {ToolbarAction::Parens, "( )", 38.0f},
+        {ToolbarAction::Brackets, "[ ]", 38.0f},
+        {ToolbarAction::Braces, "{ }", 38.0f},
+        {ToolbarAction::DoubleQuote, "\"", 28.0f},
+        {ToolbarAction::SingleQuote, "'", 26.0f},
+        {ToolbarAction::Colon, ":", 26.0f},
+        {ToolbarAction::Equals, "=", 26.0f},
+        {ToolbarAction::Plus, "+", 26.0f},
+        {ToolbarAction::Minus, "-", 26.0f},
+        {ToolbarAction::Asterisk, "*", 26.0f},
+        {ToolbarAction::Slash, "/", 26.0f},
+        {ToolbarAction::Dot, ".", 24.0f},
+        {ToolbarAction::Comma, ",", 24.0f},
+        {ToolbarAction::Underscore, "_", 26.0f},
+        {ToolbarAction::Comment, "#", 26.0f},
+        {ToolbarAction::Arrow, "->", 32.0f},
+        {ToolbarAction::Params, "param", 44.0f},
+        {ToolbarAction::Return, "ret", 32.0f},
+        {ToolbarAction::NudgeLeft, "◀", 30.0f},
+        {ToolbarAction::NudgeRight, "▶", 30.0f},
+        {ToolbarAction::NudgeUp, "▲", 30.0f},
+        {ToolbarAction::NudgeDown, "▼", 30.0f},
+        {ToolbarAction::Undo, "↶", 30.0f},
+        {ToolbarAction::Redo, "↷", 30.0f},
+        {ToolbarAction::RunCompile, "▶ RUN", 58.0f}
+    };
+    return sItems;
+}
+
+} // namespace
 
 TextEditorWidget::TextEditorWidget() {
     focusGainTime_ = std::chrono::steady_clock::now();
+    cursorBlinkResetTime_ = focusGainTime_;
     charWidth_ = getMonoCharAdvance(10.0f);
+}
+
+bool TextEditorWidget::onFocusGained() {
+    isFocused_ = true;
+    focusGainTime_ = std::chrono::steady_clock::now();
+    resetCursorBlink();
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (window.eatsbitsShowSoftKeyboard) {
+            window.eatsbitsShowSoftKeyboard();
+        }
+    });
+#endif
+    return true;
+}
+
+void TextEditorWidget::onFocusLost() {
+    isFocused_ = false;
+    isDraggingText_ = false;
+    isDraggingMinimap_ = false;
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (window.eatsbitsHideSoftKeyboard) {
+            window.eatsbitsHideSoftKeyboard();
+        }
+    });
+#endif
 }
 
 void TextEditorWidget::layout(const Rect2D& bounds, const ViewContext& ctx) {
     if (ctx.clipboard) clipboard_ = ctx.clipboard;
     bounds_ = bounds;
-    gutterBounds_ = Rect2D(bounds_.x, bounds_.y, gutterW_, bounds_.h);
-    minimapBounds_ = Rect2D(bounds_.x + bounds_.w - minimapW_, bounds_.y, minimapW_, bounds_.h);
+
+    bool effectiveToolbar = showToolbar_ || (autoToolbar_ && (ctx.isMobile || bounds_.w < 650.0f));
+    float toolbarH = effectiveToolbar ? (ctx.isMobile ? 36.0f : 32.0f) : 0.0f;
+    float contentH = std::max(0.0f, bounds_.h - toolbarH);
+
+    if (effectiveToolbar) {
+        toolbarBounds_ = Rect2D(bounds_.x, bounds_.y + contentH, bounds_.w, toolbarH);
+    } else {
+        toolbarBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    gutterBounds_ = Rect2D(bounds_.x, bounds_.y, gutterW_, contentH);
+    minimapBounds_ = Rect2D(bounds_.x + bounds_.w - minimapW_, bounds_.y, minimapW_, contentH);
     float textW = std::max(0.0f, bounds_.w - gutterW_ - minimapW_);
-    textAreaBounds_ = Rect2D(bounds_.x + gutterW_, bounds_.y, textW, bounds_.h);
+    textAreaBounds_ = Rect2D(bounds_.x + gutterW_, bounds_.y, textW, contentH);
 
     charWidth_ = getMonoCharAdvance(10.0f);
     presenter_.setViewport(textAreaBounds_.w, textAreaBounds_.h, lineHeight_, charWidth_);
@@ -24,6 +140,8 @@ void TextEditorWidget::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
 void TextEditorWidget::setText(std::string_view text) {
     presenter_.setText(text);
+    resetCursorBlink();
+    lastCursor_ = presenter_.getCursor();
 }
 
 std::string TextEditorWidget::getText() const {
@@ -52,6 +170,13 @@ void TextEditorWidget::render(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
+    // Reset cursor blink if cursor changed position
+    auto curCursor = presenter_.getCursor();
+    if (curCursor.line != lastCursor_.line || curCursor.column != lastCursor_.column) {
+        resetCursorBlink();
+        lastCursor_ = curCursor;
+    }
+
     // 1. Overall Editor Background
     drawRect(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h, 0.06f, 0.07f, 0.09f, 1.0f);
 
@@ -59,7 +184,9 @@ void TextEditorWidget::render(const ViewContext& ctx) {
     int curLine = presenter_.getCursor().line;
     float activeLineY = textAreaBounds_.y + static_cast<float>(curLine) * lineHeight_ - presenter_.getScrollY();
     if (activeLineY >= bounds_.y - lineHeight_ && activeLineY <= bounds_.y + bounds_.h) {
+        r.pushScissor(bounds_.x, bounds_.y, bounds_.w - minimapW_, bounds_.h);
         drawRect(r, bounds_.x, activeLineY, bounds_.w - minimapW_, lineHeight_, 1.0f, 1.0f, 1.0f, 0.045f);
+        r.popScissor();
     }
 
     // 3. Render Gutter and Text Content
@@ -75,6 +202,11 @@ void TextEditorWidget::render(const ViewContext& ctx) {
     } else {
         drawRoundedRectOutline(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h, 2.0f,
                                0.18f, 0.20f, 0.26f, 0.8f, 1.0f);
+    }
+
+    // 6. Mobile Code Accessory Toolbar
+    if (toolbarBounds_.h > 0.0f) {
+        renderAccessoryToolbar(ctx);
     }
 }
 
@@ -300,7 +432,7 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
     // Render Blinking Cursor
     if (isFocused_) {
         auto now = std::chrono::steady_clock::now();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - focusGainTime_).count();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - cursorBlinkResetTime_).count();
         bool showCursor = (ms % 1000) < 550;
 
         if (showCursor) {
@@ -315,9 +447,13 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
 
     r.popScissor();
 
-    // Render Gutter Line Numbers
+    // Render Gutter Line Numbers (scissored strictly within gutterBounds_)
+    r.pushScissor(gutterBounds_.x, gutterBounds_.y, gutterBounds_.w, gutterBounds_.h);
     for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
         float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
+        if (ly + charH < gutterBounds_.y || ly > gutterBounds_.y + gutterBounds_.h) {
+            continue;
+        }
         std::string numStr = std::to_string(l + 1);
         bool isActive = (l == presenter_.getCursor().line);
 
@@ -326,6 +462,7 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
                                    : packColorU32(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
         r.drawMonospaceText(numX, ly, charWidth_, charH, numStr, numCol);
     }
+    r.popScissor();
 }
 
 void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
@@ -398,6 +535,14 @@ void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
 
 bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     if (ctx.clipboard) clipboard_ = ctx.clipboard;
+
+    // Check Mobile Code Accessory Toolbar first
+    if (toolbarBounds_.h > 0.0f) {
+        if (handleToolbarPointer(ev, ctx)) {
+            return true;
+        }
+    }
+
     if (ev.action == PointerAction::Down) {
         if (!bounds_.contains(ev.x, ev.y)) {
             return false;
@@ -406,6 +551,13 @@ bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& 
         if (ctx.focusManager) {
             ctx.focusManager->requestFocus(this);
         }
+#ifdef __EMSCRIPTEN__
+        EM_ASM({
+            if (window.eatsbitsShowSoftKeyboard) {
+                window.eatsbitsShowSoftKeyboard();
+            }
+        });
+#endif
 
         if (minimapBounds_.contains(ev.x, ev.y)) {
             isDraggingMinimap_ = true;
@@ -427,6 +579,9 @@ bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& 
                 isDraggingText_ = true;
             }
 
+            resetCursorBlink();
+            lastCursor_ = presenter_.getCursor();
+
             lastClickTime_ = now;
             lastClickPos_ = Point2D(ev.x, ev.y);
             return true;
@@ -440,6 +595,8 @@ bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& 
             auto coord = coordFromPoint(ev.x, ev.y);
             presenter_.setCursor(coord, true);
             presenter_.ensureCursorVisible(gutterW_);
+            resetCursorBlink();
+            lastCursor_ = presenter_.getCursor();
             return true;
         }
     } else if (ev.action == PointerAction::Up) {
@@ -450,9 +607,15 @@ bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& 
         }
     } else if (ev.action == PointerAction::Scroll) {
         if (bounds_.contains(ev.x, ev.y)) {
-            float newScrollY = presenter_.getScrollY() - ev.scrollY * lineHeight_ * 3.0f;
+            float sy = ev.scrollY;
+            float sx = ev.scrollX;
+            if (ev.mods.shift && sx == 0.0f) {
+                sx = sy;
+                sy = 0.0f;
+            }
+            float newScrollY = presenter_.getScrollY() - sy * lineHeight_ * 3.0f;
             presenter_.setScrollY(newScrollY);
-            float newScrollX = presenter_.getScrollX() - ev.scrollX * charWidth_ * 3.0f;
+            float newScrollX = presenter_.getScrollX() - sx * charWidth_ * 3.0f;
             presenter_.setScrollX(newScrollX);
             return true;
         }
@@ -476,6 +639,7 @@ bool TextEditorWidget::handleKey(int key, int /*scancode*/, int action, int mods
     IClipboard* cb = ctx.clipboard ? ctx.clipboard : clipboard_;
 
     focusGainTime_ = std::chrono::steady_clock::now();
+    resetCursorBlink();
 
     // 1. Compile Trigger: Ctrl+Enter or F5
     if ((ctrl && key == 257) || key == 294) { // Enter=257, F5=294
@@ -671,13 +835,273 @@ bool TextEditorWidget::handleChar(char32_t codepoint, const ViewContext& /*ctx*/
     if (!isFocused_ || readOnly_) return false;
 
     focusGainTime_ = std::chrono::steady_clock::now();
+    resetCursorBlink();
     presenter_.insertChar(codepoint);
     presenter_.ensureCursorVisible(gutterW_);
+    lastCursor_ = presenter_.getCursor();
 
     if (onTextChanged) {
         onTextChanged(getText());
     }
     return true;
+}
+
+void TextEditorWidget::renderAccessoryToolbar(const ViewContext& ctx) {
+    if (!ctx.renderer || !ctx.theme) return;
+    auto& r = *ctx.renderer;
+    const auto& theme = *ctx.theme;
+    const auto& items = getToolbarItems();
+
+    // 1. Scissor to toolbar bounds
+    r.pushScissor(toolbarBounds_.x, toolbarBounds_.y, toolbarBounds_.w, toolbarBounds_.h);
+
+    // 2. Toolbar Background and Top Divider
+    drawRect(r, toolbarBounds_.x, toolbarBounds_.y, toolbarBounds_.w, toolbarBounds_.h, 0.08f, 0.09f, 0.12f, 0.98f);
+    drawLine(r, toolbarBounds_.x, toolbarBounds_.y,
+             toolbarBounds_.x + toolbarBounds_.w, toolbarBounds_.y,
+             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+
+    float btnH = std::max(22.0f, toolbarBounds_.h - 8.0f);
+    float btnY = toolbarBounds_.y + (toolbarBounds_.h - btnH) * 0.5f;
+    float curX = 6.0f;
+
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto& item = items[i];
+        float btnX = toolbarBounds_.x + curX - toolbarScrollX_;
+
+        if (btnX + item.width >= toolbarBounds_.x && btnX <= toolbarBounds_.x + toolbarBounds_.w) {
+            bool isPressed = (pressedToolbarBtn_ == static_cast<int>(i));
+
+            Color bgCol, bdrCol, textCol;
+            if (item.action == ToolbarAction::RunCompile) {
+                if (isPressed) {
+                    bgCol = Color(theme.primaryAccent.r * 0.5f, theme.primaryAccent.g * 0.5f, theme.primaryAccent.b * 0.5f, 0.95f);
+                } else {
+                    bgCol = Color(theme.primaryAccent.r * 0.25f, theme.primaryAccent.g * 0.25f, theme.primaryAccent.b * 0.25f, 0.85f);
+                }
+                bdrCol = theme.primaryAccent;
+                textCol = Color(1.0f, 1.0f, 1.0f, 1.0f);
+            } else {
+                if (isPressed) {
+                    bgCol = Color(theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.35f);
+                    bdrCol = theme.primaryAccent;
+                    textCol = Color(1.0f, 1.0f, 1.0f, 1.0f);
+                } else {
+                    bgCol = Color(0.13f, 0.14f, 0.19f, 0.90f);
+                    bdrCol = Color(0.22f, 0.24f, 0.30f, 0.85f);
+                    textCol = theme.textPrimary;
+                }
+            }
+
+            drawButton(r, Rect2D(btnX, btnY, item.width, btnH), item.label, bgCol, bdrCol, textCol, 10.5f, 4.0f, 1.0f);
+        }
+
+        curX += item.width + 4.0f;
+    }
+
+    r.popScissor();
+}
+
+bool TextEditorWidget::handleToolbarPointer(const PointerEvent& ev, const ViewContext& ctx) {
+    if (toolbarBounds_.h <= 0.0f) return false;
+
+    const auto& items = getToolbarItems();
+    float totalW = 6.0f;
+    for (const auto& item : items) {
+        totalW += item.width + 4.0f;
+    }
+    float maxScroll = std::max(0.0f, totalW + 8.0f - toolbarBounds_.w);
+
+    if (ev.action == PointerAction::Scroll) {
+        if (toolbarBounds_.contains(ev.x, ev.y)) {
+            toolbarScrollX_ = std::clamp(toolbarScrollX_ - ev.scrollX * 30.0f - ev.scrollY * 30.0f, 0.0f, maxScroll);
+            return true;
+        }
+        return false;
+    }
+
+    if (ev.action == PointerAction::Down) {
+        if (!toolbarBounds_.contains(ev.x, ev.y)) {
+            return false;
+        }
+
+        if (ctx.focusManager) {
+            ctx.focusManager->requestFocus(this);
+        }
+
+        lastToolbarDragX_ = ev.x;
+        float btnH = std::max(22.0f, toolbarBounds_.h - 8.0f);
+        float btnY = toolbarBounds_.y + (toolbarBounds_.h - btnH) * 0.5f;
+
+        float curX = 6.0f;
+        for (size_t i = 0; i < items.size(); ++i) {
+            const auto& item = items[i];
+            float btnX = toolbarBounds_.x + curX - toolbarScrollX_;
+            Rect2D btnRect(btnX, btnY, item.width, btnH);
+
+            if (btnRect.contains(ev.x, ev.y)) {
+                pressedToolbarBtn_ = static_cast<int>(i);
+
+                // Execute action
+                switch (item.action) {
+                    case ToolbarAction::Indent:
+                        if (presenter_.hasSelection()) {
+                            presenter_.indentSelection(4);
+                        } else {
+                            presenter_.insertText("    ");
+                        }
+                        break;
+                    case ToolbarAction::Outdent:
+                        presenter_.unindentSelection(4);
+                        break;
+                    case ToolbarAction::Parens:
+                        if (presenter_.hasSelection()) {
+                            presenter_.insertText("(" + presenter_.getSelectedText() + ")");
+                        } else {
+                            presenter_.insertText("()");
+                            auto cur = presenter_.getCursor();
+                            if (cur.column > 0) cur.column--;
+                            presenter_.setCursor(cur, false);
+                        }
+                        break;
+                    case ToolbarAction::Brackets:
+                        if (presenter_.hasSelection()) {
+                            presenter_.insertText("[" + presenter_.getSelectedText() + "]");
+                        } else {
+                            presenter_.insertText("[]");
+                            auto cur = presenter_.getCursor();
+                            if (cur.column > 0) cur.column--;
+                            presenter_.setCursor(cur, false);
+                        }
+                        break;
+                    case ToolbarAction::Braces:
+                        if (presenter_.hasSelection()) {
+                            presenter_.insertText("{" + presenter_.getSelectedText() + "}");
+                        } else {
+                            presenter_.insertText("{}");
+                            auto cur = presenter_.getCursor();
+                            if (cur.column > 0) cur.column--;
+                            presenter_.setCursor(cur, false);
+                        }
+                        break;
+                    case ToolbarAction::DoubleQuote:
+                        if (presenter_.hasSelection()) {
+                            presenter_.insertText("\"" + presenter_.getSelectedText() + "\"");
+                        } else {
+                            presenter_.insertText("\"\"");
+                            auto cur = presenter_.getCursor();
+                            if (cur.column > 0) cur.column--;
+                            presenter_.setCursor(cur, false);
+                        }
+                        break;
+                    case ToolbarAction::SingleQuote:
+                        if (presenter_.hasSelection()) {
+                            presenter_.insertText("'" + presenter_.getSelectedText() + "'");
+                        } else {
+                            presenter_.insertText("''");
+                            auto cur = presenter_.getCursor();
+                            if (cur.column > 0) cur.column--;
+                            presenter_.setCursor(cur, false);
+                        }
+                        break;
+                    case ToolbarAction::Colon:
+                        presenter_.insertText(":");
+                        break;
+                    case ToolbarAction::Equals:
+                        presenter_.insertText("=");
+                        break;
+                    case ToolbarAction::Plus:
+                        presenter_.insertText("+");
+                        break;
+                    case ToolbarAction::Minus:
+                        presenter_.insertText("-");
+                        break;
+                    case ToolbarAction::Asterisk:
+                        presenter_.insertText("*");
+                        break;
+                    case ToolbarAction::Slash:
+                        presenter_.insertText("/");
+                        break;
+                    case ToolbarAction::Dot:
+                        presenter_.insertText(".");
+                        break;
+                    case ToolbarAction::Comma:
+                        presenter_.insertText(",");
+                        break;
+                    case ToolbarAction::Underscore:
+                        presenter_.insertText("_");
+                        break;
+                    case ToolbarAction::Comment:
+                        presenter_.toggleLineComment("#");
+                        break;
+                    case ToolbarAction::Arrow:
+                        presenter_.insertText("->");
+                        break;
+                    case ToolbarAction::Params:
+                        presenter_.insertText("params[");
+                        break;
+                    case ToolbarAction::Return:
+                        presenter_.insertText("return ");
+                        break;
+                    case ToolbarAction::NudgeLeft:
+                        presenter_.moveLeft(false);
+                        break;
+                    case ToolbarAction::NudgeRight:
+                        presenter_.moveRight(false);
+                        break;
+                    case ToolbarAction::NudgeUp:
+                        presenter_.moveUp(false);
+                        break;
+                    case ToolbarAction::NudgeDown:
+                        presenter_.moveDown(false);
+                        break;
+                    case ToolbarAction::Undo:
+                        presenter_.getDocument().undo();
+                        presenter_.setCursor(presenter_.getCursor(), false);
+                        break;
+                    case ToolbarAction::Redo:
+                        presenter_.getDocument().redo();
+                        presenter_.setCursor(presenter_.getCursor(), false);
+                        break;
+                    case ToolbarAction::RunCompile:
+                        if (onCompileTriggered) {
+                            onCompileTriggered();
+                        }
+                        break;
+                }
+
+                presenter_.ensureCursorVisible(gutterW_);
+                resetCursorBlink();
+                lastCursor_ = presenter_.getCursor();
+                if (onTextChanged) onTextChanged(getText());
+                return true;
+            }
+
+            curX += item.width + 4.0f;
+        }
+
+        return true; // Clicked on toolbar background
+    }
+
+    if (ev.action == PointerAction::Move) {
+        if (pressedToolbarBtn_ >= 0) {
+            float deltaX = ev.x - lastToolbarDragX_;
+            if (std::abs(deltaX) > 4.0f) {
+                toolbarScrollX_ = std::clamp(toolbarScrollX_ - deltaX, 0.0f, maxScroll);
+                lastToolbarDragX_ = ev.x;
+            }
+            return true;
+        }
+    }
+
+    if (ev.action == PointerAction::Up) {
+        if (pressedToolbarBtn_ >= 0) {
+            pressedToolbarBtn_ = -1;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 } // namespace eatsbits::ui

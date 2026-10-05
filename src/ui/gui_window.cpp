@@ -17,6 +17,7 @@
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/procedural_texture_system.hpp"
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -165,6 +166,20 @@ namespace eatsbits::ui {
 
 #if defined(__EMSCRIPTEN__)
 static GuiWindow* g_activeGuiWindowForWeb = nullptr;
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void eats_on_web_char_input(unsigned int codepoint) {
+    if (!g_activeGuiWindowForWeb) return;
+    g_activeGuiWindowForWeb->onChar(codepoint);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void eats_on_web_key_input(int key, int action, int mods) {
+    if (!g_activeGuiWindowForWeb) return;
+    if (action == 1 /* GLFW_PRESS */ || action == 2 /* GLFW_REPEAT */) {
+        g_activeGuiWindowForWeb->onKeyDown(key, mods);
+    }
+}
 
 extern "C" EMSCRIPTEN_KEEPALIVE
 void eats_on_file_dropped_web(const char* virtualPath, float clientX, float clientY) {
@@ -787,9 +802,14 @@ private:
     uint32_t cachedGradBot_{0};
 };
 
-inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
+inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
+                             GuiChassisStyle style = GuiChassisStyle::DarkChassis,
+                             const std::optional<Color>& tint = std::nullopt,
+                             float wear = 0.20f) {
     if (g_activeBatchRenderer) {
-        ChassisTextureSystem::instance().draw(g_activeBatchRenderer, x, y, w, h, isTopPanel, theme);
+        ProceduralTextureSystem::instance().drawChassis(
+            g_activeBatchRenderer, x, y, w, h, style, theme,
+            tint, wear, 0.0f, isTopPanel);
     }
 }
 
@@ -797,9 +817,10 @@ inline void drawButtonNoise(float x, float y, float w, float h, bool isTop = tru
                             float cornerRadius = 0.0f, bool roundTL = true, bool roundTR = true,
                             bool roundBL = true, bool roundBR = true, bool pressed = false, float pressShiftY = 3.0f) {
     if (g_activeBatchRenderer) {
-        ChassisTextureSystem::instance().drawButtonNoise(g_activeBatchRenderer, x, y, w, h, isTop, opacity,
-                                                         cornerRadius, roundTL, roundTR, roundBL, roundBR,
-                                                         pressed, pressShiftY);
+        ProceduralTextureSystem::instance().drawButtonNoise(
+            g_activeBatchRenderer, x, y, w, h, isTop, opacity,
+            cornerRadius, roundTL, roundTR, roundBL, roundBR,
+            pressed, pressShiftY);
     }
 }
 
@@ -2799,6 +2820,191 @@ void GuiWindow::setSelectedTrackIndex(uint32_t idx) noexcept {
     syncTrackToPreset(idx);
 }
 
+void GuiWindow::handleTrackAdded(uint32_t trackIdx) {
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        const auto& trk = modularArrangerView_->getTracks()[trackIdx];
+        if (trackIdx >= arrangerTracks_.size()) {
+            ArrangerTrackData atd;
+            atd.name = trk.name;
+            atd.instrument = trk.instrument;
+            atd.instrumentEngine = trk.instrumentEngine.empty() ? "synth" : trk.instrumentEngine;
+            atd.r = trk.r; atd.g = trk.g; atd.b = trk.b;
+            atd.clips.clear();
+            arrangerTracks_.push_back(atd);
+            updateMixerStrips();
+            if (engine_ && trackIdx >= engine_->getSequencer().getNumTracks()) {
+                engine_->addTrack(trk.name, 0, 16);
+            }
+        }
+        setSelectedTrackIndex(trackIdx);
+        recordProjectHistory("Add Track " + std::to_string(trackIdx + 1), "TRACK");
+        setStatusMessage("Added Track " + std::to_string(trackIdx + 1) + ": " + trk.name);
+    }
+}
+
+void GuiWindow::addTrackToProject(const std::string& name, const std::string& instrumentEngine, float r, float g, float b) {
+    uint32_t newIdx = static_cast<uint32_t>(arrangerTracks_.size());
+    std::string trkName = name.empty() ? ("Track " + std::to_string(newIdx + 1)) : name;
+    std::string eng = instrumentEngine.empty() ? "synth" : instrumentEngine;
+
+    ArrangerTrackData atd;
+    atd.name = trkName;
+    atd.instrument = trkName;
+    atd.instrumentEngine = eng;
+    atd.r = r; atd.g = g; atd.b = b;
+    atd.clips.clear(); // Clean track ready for audio or MIDI clips
+    arrangerTracks_.push_back(atd);
+    updateMixerStrips();
+
+    if (engine_) {
+        engine_->addTrack(trkName, 0, 16);
+    }
+
+    if (modularArrangerView_) {
+        modularArrangerView_->addTrack(trkName, eng, r, g, b);
+    }
+
+    setSelectedTrackIndex(newIdx);
+    recordProjectHistory("Add Track " + std::to_string(newIdx + 1), "TRACK");
+    setStatusMessage("Added Track " + std::to_string(newIdx + 1) + ": " + trkName);
+}
+
+void GuiWindow::deleteTrack(uint32_t trackIdx) {
+    if (arrangerTracks_.size() <= 1 || trackIdx >= arrangerTracks_.size()) {
+        setStatusMessage("Cannot delete the only remaining track");
+        return;
+    }
+
+    std::string deletedName = arrangerTracks_[trackIdx].name;
+    arrangerTracks_.erase(arrangerTracks_.begin() + trackIdx);
+    updateMixerStrips();
+
+    if (engine_) {
+        engine_->removeTrack(trackIdx);
+    }
+
+    if (modularArrangerView_) {
+        if (modularArrangerView_->getTracks().size() > arrangerTracks_.size() &&
+            trackIdx < modularArrangerView_->getTracks().size()) {
+            modularArrangerView_->deleteTrack(trackIdx);
+        } else {
+            if (modularArrangerView_->getActiveTrackIndex() >= arrangerTracks_.size()) {
+                modularArrangerView_->setActiveTrack(static_cast<uint32_t>(arrangerTracks_.size() - 1));
+            }
+            modularArrangerView_->setSelectedClip(-1);
+        }
+    }
+
+    if (selectedTrackIndex_ >= arrangerTracks_.size()) {
+        selectedTrackIndex_ = static_cast<uint32_t>(arrangerTracks_.size() - 1);
+    }
+    setSelectedTrackIndex(selectedTrackIndex_);
+    syncArrangerToSequencer();
+    recordProjectHistory("Delete Track " + std::to_string(trackIdx + 1), "TRACK");
+    setStatusMessage("Deleted Track: " + deletedName);
+}
+
+void GuiWindow::duplicateTrack(uint32_t trackIdx) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    ArrangerTrackData dup = arrangerTracks_[trackIdx];
+    dup.name += " (Copy)";
+    uint32_t newTrackIdx = static_cast<uint32_t>(arrangerTracks_.size());
+    arrangerTracks_.push_back(dup);
+    updateMixerStrips();
+
+    if (engine_) {
+        engine_->addTrack(dup.name, 0, 16);
+    }
+
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        auto arrDup = modularArrangerView_->getTracks()[trackIdx];
+        arrDup.name += " (Copy)";
+        for (size_t i = 0; i < arrDup.clips.size(); ++i) {
+            arrDup.clips[i].id = "clip_" + std::to_string(newTrackIdx + 1) + "_" + std::to_string(i + 1);
+            arrDup.clips[i].trackIndex = newTrackIdx;
+        }
+        modularArrangerView_->getTracks().push_back(arrDup);
+        modularArrangerView_->setActiveTrack(newTrackIdx);
+        modularArrangerView_->setSelectedClip(-1);
+    }
+
+    setSelectedTrackIndex(newTrackIdx);
+    recordProjectHistory("Duplicate Track " + std::to_string(trackIdx + 1), "TRACK");
+    setStatusMessage("Duplicated Track: " + dup.name);
+}
+
+void GuiWindow::addClipToTrack(uint32_t trackIdx) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->addClipToTrack(trackIdx);
+        const auto& arrTrk = modularArrangerView_->getTracks()[trackIdx];
+        arrangerTracks_[trackIdx].clips.clear();
+        for (const auto& c : arrTrk.clips) {
+            ArrangerClip ac;
+            ac.name = c.name;
+            ac.startBar = c.startBar;
+            ac.barLength = c.lengthBars;
+            ac.isLooped = c.isLooped;
+            ac.loopLengthBars = c.loopLengthBars;
+            ac.isAudio = c.isAudio;
+            ac.transposeSemitones = c.transposeSemitones;
+            ac.r = c.r; ac.g = c.g; ac.b = c.b;
+            arrangerTracks_[trackIdx].clips.push_back(ac);
+        }
+    }
+    syncArrangerToSequencer();
+    recordProjectHistory("Add Clip to Track " + std::to_string(trackIdx + 1), "CLIP");
+    setStatusMessage("Added new clip to Track " + std::to_string(trackIdx + 1));
+}
+
+void GuiWindow::duplicateClip(uint32_t trackIdx, int clipIdx) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->duplicateClip(trackIdx, clipIdx);
+        const auto& arrTrk = modularArrangerView_->getTracks()[trackIdx];
+        arrangerTracks_[trackIdx].clips.clear();
+        for (const auto& c : arrTrk.clips) {
+            ArrangerClip ac;
+            ac.name = c.name;
+            ac.startBar = c.startBar;
+            ac.barLength = c.lengthBars;
+            ac.isLooped = c.isLooped;
+            ac.loopLengthBars = c.loopLengthBars;
+            ac.isAudio = c.isAudio;
+            ac.transposeSemitones = c.transposeSemitones;
+            ac.r = c.r; ac.g = c.g; ac.b = c.b;
+            arrangerTracks_[trackIdx].clips.push_back(ac);
+        }
+    }
+    syncArrangerToSequencer();
+    recordProjectHistory("Duplicate Clip on Track " + std::to_string(trackIdx + 1), "CLIP");
+    setStatusMessage("Duplicated clip on Track " + std::to_string(trackIdx + 1));
+}
+
+void GuiWindow::deleteClip(uint32_t trackIdx, int clipIdx) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->deleteClip(trackIdx, clipIdx);
+        const auto& arrTrk = modularArrangerView_->getTracks()[trackIdx];
+        arrangerTracks_[trackIdx].clips.clear();
+        for (const auto& c : arrTrk.clips) {
+            ArrangerClip ac;
+            ac.name = c.name;
+            ac.startBar = c.startBar;
+            ac.barLength = c.lengthBars;
+            ac.isLooped = c.isLooped;
+            ac.loopLengthBars = c.loopLengthBars;
+            ac.isAudio = c.isAudio;
+            ac.transposeSemitones = c.transposeSemitones;
+            ac.r = c.r; ac.g = c.g; ac.b = c.b;
+            arrangerTracks_[trackIdx].clips.push_back(ac);
+        }
+    }
+    syncArrangerToSequencer();
+    recordProjectHistory("Delete Clip from Track " + std::to_string(trackIdx + 1), "CLIP");
+    setStatusMessage("Deleted clip from Track " + std::to_string(trackIdx + 1));
+}
+
 void GuiWindow::setTrackMuteState(uint32_t trackIdx, bool mute) {
     if (trackIdx < arrangerTracks_.size()) {
         arrangerTracks_[trackIdx].mute = mute;
@@ -3709,17 +3915,20 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 trk.g = entry.g;
                 trk.b = entry.b;
             }
+            recordProjectHistory("Change Instrument on Track " + std::to_string(targetIdx + 1) + " to " + entry.name, "INSTRUMENT");
             setStatusMessage("Loaded Preset: " + entry.name + " to Track " + std::to_string(targetIdx + 1));
         } else if (mode == PluginDialogMode::AddAudioFx) {
             if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[trackIndex].audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
                 syncTrackAudioFxToEngine(trackIndex);
+                recordProjectHistory("Add Audio FX " + entry.name + " to Track " + std::to_string(trackIndex + 1), "AUDIO_FX");
             }
             setStatusMessage("Added Audio FX: " + entry.name);
         } else if (mode == PluginDialogMode::AddMidiFx) {
             if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[trackIndex].midiFx.push_back({entry.name, entry.engineTag, 0, 0, true});
                 syncTrackMidiFxToEngine(trackIndex);
+                recordProjectHistory("Add MIDI FX " + entry.name + " to Track " + std::to_string(trackIndex + 1), "MIDI_FX");
             }
             setStatusMessage("Added MIDI FX: " + entry.name);
         }
@@ -3990,6 +4199,39 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularArrangerView_->onMasterMuteToggled = [this](bool mute) {
             setMasterMuted(mute);
         };
+        modularArrangerView_->onTrackAdded = [this](uint32_t idx) {
+            handleTrackAdded(idx);
+        };
+        modularArrangerView_->onTrackDeleted = [this](uint32_t idx) {
+            deleteTrack(idx);
+        };
+        modularArrangerView_->onTrackDuplicated = [this](uint32_t idx) {
+            duplicateTrack(idx);
+        };
+        modularArrangerView_->onAddClip = [this](uint32_t idx) {
+            addClipToTrack(idx);
+        };
+        modularArrangerView_->onDuplicateClip = [this](uint32_t tIdx, int cIdx) {
+            duplicateClip(tIdx, cIdx);
+        };
+        modularArrangerView_->onDeleteClip = [this](uint32_t tIdx, int cIdx) {
+            deleteClip(tIdx, cIdx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onAddClip = [this](uint32_t idx) {
+            addClipToTrack(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onDeleteTrack = [this](uint32_t idx) {
+            deleteTrack(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onDuplicateTrack = [this](uint32_t idx) {
+            duplicateTrack(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onDuplicateClip = [this](uint32_t tIdx, int cIdx) {
+            duplicateClip(tIdx, cIdx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onDeleteClip = [this](uint32_t tIdx, int cIdx) {
+            deleteClip(tIdx, cIdx);
+        };
     }
 
     valueEditDialog_.onCopyToClipboard = [this](const std::string& text) {
@@ -4141,6 +4383,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->getPanel().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+        modularTrackInspectorView_->onAddClip = [this](uint32_t idx) {
+            addClipToTrack(idx);
+        };
+        modularTrackInspectorView_->onDeleteTrack = [this](uint32_t idx) {
+            deleteTrack(idx);
+        };
+        modularTrackInspectorView_->onDuplicateTrack = [this](uint32_t idx) {
+            duplicateTrack(idx);
+        };
+        modularTrackInspectorView_->onDuplicateClip = [this](uint32_t tIdx, int cIdx) {
+            duplicateClip(tIdx, cIdx);
+        };
+        modularTrackInspectorView_->onDeleteClip = [this](uint32_t tIdx, int cIdx) {
+            deleteClip(tIdx, cIdx);
         };
     }
 
@@ -4376,6 +4633,30 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
+        };
+        modularMixerView_->onAddClip = [this](uint32_t idx) {
+            addClipToTrack(idx);
+        };
+        modularMixerView_->onDeleteTrack = [this](uint32_t idx) {
+            deleteTrack(idx);
+        };
+        modularMixerView_->onDuplicateTrack = [this](uint32_t idx) {
+            duplicateTrack(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().onAddClip = [this](uint32_t idx) {
+            addClipToTrack(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().onDeleteTrack = [this](uint32_t idx) {
+            deleteTrack(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().onDuplicateTrack = [this](uint32_t idx) {
+            duplicateTrack(idx);
+        };
+        modularMixerView_->getPropertiesDrawer().onDuplicateClip = [this](uint32_t tIdx, int cIdx) {
+            duplicateClip(tIdx, cIdx);
+        };
+        modularMixerView_->getPropertiesDrawer().onDeleteClip = [this](uint32_t tIdx, int cIdx) {
+            deleteClip(tIdx, cIdx);
         };
     }
 
@@ -4749,6 +5030,16 @@ ViewContext GuiWindow::createViewContext() noexcept {
     ctx.logicalWidth = static_cast<float>(width_);
     ctx.logicalHeight = static_cast<float>(height_);
     ctx.uiScale = renderScale_;
+#if defined(__EMSCRIPTEN__)
+    ctx.isMobile = EM_ASM_INT({
+        var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
+        var isSmallScreen = window.innerWidth <= 800;
+        var isMobAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        return (isTouch || isMobAgent || isSmallScreen) ? 1 : 0;
+    }) != 0;
+#else
+    ctx.isMobile = (width_ < 768);
+#endif
     ctx.dt = (frameDt_ > 0.0001f) ? frameDt_ : 0.0166f;
     ctx.time.deltaTime = static_cast<double>(ctx.dt);
     ctx.time.songTimeSeconds = telemetryPresenter_.getTransport().songTimeSeconds;
@@ -4931,7 +5222,7 @@ void GuiWindow::drawTopTransportBar() {
     // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
     // =========================================================================
     // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
-    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme);
+    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_);
 
     // Top specular rim highlight & uniform bottom machined bevel
     drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -5505,7 +5796,7 @@ void GuiWindow::renderFrame() {
         const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
         const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
         // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
-        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme);
+        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_);
 
         // Top lip specular highlight line & crevice
         drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -5670,7 +5961,7 @@ void GuiWindow::renderFrame() {
         if (projectHubOpen_) {
             DialogFrameConfig cfg;
             cfg.width = 540.0f;
-            cfg.height = 580.0f;
+            cfg.height = 620.0f;
             cfg.title = "EATSBITS SETTINGS";
             cfg.showLogo = true;
             cfg.showCloseButton = true;
@@ -5689,18 +5980,19 @@ void GuiWindow::renderFrame() {
             const float headerH = 30.0f;
             const float headerGap = 6.0f;
             const float headerStep = headerH + headerGap; // 36.0f
-            const int numSections = 6;
+            const int numSections = 7;
             // Maximum height available for any expanded drawer inside the dialog
-            const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap; // 272.0f
+            const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap;
 
             float curDrawerH = 0.0f;
             if (projectHubSection_ >= 0) {
                 if (projectHubSection_ == 0) curDrawerH = 190.0f;
                 else if (projectHubSection_ == 1) curDrawerH = 114.0f;
                 else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-                else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
-                else if (projectHubSection_ == 4) curDrawerH = 100.0f;
+                else if (projectHubSection_ == 3) curDrawerH = 226.0f;
+                else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
                 else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+                else if (projectHubSection_ == 6) curDrawerH = 100.0f;
             }
 
             const float drawerX = hubX + 16.0f;
@@ -5709,7 +6001,7 @@ void GuiWindow::renderFrame() {
             const float drawerH = curDrawerH;
 
             // Configure scrollable area constrained to the CRT Shader drawer
-            if (projectHubSection_ == 3) {
+            if (projectHubSection_ == 4) {
                 projectHubScrollArea_.setViewport(drawerX, drawerY, drawerW, drawerH);
                 projectHubScrollArea_.setContentHeight(586.0f);
                 projectHubScrollArea_.setScrollY(projectHubScrollY_);
@@ -5721,16 +6013,17 @@ void GuiWindow::renderFrame() {
                 projectHubScrollY_ = 0.0f;
             }
 
-            const char* secTitles[6] = {
+            const char* secTitles[7] = {
                 "PROJECT HUB",
                 "SESSION PERSISTENCE & AUTO-RESTORE",
                 "DISPLAY & WORKSPACE",
+                "CHASSIS & PANEL TEXTURES",
                 "CRT SHADER",
                 "AUDIO ENGINE CONFIG",
                 "CREDITS & ACKNOWLEDGMENTS"
             };
 
-            for (int s = 0; s < 6; ++s) {
+            for (int s = 0; s < 7; ++s) {
                 bool isExp = (projectHubSection_ == s);
                 float curY = 0.0f;
                 if (projectHubSection_ == -1 || s <= projectHubSection_) {
@@ -5773,13 +6066,18 @@ void GuiWindow::renderFrame() {
                 } else if (s == 2) {
                     drawIconEdit(hubX + 22.0f, curY + 10.0f, 10.0f, isExp ? theme.primaryAccent : theme.textSecondary);
                 } else if (s == 3) {
+                    // Section 3: Chassis & Panel Textures icon (grid / material texture swatch)
+                    drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 10.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
+                    drawLine(hubX + 22.0f, curY + 15.0f, hubX + 34.0f, curY + 15.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.0f);
+                    drawLine(hubX + 28.0f, curY + 10.0f, hubX + 28.0f, curY + 20.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.0f);
+                } else if (s == 4) {
                     drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 9.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 19.0f, hubX + 31.0f, curY + 19.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                } else if (s == 4) {
+                } else if (s == 5) {
                     drawLine(hubX + 22.0f, curY + 15.0f, hubX + 32.0f, curY + 15.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 12.0f, hubX + 25.0f, curY + 18.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 10.0f, hubX + 28.0f, curY + 20.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                } else if (s == 5) {
+                } else if (s == 6) {
                     drawCircleOutline(hubX + 28.0f, curY + 15.0f, 5.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 14.0f, hubX + 28.0f, curY + 17.5f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawCircle(hubX + 28.0f, curY + 12.0f, 1.0f, isExp ? theme.primaryAccent : theme.textSecondary);
@@ -6062,7 +6360,145 @@ void GuiWindow::renderFrame() {
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
-                        // SECTION 3: CRT SHADER (Scrollable within constrained drawer space)
+                        // SECTION 3: CHASSIS & PANEL TEXTURES
+                        // 1. Material Texture Chips Header & Grid (2 rows of 5)
+                        drawVectorString("PANEL MATERIAL & TEXTURE (TOP & BOTTOM CHASSIS)", hubX + 28.0f, contentY + 8.0f, 0.65f, theme.textMuted);
+
+                        struct MatChip {
+                            const char* label;
+                            GuiChassisStyle style;
+                        };
+                        const MatChip matChips[10] = {
+                            {"DARK CHASSIS", GuiChassisStyle::DarkChassis},
+                            {"ALUMINUM",     GuiChassisStyle::BrushedAluminum},
+                            {"STEEL",        GuiChassisStyle::BrushedSteel},
+                            {"POWDER COAT",  GuiChassisStyle::MattePowderCoat},
+                            {"CRINKLE",      GuiChassisStyle::CrinklePaint},
+                            {"BAKELITE",     GuiChassisStyle::Bakelite},
+                            {"WALNUT",       GuiChassisStyle::Walnut},
+                            {"ROSEWOOD",     GuiChassisStyle::Rosewood},
+                            {"PCB GREEN",    GuiChassisStyle::PcbGreen},
+                            {"CARBON",       GuiChassisStyle::Carbon}
+                        };
+
+                        const float chipGap = 5.0f;
+                        const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
+                        const float chipH = 22.0f;
+
+                        for (int i = 0; i < 10; ++i) {
+                            int col = i % 5;
+                            int row = i / 5;
+                            float cx = drawerX + 12.0f + col * (chipW + chipGap);
+                            float cy = contentY + 22.0f + row * (chipH + 4.0f);
+                            bool isAct = (panelChassisTexture_ == matChips[i].style);
+
+                            drawRoundedRect(cx, cy, chipW, chipH, 3.0f,
+                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
+                            drawRoundedRectOutline(cx, cy, chipW, chipH, 3.0f,
+                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
+                            if (isAct) {
+                                drawCircle(cx + 8.0f, cy + chipH * 0.5f, 3.0f, theme.primaryAccent);
+                            }
+                            drawVectorString(matChips[i].label, cx + (isAct ? 15.0f : 8.0f), cy + 4.0f, 0.60f,
+                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+                        }
+
+                        // 2. Anodized / Harmonic Color Tint Header & Swatches (6 swatches)
+                        const float tintRowY = contentY + 76.0f;
+                        drawLine(drawerX + 12.0f, tintRowY, drawerX + drawerW - 12.0f, tintRowY, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("ANODIZED / HARMONIC COLOR TINT", hubX + 28.0f, tintRowY + 6.0f, 0.65f, theme.textMuted);
+
+                        struct TintPreset {
+                            const char* label;
+                            std::optional<Color> color;
+                            Color displayColor;
+                        };
+                        const TintPreset tints[6] = {
+                            {"NATURAL",  std::nullopt,                 Color(0.50f, 0.50f, 0.50f)},
+                            {"BLUE",     Color(0.20f, 0.55f, 0.95f),  Color(0.20f, 0.55f, 0.95f)},
+                            {"GOLD",     Color(0.88f, 0.76f, 0.45f),  Color(0.88f, 0.76f, 0.45f)},
+                            {"GREEN",    Color(0.22f, 0.65f, 0.40f),  Color(0.22f, 0.65f, 0.40f)},
+                            {"OXBLOOD",  Color(0.80f, 0.25f, 0.30f),  Color(0.80f, 0.25f, 0.30f)},
+                            {"SLATE",    Color(0.40f, 0.45f, 0.52f),  Color(0.40f, 0.45f, 0.52f)}
+                        };
+
+                        const float tintGap = 5.0f;
+                        const float tintW = (drawerW - 24.0f - (5.0f * tintGap)) / 6.0f;
+                        const float tintH = 20.0f;
+                        const float swatchesY = tintRowY + 18.0f;
+
+                        for (int t = 0; t < 6; ++t) {
+                            float tx = drawerX + 12.0f + t * (tintW + tintGap);
+                            bool isAct = false;
+                            if (!tints[t].color.has_value()) {
+                                isAct = !panelChassisTint_.has_value();
+                            } else if (panelChassisTint_.has_value()) {
+                                isAct = (std::abs(panelChassisTint_->r - tints[t].color->r) < 0.05f &&
+                                         std::abs(panelChassisTint_->g - tints[t].color->g) < 0.05f &&
+                                         std::abs(panelChassisTint_->b - tints[t].color->b) < 0.05f);
+                            }
+
+                            drawRoundedRect(tx, swatchesY, tintW, tintH, 3.0f,
+                                            isAct ? theme.controlWell : theme.controlBackground);
+                            drawRoundedRectOutline(tx, swatchesY, tintW, tintH, 3.0f,
+                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
+                            drawCircle(tx + 10.0f, swatchesY + tintH * 0.5f, 4.0f, tints[t].displayColor);
+                            drawVectorString(tints[t].label, tx + 18.0f, swatchesY + 4.0f, 0.60f,
+                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+                        }
+
+                        // 3. Surface Wear & Patina (4 levels)
+                        const float wearRowY = swatchesY + 24.0f;
+                        drawLine(drawerX + 12.0f, wearRowY, drawerX + drawerW - 12.0f, wearRowY, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("SURFACE WEAR & PATINA", hubX + 28.0f, wearRowY + 6.0f, 0.65f, theme.textMuted);
+
+                        struct WearOption {
+                            const char* label;
+                            float value;
+                        };
+                        const WearOption wearOpts[4] = {
+                            {"PRISTINE (0%)", 0.0f},
+                            {"MINT (20%)",     0.20f},
+                            {"PATINA (50%)",   0.50f},
+                            {"VINTAGE (80%)",  0.80f}
+                        };
+
+                        const float wearGap = 6.0f;
+                        const float wearW = (drawerW - 24.0f - (3.0f * wearGap)) / 4.0f;
+                        const float wearH = 20.0f;
+                        const float wearBtnsY = wearRowY + 18.0f;
+
+                        for (int w = 0; w < 4; ++w) {
+                            float wx = drawerX + 12.0f + w * (wearW + wearGap);
+                            bool isAct = (std::abs(panelChassisWear_ - wearOpts[w].value) < 0.05f);
+
+                            drawRoundedRect(wx, wearBtnsY, wearW, wearH, 3.0f,
+                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
+                            drawRoundedRectOutline(wx, wearBtnsY, wearW, wearH, 3.0f,
+                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
+                            drawVectorString(wearOpts[w].label, wx + 12.0f, wearBtnsY + 4.0f, 0.62f,
+                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+                        }
+
+                        // 4. Live Hardware Preview Plate
+                        const float prevLineY = wearBtnsY + 24.0f;
+                        drawLine(drawerX + 12.0f, prevLineY, drawerX + drawerW - 12.0f, prevLineY, theme.borderSubtle.darken(0.15f), 1.0f);
+
+                        const float prevX = drawerX + 12.0f;
+                        const float prevY = prevLineY + 6.0f;
+                        const float prevW = drawerW - 24.0f;
+                        const float prevH = 28.0f;
+
+                        if (batchRenderer_) {
+                            ProceduralTextureSystem::instance().drawChassis(
+                                batchRenderer_.get(), prevX, prevY, prevW, prevH,
+                                panelChassisTexture_, theme, panelChassisTint_, panelChassisWear_,
+                                0.0f, true);
+                        }
+                        drawRoundedRectOutline(prevX, prevY, prevW, prevH, 4.0f, theme.borderSubtle.lighten(0.15f), 1.0f);
+                        drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 8.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
+                    } else if (s == 4) {
+                        // SECTION 4: CRT SHADER (Scrollable within constrained drawer space)
                         const float contentBaseY = drawerY - projectHubScrollY_;
 
                         // Master Toggle Row
@@ -6189,8 +6625,8 @@ void GuiWindow::renderFrame() {
                         if (projectHubScrollArea_.canScroll() && batchRenderer_) {
                             projectHubScrollArea_.renderScrollbar(*batchRenderer_, theme);
                         }
-                    } else if (s == 4) {
-                        // SECTION 4: AUDIO ENGINE CONFIG
+                    } else if (s == 5) {
+                        // SECTION 5: AUDIO ENGINE CONFIG
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
 #if defined(__EMSCRIPTEN__)
@@ -6204,8 +6640,8 @@ void GuiWindow::renderFrame() {
                         drawVectorString("• Buffer Latency: 128 frames (~2.67 ms) / Strict Zero-Allocation Audio Loop", hubX + 32.0f, contentY + 46.0f, 0.75f, theme.textSecondary);
                         drawVectorString("• Script Engine: Dual-Mode Eatscript VM & SIMD AOT Transpiler (Pure C++20)", hubX + 32.0f, contentY + 62.0f, 0.75f, theme.textSecondary);
                         drawVectorString("• Lock-Free Concurrency: SPSC Wait-Free Event & Meter Ringbuffers", hubX + 32.0f, contentY + 78.0f, 0.75f, theme.textSecondary);
-                    } else if (s == 5) {
-                        // SECTION 5: CREDITS & ACKNOWLEDGMENTS
+                    } else if (s == 6) {
+                        // SECTION 6: CREDITS & ACKNOWLEDGMENTS
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
                         drawVectorString("• Stanford CCRMA / Bank-Bensa commuted waveguide piano, bass & guitar models.", hubX + 32.0f, contentY + 14.0f, 0.70f, theme.textPrimary);
@@ -8266,7 +8702,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
     HitTestProjectHubResult res{};
     if (!projectHubOpen_) return res;
 
-    DialogLayout dl = computeDialogLayout(540.0f, 580.0f);
+    DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
     const float hubX = dl.x;
     const float hubY = dl.y;
     const float hubW = dl.w;
@@ -8297,7 +8733,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
     const float headerH = 30.0f;
     const float headerGap = 6.0f;
     const float headerStep = headerH + headerGap; // 36.0f
-    const int numSections = 6;
+    const int numSections = 7;
     const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap;
 
     float curDrawerH = 0.0f;
@@ -8305,9 +8741,10 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
         if (projectHubSection_ == 0) curDrawerH = 190.0f;
         else if (projectHubSection_ == 1) curDrawerH = 114.0f;
         else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-        else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
-        else if (projectHubSection_ == 4) curDrawerH = 100.0f;
+        else if (projectHubSection_ == 3) curDrawerH = 226.0f;
+        else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
         else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+        else if (projectHubSection_ == 6) curDrawerH = 100.0f;
     }
 
     const float drawerX = hubX + 16.0f;
@@ -8316,7 +8753,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
     const float drawerH = curDrawerH;
 
     // 1. Check Section Headers hit FIRST (headers always receive clicks over underlying drawer bleed)
-    for (int s = 0; s < 6; ++s) {
+    for (int s = 0; s < 7; ++s) {
         float hY = 0.0f;
         if (projectHubSection_ == -1 || s <= projectHubSection_) {
             hY = topContentY + s * headerStep;
@@ -8459,6 +8896,75 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 return res;
             }
         } else if (projectHubSection_ == 3) {
+            float contentStartY = drawerY;
+            // 1. Material chips (2 rows of 5)
+            const float chipGap = 5.0f;
+            const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
+            const float chipH = 22.0f;
+            const GuiChassisStyle matStyles[10] = {
+                GuiChassisStyle::DarkChassis,
+                GuiChassisStyle::BrushedAluminum,
+                GuiChassisStyle::BrushedSteel,
+                GuiChassisStyle::MattePowderCoat,
+                GuiChassisStyle::CrinklePaint,
+                GuiChassisStyle::Bakelite,
+                GuiChassisStyle::Walnut,
+                GuiChassisStyle::Rosewood,
+                GuiChassisStyle::PcbGreen,
+                GuiChassisStyle::Carbon
+            };
+            for (int i = 0; i < 10; ++i) {
+                int col = i % 5;
+                int row = i / 5;
+                float cx = drawerX + 12.0f + col * (chipW + chipGap);
+                float cy = contentStartY + 22.0f + row * (chipH + 4.0f);
+                if (x >= cx && x <= cx + chipW && y >= cy && y <= cy + chipH) {
+                    res.action = ProjectHubAction::SetPanelTexture;
+                    res.panelStyle = matStyles[i];
+                    return res;
+                }
+            }
+
+            // 2. Tint swatches (6 swatches)
+            const float tintRowY = contentStartY + 76.0f;
+            const float tintGap = 5.0f;
+            const float tintW = (drawerW - 24.0f - (5.0f * tintGap)) / 6.0f;
+            const float tintH = 20.0f;
+            const float swatchesY = tintRowY + 18.0f;
+            const std::optional<Color> tintVals[6] = {
+                std::nullopt,
+                Color(0.20f, 0.55f, 0.95f),
+                Color(0.88f, 0.76f, 0.45f),
+                Color(0.22f, 0.65f, 0.40f),
+                Color(0.80f, 0.25f, 0.30f),
+                Color(0.40f, 0.55f, 0.52f)
+            };
+            for (int t = 0; t < 6; ++t) {
+                float tx = drawerX + 12.0f + t * (tintW + tintGap);
+                if (x >= tx && x <= tx + tintW && y >= swatchesY && y <= swatchesY + tintH) {
+                    res.action = ProjectHubAction::SetPanelTint;
+                    res.panelTint = tintVals[t];
+                    return res;
+                }
+            }
+
+            // 3. Wear buttons (4 buttons)
+            const float wearRowY = swatchesY + 24.0f;
+            const float wearGap = 6.0f;
+            const float wearW = (drawerW - 24.0f - (3.0f * wearGap)) / 4.0f;
+            const float wearH = 20.0f;
+            const float wearBtnsY = wearRowY + 18.0f;
+            const float wearVals[4] = {0.0f, 0.20f, 0.50f, 0.80f};
+            for (int w = 0; w < 4; ++w) {
+                float wx = drawerX + 12.0f + w * (wearW + wearGap);
+                if (x >= wx && x <= wx + wearW && y >= wearBtnsY && y <= wearBtnsY + wearH) {
+                    res.action = ProjectHubAction::SetPanelWear;
+                    res.panelWear = wearVals[w];
+                    return res;
+                }
+            }
+            return res;
+        } else if (projectHubSection_ == 4) {
             // Check scrollbar hit within drawer
             if (projectHubScrollArea_.canScroll() && projectHubScrollArea_.getScrollbarTrackBounds().contains(x, y)) {
                 res.action = ProjectHubAction::Scrollbar;
@@ -9915,6 +10421,7 @@ bool GuiWindow::undoHistory() {
                 canvas_.updateRackLayout(engine_->getGraph());
                 updateMixerStrips();
                 initDefaultKnobValues();
+                syncArrangerFromSequencer();
             }
         }
         selectedHistoryIndex_ = diffHistory_.getCurrentTimelineIndex();
@@ -9939,6 +10446,7 @@ bool GuiWindow::redoHistory() {
                 canvas_.updateRackLayout(engine_->getGraph());
                 updateMixerStrips();
                 initDefaultKnobValues();
+                syncArrangerFromSequencer();
             }
         }
         selectedHistoryIndex_ = diffHistory_.getCurrentTimelineIndex();
@@ -9963,6 +10471,7 @@ bool GuiWindow::jumpToHistoryIndex(size_t index) {
                 canvas_.updateRackLayout(engine_->getGraph());
                 updateMixerStrips();
                 initDefaultKnobValues();
+                syncArrangerFromSequencer();
             }
         }
         selectedHistoryIndex_ = index;
@@ -12252,6 +12761,15 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::ToggleHiDpi:
                         toggleHiDpi();
                         break;
+                    case ProjectHubAction::SetPanelTexture:
+                        setPanelChassisTexture(hubHit.panelStyle);
+                        break;
+                    case ProjectHubAction::SetPanelTint:
+                        setPanelChassisTint(hubHit.panelTint);
+                        break;
+                    case ProjectHubAction::SetPanelWear:
+                        setPanelChassisWear(hubHit.panelWear);
+                        break;
                     case ProjectHubAction::CrtPresetStudioRef: {
                         auto cfg = dawnBridge_.getMaterialConfig();
                         cfg.scanlineIntensity = 0.38f;
@@ -12314,7 +12832,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         break;
                     }
                     case ProjectHubAction::CrtSlider: {
-                        DialogLayout dl = computeDialogLayout(540.0f, 580.0f);
+                        DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
                         dragMode_ = DragMode::CrtTweakerSlider;
                         crtTweakerSliderIndex_ = hubHit.crtSliderIndex;
                         crtTweakerTrackX_ = dl.x + 28.0f;
@@ -14059,8 +14577,14 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     pev.y = mouseY_;
     pev.scrollX = static_cast<float>(xoffset);
     pev.scrollY = static_cast<float>(yoffset);
+    pev.mods.shift = isShiftPressed();
+    pev.mods.ctrl = isCtrlPressed();
+    pev.mods.alt = isAltPressed();
 
     // 1. Modals & Dialogs (ensure context-based scroll and absorb scroll so it never leaks to DAW)
+    if (fullscreenDeviceModal_.isOpen()) {
+        if (fullscreenDeviceModal_.handlePointer(pev)) return;
+    }
     if (commandPaletteDialog_.isOpen()) {
         commandPaletteDialog_.handlePointer(pev);
         return;
@@ -14087,9 +14611,9 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
 
     // 2. Eatsbits Settings / Project Hub (context-based scroll via reusable ScrollableArea)
     if (projectHubOpen_) {
-        DialogLayout dl = computeDialogLayout(540.0f, 580.0f);
+        DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
         if (mouseX_ >= dl.x && mouseX_ <= dl.x + dl.w && mouseY_ >= dl.y && mouseY_ <= dl.y + dl.h) {
-            if (projectHubSection_ == 3 && projectHubScrollArea_.canScroll()) {
+            if (projectHubSection_ == 4 && projectHubScrollArea_.canScroll()) {
                 projectHubScrollArea_.scrollBy(-static_cast<float>(yoffset) * 32.0f);
                 projectHubScrollY_ = projectHubScrollArea_.getScrollY();
             }
@@ -14107,7 +14631,11 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     }
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
         ViewContext ctx = createViewContext();
-        modularEditView_->handlePointer(pev, ctx);
+        if (editSubView_ == EditSubView::Script || modularEditView_->getSubView() == EditSubViewMode::Script) {
+            if (modularEditView_->handlePointer(pev, ctx)) return;
+        } else {
+            modularEditView_->handlePointer(pev, ctx);
+        }
     }
     if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
         ViewContext ctx = createViewContext();
@@ -14116,6 +14644,10 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
         ViewContext ctx = createViewContext();
         if (modularTrackInspectorView_->handlePointer(pev, ctx)) return;
+    }
+    if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
+        ViewContext ctx = createViewContext();
+        if (modularDesignView_->handlePointer(pev, ctx)) return;
     }
     (void)xoffset;
     if (activeView_ == WorkspaceView::Track ||

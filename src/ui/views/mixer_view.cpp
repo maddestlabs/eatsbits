@@ -215,6 +215,15 @@ MixerView::MixerView() {
     propertiesDrawer_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
     };
+    propertiesDrawer_.onAddClip = [this](uint32_t trackIdx) {
+        if (onAddClip) onAddClip(trackIdx);
+    };
+    propertiesDrawer_.onDeleteTrack = [this](uint32_t trackIdx) {
+        if (onDeleteTrack) onDeleteTrack(trackIdx);
+    };
+    propertiesDrawer_.onDuplicateTrack = [this](uint32_t trackIdx) {
+        if (onDuplicateTrack) onDuplicateTrack(trackIdx);
+    };
 
     ViewContext defaultCtx;
     layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), defaultCtx);
@@ -444,8 +453,13 @@ void MixerView::syncFromWindow(
     showAutomation_ = showAutomation;
     showReadouts_ = showReadouts;
 
-    size_t count = std::max(channels_.size(), trackNames.size());
-    if (channels_.size() < count) channels_.resize(count);
+    if (channels_.size() != trackNames.size()) {
+        channels_.resize(trackNames.size());
+    }
+    size_t count = channels_.size();
+    if (selectedChannel_ >= static_cast<int>(count)) {
+        selectedChannel_ = std::max(0, static_cast<int>(count) - 1);
+    }
 
     for (size_t i = 0; i < count; ++i) {
         if (i < trackNames.size()) channels_[i].name = trackNames[i];

@@ -190,6 +190,9 @@ public:
     std::function<void(uint32_t channelIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t channelIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
+    std::function<void(uint32_t channelIdx)> onAddClip;
+    std::function<void(uint32_t channelIdx)> onDeleteTrack;
+    std::function<void(uint32_t channelIdx)> onDuplicateTrack;
 
     // Structured Fader Geometry & Hit-Testing
     struct FaderGeometry {
