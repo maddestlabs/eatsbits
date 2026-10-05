@@ -214,6 +214,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/waveshaper_dialog.cpp
     src/ui/widgets/note_splitter_dialog.cpp
     src/ui/widgets/color_picker_dialog.cpp
+    src/ui/widgets/theme_browser_dialog.cpp
     src/ui/widgets/space_visualizer_widget.cpp
     src/ui/widgets/ai_assistant_dialog.cpp
     src/ui/widgets/fullscreen_device_modal.cpp

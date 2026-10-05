@@ -14,6 +14,16 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [x] **Theme System Syntax Foundation, Micro-Lexer & Theme Browser Dialog**
+  - **Context/Files**: `include/eatsbits/ui/theme.hpp`, `src/ui/theme.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `include/eatsbits/ui/widgets/theme_browser_dialog.hpp`, `src/ui/widgets/theme_browser_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_theme.cpp`
+  - **Acceptance Criteria**:
+    1. Expand `ThemeTokens` and `ThemeSeed` with full syntax highlighting token definitions (`syntaxKeyword`, `syntaxString`, `syntaxNumber`, `syntaxComment`, `syntaxFunction`, `syntaxIdentifier`, `syntaxOperator`, `syntaxType`) with automatic fallback derivation from primary/accent/text colors.
+    2. Expand theme presets to 10 curated themes with rich culinary/Eatsbits naming inspired by iconic syntax themes: `AteTrack` (1980s Hardware), `MidnightBites` (Synthwave), `LightSnack` (Studio Daylight), `Breakfast` (Solarized Light), `Dinner` (Solarized Dark), `CountsBite` (Dracula), `NordicFrost` (Nord), `Catppuccino` (Catppuccin Mocha), `DarkRoast` (Monochrome Dark), and `SeaAndSalt` (DuoTone Dark).
+    3. Implement zero-allocation in-place Eatscript micro-lexer in `TextEditorWidget` for keywords, types, strings, numbers, operators, comments, and functions, coloring code and minimap seamlessly with active theme tokens.
+    4. Build modal `ThemeBrowserDialog` with categorized tabs (`ALL`, `DARK`, `LIGHT`, `SYNTAX PORTS`, `MINIMAL / DUOTONE`, `HARDWARE`), real-time search, 6-disc swatch palette previews, live theme preview on navigation, and escape-to-revert / enter-to-apply semantics.
+    5. Integrate `+ BROWSE ALL THEMES` button into Settings dialog with full pointer and keyboard navigation routing.
+  - **Test/Validation**: `ctest -C Release` (43/43 tests pass) and `.\build-web.ps1 -NoServe` (clean Wasm build)
+
 - [x] **Terminal CLI Keyboard Focus Isolation & Monospace Text Editor Parity**
   - **Context/Files**: `include/eatsbits/ui/widgets/terminal_console_drawer.hpp`, `src/ui/widgets/terminal_console_drawer.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_terminal_console.cpp`, `tests/test_modular_ui.cpp`
   - **Acceptance Criteria**:

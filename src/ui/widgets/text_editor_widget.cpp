@@ -129,27 +129,172 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
         }
     }
 
-    // Render Text Lines via Monospace Cell Pipeline (zero metric drift & exact CLI cursor alignment)
+    // Render Text Lines via Monospace Token Lexer (zero allocation, theme-backed syntax highlighting)
+    auto packColor = [](const Color& c, float alpha = 1.0f) noexcept -> uint32_t {
+        uint8_t cr = static_cast<uint8_t>(std::clamp(c.r, 0.0f, 1.0f) * 255.0f);
+        uint8_t cg = static_cast<uint8_t>(std::clamp(c.g, 0.0f, 1.0f) * 255.0f);
+        uint8_t cb = static_cast<uint8_t>(std::clamp(c.b, 0.0f, 1.0f) * 255.0f);
+        uint8_t ca = static_cast<uint8_t>(std::clamp(alpha * c.a, 0.0f, 1.0f) * 255.0f);
+        return (static_cast<uint32_t>(ca) << 24) |
+               (static_cast<uint32_t>(cb) << 16) |
+               (static_cast<uint32_t>(cg) << 8) |
+                static_cast<uint32_t>(cr);
+    };
+
+    uint32_t colKeyword    = packColor(theme.syntaxKeyword);
+    uint32_t colString     = packColor(theme.syntaxString);
+    uint32_t colNumber     = packColor(theme.syntaxNumber);
+    uint32_t colComment    = packColor(theme.syntaxComment, 0.90f);
+    uint32_t colFunction   = packColor(theme.syntaxFunction);
+    uint32_t colIdentifier = packColor(theme.syntaxIdentifier, 0.95f);
+    uint32_t colOperator   = packColor(theme.syntaxOperator, 0.90f);
+    uint32_t colType       = packColor(theme.syntaxType);
+
+    auto isEatIdentStart = [](char c) noexcept {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    };
+    auto isEatIdent = [isEatIdentStart](char c) noexcept {
+        return isEatIdentStart(c) || (c >= '0' && c <= '9');
+    };
+    auto isEatDigit = [](char c) noexcept {
+        return c >= '0' && c <= '9';
+    };
+    auto isEatKeyword = [](std::string_view w) noexcept {
+        static constexpr std::string_view kKeywords[] = {
+            "def", "fn", "function", "return", "if", "else", "elif",
+            "for", "while", "in", "import", "from", "as", "and", "or",
+            "not", "true", "false", "nil", "null", "none", "class",
+            "struct", "var", "let", "const", "end", "break", "continue",
+            "yield", "async", "await", "self", "this", "do"
+        };
+        for (const auto& kw : kKeywords) {
+            if (w == kw) return true;
+        }
+        return false;
+    };
+    auto isEatBuiltin = [](std::string_view w) noexcept {
+        static constexpr std::string_view kBuiltins[] = {
+            "eat", "track", "clip", "midi", "audio", "param", "math",
+            "time", "int", "float", "string", "bool", "voice", "sample",
+            "synth", "fx", "gain", "pan", "freq", "cutoff", "resonance",
+            "print", "log", "note", "velocity", "gate", "pitch"
+        };
+        for (const auto& b : kBuiltins) {
+            if (w == b) return true;
+        }
+        return false;
+    };
+
     for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
         float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
         float textX = textAreaBounds_.x + 6.0f - presenter_.getScrollX();
         const auto& line = doc.getLine(static_cast<size_t>(l));
         if (line.empty()) continue;
 
-        uint32_t fgColor = packColorU32(theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f);
-        if (line.starts_with("#") || line.starts_with("--")) {
-            fgColor = packColorU32(0.38f, 0.49f, 0.55f, 1.0f);
-        } else if (line.find("def ") != std::string::npos || line.find("import ") != std::string::npos ||
-                   line.find("function ") != std::string::npos || line.find("return ") != std::string::npos ||
-                   line.find("for ") != std::string::npos || line.find("if ") != std::string::npos) {
-            fgColor = packColorU32(1.0f, 0.85f, 0.20f, 1.0f);
-        } else if (line.find("eat.") != std::string::npos || line.find("param") != std::string::npos) {
-            fgColor = packColorU32(theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-        } else if (line.find('"') != std::string::npos || line.find('\'') != std::string::npos) {
-            fgColor = packColorU32(0.96f, 0.65f, 0.35f, 1.0f);
-        }
+        std::string_view sv(line);
+        size_t i = 0;
+        const size_t len = sv.length();
 
-        r.drawMonospaceText(textX, ly, charWidth_, charH, line, fgColor);
+        while (i < len) {
+            // Skip whitespace
+            if (sv[i] == ' ' || sv[i] == '\t' || sv[i] == '\r') {
+                i++;
+                continue;
+            }
+
+            size_t tokenStart = i;
+
+            // 1. Comments: # or // or --
+            if (sv[i] == '#' || (i + 1 < len && sv[i] == '/' && sv[i + 1] == '/') ||
+                (i + 1 < len && sv[i] == '-' && sv[i + 1] == '-')) {
+                std::string_view tok = sv.substr(tokenStart);
+                float tx = textX + static_cast<float>(tokenStart) * charWidth_;
+                r.drawMonospaceText(tx, ly, charWidth_, charH, tok, colComment);
+                break;
+            }
+
+            // 2. String literals: "..." or '...'
+            if (sv[i] == '"' || sv[i] == '\'') {
+                char quote = sv[i++];
+                while (i < len && sv[i] != quote) {
+                    if (sv[i] == '\\' && i + 1 < len) {
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+                if (i < len && sv[i] == quote) i++;
+                std::string_view tok = sv.substr(tokenStart, i - tokenStart);
+                float tx = textX + static_cast<float>(tokenStart) * charWidth_;
+                r.drawMonospaceText(tx, ly, charWidth_, charH, tok, colString);
+                continue;
+            }
+
+            // 3. Numbers: hex (0x...) or decimal float/int
+            if (isEatDigit(sv[i]) || (sv[i] == '.' && i + 1 < len && isEatDigit(sv[i + 1]))) {
+                if (sv[i] == '0' && i + 1 < len && (sv[i + 1] == 'x' || sv[i + 1] == 'X')) {
+                    i += 2;
+                    while (i < len && (isEatDigit(sv[i]) || (sv[i] >= 'a' && sv[i] <= 'f') || (sv[i] >= 'A' && sv[i] <= 'F'))) {
+                        i++;
+                    }
+                } else {
+                    bool hasDot = false;
+                    while (i < len && (isEatDigit(sv[i]) || (sv[i] == '.' && !hasDot))) {
+                        if (sv[i] == '.') hasDot = true;
+                        i++;
+                    }
+                    if (i < len && (sv[i] == 'f' || sv[i] == 'F')) i++;
+                }
+                std::string_view tok = sv.substr(tokenStart, i - tokenStart);
+                float tx = textX + static_cast<float>(tokenStart) * charWidth_;
+                r.drawMonospaceText(tx, ly, charWidth_, charH, tok, colNumber);
+                continue;
+            }
+
+            // 4. Identifiers, Keywords, Builtins, Functions
+            if (isEatIdentStart(sv[i])) {
+                while (i < len && isEatIdent(sv[i])) {
+                    i++;
+                }
+                std::string_view tok = sv.substr(tokenStart, i - tokenStart);
+                uint32_t col = colIdentifier;
+
+                if (isEatKeyword(tok)) {
+                    col = colKeyword;
+                } else if (isEatBuiltin(tok)) {
+                    col = colType;
+                } else {
+                    // Lookahead for '(' (function call or def)
+                    size_t k = i;
+                    while (k < len && (sv[k] == ' ' || sv[k] == '\t')) k++;
+                    if (k < len && sv[k] == '(') {
+                        col = colFunction;
+                    }
+                }
+
+                float tx = textX + static_cast<float>(tokenStart) * charWidth_;
+                r.drawMonospaceText(tx, ly, charWidth_, charH, tok, col);
+                continue;
+            }
+
+            // 5. Operators, Punctuation, Delimiters
+            size_t opLen = 1;
+            if (i + 1 < len) {
+                char c1 = sv[i];
+                char c2 = sv[i + 1];
+                if ((c1 == '=' && c2 == '=') || (c1 == '!' && c2 == '=') ||
+                    (c1 == '<' && c2 == '=') || (c1 == '>' && c2 == '=') ||
+                    (c1 == '+' && c2 == '=') || (c1 == '-' && c2 == '=') ||
+                    (c1 == '*' && c2 == '=') || (c1 == '/' && c2 == '=') ||
+                    (c1 == '-' && c2 == '>')) {
+                    opLen = 2;
+                }
+            }
+            std::string_view tok = sv.substr(tokenStart, opLen);
+            i += opLen;
+            float tx = textX + static_cast<float>(tokenStart) * charWidth_;
+            r.drawMonospaceText(tx, ly, charWidth_, charH, tok, colOperator);
+        }
     }
 
     // Render Blinking Cursor
@@ -225,15 +370,15 @@ void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
         float contentLen = static_cast<float>(line.length() - leadingSpaces);
         float barW = std::clamp(contentLen * 0.75f, 2.0f, minimapBounds_.w - (barX - minimapBounds_.x) - 4.0f);
 
-        if (line.starts_with("#") || line.starts_with("--")) {
-            drawRect(r, barX, microY, barW, microBarH, 0.38f, 0.49f, 0.55f, 0.75f);
+        if (line.starts_with("#") || line.starts_with("--") || line.starts_with("//")) {
+            drawRect(r, barX, microY, barW, microBarH, theme.syntaxComment.r, theme.syntaxComment.g, theme.syntaxComment.b, 0.75f);
         } else if (line.find("def ") != std::string::npos || line.find("import ") != std::string::npos ||
                    line.find("function ") != std::string::npos || line.find("return ") != std::string::npos) {
-            drawRect(r, barX, microY, barW, microBarH, 1.0f, 0.85f, 0.20f, 0.80f);
+            drawRect(r, barX, microY, barW, microBarH, theme.syntaxKeyword.r, theme.syntaxKeyword.g, theme.syntaxKeyword.b, 0.80f);
         } else if (line.find("eat.") != std::string::npos || line.find("param") != std::string::npos) {
-            drawRect(r, barX, microY, barW, microBarH, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.80f);
+            drawRect(r, barX, microY, barW, microBarH, theme.syntaxFunction.r, theme.syntaxFunction.g, theme.syntaxFunction.b, 0.80f);
         } else {
-            drawRect(r, barX, microY, barW, microBarH, 0.80f, 0.85f, 0.90f, 0.65f);
+            drawRect(r, barX, microY, barW, microBarH, theme.syntaxIdentifier.r, theme.syntaxIdentifier.g, theme.syntaxIdentifier.b, 0.65f);
         }
     }
 

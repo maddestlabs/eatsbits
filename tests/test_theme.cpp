@@ -1,4 +1,5 @@
 #include "eatsbits/ui/theme.hpp"
+#include "eatsbits/ui/widgets/theme_browser_dialog.hpp"
 #include <iostream>
 #include <cassert>
 #include <cmath>
@@ -154,20 +155,136 @@ void testCuratedEatsbeatsPresets() {
     const ThemeTokens& breakfast = Theme::current();
     assert(breakfast.name == "Breakfast");
     assert(breakfast.isLight);
-    (void)breakfast;
+    assertNear(breakfast.syntaxKeyword.g, 153.0f / 255.0f, 0.05f); // Solarized green
+    assertNear(breakfast.syntaxString.g, 161.0f / 255.0f, 0.05f); // Solarized cyan
 
     // Check Dinner
     Theme::setPreset(Theme::Preset::Dinner);
     const ThemeTokens& dinner = Theme::current();
     assert(dinner.name == "Dinner");
     assert(!dinner.isLight);
-    (void)dinner;
+    assertNear(dinner.syntaxKeyword.g, 153.0f / 255.0f, 0.05f); // Solarized green
+
+    // Check Count's Bite (Dracula)
+    Theme::setPreset(Theme::Preset::CountsBite);
+    const ThemeTokens& countsBite = Theme::current();
+    assert(countsBite.name == "Count's Bite");
+    assert(!countsBite.isLight);
+    assertNear(countsBite.primaryAccent.r, 189.0f / 255.0f, 0.05f); // Dracula purple
+
+    // Check Nordic Frost (Nord)
+    Theme::setPreset(Theme::Preset::NordicFrost);
+    const ThemeTokens& nord = Theme::current();
+    assert(nord.name == "Nordic Frost");
+    assert(!nord.isLight);
+    assertNear(nord.primaryAccent.r, 136.0f / 255.0f, 0.05f); // Frost cyan
+
+    // Check Catppuccino (Catppuccin Mocha)
+    Theme::setPreset(Theme::Preset::Catppuccino);
+    const ThemeTokens& catppuccin = Theme::current();
+    assert(catppuccin.name == "Catppuccino");
+    assert(!catppuccin.isLight);
+
+    // Check Dark Roast (Monochrome)
+    Theme::setPreset(Theme::Preset::DarkRoast);
+    const ThemeTokens& darkRoast = Theme::current();
+    assert(darkRoast.name == "Dark Roast");
+    assert(!darkRoast.isLight);
+
+    // Check Sea & Salt (DuoTone)
+    Theme::setPreset(Theme::Preset::SeaAndSalt);
+    const ThemeTokens& seaAndSalt = Theme::current();
+    assert(seaAndSalt.name == "Sea & Salt");
+    assert(!seaAndSalt.isLight);
+    assertNear(seaAndSalt.syntaxKeyword.r, 255.0f / 255.0f, 0.05f); // Amber gold
+
+    // Verify catalog count
+    const auto& catalog = Theme::getPresetCatalog();
+    assert(catalog.size() == Theme::kPresetCount);
+    assert(Theme::getAllPresets().size() == Theme::kPresetCount);
 
     // Reset back to default AteTrack
     Theme::setPreset(Theme::Preset::AteTrack);
     assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack);
 
-    std::cout << "  [PASS] All 5 curated Eatsbeats presets verified." << std::endl;
+    std::cout << "  [PASS] All 10 curated presets & syntax tokens verified." << std::endl;
+}
+
+void testThemeBrowserDialog() {
+    std::cout << "[Test] Filterable ThemeBrowserDialog modal & live preview..." << std::endl;
+
+    ThemeBrowserDialog dialog;
+    assert(!dialog.isOpen());
+
+    dialog.open();
+    assert(dialog.isOpen());
+    dialog.layout(1280.0f, 800.0f);
+
+    // Initial state: ALL category should show all 10 presets
+    assert(dialog.getFilteredCount() == Theme::kPresetCount);
+
+    // 1. Category filter checks
+    dialog.setSelectedCategoryIndex(1); // DARK
+    assert(dialog.getFilteredCount() >= 6);
+
+    dialog.setSelectedCategoryIndex(2); // LIGHT
+    assert(dialog.getFilteredCount() == 2); // Light Snack, Breakfast
+
+    dialog.setSelectedCategoryIndex(3); // SYNTAX PORTS
+    assert(dialog.getFilteredCount() == 5); // Breakfast, Dinner, Count's Bite, Nordic Frost, Catppuccino
+
+    dialog.setSelectedCategoryIndex(4); // MINIMAL / DUOTONE
+    assert(dialog.getFilteredCount() == 2); // Dark Roast, Sea & Salt
+
+    dialog.setSelectedCategoryIndex(0); // ALL
+    assert(dialog.getFilteredCount() == Theme::kPresetCount);
+
+    // 2. Real-time search query filtering
+    dialog.setSearchQuery("dracula");
+    assert(dialog.getFilteredCount() == 1);
+
+    dialog.setSearchQuery("nord");
+    assert(dialog.getFilteredCount() == 1);
+
+    dialog.setSearchQuery("solar");
+    assert(dialog.getFilteredCount() == 2); // Breakfast & Dinner
+
+    dialog.clearSearch();
+    assert(dialog.getFilteredCount() == Theme::kPresetCount);
+
+    // 3. Live Preview & Cancel Revert test
+    Theme::setPreset(Theme::Preset::AteTrack);
+    dialog.open();
+    dialog.setSelectedItemIndex(5); // Count's Bite (Dracula)
+    assert(Theme::getCurrentPreset() == Theme::Preset::CountsBite); // Instant live preview!
+
+    // Escape key press reverts back to AteTrack
+    dialog.handleKey(256, 0, 1, 0); // GLFW_KEY_ESCAPE
+    assert(!dialog.isOpen());
+    assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack); // Restored!
+
+    // 4. Confirm & Apply test
+    dialog.open();
+    dialog.setSearchQuery("Nordic");
+    assert(dialog.getFilteredCount() == 1);
+    dialog.setSelectedItemIndex(0);
+
+    bool callbackFired = false;
+    dialog.onThemeApplied = [&](Theme::Preset p) {
+        callbackFired = true;
+        assert(p == Theme::Preset::NordicFrost);
+    };
+
+    dialog.handleKey(257, 0, 1, 0); // GLFW_KEY_ENTER
+    assert(!dialog.isOpen());
+    assert(callbackFired);
+    assert(Theme::getCurrentPreset() == Theme::Preset::NordicFrost);
+
+    // Reset back to default AteTrack
+    Theme::setPreset(Theme::Preset::AteTrack);
+    assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack);
+
+    std::cout << "  [PASS] ThemeBrowserDialog category filtering, search, and live preview verified." << std::endl;
 }
 
 int main() {
@@ -176,6 +293,7 @@ int main() {
     testColorAdjustments();
     testAutomaticThemeDerivation();
     testCuratedEatsbeatsPresets();
+    testThemeBrowserDialog();
     std::cout << "=== All Theme Engine Unit Tests Passed! ===" << std::endl;
     return 0;
 }

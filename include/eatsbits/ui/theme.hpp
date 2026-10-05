@@ -128,6 +128,16 @@ struct ThemeSeed {
     std::optional<Color> overrideTextSecondary;
     std::optional<Color> overrideTextMuted;
     std::optional<LightSource2D> overrideGlobalLight;
+
+    // Syntax Highlighting Overrides
+    std::optional<Color> overrideSyntaxKeyword;
+    std::optional<Color> overrideSyntaxString;
+    std::optional<Color> overrideSyntaxNumber;
+    std::optional<Color> overrideSyntaxComment;
+    std::optional<Color> overrideSyntaxFunction;
+    std::optional<Color> overrideSyntaxIdentifier;
+    std::optional<Color> overrideSyntaxOperator;
+    std::optional<Color> overrideSyntaxType;
 };
 
 /**
@@ -187,6 +197,14 @@ struct ThemeTokens {
     Color codeEditorText;
     Color codeEditorGutterText;
     Color codeEditorBorder;
+    Color syntaxKeyword;
+    Color syntaxString;
+    Color syntaxNumber;
+    Color syntaxComment;
+    Color syntaxFunction;
+    Color syntaxIdentifier;
+    Color syntaxOperator;
+    Color syntaxType;
 
     // 6. Typography
     Color textPrimary;
@@ -205,13 +223,27 @@ class Theme {
 public:
     enum class Preset : int {
         AteTrack = 0,       // Default: 80s 8-Track Vintage Hardware Console
-        MidnightBites = 1,  // Obsidian Dark / Cyber Neon
+        MidnightBites = 1,  // Obsidian Dark / Cyber Neon (Midnight Munchies)
         LightSnack = 2,     // Bright Daylight Studio
         Breakfast = 3,      // Solarized Light
-        Dinner = 4          // Solarized Dark
+        Dinner = 4,         // Solarized Dark
+        CountsBite = 5,     // Dracula (Gothic slate / purple / pink)
+        NordicFrost = 6,    // Nord (Polar night / arctic frost blues)
+        Catppuccino = 7,    // Catppuccin Mocha (Cocoa / lavender / peach)
+        DarkRoast = 8,      // Monochrome Dark (Obsidian / neutral graphite / chalk white)
+        SeaAndSalt = 9      // DuoTone Dark (Deep sea navy / amber gold syntax)
     };
 
-    static constexpr size_t kPresetCount = 5;
+    static constexpr size_t kPresetCount = 10;
+
+    struct PresetMetadata {
+        Preset preset;
+        std::string name;
+        std::string subtitle;
+        std::string category; // "Dark", "Light", "Syntax Port", "Minimal / DuoTone", "Hardware"
+        std::string description;
+        std::string author;
+    };
 
     /// Build a complete ThemeTokens table algorithmically from a ThemeSeed
     static ThemeTokens buildTokens(const ThemeSeed& seed);
@@ -228,8 +260,11 @@ public:
     /// Get current preset enum
     static Preset getCurrentPreset();
 
-    /// Get descriptive metadata for all 5 presets
+    /// Get descriptive metadata for all presets
     static const std::vector<ThemeTokens>& getAllPresets();
+
+    /// Get rich catalog metadata for theme browsing
+    static const std::vector<PresetMetadata>& getPresetCatalog();
 };
 
 } // namespace eatsbits::ui

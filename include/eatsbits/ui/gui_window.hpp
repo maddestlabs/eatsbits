@@ -37,6 +37,7 @@
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
 #include "widgets/plugin_search_dialog.hpp"
+#include "widgets/theme_browser_dialog.hpp"
 #include "widgets/fullscreen_device_modal.hpp"
 #include "widgets/scrollable_area.hpp"
 #include "input/pointer_event.hpp"
@@ -209,6 +210,7 @@ enum class ProjectHubAction {
     ResetCleanSlate,
     SetUiScale,
     SelectTheme,
+    OpenThemeBrowser,
     ToggleCrtShader,
     ToggleAnimations,
     SetAntiAliasing,
@@ -684,6 +686,9 @@ public:
     [[nodiscard]] const ThemeTokens& getTheme() const noexcept {
         return Theme::get(static_cast<Theme::Preset>(activeThemePreset_));
     }
+    [[nodiscard]] ThemeBrowserDialog& getThemeBrowserDialog() noexcept { return themeBrowserDialog_; }
+    [[nodiscard]] const ThemeBrowserDialog& getThemeBrowserDialog() const noexcept { return themeBrowserDialog_; }
+    void openThemeBrowserDialog();
 
     // Modular Subsystem Views & Ubiquitous Widgets (Option B: Modular C++ Architecture)
     [[nodiscard]] ArrangerView* getModularArrangerView() noexcept { return modularArrangerView_.get(); }
@@ -1368,6 +1373,7 @@ private:
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;
     PresetSearchDialog presetSearchDialog_;
+    ThemeBrowserDialog themeBrowserDialog_;
     FullscreenDeviceModal fullscreenDeviceModal_;
     DeviceTarget lastFocusedDevice_{DeviceTargetType::Instrument, 0, -1, ""};
     KineticScroller kineticScroller_;

@@ -5941,8 +5941,16 @@ void GuiWindow::renderFrame() {
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // Theme Engine Chips (5 Curated Eatsbeats Presets)
+                        // Theme Engine Chips (5 Curated Eatsbeats Presets) + Theme Browser Modal
                         drawVectorString("UI THEME ENGINE PALETTE (EATSBEATS CONSOLES)", hubX + 28.0f, contentY + 54.0f, 0.65f, theme.textMuted);
+                        float browseBtnW = 140.0f;
+                        float browseBtnH = 20.0f;
+                        float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
+                        float browseBtnY = contentY + 44.0f;
+                        drawRoundedRect(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 4.0f, theme.primaryAccent.darken(0.35f));
+                        drawRoundedRectOutline(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 4.0f, theme.primaryAccent, 1.2f);
+                        drawVectorString("+ BROWSE ALL THEMES", browseBtnX + 10.0f, browseBtnY + 5.0f, 0.62f, Color(1.0f, 1.0f, 1.0f));
+
                         const char* themeLabels[5] = {"ATE TRACK", "MIDNIGHT", "LT SNACK", "BREAKFAST", "DINNER"};
                         for (int th = 0; th < 5; ++th) {
                             float tx = hubX + 24.0f + th * 95.0f;
@@ -6214,6 +6222,14 @@ void GuiWindow::renderFrame() {
             activePluginDialog->layout(static_cast<float>(width_), static_cast<float>(height_));
             if (batchRenderer_) {
                 activePluginDialog->render(*batchRenderer_, theme);
+            }
+        }
+
+        // 7c. REUSABLE MODAL THEME BROWSER DIALOG
+        if (themeBrowserDialog_.isOpen()) {
+            themeBrowserDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+            if (batchRenderer_) {
+                themeBrowserDialog_.render(*batchRenderer_, theme);
             }
         }
 
@@ -8340,6 +8356,15 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                     }
                 }
             }
+            float browseBtnW = 140.0f;
+            float browseBtnH = 20.0f;
+            float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
+            float browseBtnY = contentStartY + 44.0f;
+            if (x >= browseBtnX && x <= browseBtnX + browseBtnW && y >= browseBtnY && y <= browseBtnY + browseBtnH) {
+                res.action = ProjectHubAction::OpenThemeBrowser;
+                return res;
+            }
+
             if (y >= contentStartY + 68.0f && y <= contentStartY + 94.0f) {
                 for (int th = 0; th < 5; ++th) {
                     float tx = hubX + 24.0f + th * 95.0f;
@@ -11393,6 +11418,23 @@ void GuiWindow::onMouseMove(float x, float y) {
         return;
     }
 
+    if (themeBrowserDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        mouseX_ = x;
+        mouseY_ = y;
+        themeBrowserDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     // Intercept if Plugin / Preset Search Modal Dialog is open
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
@@ -12033,6 +12075,20 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
     }
 
+    if (themeBrowserDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        themeBrowserDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     // Modal Preset / Plugin Search Dialog intercepts clicks
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
@@ -12110,6 +12166,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::SelectTheme:
                         setActiveThemePreset(hubHit.themeIndex);
                         setStatusMessage("Theme: " + getTheme().name);
+                        break;
+                    case ProjectHubAction::OpenThemeBrowser:
+                        openThemeBrowserDialog();
                         break;
                     case ProjectHubAction::ToggleCrtShader:
                         crtShaderEnabled_ = !crtShaderEnabled_;
@@ -13748,6 +13807,20 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         return;
     }
 
+    if (themeBrowserDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        themeBrowserDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     if (projectHubOpen_) {
         projectHubScrollArea_.stopDragging();
     }
@@ -13937,6 +14010,11 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
         activePluginDialog->handlePointer(pev);
+        return;
+    }
+    if (themeBrowserDialog_.isOpen()) {
+        themeBrowserDialog_.handlePointer(pev);
+        markNeedsRedraw();
         return;
     }
 
@@ -14171,6 +14249,18 @@ void GuiWindow::onKeyDown(int key, int mods) {
             return; // Absorbed, onChar will receive the character
         }
         if (activePluginDialog->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+        return; // Absorb all keys while modal is open
+    }
+
+    // Intercept keyboard input if Theme Browser Modal Dialog is open
+    if (themeBrowserDialog_.isOpen()) {
+        if (key >= 32 && key <= 126 && !isCtrl && !isAlt) {
+            return; // Absorbed, onChar will receive the character
+        }
+        if (themeBrowserDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
             markNeedsRedraw();
             return;
         }
@@ -14788,6 +14878,13 @@ void GuiWindow::onChar(unsigned int codepoint) {
         }
         return; // Absorb characters behind modal
     }
+    if (themeBrowserDialog_.isOpen()) {
+        if (themeBrowserDialog_.handleChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
+        return;
+    }
     if (commandPaletteDialog_.isOpen()) {
         commandPaletteDialog_.handleChar(codepoint);
         return;
@@ -15216,6 +15313,19 @@ void GuiWindow::handleCrtTweakerDrag(float x, float y) {
     }
 
     dawnBridge_.setMaterialConfig(cfg);
+}
+
+void GuiWindow::openThemeBrowserDialog() {
+    themeBrowserDialog_.open();
+    themeBrowserDialog_.onThemeApplied = [this](Theme::Preset preset) {
+        activeThemePreset_ = static_cast<int>(preset);
+        setStatusMessage("Theme applied: " + getTheme().name);
+        markNeedsRedraw();
+    };
+    themeBrowserDialog_.onClose = [this]() {
+        markNeedsRedraw();
+    };
+    markNeedsRedraw();
 }
 
 } // namespace eatsbits::ui
