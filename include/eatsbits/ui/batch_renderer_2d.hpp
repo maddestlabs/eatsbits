@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <functional>
 #include "eatsbits/ui/canvas_renderer.hpp"
 #include "eatsbits/ui/geometry.hpp"
 
@@ -174,6 +175,10 @@ public:
                           const void* cells, int cols, int rows,
                           float subpixelOffsetX = 0.0f, float subpixelOffsetY = 0.0f);
 
+    using MonospaceGlyphHook = std::function<bool(float x, float y, float w, float h, char32_t codepoint, uint32_t fgColor)>;
+    void setMonospaceGlyphHook(MonospaceGlyphHook hook) noexcept { monospaceGlyphHook_ = std::move(hook); }
+    [[nodiscard]] const MonospaceGlyphHook& getMonospaceGlyphHook() const noexcept { return monospaceGlyphHook_; }
+
     [[nodiscard]] size_t getVertexCount() const noexcept { return vertices_.size(); }
     [[nodiscard]] RenderBackendType getBackendType() const noexcept;
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
@@ -216,6 +221,7 @@ private:
     float transformOriginY_{0.0f};
 
     std::vector<Rect2D> scissorStack_{};
+    MonospaceGlyphHook monospaceGlyphHook_{nullptr};
 
     inline void applyTransform(float& x, float& y) const noexcept {
         if (transformActive_) {

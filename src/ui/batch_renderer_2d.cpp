@@ -2736,62 +2736,72 @@ void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
             if (mask & 0x80) drawRect(xCols[1], yRows[3], dotW, dotH, fgR, fgG, fgB, fgA);
         }
     } else {
-        // Standard ASCII & extended font glyph rendering from texture atlas
-        if (!monospaceAtlasReady_) {
-            initDefaultMonospaceAtlas();
+        bool rendered = false;
+        if (monospaceGlyphHook_) {
+            rendered = monospaceGlyphHook_(cx, cy, w, h, codepoint, fgColor);
+            if (rendered && isBold) {
+                monospaceGlyphHook_(cx + 0.75f, cy, w, h, codepoint, fgColor);
+            }
         }
 
-        uint8_t glyph = (codepoint < 256) ? static_cast<uint8_t>(codepoint) : static_cast<uint8_t>('?');
-        int col = glyph % 16;
-        int row = glyph / 16;
+        if (!rendered) {
+            // Standard ASCII & extended font glyph rendering from texture atlas
+            if (!monospaceAtlasReady_) {
+                initDefaultMonospaceAtlas();
+            }
 
-        constexpr float kAtlasW = 128.0f;
-        constexpr float kAtlasH = 256.0f;
-        float u0 = (col * 8.0f) / kAtlasW;
-        float v0 = (row * 16.0f) / kAtlasH;
-        float u1 = ((col + 1) * 8.0f) / kAtlasW;
-        float v1 = ((row + 1) * 16.0f) / kAtlasH;
+            uint8_t glyph = (codepoint < 256) ? static_cast<uint8_t>(codepoint) : static_cast<uint8_t>('?');
+            int col = glyph % 16;
+            int row = glyph / 16;
 
-        float x0 = cx, y0 = cy;
-        float x1 = cx + w, y1 = cy + h;
+            constexpr float kAtlasW = 128.0f;
+            constexpr float kAtlasH = 256.0f;
+            float u0 = (col * 8.0f) / kAtlasW;
+            float v0 = (row * 16.0f) / kAtlasH;
+            float u1 = ((col + 1) * 8.0f) / kAtlasW;
+            float v1 = ((row + 1) * 16.0f) / kAtlasH;
 
-        Vertex2D v_tl{x0, y0, u0, v0, fgColor, 4, {0, 0}};
-        Vertex2D v_tr{x1, y0, u1, v0, fgColor, 4, {0, 0}};
-        Vertex2D v_br{x1, y1, u1, v1, fgColor, 4, {0, 0}};
-        Vertex2D v_bl{x0, y1, u0, v1, fgColor, 4, {0, 0}};
+            float x0 = cx, y0 = cy;
+            float x1 = cx + w, y1 = cy + h;
 
-        applyTransform(v_tl.x, v_tl.y);
-        applyTransform(v_tr.x, v_tr.y);
-        applyTransform(v_br.x, v_br.y);
-        applyTransform(v_bl.x, v_bl.y);
+            Vertex2D v_tl{x0, y0, u0, v0, fgColor, 4, {0, 0}};
+            Vertex2D v_tr{x1, y0, u1, v0, fgColor, 4, {0, 0}};
+            Vertex2D v_br{x1, y1, u1, v1, fgColor, 4, {0, 0}};
+            Vertex2D v_bl{x0, y1, u0, v1, fgColor, 4, {0, 0}};
 
-        vertices_.push_back(v_tl);
-        vertices_.push_back(v_tr);
-        vertices_.push_back(v_br);
+            applyTransform(v_tl.x, v_tl.y);
+            applyTransform(v_tr.x, v_tr.y);
+            applyTransform(v_br.x, v_br.y);
+            applyTransform(v_bl.x, v_bl.y);
 
-        vertices_.push_back(v_tl);
-        vertices_.push_back(v_br);
-        vertices_.push_back(v_bl);
+            vertices_.push_back(v_tl);
+            vertices_.push_back(v_tr);
+            vertices_.push_back(v_br);
 
-        // Faux bold: render slightly offset second pass
-        if (isBold) {
-            Vertex2D b_tl{x0 + 0.75f, y0, u0, v0, fgColor, 4, {0, 0}};
-            Vertex2D b_tr{x1 + 0.75f, y0, u1, v0, fgColor, 4, {0, 0}};
-            Vertex2D b_br{x1 + 0.75f, y1, u1, v1, fgColor, 4, {0, 0}};
-            Vertex2D b_bl{x0 + 0.75f, y1, u0, v1, fgColor, 4, {0, 0}};
+            vertices_.push_back(v_tl);
+            vertices_.push_back(v_br);
+            vertices_.push_back(v_bl);
 
-            applyTransform(b_tl.x, b_tl.y);
-            applyTransform(b_tr.x, b_tr.y);
-            applyTransform(b_br.x, b_br.y);
-            applyTransform(b_bl.x, b_bl.y);
+            // Faux bold: render slightly offset second pass
+            if (isBold) {
+                Vertex2D b_tl{x0 + 0.75f, y0, u0, v0, fgColor, 4, {0, 0}};
+                Vertex2D b_tr{x1 + 0.75f, y0, u1, v0, fgColor, 4, {0, 0}};
+                Vertex2D b_br{x1 + 0.75f, y1, u1, v1, fgColor, 4, {0, 0}};
+                Vertex2D b_bl{x0 + 0.75f, y1, u0, v1, fgColor, 4, {0, 0}};
 
-            vertices_.push_back(b_tl);
-            vertices_.push_back(b_tr);
-            vertices_.push_back(b_br);
+                applyTransform(b_tl.x, b_tl.y);
+                applyTransform(b_tr.x, b_tr.y);
+                applyTransform(b_br.x, b_br.y);
+                applyTransform(b_bl.x, b_bl.y);
 
-            vertices_.push_back(b_tl);
-            vertices_.push_back(b_br);
-            vertices_.push_back(b_bl);
+                vertices_.push_back(b_tl);
+                vertices_.push_back(b_tr);
+                vertices_.push_back(b_br);
+
+                vertices_.push_back(b_tl);
+                vertices_.push_back(b_br);
+                vertices_.push_back(b_bl);
+            }
         }
     }
 
@@ -2799,6 +2809,31 @@ void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
     if (attrs & static_cast<uint8_t>(tui::TextAttr::Underline)) {
         drawRect(cx, cy + h - 1.5f, w, 1.0f, fgR, fgG, fgB, fgA);
     }
+}
+
+static inline uint32_t decodeUtf8Codepoint(const char*& p, const char* end) noexcept {
+    if (p >= end) return 0;
+    unsigned char c = static_cast<unsigned char>(*p++);
+    if (c < 0x80) return c;
+    if ((c & 0xE0) == 0xC0 && p < end) {
+        uint32_t cp = (c & 0x1F) << 6;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F);
+        return cp;
+    }
+    if ((c & 0xF0) == 0xE0 && p + 1 < end) {
+        uint32_t cp = (c & 0x0F) << 12;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F) << 6;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F);
+        return cp;
+    }
+    if ((c & 0xF8) == 0xF0 && p + 2 < end) {
+        uint32_t cp = (c & 0x07) << 18;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F) << 12;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F) << 6;
+        cp |= (static_cast<unsigned char>(*p++) & 0x3F);
+        return cp;
+    }
+    return c;
 }
 
 void BatchRenderer2D::drawMonospaceText(float x, float y, float charW, float charH,
@@ -2810,23 +2845,25 @@ void BatchRenderer2D::drawMonospaceText(float x, float y, float charW, float cha
                                        float subpixelOffsetY) {
     float curX = x;
     float curY = y;
-    for (size_t i = 0; i < text.size(); ++i) {
-        char ch = text[i];
-        if (ch == '\n') {
+    const char* ptr = text.data();
+    const char* end = ptr + text.size();
+    while (ptr < end) {
+        uint32_t cp = decodeUtf8Codepoint(ptr, end);
+        if (cp == '\n') {
             curY += charH;
             curX = x;
             continue;
-        } else if (ch == '\r') {
+        } else if (cp == '\r') {
             curX = x;
             continue;
-        } else if (ch == '\t') {
+        } else if (cp == '\t') {
             float col = (curX - x) / charW;
             int nextCol = ((static_cast<int>(col) / 4) + 1) * 4;
             curX = x + nextCol * charW;
             continue;
         }
         drawMonospaceCell(curX, curY, charW, charH,
-                          static_cast<char32_t>(static_cast<uint8_t>(ch)),
+                          static_cast<char32_t>(cp),
                           fgColor, bgColor, attrs,
                           subpixelOffsetX, subpixelOffsetY);
         curX += charW;

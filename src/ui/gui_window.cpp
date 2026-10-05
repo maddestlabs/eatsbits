@@ -4560,6 +4560,47 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     batchRenderer_->setAntiAliasingMode(antiAliasingMode_);
     g_activeBatchRenderer = batchRenderer_.get();
 
+    batchRenderer_->setMonospaceGlyphHook([this](float x, float y, float w, float h, char32_t codepoint, uint32_t fgColor) -> bool {
+        if (!fontRenderer_ || !fontRenderer_->fs) return false;
+        int fid = (fontRenderer_->fontMono != FONS_INVALID) ? fontRenderer_->fontMono : fontRenderer_->fontNormal;
+        if (fid == FONS_INVALID) return false;
+        if (codepoint <= 32) return true;
+
+        char utf8[8] = {0};
+        if (codepoint < 0x80) {
+            utf8[0] = static_cast<char>(codepoint);
+        } else if (codepoint < 0x800) {
+            utf8[0] = static_cast<char>(0xC0 | (codepoint >> 6));
+            utf8[1] = static_cast<char>(0x80 | (codepoint & 0x3F));
+        } else if (codepoint < 0x10000) {
+            utf8[0] = static_cast<char>(0xE0 | (codepoint >> 12));
+            utf8[1] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+            utf8[2] = static_cast<char>(0x80 | (codepoint & 0x3F));
+        } else if (codepoint < 0x110000) {
+            utf8[0] = static_cast<char>(0xF0 | (codepoint >> 18));
+            utf8[1] = static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+            utf8[2] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+            utf8[3] = static_cast<char>(0x80 | (codepoint & 0x3F));
+        } else {
+            return false;
+        }
+
+        if (!g_activeBatchRenderer && batchRenderer_) {
+            g_activeBatchRenderer = batchRenderer_.get();
+        }
+
+        FONScontext* fs = fontRenderer_->fs;
+        fonsClearState(fs);
+        float fontSize = std::min(h * 0.90f, w / 0.585f);
+        if (fontSize < 9.0f) fontSize = 9.0f;
+        fonsSetSize(fs, fontSize);
+        fonsSetFont(fs, fid);
+        fonsSetAlign(fs, FONS_ALIGN_CENTER | FONS_ALIGN_MIDDLE);
+        fonsSetColor(fs, fgColor);
+        fonsDrawText(fs, x + w * 0.5f, y + h * 0.5f, utf8, nullptr);
+        return true;
+    });
+
 #if defined(__EMSCRIPTEN__)
     if (dawnBridge_.initializeWeb(batchRenderer_->getNativeDevice(), batchRenderer_->getNativeSurface(), physW, physH)) {
         if (dawnBridge_.isNativeActive()) {
@@ -6398,6 +6439,9 @@ bool GuiWindow::loadFont(const std::string& fontPath, const std::string& fontNam
 
     fontRenderer_->fontNormal = fid;
     fontRenderer_->loadedFontPath = fontPath;
+    if (fontRenderer_->fontMono != FONS_INVALID) {
+        fonsAddFallbackFont(fontRenderer_->fs, fontRenderer_->fontMono, fontRenderer_->fontNormal);
+    }
     std::cout << "[GuiWindow] Successfully loaded font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
 }
@@ -6425,6 +6469,9 @@ bool GuiWindow::loadMonoFont(const std::string& fontPath, const std::string& fon
 
     fontRenderer_->fontMono = fid;
     fontRenderer_->loadedMonoFontPath = fontPath;
+    if (fontRenderer_->fontNormal != FONS_INVALID) {
+        fonsAddFallbackFont(fontRenderer_->fs, fontRenderer_->fontMono, fontRenderer_->fontNormal);
+    }
     std::cout << "[GuiWindow] Successfully loaded mono font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
 }
