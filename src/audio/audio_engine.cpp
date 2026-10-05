@@ -613,36 +613,54 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
     auto node = graph_.getNode(fxId);
     if (!node) return false;
 
+    std::string p = paramName;
+    for (char& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
     if (auto delay = std::dynamic_pointer_cast<DelayNode>(node)) {
-        if (paramName == "time" || paramName == "param1" || paramName == "rate") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
-        else if (paramName == "feedback" || paramName == "param2") delay->setFeedback(std::clamp(value * 0.75f, 0.0f, 0.90f));
-        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") delay->setDryWet(std::clamp(value, 0.0f, 1.0f));
-        else if (paramName == "drive") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
+        if (p == "time" || p == "param1" || p == "rate") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
+        else if (p == "feedback" || p == "param2") delay->setFeedback(std::clamp(value * 0.75f, 0.0f, 0.90f));
+        else if (p == "mix" || p == "param4" || p == "wet") delay->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "drive") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
     } else if (auto conv = std::dynamic_pointer_cast<ConvolverNode>(node)) {
-        if (paramName == "mix" || paramName == "param4" || paramName == "wet") conv->setMix(std::clamp(value, 0.0f, 1.0f));
-        else if (paramName == "decay" || paramName == "time" || paramName == "param1" || paramName == "drive") conv->setDecay(0.3f + value * 4.0f);
-        else if (paramName == "predelay" || paramName == "param2") conv->setPreDelay(value * 200.0f);
-        else if (paramName == "roomsize" || paramName == "size" || paramName == "param3") conv->setRoomSize(0.5f + value * 1.0f);
-        else if (paramName == "damping" || paramName == "param5") conv->setDamping(value);
+        if (p == "mix" || p == "param4" || p == "wet") conv->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "decay" || p == "time" || p == "param1" || p == "drive") conv->setDecay(0.3f + value * 4.0f);
+        else if (p == "predelay" || p == "param2") conv->setPreDelay(value * 200.0f);
+        else if (p == "roomsize" || p == "size" || p == "param3") conv->setRoomSize(0.5f + value * 1.0f);
+        else if (p == "damping" || p == "param5") conv->setDamping(value);
     } else if (auto chorus = std::dynamic_pointer_cast<ChorusNode>(node)) {
-        if (paramName == "rate" || paramName == "param1" || paramName == "time") chorus->setRateHz(std::max(0.1f, value * 4.0f));
-        else if (paramName == "depth" || paramName == "param2" || paramName == "feedback") chorus->setDepthMs(std::max(0.5f, value * 6.0f));
-        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") chorus->setMix(std::clamp(value, 0.0f, 1.0f));
-        else if (paramName == "drive") chorus->setRateHz(std::max(0.1f, value * 4.0f));
+        if (p == "rate" || p == "param1" || p == "time") chorus->setRateHz(std::max(0.1f, value * 4.0f));
+        else if (p == "depth" || p == "param2" || p == "feedback") chorus->setDepthMs(std::max(0.5f, value * 6.0f));
+        else if (p == "mix" || p == "param4" || p == "wet") chorus->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "drive") chorus->setRateHz(std::max(0.1f, value * 4.0f));
     } else if (auto comp = std::dynamic_pointer_cast<CompressorNode>(node)) {
-        if (paramName == "threshold" || paramName == "param1") comp->setThreshold(-30.0f + (1.0f - value) * 24.0f);
-        else if (paramName == "ratio" || paramName == "param2" || paramName == "drive") comp->setRatio(1.5f + value * 6.0f);
-        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") comp->setMix(std::clamp(value, 0.0f, 1.0f));
+        if (p == "threshold" || p == "param1" || p == "thresh") comp->setThreshold(-30.0f + (1.0f - value) * 24.0f);
+        else if (p == "ratio" || p == "param2" || p == "drive") comp->setRatio(1.5f + value * 6.0f);
+        else if (p == "mix" || p == "param4" || p == "wet") comp->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "attack") comp->setAttack(std::max(0.1f, value * 100.0f));
+        else if (p == "gain") comp->setMakeupGain((value - 0.5f) * 24.0f);
     } else if (auto ws = std::dynamic_pointer_cast<WaveShaperNode>(node)) {
-        if (paramName == "drive" || paramName == "param1" || paramName == "param5" || paramName == "time") ws->setDrive(1.0f + value * 8.0f);
-        else if (paramName == "mix" || paramName == "param4" || paramName == "wet") ws->setMix(std::clamp(value, 0.0f, 1.0f));
+        if (p == "drive" || p == "param1" || p == "param5" || p == "pre") ws->setDrive(value > 1.0f ? value : (1.0f + value * 8.0f));
+        else if (p == "mix" || p == "param4" || p == "wet") ws->setMix(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "tone" || p == "param2" || p == "filter") ws->setTone(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "bias" || p == "param3" || p == "tension") ws->setBias(std::clamp(value, 0.0f, 1.0f));
+        else if (p == "shape" || p == "mode") ws->setShape(static_cast<int>(value));
+    } else if (auto eq = std::dynamic_pointer_cast<ParametricEqNode>(node)) {
+        if (p == "low" || p == "lowgain" || p == "gain1" || p == "param1") eq->setBandGain(0, (std::abs(value) > 1.0f) ? value : ((value - 0.5f) * 36.0f));
+        else if (p == "mid" || p == "mid1gain" || p == "gain2" || p == "param2") eq->setBandGain(1, (std::abs(value) > 1.0f) ? value : ((value - 0.5f) * 36.0f));
+        else if (p == "high" || p == "highgain" || p == "gain3" || p == "param3") eq->setBandGain(3, (std::abs(value) > 1.0f) ? value : ((value - 0.5f) * 36.0f));
+        else if (p == "q" || p == "mid1q" || p == "reso" || p == "param4") eq->setBandQ(1, std::max(0.1f, value * 9.9f + 0.1f));
+        else if (p == "gain" || p == "mastergain" || p == "level" || p == "param5" || p == "mix") eq->setMasterGain((std::abs(value) > 1.0f) ? value : ((value - 0.5f) * 24.0f));
+    } else if (auto lim = std::dynamic_pointer_cast<LimiterNode>(node)) {
+        if (p == "ceiling" || p == "ceil" || p == "threshold" || p == "param1") lim->setCeilingDb((value <= 0.0f && value >= -24.0f) ? value : (-12.0f + value * 12.0f));
+        else if (p == "release" || p == "rel" || p == "param2") lim->setRelease((value > 1.0f) ? value : (10.0f + value * 990.0f));
+        else if (p == "gain" || p == "lookahead" || p == "param3") lim->setLookaheadMs((value > 1.0f) ? value : (1.0f + value * 9.0f));
     }
 
     auto cfgIt = trackFxConfigs_.find(trackIndex);
     if (cfgIt != trackFxConfigs_.end() && fxIndex < cfgIt->second.size()) {
-        if (paramName == "drive" || paramName == "param1" || paramName == "time" || paramName == "rate" || paramName == "decay") {
+        if (p == "drive" || p == "param1" || p == "time" || p == "rate" || p == "decay" || p == "pre") {
             cfgIt->second[fxIndex].drive = value;
-        } else if (paramName == "mix" || paramName == "param4" || paramName == "wet") {
+        } else if (p == "mix" || p == "param4" || p == "wet") {
             cfgIt->second[fxIndex].mix = value;
         }
     }

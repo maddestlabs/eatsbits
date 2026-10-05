@@ -3762,6 +3762,42 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     projectBrowserDrawerWidget_->onAddPresetTrack = [this](const std::string& presetId) {
         lastStatusMessage_ = "ADDED TRACK: " + presetId;
     };
+    projectBrowserDrawerWidget_->onAddAudioFx = [this](const std::string& fxId) {
+        if (!modularArrangerView_ || selectedTrackIndex_ >= modularArrangerView_->getTracks().size()) return;
+        std::string fxName = fxId;
+        std::string engineTag = fxId;
+        const auto* item = project::PresetManager::instance().findPreset(fxId);
+        if (item) {
+            fxName = item->name;
+            engineTag = item->engineTag.empty() ? item->id : item->engineTag;
+        }
+        TrackAudioFxItem fxItem(fxName, engineTag, 0.5f, 0.5f, true);
+        fxItem.id = fxId;
+        project::PresetDefinition def{};
+        if (project::PresetManager::instance().loadPresetDefinition(fxId, def)) {
+            fxItem.populateFromPresetDefinition(def);
+        }
+        modularArrangerView_->getTracks()[selectedTrackIndex_].audioFx.push_back(std::move(fxItem));
+        syncTrackAudioFxToEngine(selectedTrackIndex_);
+        recordProjectHistory("Add Audio FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "AUDIO_FX");
+        setStatusMessage("Added Audio FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
+    };
+    projectBrowserDrawerWidget_->onAddMidiFx = [this](const std::string& fxId) {
+        if (!modularArrangerView_ || selectedTrackIndex_ >= modularArrangerView_->getTracks().size()) return;
+        std::string fxName = fxId;
+        std::string engineTag = fxId;
+        const auto* item = project::PresetManager::instance().findPreset(fxId);
+        if (item) {
+            fxName = item->name;
+            engineTag = item->engineTag.empty() ? item->id : item->engineTag;
+        }
+        TrackMidiFxItem mfxItem(fxName, engineTag, 0, 0, true);
+        mfxItem.id = fxId;
+        modularArrangerView_->getTracks()[selectedTrackIndex_].midiFx.push_back(std::move(mfxItem));
+        syncTrackMidiFxToEngine(selectedTrackIndex_);
+        recordProjectHistory("Add MIDI FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "MIDI_FX");
+        setStatusMessage("Added MIDI FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
+    };
     projectBrowserDrawerWidget_->onLoadProject = [this](const std::string& filePath) {
         loadProjectFromFile(filePath);
     };
@@ -3925,7 +3961,13 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             setStatusMessage("Loaded Preset: " + entry.name + " to Track " + std::to_string(targetIdx + 1));
         } else if (mode == PluginDialogMode::AddAudioFx) {
             if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
-                modularArrangerView_->getTracks()[trackIndex].audioFx.push_back({entry.name, entry.engineTag, 0.5f, 0.5f, true});
+                TrackAudioFxItem fxItem(entry.name, entry.engineTag.empty() ? entry.id : entry.engineTag, 0.5f, 0.5f, true);
+                fxItem.id = entry.id;
+                project::PresetDefinition def{};
+                if (project::PresetManager::instance().loadPresetDefinition(entry.id, def)) {
+                    fxItem.populateFromPresetDefinition(def);
+                }
+                modularArrangerView_->getTracks()[trackIndex].audioFx.push_back(std::move(fxItem));
                 syncTrackAudioFxToEngine(trackIndex);
                 recordProjectHistory("Add Audio FX " + entry.name + " to Track " + std::to_string(trackIndex + 1), "AUDIO_FX");
             }

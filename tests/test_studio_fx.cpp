@@ -17,6 +17,7 @@
 #include "eatsbits/audio/graph/nodes/compressor_node.hpp"
 #include "eatsbits/audio/graph/nodes/chorus_node.hpp"
 #include "eatsbits/audio/graph/nodes/limiter_node.hpp"
+#include "eatsbits/audio/graph/nodes/waveshaper_node.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 
 using namespace eatsbits;
@@ -367,6 +368,152 @@ void testAudioEngineDynamicFxRouting() {
     std::cout << "  -> PASSED\n";
 }
 
+void testWaveShaperCalibrationAndDspFeatures() {
+    std::cout << "[Test 9] Testing WaveShaper Calibration, Saturation Makeup & Tone/Bias DSP...\n";
+
+    WaveShaperNode ws("TubeSaturation");
+    ws.prepare(44100.0, 512);
+
+    TEST_ASSERT(std::abs(ws.getDrive() - 2.0f) < 0.001f);
+    TEST_ASSERT(std::abs(ws.getTone() - 0.75f) < 0.001f);
+    TEST_ASSERT(std::abs(ws.getBias() - 0.5f) < 0.001f);
+
+    ws.setParameter(0, 4.0f);
+    TEST_ASSERT(std::abs(ws.getDrive() - 4.0f) < 0.001f);
+    ws.setParameter(3, 0.40f);
+    TEST_ASSERT(std::abs(ws.getTone() - 0.40f) < 0.001f);
+    ws.setParameter(4, 0.70f);
+    TEST_ASSERT(std::abs(ws.getBias() - 0.70f) < 0.001f);
+    ws.setParameter(2, 1.0f);
+    TEST_ASSERT(ws.getShape() == 1);
+
+    // Test makeup gain calibration: drive=1.0 vs drive=9.0
+    const size_t numFrames = 512;
+    std::vector<float> inL(numFrames);
+    std::vector<float> inR(numFrames);
+    std::vector<float> outL(numFrames, 0.0f);
+    std::vector<float> outR(numFrames, 0.0f);
+    generateSine(inL, 1000.0f, 44100.0f, 0.3f);
+    inR = inL;
+
+    auto wsNode = std::make_shared<WaveShaperNode>("TestWS");
+    wsNode->prepare(44100.0, numFrames);
+    wsNode->setDrive(1.0f);
+    wsNode->setMix(1.0f);
+    wsNode->setBias(0.5f);
+    wsNode->setTone(1.0f);
+
+    wsNode->setInputBufferPtr(0, 0, inL.data());
+    wsNode->setInputBufferPtr(0, 1, inR.data());
+    wsNode->setOutputBufferPtr(0, 0, outL.data());
+    wsNode->setOutputBufferPtr(0, 1, outR.data());
+    wsNode->processBlock(numFrames);
+
+    float peakAtDrive1 = 0.0f;
+    for (size_t i = 0; i < numFrames; ++i) {
+        peakAtDrive1 = std::max(peakAtDrive1, std::abs(outL[i]));
+    }
+
+    // Now test with drive = 9.0f
+    wsNode->reset();
+    wsNode->setDrive(9.0f);
+    wsNode->setInputBufferPtr(0, 0, inL.data());
+    wsNode->setInputBufferPtr(0, 1, inR.data());
+    wsNode->setOutputBufferPtr(0, 0, outL.data());
+    wsNode->setOutputBufferPtr(0, 1, outR.data());
+    wsNode->processBlock(numFrames);
+
+    float peakAtDrive9 = 0.0f;
+    for (size_t i = 0; i < numFrames; ++i) {
+        peakAtDrive9 = std::max(peakAtDrive9, std::abs(outL[i]));
+    }
+
+    std::cout << "  Peak at drive 1.0: " << peakAtDrive1 << ", Peak at drive 9.0: " << peakAtDrive9 << "\n";
+    TEST_ASSERT(peakAtDrive9 <= 0.65f);
+    TEST_ASSERT(peakAtDrive9 >= 0.20f);
+
+    // Test tone filtering: dark tone (0.05) vs open tone (1.0) on high frequency (8 kHz)
+    std::vector<float> highFreqL(numFrames);
+    generateSine(highFreqL, 8000.0f, 44100.0f, 0.4f);
+    wsNode->setDrive(1.0f);
+    wsNode->setTone(0.05f);
+    wsNode->reset();
+    wsNode->setInputBufferPtr(0, 0, highFreqL.data());
+    wsNode->setInputBufferPtr(0, 1, highFreqL.data());
+    wsNode->setOutputBufferPtr(0, 0, outL.data());
+    wsNode->setOutputBufferPtr(0, 1, outR.data());
+    wsNode->processBlock(numFrames);
+
+    float peakDark = 0.0f;
+    for (size_t i = numFrames / 2; i < numFrames; ++i) {
+        peakDark = std::max(peakDark, std::abs(outL[i]));
+    }
+
+    wsNode->setTone(1.0f);
+    wsNode->reset();
+    wsNode->setInputBufferPtr(0, 0, highFreqL.data());
+    wsNode->setInputBufferPtr(0, 1, highFreqL.data());
+    wsNode->setOutputBufferPtr(0, 0, outL.data());
+    wsNode->setOutputBufferPtr(0, 1, outR.data());
+    wsNode->processBlock(numFrames);
+
+    float peakBright = 0.0f;
+    for (size_t i = numFrames / 2; i < numFrames; ++i) {
+        peakBright = std::max(peakBright, std::abs(outL[i]));
+    }
+    std::cout << "  Tone dark peak: " << peakDark << ", Tone bright peak: " << peakBright << "\n";
+    TEST_ASSERT(peakDark < peakBright * 0.5f);
+
+    std::cout << "  -> PASSED\n";
+}
+
+void testAudioEngineParametricEqAndLimiterDispatch() {
+    std::cout << "[Test 10] Testing Audio Engine EQ, Limiter & WaveShaper Parameter Dispatch...\n";
+
+    AudioEngineConfig cfg;
+    cfg.sampleRate = 44100;
+    cfg.bufferFrameSize = 256;
+    AudioEngine engine;
+    engine.initialize(cfg);
+    engine.setupDefaultAcidBeatGraph();
+
+    std::vector<AudioEngine::TrackAudioFxItem> inserts = {
+        {"Studio Parametric EQ", "PARAMETRIC_EQ", 0.5f, 1.0f, true},
+        {"Master Brickwall Limiter", "BRICKWALL_LIMITER", 0.5f, 1.0f, true},
+        {"Dynamic Tube Distortion", "TUBE_DISTORTION", 0.5f, 0.8f, true}
+    };
+    bool ok = engine.rebuildTrackAudioFx(0, inserts);
+    TEST_ASSERT(ok);
+
+    auto fxList = engine.getTrackAudioFx(0);
+    TEST_ASSERT(fxList.size() == 3);
+
+    // Parametric EQ parameter modulation
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "low", 0.75f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "mid", 0.35f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "high", 0.80f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "q", 0.40f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "gain", 0.60f));
+
+    // Limiter parameter modulation
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 1, "ceiling", -0.5f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 1, "release", 75.0f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 1, "lookahead", 5.0f));
+
+    // WaveShaper parameter modulation
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "drive", 0.70f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "tone", 0.45f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "bias", 0.60f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "mix", 0.90f));
+
+    // Process a block
+    std::vector<float> bufL(256, 0.0f);
+    std::vector<float> bufR(256, 0.0f);
+    engine.getGraph().process(bufL.data(), bufR.data(), 256);
+
+    std::cout << "  -> PASSED\n";
+}
+
 int main() {
     std::cout << "====================================================\n";
     std::cout << "   EATSBITS STUDIO DYNAMICS & INSERT FX SUITE TESTS \n";
@@ -380,9 +527,11 @@ int main() {
     testAudioGraphChannelStripProcessing();
     testBenchmarkFullChannelStrip();
     testAudioEngineDynamicFxRouting();
+    testWaveShaperCalibrationAndDspFeatures();
+    testAudioEngineParametricEqAndLimiterDispatch();
 
     std::cout << "====================================================\n";
-    std::cout << " ALL 8 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
+    std::cout << " ALL 10 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
     std::cout << "====================================================\n";
     return 0;
 }

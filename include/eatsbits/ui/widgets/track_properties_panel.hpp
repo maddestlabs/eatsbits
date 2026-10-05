@@ -5,6 +5,7 @@
 #include "plugin_search_dialog.hpp"
 #include "../gui_panel_def.hpp"
 #include "eatsbits/theory/chord_model.hpp"
+#include "eatsbits/project/preset_loader.hpp"
 
 #include <string>
 #include <vector>
@@ -155,14 +156,92 @@ struct TrackAudioFxItem {
                 {"attack", "ATTACK", 0.20f, "12 ms", "ms"},
                 {"gain", "GAIN", mix, "+2.5 dB", "dB"}
             };
-        } else { // DISTORTION / TUBE_DISTORTION / generic
+        } else if (tUpper.find("EQ") != std::string::npos || tUpper.find("PARAMETRIC") != std::string::npos || tUpper.find("EQUALIZER") != std::string::npos) {
+            background = "dark";
+            accentR = 0.0f; accentG = 0.90f; accentB = 1.0f;
+            knobs = {
+                {"low", "LOW", 0.5f, "0.0 dB", "dB"},
+                {"mid", "MID", 0.5f, "0.0 dB", "dB"},
+                {"high", "HIGH", 0.5f, "0.0 dB", "dB"},
+                {"q", "Q", 0.35f, "1.2", "Q"},
+                {"gain", "GAIN", 0.5f, "0.0 dB", "dB"}
+            };
+        } else if (tUpper.find("LIMIT") != std::string::npos) {
+            background = "silver";
+            accentR = 1.0f; accentG = 0.20f; accentB = 0.40f;
+            knobs = {
+                {"ceiling", "CEIL", 0.95f, "-0.1 dB", "dB"},
+                {"release", "RELEASE", 0.25f, "50 ms", "ms"},
+                {"gain", "GAIN", 0.5f, "0.0 dB", "dB"}
+            };
+        } else if (tUpper.find("FILTER") != std::string::npos || tUpper.find("SVF") != std::string::npos || tUpper.find("LOWPASS") != std::string::npos || tUpper.find("HIGHPASS") != std::string::npos || tUpper.find("VCF") != std::string::npos) {
+            background = "carbon";
+            accentR = 1.0f; accentG = 0.0f; accentB = 0.48f;
+            knobs = {
+                {"cutoff", "CUTOFF", 0.70f, "2.4 kHz", "Hz"},
+                {"reso", "RESO", 0.30f, "1.5", "Q"},
+                {"type", "TYPE", 0.0f, "LP", ""},
+                {"drive", "DRIVE", drive, "1.0x", "x"}
+            };
+        } else { // DISTORTION / TUBE_DISTORTION / SHAPER / generic
             background = "grunge";
+            accentR = 0.95f; accentG = 0.60f; accentB = 0.10f;
             knobs = {
                 {"drive", "DRIVE", drive, "50%", "%"},
                 {"tone", "TONE", 0.60f, "60%", "%"},
                 {"bias", "BIAS", 0.40f, "40%", "%"},
                 {"mix", "MIX", mix, "80%", "%"}
             };
+        }
+    }
+
+    void populateFromPresetDefinition(const eatsbits::project::PresetDefinition& def) {
+        if (!def.metadata.id.empty()) id = def.metadata.id;
+        if (!def.metadata.name.empty()) name = def.metadata.name;
+        if (!def.metadata.engineId.empty()) type = def.metadata.engineId;
+
+        if (!def.guiRoot.background.empty()) {
+            background = def.guiRoot.background;
+        }
+        if (!def.guiRoot.accent.empty() && def.guiRoot.accent[0] == '#' && def.guiRoot.accent.size() >= 7) {
+            try {
+                unsigned int hexVal = std::stoul(def.guiRoot.accent.substr(1, 6), nullptr, 16);
+                accentR = static_cast<float>((hexVal >> 16) & 0xFF) / 255.0f;
+                accentG = static_cast<float>((hexVal >> 8) & 0xFF) / 255.0f;
+                accentB = static_cast<float>(hexVal & 0xFF) / 255.0f;
+            } catch (...) {}
+        }
+
+        std::vector<TrackPropertiesKnob> extractedKnobs;
+        auto collectKnobs = [&](auto& self, const eatsbits::project::GuiLayoutNode& node) -> void {
+            if (node.type == eatsbits::project::GuiNodeType::Knob || node.type == eatsbits::project::GuiNodeType::Slider) {
+                TrackPropertiesKnob k;
+                k.name = node.paramName.empty() ? node.label : node.paramName;
+                k.label = node.label.empty() ? node.paramName : node.label;
+                k.unit = node.unit;
+
+                const auto* param = def.findParam(node.paramName);
+                if (param) {
+                    float range = param->maxVal - param->minVal;
+                    k.value = (range > 0.0001f) ? std::clamp((param->defaultVal - param->minVal) / range, 0.0f, 1.0f) : 0.5f;
+                    k.display = param->getFormatted();
+                    if (k.unit.empty()) k.unit = param->unit;
+                } else {
+                    k.value = 0.5f;
+                    k.display = "0.5";
+                }
+                extractedKnobs.push_back(k);
+            }
+            for (const auto& child : node.children) {
+                self(self, child);
+            }
+        };
+        collectKnobs(collectKnobs, def.guiRoot);
+
+        if (!extractedKnobs.empty()) {
+            knobs = std::move(extractedKnobs);
+        } else {
+            ensureDefaultKnobs();
         }
     }
 };

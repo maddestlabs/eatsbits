@@ -2591,6 +2591,122 @@ void testClipActionsAndHistoryRestoration() {
     std::cout << "  [PASS] Clip Duplicate/Delete, clean empty rendering and History Undo/Redo validated." << std::endl;
 }
 
+void testTrackAudioFxPresetBindingAndDefaults() {
+    std::cout << "[Test 23] TrackAudioFxItem Fallback Layouts, Preset Extraction & Drawer Insertion..." << std::endl;
+
+    // 1. Validate dedicated fallback layouts for EQ, Limiter, Filter, and Tube Distortion
+    TrackAudioFxItem eq("Studio Parametric EQ", "PARAMETRIC_EQ");
+    assert(eq.background == "dark");
+    assert(eq.knobs.size() == 5);
+    assert(eq.knobs[0].name == "low");
+    assert(eq.knobs[1].name == "mid");
+    assert(eq.knobs[2].name == "high");
+    assert(eq.knobs[3].name == "q");
+    assert(eq.knobs[4].name == "gain");
+
+    TrackAudioFxItem lim("Brickwall Limiter", "LIMITER");
+    assert(lim.background == "silver");
+    assert(lim.knobs.size() == 3);
+    assert(lim.knobs[0].name == "ceiling");
+    assert(lim.knobs[1].name == "release");
+    assert(lim.knobs[2].name == "gain");
+
+    TrackAudioFxItem vcf("Multimode Filter", "MULTIMODE_FILTER");
+    assert(vcf.background == "carbon");
+    assert(vcf.knobs.size() == 4);
+    assert(vcf.knobs[0].name == "cutoff");
+    assert(vcf.knobs[1].name == "reso");
+    assert(vcf.knobs[2].name == "type");
+    assert(vcf.knobs[3].name == "drive");
+
+    TrackAudioFxItem tube("Tube Distortion", "TUBE_DISTORTION");
+    assert(tube.background == "grunge");
+    assert(tube.knobs.size() == 4);
+    assert(tube.knobs[0].name == "drive");
+    assert(tube.knobs[1].name == "tone");
+    assert(tube.knobs[2].name == "bias");
+    assert(tube.knobs[3].name == "mix");
+
+    // 2. Validate populateFromPresetDefinition
+    project::PresetDefinition def;
+    def.metadata.id = "waveshaper";
+    def.metadata.name = "WaveShaper";
+    def.metadata.engineId = "waveshaper";
+    def.guiRoot.background = "grunge";
+    def.guiRoot.accent = "#21F4E8";
+
+    project::PresetParam pPre;
+    pPre.name = "Pre"; pPre.minVal = 0.1f; pPre.maxVal = 4.0f; pPre.defaultVal = 1.0f; pPre.currentVal = 1.0f; pPre.unit = "x";
+    def.params["Pre"] = pPre;
+
+    project::PresetParam pPost;
+    pPost.name = "Post"; pPost.minVal = 0.0f; pPost.maxVal = 4.0f; pPost.defaultVal = 1.0f; pPost.currentVal = 1.0f; pPost.unit = "x";
+    def.params["Post"] = pPost;
+
+    project::PresetParam pMix;
+    pMix.name = "Mix"; pMix.minVal = 0.0f; pMix.maxVal = 1.0f; pMix.defaultVal = 0.8f; pMix.currentVal = 0.8f; pMix.unit = "%";
+    def.params["Mix"] = pMix;
+
+    project::GuiLayoutNode row;
+    row.type = project::GuiNodeType::Row;
+
+    project::GuiLayoutNode kPre;
+    kPre.type = project::GuiNodeType::Knob;
+    kPre.paramName = "Pre";
+    kPre.label = "PRE / DRIVE";
+    kPre.unit = "x";
+    row.children.push_back(kPre);
+
+    project::GuiLayoutNode kPost;
+    kPost.type = project::GuiNodeType::Knob;
+    kPost.paramName = "Post";
+    kPost.label = "POST GAIN";
+    kPost.unit = "x";
+    row.children.push_back(kPost);
+
+    project::GuiLayoutNode kMix;
+    kMix.type = project::GuiNodeType::Knob;
+    kMix.paramName = "Mix";
+    kMix.label = "MIX";
+    kMix.unit = "%";
+    row.children.push_back(kMix);
+
+    def.guiRoot.children.push_back(row);
+
+    TrackAudioFxItem customItem;
+    customItem.populateFromPresetDefinition(def);
+    assert(customItem.id == "waveshaper");
+    assert(customItem.name == "WaveShaper");
+    assert(customItem.background == "grunge");
+    assert(customItem.knobs.size() == 3);
+    assert(customItem.knobs[0].name == "Pre");
+    assert(customItem.knobs[0].label == "PRE / DRIVE");
+    assert(customItem.knobs[1].name == "Post");
+    assert(customItem.knobs[2].name == "Mix");
+
+    // 3. Validate GuiWindow Project Browser Drawer onAddAudioFx
+    audio::AudioEngine engine;
+    GuiWindow window(1280, 800);
+    bool initOk = window.initialize(engine);
+    assert(initOk);
+
+    window.setSelectedTrackIndex(0);
+    auto* drawer = window.getProjectBrowserDrawerWidget();
+    assert(drawer != nullptr);
+    assert(drawer->onAddAudioFx != nullptr);
+
+    auto* arranger = window.getModularArrangerView();
+    assert(arranger != nullptr);
+    size_t initialFxCount = arranger->getTracks()[0].audioFx.size();
+
+    drawer->onAddAudioFx("bitcrusher");
+    assert(arranger->getTracks()[0].audioFx.size() == initialFxCount + 1);
+    const auto& addedFx = arranger->getTracks()[0].audioFx.back();
+    assert(!addedFx.knobs.empty());
+
+    std::cout << "  [PASS] TrackAudioFxItem Fallback Layouts, Preset Extraction & Drawer Insertion validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -2618,8 +2734,9 @@ int main() {
     testTooltips();
     testTrackPropertiesActionsAndMuteSoloFix();
     testClipActionsAndHistoryRestoration();
+    testTrackAudioFxPresetBindingAndDefaults();
 
-    std::cout << "\n>>> ALL 22 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 23 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 
