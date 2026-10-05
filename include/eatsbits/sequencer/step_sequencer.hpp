@@ -12,6 +12,7 @@
 #include "../audio/graph/graph_node.hpp"
 #include "eatsbits/lyrics/lyric_track.hpp"
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 
 namespace eatsbits::sequencer {
 
@@ -86,6 +87,10 @@ public:
     [[nodiscard]] const std::vector<eatscript::MidiFxInsert>& getMidiFxRack() const noexcept { return midiFxRack_; }
     std::vector<eatscript::MidiFxInsert>& getMidiFxRack() noexcept { return midiFxRack_; }
     void setMidiFxRack(std::vector<eatscript::MidiFxInsert> rack) { midiFxRack_ = std::move(rack); }
+
+    // --- Chord Follow Mode ---
+    [[nodiscard]] theory::ChordFollowMode getChordFollowMode() const noexcept { return chordFollowMode_; }
+    void setChordFollowMode(theory::ChordFollowMode mode) noexcept { chordFollowMode_ = mode; }
 
     // --- Track Freeze ---
     [[nodiscard]] bool isFrozen() const noexcept { return isFrozen_; }
@@ -216,6 +221,9 @@ private:
     // MIDI FX Rack
     std::vector<eatscript::MidiFxInsert> midiFxRack_{};
 
+    // Chord Follow Mode
+    theory::ChordFollowMode chordFollowMode_{theory::ChordFollowMode::Off};
+
     // Track Freeze state & baked audio buffers
     bool isFrozen_{false};
     std::string frozenContentHash_{""};
@@ -281,6 +289,11 @@ public:
     [[nodiscard]] const eatscript::TimeContext& getTimeContext() const noexcept { return timeContext_; }
     [[nodiscard]] eatscript::TimeContext& getTimeContext() noexcept { return timeContext_; }
 
+    // Chord Track & Harmonic Follow Mode (Eatsbeats parity)
+    void setChordTrack(std::vector<theory::ChordEvent> chords) { chordTrack_ = std::move(chords); }
+    [[nodiscard]] const std::vector<theory::ChordEvent>& getChordTrack() const noexcept { return chordTrack_; }
+    [[nodiscard]] const theory::ChordEvent* getActiveChordAtBar(float bar) const noexcept;
+
     // Real-Time Audio Callback Processing (strictly zero-allocation)
     void processBlock(uint32_t numFrames, audio::AudioGraph& graph) noexcept;
 
@@ -318,6 +331,7 @@ private:
     }
 
     eatscript::TimeContext timeContext_{};
+    std::vector<theory::ChordEvent> chordTrack_{};
 };
 
 } // namespace eatsbits::sequencer

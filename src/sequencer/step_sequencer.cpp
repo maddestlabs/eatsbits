@@ -132,6 +132,17 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
     for (size_t t = 0; t < tickCount; ++t) {
         const auto& tick = ticks[t];
 
+        // 1. Sample Active Chord from Project Chord Track (Eatsbeats Parity)
+        float currentBar = static_cast<float>(tick.stepIndex) / 16.0f;
+        const theory::ChordEvent* activeChord = getActiveChordAtBar(currentBar);
+        if (activeChord != nullptr) {
+            timeContext_.activeChordRoot = activeChord->rootPitchClass;
+            timeContext_.activeChordQuality = theory::getChordQualityDisplayName(activeChord->quality);
+            timeContext_.chordPitchClasses = activeChord->getPitchClasses();
+            timeContext_.bassPitchClass = (activeChord->bassPitchClass >= 0) ? activeChord->bassPitchClass : activeChord->rootPitchClass;
+        }
+        timeContext_.currentStep = static_cast<double>(tick.stepIndex);
+
         for (auto& track : activePattern.tracks) {
             if (track.isFrozen()) continue; // Skip live note triggering when track is frozen
             if (track.isMuted()) continue;
@@ -163,6 +174,15 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
             float vel = std::clamp(step.velocity * track.getVolume(), 0.0f, 1.0f);
             std::vector<uint8_t> exNotes = step.extraNotes;
 
+            // 2. Harmonic Track Follow Mode (BASS, CHORD, SCALE, COLOR)
+            if (track.getChordFollowMode() != theory::ChordFollowMode::Off && activeChord != nullptr) {
+                noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, track.getChordFollowMode());
+                for (auto& en : exNotes) {
+                    int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                    en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, track.getChordFollowMode()));
+                }
+            }
+
             // Live MIDI FX Pipeline Processing
             const auto& midiFx = track.getMidiFxRack();
             if (!midiFx.empty()) {
@@ -176,7 +196,7 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                             int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
                             en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(enTrans, root, minor));
                         }
-                    } else if (fx.type == eatscript::MidiFxType::Arpeggiator || fx.type == eatscript::MidiFxType::ChordArp) {
+                    } else if (fx.type == eatscript::MidiFxType::Arpeggiator) {
                         int octaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : 2;
                         int stepCycle = static_cast<int>(tick.stepIndex) % (octaves * 2);
                         int octOffset = (stepCycle < octaves) ? stepCycle : ((octaves * 2 - 1) - stepCycle);
@@ -187,13 +207,31 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                                 noteNum = exNotes[noteIdx - 1];
                             }
                         }
+                    } else if (fx.type == eatscript::MidiFxType::ChordArp) {
+                        if (activeChord != nullptr && !timeContext_.chordPitchClasses.empty()) {
+                            const auto& pcs = timeContext_.chordPitchClasses;
+                            int pcIdx = static_cast<int>(tick.stepIndex) % static_cast<int>(pcs.size());
+                            int oct = (static_cast<int>(tick.stepIndex) / static_cast<int>(pcs.size())) % 2;
+                            int baseOct = noteNum / 12;
+                            noteNum = std::clamp((baseOct + oct) * 12 + pcs[pcIdx], 0, 127);
+                        }
                     } else if (fx.type == eatscript::MidiFxType::ChordStabs) {
                         if (exNotes.empty()) {
-                            bool isMinor = timeContext_.isSongKeyMinor;
-                            int third = isMinor ? 3 : 4;
-                            int fifth = 7;
-                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
-                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                            if (activeChord != nullptr) {
+                                for (int pc : timeContext_.chordPitchClasses) {
+                                    if (pc != (noteNum % 12)) {
+                                        int chordNote = ((noteNum / 12) * 12) + pc;
+                                        if (chordNote < noteNum) chordNote += 12;
+                                        exNotes.push_back(static_cast<uint8_t>(std::clamp(chordNote, 0, 127)));
+                                    }
+                                }
+                            } else {
+                                bool isMinor = timeContext_.isSongKeyMinor;
+                                int third = isMinor ? 3 : 4;
+                                int fifth = 7;
+                                exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                                exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                            }
                         }
                     } else if (fx.type == eatscript::MidiFxType::Transpose) {
                         int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : 0;
@@ -205,12 +243,20 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                         float velJitter = (nextRandomFloat() - 0.5f) * 0.20f;
                         vel = std::clamp(vel + velJitter, 0.05f, 1.0f);
                     } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
-                        theory::ChordEvent chEvent;
-                        chEvent.rootPitchClass = timeContext_.activeChordRoot;
-                        noteNum = theory::ChordTheory::remapPitchForChord(noteNum, chEvent, theory::ChordFollowMode::Chord);
-                        for (auto& en : exNotes) {
-                            int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
-                            en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, chEvent, theory::ChordFollowMode::Chord));
+                        if (activeChord != nullptr) {
+                            noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, theory::ChordFollowMode::Chord);
+                            for (auto& en : exNotes) {
+                                int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                                en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, theory::ChordFollowMode::Chord));
+                            }
+                        } else {
+                            theory::ChordEvent chEvent;
+                            chEvent.rootPitchClass = timeContext_.activeChordRoot;
+                            noteNum = theory::ChordTheory::remapPitchForChord(noteNum, chEvent, theory::ChordFollowMode::Chord);
+                            for (auto& en : exNotes) {
+                                int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                                en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, chEvent, theory::ChordFollowMode::Chord));
+                            }
                         }
                     }
                 }
@@ -454,6 +500,17 @@ void SequencerTrack::setSelectedNotesAccent(bool accent) noexcept {
             steps_[s].accent = accent;
         }
     }
+}
+
+const theory::ChordEvent* StepSequencer::getActiveChordAtBar(float bar) const noexcept {
+    for (const auto& chord : chordTrack_) {
+        float start = static_cast<float>(chord.startBar);
+        float end = start + chord.barLength;
+        if (bar >= start && bar < end) {
+            return &chord;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace eatsbits::sequencer

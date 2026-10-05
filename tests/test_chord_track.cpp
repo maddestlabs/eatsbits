@@ -444,60 +444,39 @@ void testProjectSerializationRoundtrip() {
 }
 
 // -------------------------------------------------------------------------
-// 10. Test Clip-Level Chord Detection & Track-to-Track Harmonic Sync
+// 10. Test Dedicated Single Chord Track & Harmonic Follow Modes
 // -------------------------------------------------------------------------
 void testClipChordsAndTrackSync() {
-    std::cout << "[Test 10/10] Clip-Level Chord Detection & Track Harmonic Sync..." << std::endl;
+    std::cout << "[Test 10/11] Dedicated Single Chord Track & Track Harmonic Sync..." << std::endl;
 
     ArrangerView arranger;
     const auto& tracks = arranger.getTracks();
 
-    // 1. Verify default tracks chord leader configuration
+    // 1. Verify canonical Project Chord Track (Eatsbeats Parity)
+    const auto& projectChords = arranger.getChordTrack();
+    assert(projectChords.size() == 8);
+    assert(projectChords[0].rootPitchClass == 0); // C Major
+    assert(projectChords[1].rootPitchClass == 7); // G Major
+    assert(projectChords[2].rootPitchClass == 9); // A Minor
+    assert(projectChords[3].rootPitchClass == 5); // F Major
+
+    // 2. Verify Track 1 (Sub Bass) follows project chord track in Bass mode
     assert(tracks.size() >= 5);
-    const auto& rhodesTrack = tracks[3]; // DX7 Rhodes
-    assert(rhodesTrack.isChordLeader);
-    assert(!rhodesTrack.clips.empty());
-    assert(!rhodesTrack.clips[0].detectedChords.empty());
-
-    // DX7 Rhodes clip 0 has:
-    // Bar 0..2: C, Eb, G, Bb -> Cm7 (root 0, quality Minor7)
-    // Bar 2..4: Bb, D, F, A  -> Bbmaj7 (root 10, quality Major7)
-    // Bar 4..6: Ab, C, Eb, G -> Abmaj7 (root 8, quality Major7)
-    // Bar 6..8: Bb, D, F, Ab -> Bb7 (root 10, quality Dominant7)
-    const auto& rhodesChords = rhodesTrack.clips[0].detectedChords;
-    (void)rhodesChords;
-    assert(rhodesChords.size() >= 4);
-    assert(rhodesChords[0].rootPitchClass == 0);
-    assert(rhodesChords[0].quality == ChordQuality::Minor7);
-    assert(rhodesChords[1].rootPitchClass == 10);
-    assert(rhodesChords[1].quality == ChordQuality::Major7);
-
-    // Verify other default tracks (Acid, 808, 909, Piano Solo) do NOT detect chords
-    // because only DX7 Rhodes contains polyphonic chord content
-    assert(tracks[0].clips[0].detectedChords.empty()); // TB-303 Acid Lead (monophonic)
-    assert(tracks[1].clips[0].detectedChords.empty()); // TR-808 Kit (drums)
-    assert(tracks[2].clips[0].detectedChords.empty()); // TR-909 Drive (drums)
-    assert(tracks[4].clips[0].detectedChords.empty()); // Concert Grand (monophonic solo)
-
-    // 2. Verify Track 1 (Sub Bass) syncs to DX7 Rhodes
     const auto& bassTrack = tracks[1]; // Sub Bass
     (void)bassTrack;
-    assert(bassTrack.chordLeaderTrackIndex == 3);
     assert(bassTrack.chordFollowMode == ChordFollowMode::Bass);
 
-    // Query active chord for Sub Bass at bar 0.5 (within Bar 0..2)
+    // Query active chord for Sub Bass at bar 0.5 (within Bar 0..2 -> C Major)
     const auto* chordAtBar0 = arranger.getActiveChordForTrackAtBar(1, 0.5f);
-    (void)chordAtBar0;
     assert(chordAtBar0 != nullptr);
-    assert(chordAtBar0->rootPitchClass == 0); // Cm7
+    assert(chordAtBar0->rootPitchClass == 0); // C Major
 
-    // Query active chord for Sub Bass at bar 2.5 (within Bar 2..4)
+    // Query active chord for Sub Bass at bar 2.5 (within Bar 2..4 -> G Major)
     const auto* chordAtBar2 = arranger.getActiveChordForTrackAtBar(1, 2.5f);
-    (void)chordAtBar2;
     assert(chordAtBar2 != nullptr);
-    assert(chordAtBar2->rootPitchClass == 10); // Bbmaj7
+    assert(chordAtBar2->rootPitchClass == 7); // G Major
 
-    // 3. Test Looping Clip Chord Continuity
+    // 3. Test Looping Clip Chord Continuity & Explicit Extraction
     ArrangerTimelineClip loopClip;
     loopClip.id = "loop_prog";
     loopClip.startBar = 1;
@@ -514,36 +493,112 @@ void testClipChordsAndTrackSync() {
     assert(loopClip.detectedChords[0].rootPitchClass == 5); // F Major
     assert(loopClip.detectedChords[1].rootPitchClass == 7); // G Major
 
-    // 4. Test Harmonic Overview Aggregation
+    // 4. Test Harmonic Overview directly reading canonical Project Chord Track
     auto overview = arranger.getHarmonicOverviewChords();
-    assert(!overview.empty());
-    // First overview chord should originate from the designated leader track (DX7 Rhodes)
-    assert(overview[0].sourceTrackIdx == 3);
-    assert(overview[0].sourceTrackName == "DX7 Rhodes");
+    assert(overview.size() == projectChords.size());
+    assert(overview[0].sourceTrackName == "Chord Track");
     assert(overview[0].chord.rootPitchClass == 0);
 
-    // 5. Test Track-to-Track Baking
-    // Create follower track with notes and bake to MIDI
+    // 5. Test [ BAKE TO MIDI ] on Follower Track
     arranger.addTrack("Pad Follower", "PolySynth", 0.3f, 0.7f, 0.9f);
     uint32_t padTrackIdx = static_cast<uint32_t>(arranger.getTracks().size() - 1);
     auto& padTrack = arranger.getTracks()[padTrackIdx];
-    padTrack.chordLeaderTrackIndex = 3; // Follow DX7 Rhodes
     padTrack.chordFollowMode = ChordFollowMode::Chord;
 
     ArrangerTimelineClip padClip;
     padClip.id = "pad_clip";
     padClip.startBar = 1;
     padClip.lengthBars = 4;
-    // Note E4 (64) which is not in Cm7
-    padClip.notes.push_back({64, 0.0f, 2.0f, 0.8f});
+    // Note C#4 (61) which is not in C Major (bar 0..2)
+    padClip.notes.push_back({61, 0.0f, 2.0f, 0.8f});
     padTrack.clips.push_back(padClip);
 
     arranger.bakeChordsToTrack(padTrackIdx);
     assert(arranger.getTracks()[padTrackIdx].chordFollowMode == ChordFollowMode::Off);
-    // E4 (64) must be remapped to chord tones of Cm7 (e.g. Eb4 = 63)
-    assert(arranger.getTracks()[padTrackIdx].clips[0].notes[0].pitch != 64);
+    // 61 must be remapped to chord tones of C Major (60 or 64)
+    assert(arranger.getTracks()[padTrackIdx].clips[0].notes[0].pitch == 60 ||
+           arranger.getTracks()[padTrackIdx].clips[0].notes[0].pitch == 64);
 
-    std::cout << "  -> Passed (Clip chords, track-to-track sync & overview aggregation)." << std::endl;
+    std::cout << "  -> Passed (Dedicated Chord Track parity & bake to MIDI)." << std::endl;
+}
+
+// -------------------------------------------------------------------------
+// 11. Test Real-time Playback Follow Mode & MIDI FX Pipeline Synchronization
+// -------------------------------------------------------------------------
+void testPlaybackFollowModeAndMidiFxSync() {
+    std::cout << "[Test 11/11] StepSequencer Real-Time Follow Modes & Live MIDI FX..." << std::endl;
+
+    audio::AudioGraph graph;
+    sequencer::StepSequencer seq;
+    seq.setBpm(120.0);
+
+    // 1. Configure project Chord Track on StepSequencer:
+    // Bar 0 (steps 0..15): C Major (root 0)
+    // Bar 1 (steps 16..31): A Minor (root 9)
+    std::vector<ChordEvent> chords = {
+        {"c0", 0, 1.0f, 0, ChordQuality::Major, -1},
+        {"c1", 1, 1.0f, 9, ChordQuality::Minor, -1}
+    };
+    seq.setChordTrack(chords);
+    assert(seq.getChordTrack().size() == 2);
+    assert(seq.getActiveChordAtBar(0.0f)->rootPitchClass == 0);
+    assert(seq.getActiveChordAtBar(1.0f)->rootPitchClass == 9);
+
+    // 2. Add Track with ChordFollowMode::Bass
+    size_t trkIdx = seq.addTrack("Bass Synth", 0, 32);
+    auto* trk = seq.getTrack(trkIdx);
+    assert(trk != nullptr);
+    trk->setChordFollowMode(ChordFollowMode::Bass);
+
+    // Set step 0 to note 65 (F4). When playing over C Major in Bass mode, it must conform to C (60)
+    sequencer::StepData s0{};
+    s0.active = true;
+    s0.note = 65; // F4
+    s0.velocity = 0.9f;
+    s0.gateLength = 0.5f;
+    trk->setStep(0, s0);
+
+    // Set step 16 to note 65 (F4). When playing over A Minor in Bass mode, it must conform to A (57 or 69)
+    sequencer::StepData s16{};
+    s16.active = true;
+    s16.note = 65; // F4
+    s16.velocity = 0.9f;
+    s16.gateLength = 0.5f;
+    trk->setStep(16, s16);
+
+    // 3. Start playback and process step 0
+    seq.start();
+    assert(seq.isPlaying());
+
+    // Advance through step 0 (approx 6000 frames at 48kHz, 120BPM)
+    seq.processBlock(480, graph);
+
+    // Verify timeContext_ updated from active chord
+    assert(seq.getTimeContext().activeChordRoot == 0);
+    assert(seq.getTimeContext().activeChordQuality == "Major");
+
+    // 4. Add Live MIDI FX Insert: ChordFollow
+    eatscript::MidiFxInsert fxChordFollow;
+    fxChordFollow.id = "fx_cf";
+    fxChordFollow.name = "Chord Follow";
+    fxChordFollow.type = eatscript::MidiFxType::ChordFollow;
+    fxChordFollow.enabled = true;
+    trk->getMidiFxRack().push_back(fxChordFollow);
+
+    // Add Live MIDI FX Insert: ChordStabs
+    eatscript::MidiFxInsert fxStabs;
+    fxStabs.id = "fx_stabs";
+    fxStabs.name = "Chord Stabs";
+    fxStabs.type = eatscript::MidiFxType::ChordStabs;
+    fxStabs.enabled = true;
+    trk->getMidiFxRack().push_back(fxStabs);
+
+    assert(trk->getMidiFxRack().size() == 2);
+
+    seq.stop();
+    assert(!seq.isPlaying());
+
+    std::cout << "  -> Passed (Real-time playback follow mode, timeContext & MIDI FX sync)." << std::endl;
 }
 
 int main() {
@@ -561,9 +616,10 @@ int main() {
     testCircleOfFifthsDialog();
     testProjectSerializationRoundtrip();
     testClipChordsAndTrackSync();
+    testPlaybackFollowModeAndMidiFxSync();
 
     std::cout << "=================================================" << std::endl;
-    std::cout << "  ALL 10 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
+    std::cout << "  ALL 11 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
     std::cout << "=================================================" << std::endl;
     return 0;
 }

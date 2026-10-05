@@ -60,8 +60,6 @@ struct ArrangerTimelineTrack {
     bool solo{false};
     bool freeze{false};
     theory::ChordFollowMode chordFollowMode{theory::ChordFollowMode::Off};
-    int chordLeaderTrackIndex{-1}; // -1 = Independent / Self, >= 0 = Track to follow
-    bool isChordLeader{false};     // Flag indicating track serves as a harmonic chord reference
     std::vector<ArrangerTimelineClip> clips;
     std::vector<ArrangerMidiFxCard> midiFx;
     std::vector<ArrangerAudioFxCard> audioFx;

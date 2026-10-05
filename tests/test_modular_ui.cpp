@@ -1005,7 +1005,7 @@ void testGuiWindowIntegration() {
     assert(window.getModularEditView()->getActiveTrackIndex() == 3);
     assert(window.getModularEditView()->getActiveClipName() == "Chords A");
     assert(window.getModularEditView()->getNotes().size() == 16);
-    assert(window.getModularEditView()->getDetectedChords().size() == 4);
+    assert(window.getModularArrangerView()->getTracks()[3].clips[0].detectedChords.size() == 4);
 
     // Verify Sequencer track received polyphonic chord extra notes
     auto* seqTrk3 = engine.getSequencer().getTrack(3);

@@ -150,11 +150,6 @@ public:
     // Auto-center viewport vertically on existing notes (Eatsbeats parity)
     void autoCenterOnNotesOrDefault() noexcept;
 
-    // Harmonic Analysis & Circle of Fifths Integration
-    void updateDetectedChords();
-    [[nodiscard]] const std::vector<theory::ChordEvent>& getDetectedChords() const noexcept { return detectedChords_; }
-    CircleOfFifthsDialog& getCircleOfFifthsDialog() noexcept { return circleOfFifthsDialog_; }
-
 private:
     // Render passes
     void renderSubNavHeader(const ViewContext& ctx);
@@ -280,12 +275,6 @@ private:
     // Note collections
     std::vector<PianoRollNote> notes_;
     std::vector<PianoRollNote> ghostNotes_;
-
-    // Harmonic Analysis & Circle of Fifths
-    std::vector<theory::ChordEvent> detectedChords_;
-    CircleOfFifthsDialog circleOfFifthsDialog_;
-    Rect2D chordStripBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D chordHeaderBadgeBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     bool isSyncing_{false};
     float lastMouseX_{0.0f};

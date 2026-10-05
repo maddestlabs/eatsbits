@@ -116,13 +116,11 @@ ArrangerView::ArrangerView() {
         {56, 16.0f, 7.5f, 0.70f}, {60, 16.0f, 7.5f, 0.65f}, {63, 16.0f, 7.5f, 0.75f}, {67, 16.0f, 7.5f, 0.80f},
         {58, 24.0f, 7.5f, 0.80f}, {62, 24.0f, 7.5f, 0.75f}, {65, 24.0f, 7.5f, 0.85f}, {68, 24.0f, 7.5f, 0.90f}
     };
-    t4.isChordLeader = true;
     t4.clips.push_back(c5);
     t4.midiFx.push_back({"Arpeggiator Pro", "ARP_PRO", 0, 0, true});
     t4.audioFx.push_back({"Chorus / Flanger", "CHORUS_FLANGER", 0.50f, 0.75f, true});
 
-    // Sub Bass syncs to DX7 Rhodes chords in Bass mode
-    t2.chordLeaderTrackIndex = 3; // DX7 Rhodes
+    // Sub Bass follows project Chord Track in Bass mode
     t2.chordFollowMode = theory::ChordFollowMode::Bass;
 
     // 5. Concert Grand Piano (Waveguide Physical Modeling)
@@ -841,158 +839,23 @@ void ArrangerView::refreshAllClipChords() {
     }
 }
 
-const theory::ChordEvent* ArrangerView::getActiveChordForTrackAtBar(uint32_t trackIdx, float bar) const noexcept {
-    // 1. If this track explicitly specifies a chord leader track
-    int leaderIdx = (trackIdx < tracks_.size()) ? tracks_[trackIdx].chordLeaderTrackIndex : -1;
-    if (leaderIdx >= 0 && leaderIdx < static_cast<int>(tracks_.size())) {
-        const auto& leaderTrack = tracks_[leaderIdx];
-        for (const auto& clip : leaderTrack.clips) {
-            float clipStart = static_cast<float>(clip.startBar - 1);
-            float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
-            if (bar >= clipStart && bar < clipEnd) {
-                if (!clip.detectedChords.empty()) {
-                    float localBar = bar - clipStart;
-                    if (clip.isLooped && clip.loopLengthBars > 0) {
-                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
-                    }
-                    for (const auto& c : clip.detectedChords) {
-                        if (localBar >= static_cast<float>(c.startBar) &&
-                            localBar < static_cast<float>(c.startBar) + c.barLength) {
-                            return &c;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. If track itself has a clip at this bar with detected chords
-    if (trackIdx < tracks_.size()) {
-        const auto& track = tracks_[trackIdx];
-        for (const auto& clip : track.clips) {
-            float clipStart = static_cast<float>(clip.startBar - 1);
-            float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
-            if (bar >= clipStart && bar < clipEnd) {
-                if (!clip.detectedChords.empty()) {
-                    float localBar = bar - clipStart;
-                    if (clip.isLooped && clip.loopLengthBars > 0) {
-                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
-                    }
-                    for (const auto& c : clip.detectedChords) {
-                        if (localBar >= static_cast<float>(c.startBar) &&
-                            localBar < static_cast<float>(c.startBar) + c.barLength) {
-                            return &c;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. Check any designated leader track (track.isChordLeader == true)
-    for (size_t t = 0; t < tracks_.size(); ++t) {
-        if (tracks_[t].isChordLeader && t != trackIdx) {
-            const auto* c = getActiveChordForTrackAtBar(static_cast<uint32_t>(t), bar);
-            if (c) return c;
-        }
-    }
-
-    // 4. Fall back to any track with chords at bar
-    for (size_t t = 0; t < tracks_.size(); ++t) {
-        if (t != trackIdx) {
-            for (const auto& clip : tracks_[t].clips) {
-                float clipStart = static_cast<float>(clip.startBar - 1);
-                float clipEnd = clipStart + static_cast<float>(clip.lengthBars);
-                if (bar >= clipStart && bar < clipEnd && !clip.detectedChords.empty()) {
-                    float localBar = bar - clipStart;
-                    if (clip.isLooped && clip.loopLengthBars > 0) {
-                        localBar = std::fmod(localBar, static_cast<float>(clip.loopLengthBars));
-                    }
-                    for (const auto& c : clip.detectedChords) {
-                        if (localBar >= static_cast<float>(c.startBar) &&
-                            localBar < static_cast<float>(c.startBar) + c.barLength) {
-                            return &c;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 5. Fall back to legacy global chord track if present
+const theory::ChordEvent* ArrangerView::getActiveChordForTrackAtBar([[maybe_unused]] uint32_t trackIdx, float bar) const noexcept {
     return getActiveChordAtBar(bar);
 }
 
 std::vector<ArrangerView::OverviewChordInfo> ArrangerView::getHarmonicOverviewChords() const {
     std::vector<OverviewChordInfo> result;
-
-    // 1. First preference: Check designated leader track(s)
-    int leaderIdx = -1;
-    for (size_t t = 0; t < tracks_.size(); ++t) {
-        if (tracks_[t].isChordLeader) {
-            leaderIdx = static_cast<int>(t);
-            break;
-        }
+    result.reserve(chordTrack_.size());
+    for (const auto& ch : chordTrack_) {
+        OverviewChordInfo info;
+        info.chord = ch;
+        info.sourceTrackIdx = -1;
+        info.sourceTrackName = "Chord Track";
+        info.sourceClipIdx = -1;
+        info.startBar = static_cast<float>(ch.startBar);
+        info.barLength = ch.barLength;
+        result.push_back(info);
     }
-    // If no explicit leader, find first track with detected chords in clips
-    if (leaderIdx < 0) {
-        for (size_t t = 0; t < tracks_.size(); ++t) {
-            for (const auto& cl : tracks_[t].clips) {
-                if (!cl.detectedChords.empty()) {
-                    leaderIdx = static_cast<int>(t);
-                    break;
-                }
-            }
-            if (leaderIdx >= 0) break;
-        }
-    }
-
-    if (leaderIdx >= 0 && leaderIdx < static_cast<int>(tracks_.size())) {
-        const auto& trk = tracks_[leaderIdx];
-        for (size_t ci = 0; ci < trk.clips.size(); ++ci) {
-            const auto& clip = trk.clips[ci];
-            if (clip.detectedChords.empty()) continue;
-
-            float clipStart = static_cast<float>(clip.startBar - 1);
-            float effLength = static_cast<float>(clip.isLooped ? clip.loopLengthBars : clip.lengthBars);
-            int cycles = clip.isLooped ? static_cast<int>(std::ceil(static_cast<float>(clip.lengthBars) / effLength)) : 1;
-
-            for (int cyc = 0; cyc < cycles; ++cyc) {
-                float cycleOffset = clipStart + static_cast<float>(cyc) * effLength;
-                for (const auto& ch : clip.detectedChords) {
-                    float chStart = cycleOffset + static_cast<float>(ch.startBar);
-                    if (chStart >= clipStart + static_cast<float>(clip.lengthBars)) continue;
-                    float actualLength = std::min(ch.barLength, (clipStart + static_cast<float>(clip.lengthBars)) - chStart);
-
-                    OverviewChordInfo info;
-                    info.chord = ch;
-                    info.chord.startBar = static_cast<uint32_t>(chStart);
-                    info.chord.barLength = actualLength;
-                    info.sourceTrackIdx = leaderIdx;
-                    info.sourceTrackName = trk.name;
-                    info.sourceClipIdx = static_cast<int>(ci);
-                    info.startBar = chStart;
-                    info.barLength = actualLength;
-                    result.push_back(info);
-                }
-            }
-        }
-    }
-
-    // 2. If result is still empty, fall back to global chordTrack_ if populated
-    if (result.empty() && !chordTrack_.empty()) {
-        for (const auto& ch : chordTrack_) {
-            OverviewChordInfo info;
-            info.chord = ch;
-            info.sourceTrackIdx = -1;
-            info.sourceTrackName = "Chord Track";
-            info.sourceClipIdx = -1;
-            info.startBar = static_cast<float>(ch.startBar);
-            info.barLength = ch.barLength;
-            result.push_back(info);
-        }
-    }
-
     return result;
 }
 
@@ -1005,7 +868,7 @@ void ArrangerView::bakeChordsToTrack(uint32_t trackIdx) {
         float clipStartBar = static_cast<float>(clip.startBar - 1);
         for (auto& note : clip.notes) {
             float noteBar = clipStartBar + (note.startBeat / 4.0f);
-            const auto* chord = getActiveChordForTrackAtBar(trackIdx, noteBar);
+            const auto* chord = getActiveChordAtBar(noteBar);
             if (chord) {
                 note.pitch = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(
                     note.pitch, *chord, track.chordFollowMode));
@@ -1014,6 +877,9 @@ void ArrangerView::bakeChordsToTrack(uint32_t trackIdx) {
         updateClipDetectedChords(clip);
     }
     track.chordFollowMode = theory::ChordFollowMode::Off;
+    if (onTrackChordFollowChanged) {
+        onTrackChordFollowChanged(trackIdx, theory::ChordFollowMode::Off);
+    }
 }
 
 void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
@@ -1168,28 +1034,25 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
                  theme.gridLineMinor.r, theme.gridLineMinor.g, theme.gridLineMinor.b, 0.40f, 1.0f);
     }
 
-    auto overview = getHarmonicOverviewChords();
-
     // 3. Render Chord Blocks
-    if (overview.empty()) {
-        drawText(r, "♫ Harmonic Overview (Read-Only) • Draw notes in clips to auto-detect chords • Double-click to jump to clip",
+    if (chordTrack_.empty()) {
+        drawText(r, "♫ CHORD TRACK • Click + or double-click to add chords / open Circle of Fifths",
                  chordLaneBounds_.x + 20.0f, chordLaneBounds_.y + 9.0f, 10.0f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
         return;
     }
 
     // Right-hand header hint
-    float hintX = chordLaneBounds_.x + chordLaneBounds_.w - 230.0f;
+    float hintX = chordLaneBounds_.x + chordLaneBounds_.w - 240.0f;
     if (hintX > chordLaneBounds_.x + 200.0f) {
-        drawText(r, "READ-ONLY OVERVIEW • DOUBLE-CLICK TO EDIT", hintX, chordLaneBounds_.y + 9.0f, 8.0f,
+        drawText(r, "[ + ] CIRCLE OF FIFTHS • CLICK TO AUDITION", hintX, chordLaneBounds_.y + 9.0f, 8.0f,
                  0.50f, 0.55f, 0.65f, 0.70f);
     }
 
-    for (size_t i = 0; i < overview.size(); ++i) {
-        const auto& info = overview[i];
-        const auto& chord = info.chord;
-        float cx = chordLaneBounds_.x + info.startBar * barWidth_ - scrollX_;
-        float cw = info.barLength * barWidth_;
+    for (size_t i = 0; i < chordTrack_.size(); ++i) {
+        const auto& chord = chordTrack_[i];
+        float cx = chordLaneBounds_.x + static_cast<float>(chord.startBar) * barWidth_ - scrollX_;
+        float cw = chord.barLength * barWidth_;
         float cy = chordLaneBounds_.y + 2.0f;
         float ch = chordLaneBounds_.h - 4.0f;
 
@@ -1254,16 +1117,6 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
         float textX = (cw >= 40.0f) ? (badgeX + badgeW + 6.0f) : (cx + 5.0f);
         if (textX + 16.0f <= cx + cw) {
             drawText(r, chordName, textX, cy + 6.5f, 11.0f, 1.0f, 1.0f, 1.0f, 1.0f);
-        }
-
-        // Source track label if space permits
-        if (cw >= 90.0f && !info.sourceTrackName.empty()) {
-            float srcX = textX + static_cast<float>(chordName.length()) * 7.0f + 6.0f;
-            if (srcX + 30.0f < cx + cw) {
-                std::string srcTag = "• " + info.sourceTrackName;
-                drawText(r, srcTag, srcX, cy + 8.0f, 8.0f,
-                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.70f);
-            }
         }
     }
 }
@@ -1446,17 +1299,30 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
     drawRect(r, chordHeaderBounds_.x, chordHeaderBounds_.y, 4.0f, chordHeaderBounds_.h,
              0.18f, 0.85f, 0.95f, 1.0f);
 
-    // "HARMONY" Title with "[OVERVIEW]"
-    drawText(r, "HARMONY", chordHeaderBounds_.x + 10.0f, chordHeaderBounds_.y + 8.5f, 10.0f,
+    // "CHORD TRACK" Title
+    drawText(r, "CHORD TRACK", chordHeaderBounds_.x + 10.0f, chordHeaderBounds_.y + 8.5f, 10.0f,
              0.18f, 0.85f, 0.95f, 1.0f);
-    drawText(r, "[OVERVIEW]", chordHeaderBounds_.x + 62.0f, chordHeaderBounds_.y + 9.5f, 7.5f,
-             0.50f, 0.60f, 0.70f, 0.85f);
 
-    // Song Key text indicator (static read-only, no interactive buttons)
+    // Song Key badge
     std::string keyText = std::string(theory::ChordTheory::pitchClassNames[songKeyRoot_]) +
                           (isSongKeyMinor_ ? "m" : " maj");
-    drawText(r, keyText, chordHeaderBounds_.x + chordHeaderBounds_.w - 46.0f, chordHeaderBounds_.y + 9.0f, 9.0f,
-             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+    float keyBadgeW = static_cast<float>(keyText.length()) * 6.5f + 10.0f;
+    float keyBadgeX = chordHeaderBounds_.x + chordHeaderBounds_.w - keyBadgeW - 28.0f;
+    drawRoundedRect(r, keyBadgeX, chordHeaderBounds_.y + 4.0f, keyBadgeW, chordHeaderBounds_.h - 8.0f, 3.0f,
+                    0.14f, 0.16f, 0.22f, 0.9f);
+    drawRoundedRectOutline(r, keyBadgeX, chordHeaderBounds_.y + 4.0f, keyBadgeW, chordHeaderBounds_.h - 8.0f, 3.0f,
+                           0.28f, 0.35f, 0.48f, 0.8f, 1.0f);
+    drawText(r, keyText, keyBadgeX + 5.0f, chordHeaderBounds_.y + 8.0f, 8.5f,
+             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+
+    // [ + ] button to open Circle of Fifths
+    float addBtnX = chordHeaderBounds_.x + chordHeaderBounds_.w - 22.0f;
+    float addBtnY = chordHeaderBounds_.y + 4.0f;
+    float addBtnW = 16.0f;
+    float addBtnH = chordHeaderBounds_.h - 8.0f;
+    drawRoundedRect(r, addBtnX, addBtnY, addBtnW, addBtnH, 3.0f, 0.18f * 0.3f, 0.85f * 0.3f, 0.95f * 0.3f, 0.9f);
+    drawRoundedRectOutline(r, addBtnX, addBtnY, addBtnW, addBtnH, 3.0f, 0.18f, 0.85f, 0.95f, 0.8f, 1.0f);
+    drawText(r, "+", addBtnX + 4.5f, addBtnY + 4.0f, 9.5f, 0.18f, 0.85f, 0.95f, 1.0f);
 
     // Header strip container
     drawRect(r, tracksListBounds_.x, tracksListBounds_.y, tracksListBounds_.w, tracksListBounds_.h,
@@ -1985,50 +1851,41 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         }
     }
 
-    // 3b. Harmonic Overview Lane Header Card Click (Read-only status card)
+    // 3b. Chord Track Lane Header Card Click (Opens Circle of Fifths dialog)
     if (chordHeaderBounds_.contains(ev.x, ev.y)) {
-        return false;
+        if (ev.action == PointerAction::Down) {
+            circleOfFifthsDialog_.open(0, songKeyRoot_, isSongKeyMinor_);
+            return true;
+        }
     }
 
-    // 3c. Harmonic Overview Lane Interaction (Audition on click, Jump to Leader Clip on double-click)
+    // 3c. Chord Track Lane Interaction (Audition on click, Edit in Circle of Fifths on double-click)
     if (chordLaneBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {
             float localX = ev.x - chordLaneBounds_.x + scrollX_;
-            auto overview = getHarmonicOverviewChords();
+            int clickedBar = static_cast<int>(localX / barWidth_);
 
-            for (size_t i = 0; i < overview.size(); ++i) {
-                const auto& info = overview[i];
-                float cx = info.startBar * barWidth_;
-                float cw = info.barLength * barWidth_;
+            for (size_t i = 0; i < chordTrack_.size(); ++i) {
+                const auto& chord = chordTrack_[i];
+                float cx = static_cast<float>(chord.startBar) * barWidth_;
+                float cw = chord.barLength * barWidth_;
 
                 if (localX >= cx && localX <= cx + cw) {
                     selectedChordIndex_ = static_cast<int>(i);
 
                     // Audition chord
                     if (onAuditionChord) {
-                        onAuditionChord(info.chord);
+                        onAuditionChord(chord);
                     }
 
-                    // Check double click -> Jump directly to the leader chord track and clip!
+                    // Check double click -> Open Circle of Fifths for this chord
                     auto now = std::chrono::steady_clock::now();
                     auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastOverviewClickTime_).count();
                     if (lastClickedOverviewChordIdx_ == static_cast<int>(i) && elapsedMs < 400) {
                         lastOverviewClickTime_ = std::chrono::steady_clock::time_point{};
                         lastClickedOverviewChordIdx_ = -1;
-
-                        if (info.sourceTrackIdx >= 0 && info.sourceTrackIdx < static_cast<int>(tracks_.size())) {
-                            setActiveTrack(static_cast<uint32_t>(info.sourceTrackIdx));
-                            if (info.sourceClipIdx >= 0) {
-                                setSelectedClip(info.sourceClipIdx);
-                            }
-                            if (ctx.onJumpToClipEdit && info.sourceClipIdx >= 0) {
-                                ctx.onJumpToClipEdit(static_cast<uint32_t>(info.sourceTrackIdx), info.sourceClipIdx);
-                            }
-                            if (ctx.onShowNotification) {
-                                ctx.onShowNotification("Navigating to '" + info.sourceTrackName + "' to edit harmony");
-                            }
-                            return true;
-                        }
+                        circleOfFifthsDialog_.openForChord(chord, songKeyRoot_, isSongKeyMinor_);
+                        return true;
                     }
                     lastOverviewClickTime_ = now;
                     lastClickedOverviewChordIdx_ = static_cast<int>(i);
@@ -2036,8 +1893,18 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 }
             }
 
-            // Clicked empty overview lane space -> deselect, read-only
+            // Clicked empty lane space
             selectedChordIndex_ = -1;
+            auto now = std::chrono::steady_clock::now();
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastOverviewClickTime_).count();
+            if (lastClickedOverviewChordIdx_ == -2 && elapsedMs < 400) {
+                lastOverviewClickTime_ = std::chrono::steady_clock::time_point{};
+                lastClickedOverviewChordIdx_ = -1;
+                circleOfFifthsDialog_.open(static_cast<uint32_t>(std::max(0, clickedBar)), songKeyRoot_, isSongKeyMinor_);
+                return true;
+            }
+            lastOverviewClickTime_ = now;
+            lastClickedOverviewChordIdx_ = -2;
             return true;
         }
     }

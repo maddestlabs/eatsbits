@@ -36,18 +36,6 @@ EditView::EditView() {
         {"g5", 65,  8.0f, 8.0f, 0.60f, false, false, false, "normal", "", 1, "00"}
     };
 
-    // Circle of Fifths Integration
-    circleOfFifthsDialog_.onAuditionChord = [this](const theory::ChordEvent& chord) {
-        auto pitches = theory::ChordTheory::getAuditionMidiNotes(chord);
-        for (int p : pitches) {
-            auditionPitch(p, 0.85f, ViewContext{});
-        }
-    };
-    circleOfFifthsDialog_.onChordApplied = [this](const theory::ChordEvent& chord) {
-        (void)chord;
-        updateDetectedChords();
-    };
-
     scriptEditor_.onCompileTriggered = [this]() {
         parseNotesFromEatscript();
     };
@@ -56,7 +44,6 @@ EditView::EditView() {
     };
 
     formatEatscriptFromNotes();
-    updateDetectedChords();
 }
 
 void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
@@ -349,7 +336,6 @@ void EditView::syncFromSequencer(const sequencer::StepSequencer& seq) {
     }
 
     formatEatscriptFromNotes();
-    updateDetectedChords();
     autoCenterOnNotesOrDefault();
     isSyncing_ = false;
 }
@@ -403,7 +389,6 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
     }
 
     formatEatscriptFromNotes();
-    updateDetectedChords();
     scrollX_ = 0.0f;
     autoCenterOnNotesOrDefault();
     isSyncing_ = false;
@@ -481,20 +466,6 @@ void EditView::syncToSequencer(sequencer::StepSequencer& seq) {
     }
 }
 
-void EditView::updateDetectedChords() {
-    std::vector<theory::TheoryNote> tnotes;
-    tnotes.reserve(notes_.size());
-    for (const auto& n : notes_) {
-        theory::TheoryNote tn;
-        tn.pitch = n.pitch;
-        tn.startStep = n.startStep;
-        tn.durationSteps = n.durationSteps;
-        tn.velocity = n.velocity;
-        tnotes.push_back(tn);
-    }
-    detectedChords_ = theory::ChordTheory::extractChordsFromNotes(tnotes, 0, 4, 16);
-}
-
 void EditView::formatEatscriptFromNotes() {
     std::ostringstream ss;
     ss << "-- Clip: \"" << activeTrackName_ << "\" | Events: " << notes_.size() << "\n";
@@ -519,7 +490,6 @@ void EditView::formatEatscriptFromNotes() {
 
     scriptBuffer_ = ss.str();
     scriptEditor_.setText(scriptBuffer_);
-    updateDetectedChords();
     if (!isSyncing_ && onNotesChanged) {
         onNotesChanged(activeTrackIndex_, activeClipIndex_);
     }
@@ -599,7 +569,6 @@ void EditView::parseNotesFromEatscript() {
 
     if (!newNotes.empty()) {
         notes_ = std::move(newNotes);
-        updateDetectedChords();
         if (!isSyncing_ && onNotesChanged) {
             onNotesChanged(activeTrackIndex_, activeClipIndex_);
         }
@@ -651,16 +620,10 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     float gutterW = 80.0f;
     float velocityH = 72.0f;
-    float chordH = 22.0f;
 
-    chordHeaderBadgeBounds_ = Rect2D(contentBounds_.x, contentBounds_.y, gutterW, chordH);
-    chordStripBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y, contentBounds_.w - gutterW, chordH);
-
-    pianoGutterBounds_ = Rect2D(contentBounds_.x, contentBounds_.y + chordH, gutterW, contentBounds_.h - velocityH - chordH);
-    gridBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y + chordH, contentBounds_.w - gutterW, contentBounds_.h - velocityH - chordH);
+    pianoGutterBounds_ = Rect2D(contentBounds_.x, contentBounds_.y, gutterW, contentBounds_.h - velocityH);
+    gridBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y, contentBounds_.w - gutterW, contentBounds_.h - velocityH);
     velocityLaneBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y + contentBounds_.h - velocityH, contentBounds_.w - gutterW, velocityH);
-
-    circleOfFifthsDialog_.layout(bounds_.w, bounds_.h);
 
     float maxScroll = std::max(0.0f, static_cast<float>(maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
     scrollY_ = std::clamp(scrollY_, 0.0f, maxScroll);
@@ -732,10 +695,6 @@ void EditView::render(const ViewContext& ctx) {
 
     if (hasSelectedNotes()) {
         renderNoteInspectorSidebar(ctx);
-    }
-
-    if (circleOfFifthsDialog_.isOpen()) {
-        circleOfFifthsDialog_.render(*ctx.renderer, *ctx.theme);
     }
 }
 
@@ -984,72 +943,6 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
         }
     }
 
-    // 9. Harmonic Chord Strip & Circle of Fifths Header Badge
-    // 9a. Gutter Badge: "CHORDS" + "[O] WHEEL"
-    drawRect(r, chordHeaderBadgeBounds_.x, chordHeaderBadgeBounds_.y, chordHeaderBadgeBounds_.w, chordHeaderBadgeBounds_.h,
-             theme.panelHeader);
-    drawLine(r, chordHeaderBadgeBounds_.x, chordHeaderBadgeBounds_.y + chordHeaderBadgeBounds_.h,
-             chordHeaderBadgeBounds_.x + chordHeaderBadgeBounds_.w, chordHeaderBadgeBounds_.y + chordHeaderBadgeBounds_.h,
-             theme.borderSubtle, 0.8f, 1.0f);
-    drawLine(r, chordHeaderBadgeBounds_.x + chordHeaderBadgeBounds_.w, chordHeaderBadgeBounds_.y,
-             chordHeaderBadgeBounds_.x + chordHeaderBadgeBounds_.w, chordHeaderBadgeBounds_.y + chordHeaderBadgeBounds_.h,
-             theme.borderSubtle, 0.8f, 1.0f);
-
-    drawText(r, "CHORDS", chordHeaderBadgeBounds_.x + 6.0f, chordHeaderBadgeBounds_.y + 6.0f, 9.0f,
-             0.18f, 0.85f, 0.95f, 1.0f);
-    drawRoundedRect(r, chordHeaderBadgeBounds_.x + chordHeaderBadgeBounds_.w - 24.0f, chordHeaderBadgeBounds_.y + 3.0f, 18.0f, 16.0f, 3.0f,
-                    0.18f * 0.3f, 0.85f * 0.3f, 0.95f * 0.3f, 0.9f);
-    drawText(r, "O", chordHeaderBadgeBounds_.x + chordHeaderBadgeBounds_.w - 18.5f, chordHeaderBadgeBounds_.y + 5.0f, 8.5f,
-             0.18f, 0.85f, 0.95f, 1.0f);
-
-    // 9b. Chord Strip across steps
-    drawRect(r, chordStripBounds_.x, chordStripBounds_.y, chordStripBounds_.w, chordStripBounds_.h,
-             0.07f, 0.08f, 0.10f, 0.95f);
-    drawLine(r, chordStripBounds_.x, chordStripBounds_.y + chordStripBounds_.h,
-             chordStripBounds_.x + chordStripBounds_.w, chordStripBounds_.y + chordStripBounds_.h,
-             theme.borderSubtle, 0.8f, 1.0f);
-
-    if (detectedChords_.empty()) {
-        drawText(r, "+ Draw notes to auto-detect chords, or click [O] for Circle of Fifths",
-                 chordStripBounds_.x + 12.0f, chordStripBounds_.y + 6.0f, 9.0f,
-                 theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
-    } else {
-        for (const auto& ch : detectedChords_) {
-            float sx = chordStripBounds_.x + static_cast<float>(ch.startBar * 16) * stepWidth_ - scrollX_;
-            float sw = static_cast<float>(ch.barLength * 16) * stepWidth_ - 2.0f;
-            if (sx + sw < chordStripBounds_.x || sx > chordStripBounds_.x + chordStripBounds_.w) continue;
-
-            float bgR = 0.12f, bgG = 0.32f, bgB = 0.40f;
-            float edgeR = 0.18f, edgeG = 0.85f, edgeB = 0.95f;
-            if (ch.quality == theory::ChordQuality::Minor || ch.quality == theory::ChordQuality::Minor7 || ch.quality == theory::ChordQuality::Min9) {
-                bgR = 0.35f; bgG = 0.14f; bgB = 0.38f;
-                edgeR = 0.90f; edgeG = 0.35f; edgeB = 0.85f;
-            } else if (ch.quality == theory::ChordQuality::Dominant7 || ch.quality == theory::ChordQuality::Dom9) {
-                bgR = 0.38f; bgG = 0.25f; bgB = 0.08f;
-                edgeR = 0.98f; edgeG = 0.70f; edgeB = 0.20f;
-            } else if (ch.quality == theory::ChordQuality::Diminished || ch.quality == theory::ChordQuality::HalfDiminished7) {
-                bgR = 0.38f; bgG = 0.10f; bgB = 0.14f;
-                edgeR = 0.95f; edgeG = 0.25f; edgeB = 0.35f;
-            } else if (ch.quality == theory::ChordQuality::Sus2 || ch.quality == theory::ChordQuality::Sus4) {
-                bgR = 0.10f; bgG = 0.35f; bgB = 0.25f;
-                edgeR = 0.25f; edgeG = 0.90f; edgeB = 0.65f;
-            }
-
-            drawRoundedRect(r, sx + 1.0f, chordStripBounds_.y + 2.0f, sw, chordStripBounds_.h - 4.0f, 3.0f,
-                            bgR, bgG, bgB, 0.92f);
-            drawRoundedRectOutline(r, sx + 1.0f, chordStripBounds_.y + 2.0f, sw, chordStripBounds_.h - 4.0f, 3.0f,
-                                   edgeR, edgeG, edgeB, 0.85f, 1.0f);
-
-            std::string cname = ch.getDisplayName();
-            std::string roman = theory::ChordTheory::getRomanNumeral(0, false, ch.rootPitchClass, ch.quality);
-            if (sw > 48.0f) {
-                drawText(r, roman, sx + 6.0f, chordStripBounds_.y + 6.0f, 8.5f, 1.0f, 0.85f, 0.3f, 1.0f);
-                drawText(r, cname, sx + 22.0f, chordStripBounds_.y + 6.0f, 9.5f, 1.0f, 1.0f, 1.0f, 1.0f);
-            } else {
-                drawText(r, cname, sx + 4.0f, chordStripBounds_.y + 6.0f, 9.0f, 1.0f, 1.0f, 1.0f, 1.0f);
-            }
-        }
-    }
 }
 
 void EditView::renderTracker(const ViewContext& ctx) {
@@ -1559,32 +1452,7 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     lastMouseX_ = ev.x;
     lastMouseY_ = ev.y;
 
-    if (circleOfFifthsDialog_.isOpen()) {
-        return circleOfFifthsDialog_.handlePointer(ev);
-    }
-
     if (ev.action == PointerAction::Down) {
-        // Chord Header Badge & Chord Strip click
-        if (chordHeaderBadgeBounds_.contains(ev.x, ev.y)) {
-            circleOfFifthsDialog_.open(0, 0, false);
-            return true;
-        }
-
-        if (chordStripBounds_.contains(ev.x, ev.y)) {
-            float localX = ev.x - chordStripBounds_.x + scrollX_;
-            for (const auto& ch : detectedChords_) {
-                float sx = static_cast<float>(ch.startBar * 16) * stepWidth_;
-                float sw = static_cast<float>(ch.barLength * 16) * stepWidth_;
-                if (localX >= sx && localX <= sx + sw) {
-                    circleOfFifthsDialog_.openForChord(ch, 0, false);
-                    return true;
-                }
-            }
-            int clickedBar = static_cast<int>(localX / (stepWidth_ * 16.0f));
-            circleOfFifthsDialog_.open(static_cast<uint32_t>(std::max(0, clickedBar)), 0, false);
-            return true;
-        }
-
         // 1. Sub-View Switcher buttons
         if (btnPianoRoll_.contains(ev.x, ev.y)) { setSubView(EditSubViewMode::PianoRoll); return true; }
         if (btnTracker_.contains(ev.x, ev.y)) { setSubView(EditSubViewMode::Tracker); return true; }
@@ -2141,10 +2009,6 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 }
 
 bool EditView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
-    if (circleOfFifthsDialog_.isOpen()) {
-        return circleOfFifthsDialog_.handleKey(key, scancode, action, mods);
-    }
-
     if (subView_ == EditSubViewMode::Script) {
         if (scriptEditor_.handleKey(key, scancode, action, mods, ctx)) {
             return true;

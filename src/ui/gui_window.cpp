@@ -3157,7 +3157,10 @@ void GuiWindow::syncArrangerToSequencer() {
             }
             seqTrack->setStep(s, sd);
         }
+
+        seqTrack->setChordFollowMode(arrTrack.chordFollowMode);
     }
+    seq.setChordTrack(modularArrangerView_->getChordTrack());
 }
 
 void GuiWindow::syncArrangerFromSequencer() {
@@ -3208,6 +3211,7 @@ void GuiWindow::syncArrangerFromSequencer() {
         tArr.mute = seqTrk.isMuted();
         tArr.solo = seqTrk.isSolo();
         tArr.freeze = seqTrk.isFrozen();
+        tArr.chordFollowMode = seqTrk.getChordFollowMode();
 
         // Style matching based on name and target node
         std::string lower = tArr.name;
@@ -3298,6 +3302,8 @@ void GuiWindow::syncArrangerFromSequencer() {
 
         arrangerTracks.push_back(tArr);
     }
+
+    seq.setChordTrack(modularArrangerView_->getChordTrack());
 
     selectedTrackIndex_ = 0;
     modularArrangerView_->setActiveTrack(0);
@@ -4139,6 +4145,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularArrangerView_->onClipsChanged = [this]() {
             syncArrangerToSequencer();
+        };
+        modularArrangerView_->onTrackChordFollowChanged = [this](uint32_t idx, theory::ChordFollowMode mode) {
+            if (engine_) {
+                auto& seq = engine_->getSequencer();
+                if (auto* trk = seq.getTrack(idx)) {
+                    trk->setChordFollowMode(mode);
+                }
+            }
+        };
+        modularArrangerView_->onAuditionChord = [this](const theory::ChordEvent& chord) {
+            if (engine_) {
+                for (int pc : chord.getPitchClasses()) {
+                    engine_->postNoteOn(static_cast<uint8_t>(60 + pc), 0.80f);
+                }
+            }
         };
         modularArrangerView_->onTrackSelected = [this](uint32_t idx) {
             setSelectedTrackIndex(idx);
