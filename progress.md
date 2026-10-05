@@ -857,9 +857,35 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
   - **Project History Undo & Redo Integration**:
     - Wired `recordProjectHistory` for track deletion, track addition, track duplication, clip addition, clip duplication, clip deletion, and instrument/FX changes.
     - Enhanced `undoHistory()`, `redoHistory()`, and `jumpToHistoryIndex()` to call `syncArrangerFromSequencer()`, cleanly restoring Arranger tracks/clips, Mixer channel strips, and Track Inspector state.
+---
+
+### [2026-10-05] Single Chord Track Parity, Harmonic Track Follow Modes Playback Integration & Piano Roll Chord Strip Removal (commit `b8774cf`)
+- **Architectural Context**:
+  - Reestablished strict parity with original Eatsbeats (`daw_state.dart` and `arranger_view.dart`) by designating a single authoritative project `chordTrack_` timeline lane as the sole harmonic reference.
+  - Eliminated arbitrary track chord leader / dynamic fallback routing in `ArrangerView` (`isChordLeader`, `chordLeaderTrackIndex`).
+  - Integrated real-time harmonic track follow modes (`BASS`, `CHORD`, `SCALE`, `COLOR`) into audio callback playback in `StepSequencer::processBlock()`.
+  - Synchronized `timeContext_.activeChordRoot`, `quality`, `bass`, and `chordPitchClasses` on each sequencer step tick to drive live MIDI FX inserts (`ChordFollow`, `ChordStabs`, `ChordArp`).
+  - Removed chord strip from `EditView` (Piano Roll), giving full vertical canvas height back to the piano roll note grid and piano keys gutter.
+- **Key Changes Implemented**:
+  - **Dedicated Project Chord Track Parity**:
+    - Centralized harmony on the project `chordTrack_` lane on the Arranger timeline with "CHORD TRACK", Key badge, and `+` button opening Circle of Fifths.
+    - Updated `bakeChordsToTrack()` to lookup chords directly from the canonical Chord Track lane and notify `onTrackChordFollowChanged`.
+  - **Real-Time Follow Modes in StepSequencer**:
+    - Added `theory::ChordFollowMode` to `SequencerTrack`.
+    - Added `setChordTrack()`, `getChordTrack()`, and real-time safe `getActiveChordAtBar(float bar)` to `StepSequencer`.
+    - During playback, if `track.getChordFollowMode() != Off`, sampled active chord and remapped step/note pitches using `theory::ChordTheory::remapPitchForChord()`.
+    - Connected `syncArrangerToSequencer()` and `syncArrangerFromSequencer()` to synchronize `chordFollowMode` and project chords with the sequencer.
+  - **Live MIDI FX Pipeline Synchronization**:
+    - Updated `timeContext_.activeChordRoot`, `activeChordQuality`, `bassPitchClass`, and `chordPitchClasses` dynamically on each triggered tick.
+    - Verified `ChordFollow`, `ChordStabs`, and `ChordArp` audibly conform playback notes in real time.
+  - **Piano Roll Clean-up**:
+    - Removed `chordStripBounds_`, `chordHeaderBadgeBounds_`, `detectedChords_`, `circleOfFifthsDialog_`, and click handlers from `EditView`.
+    - Expanded `pianoGutterBounds_` and `gridBounds_` to occupy full available vertical canvas height.
 - **Validation**:
-  - Verified with new Test 22 in `test_modular_ui.exe` (22/22 test suites passing cleanly).
-  - Verified full desktop Release build via `.\build.ps1`.
+  - `test_chord_track.exe`: 11/11 tests passing (including dedicated single chord track and playback follow mode tests).
+  - `test_modular_ui.exe`: 22/22 tests passing.
+  - `.\build.ps1 -Test`: 45/45 suites passing (100% test pass rate).
+  - `.\build-web.ps1 -NoServe`: Clean WebAssembly + WebGPU build (1.71 MB wire transfer footprint).
 
 ---
 

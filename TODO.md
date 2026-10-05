@@ -16,35 +16,59 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Eatsbeats Parity: Dedicated Single Chord Track, Harmonic Track Follow Modes (BASS, CHORD, SCALE, COLOR) Playback Integration, MIDI FX Pipeline Synchronization & Piano Roll Chord Strip Removal**
-  - **Context/Files**: `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/edit_view.hpp`, `src/ui/views/edit_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. **Dedicated Single Chord Track Parity (Eatsbeats Parity)**:
-       - Eliminate arbitrary track chord leader / dynamic fallback routing in `ArrangerView` (`isChordLeader`, `cl.detectedChords` search in `getHarmonicOverviewChords` and `getActiveChordAtBar`).
-       - Revert to the single authoritative project `chordTrack_` lane on the Arranger timeline as the sole harmonic reference, matching original `eatsbeats/lib/models/daw_state.dart` and `eatsbeats/lib/ui/arranger_view.dart`.
-       - Retain chord detection strictly as an explicit tool/action (`"Extract Chords to Chord Track"` from Audio-to-MIDI and clips) that writes directly to the canonical Chord Track lane.
-    2. **Harmonic Track Follow Modes Playback Integration (`BASS`, `CHORD`, `SCALE`, `COLOR`)**:
-       - Wire `track.chordFollowMode` into playback in `StepSequencer::processStep` / `AudioEngine`.
-       - When `track.chordFollowMode != ChordFollowMode::Off`, sample `getActiveChordAtBar(currentBar)` from the project Chord Track. If an active chord is present, dynamically remap note and step pitches via `theory::ChordTheory::remapPitchForChord(pitch, *activeChord, mode)` during playback (matching `eatsbeats/lib/models/daw_state.dart:3295`).
-       - Verify `[ ⚡ BAKE TO MIDI ]` commits the transformed pitches to clip notes and resets follow mode to `OFF`.
-    3. **Active Chord Synchronization with Live MIDI FX Pipeline**:
-       - Ensure `timeContext_.activeChordRoot`, `quality`, and `bass` in `StepSequencer` are updated each step from the active chord on the project Chord Track.
-       - Verify that `eatscript::MidiFxType::ChordFollow`, `ChordStabs`, `ChordArp`, and `.eats` MIDI FX scripts audibly modify and conform playback notes in real time.
-    4. **Piano Roll Chord Strip & Selection Removal**:
-       - Remove `chordStripBounds_`, `chordHeaderBadgeBounds_`, `detectedChords_`, and associated click/dialog handlers from `EditView` (Piano Roll).
-       - Keep chord creation, selection, and editing centralized in the Arranger Chord Track lane and Circle of Fifths dialog.
-  - **Test/Validation**: `.\build.ps1 -Test` (specifically `test_chord_track.exe`, `test_modular_ui.exe`, and audio playback assertions), plus clean Wasm build with `.\build-web.ps1 -NoServe`.
-
 - [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
   - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
   - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
   - **Test/Validation**: `.\build-web.ps1 -NoServe`
+
+- [ ] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration**
+  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
+  - **Acceptance Criteria**:
+    1. Fix Audio FX Preset UI extraction: When adding an Audio FX from `PluginSearchDialog` or `ProjectBrowserDrawer`, load its `PresetDefinition` via `PresetManager::loadPresetDefinition` (matching instrument preset loading) and populate `TrackAudioFxItem::knobs` from the script's `def init()` and `def gui()`.
+    2. Expand `TrackAudioFxItem::ensureDefaultKnobs()` with dedicated fallback layouts and knob definitions for `EQ` / `PARAMETRIC` (Low, Mid, High, Q, Gain), `LIMITER` (Ceiling, Release, Gain), `FILTER` / `SVF` (Cutoff, Reso, Type, Drive), and ensure devices do not inappropriately fall through to the Tube Distortion fallback (`drive`, `tone`, `bias`, `mix`).
+    3. Wire parameter dispatch in `AudioEngine::setTrackAudioFxParam`:
+       - Add routing for `ParametricEqNode` (frequency, gain, Q) and `LimiterNode` (ceiling, release, gain).
+       - Add `tone` and `bias` parameter handling to `WaveShaperNode` (implementing a tilt/lowpass filter and DC bias offset in DSP).
+    4. Fix WaveShaper saturation & volume ramp-up: In `WaveShaperNode::processBlock`, recalibrate input pre-gain boost and implement output makeup/wet gain compensation so that turning the Drive knob produces rich harmonic saturation/overdrive rather than behaving as a linear volume amplifier.
+    5. Wire `projectBrowserDrawerWidget_->onAddAudioFx` in `GuiWindow` so adding FX cards from the Project Browser drawer inserts the effect into the active track.
+  - **Test/Validation**: Add unit tests in `test_studio_fx.cpp` and `test_modular_ui.cpp` verifying Audio FX knob generation, parameter routing, and distortion wave shaping.
+
+- [ ] **Design Tab Live Project Track, Instrument & Insert FX Synchronization**
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Replace hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` (`eats_kick`, `eats_snare`, `eats_hats`, `eats_303`, dummy distortion inserts) with dynamic project synchronization.
+    2. Implement `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, instrument replacement, and FX insertion/removal.
+    3. Ensure the Design Tab left sidebar "In Use" section accurately reflects:
+       - Real active tracks and their assigned synth/instrument DSP engines.
+       - Actual Audio FX and MIDI FX inserts assigned to each track (with their real names, types, and script/preset parameters).
+       - Active pattern/clip scripts for each track.
+    4. Fix `selectTargetByTrackAndType` so clicking the "Design Chip" icon from `FullscreenDeviceModal` on any Audio FX, MIDI FX, or instrument on any track navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
+  - **Test/Validation**: Unit tests in `test_modular_ui.cpp` verifying `DesignView` tracks dynamically update when arranger tracks or FX are modified, and verifying navigation selects the corresponding active device.
 
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Eatsbeats Parity: Dedicated Single Chord Track, Harmonic Track Follow Modes (BASS, CHORD, SCALE, COLOR) Playback Integration, MIDI FX Pipeline Synchronization & Piano Roll Chord Strip Removal** (commit `b8774cf`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/edit_view.hpp`, `src/ui/views/edit_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Dedicated Single Chord Track Parity (Eatsbeats Parity)**:
+       - Eliminated arbitrary track chord leader / dynamic fallback routing in `ArrangerView` (`isChordLeader`, `cl.detectedChords` search in `getHarmonicOverviewChords` and `getActiveChordAtBar`).
+       - Reverted to the single authoritative project `chordTrack_` lane on the Arranger timeline as the sole harmonic reference, matching original `eatsbeats/lib/models/daw_state.dart` and `eatsbeats/lib/ui/arranger_view.dart`.
+       - Retained chord detection strictly as an explicit tool/action (`"Extract Chords to Chord Track"` from Audio-to-MIDI and clips) that writes directly to the canonical Chord Track lane.
+    2. **Harmonic Track Follow Modes Playback Integration (`BASS`, `CHORD`, `SCALE`, `COLOR`)**:
+       - Wired `track.chordFollowMode` into playback in `StepSequencer::processBlock()`.
+       - When `track.chordFollowMode != ChordFollowMode::Off`, sampled `getActiveChordAtBar(currentBar)` from the project Chord Track. Dynamically remapped note and step pitches via `theory::ChordTheory::remapPitchForChord(pitch, *activeChord, mode)` during playback (matching `eatsbeats/lib/models/daw_state.dart:3295`).
+       - Verified `[ ⚡ BAKE TO MIDI ]` commits the transformed pitches to clip notes and resets follow mode to `OFF`.
+    3. **Active Chord Synchronization with Live MIDI FX Pipeline**:
+       - Updated `timeContext_.activeChordRoot`, `quality`, `bass`, and `chordPitchClasses` in `StepSequencer` each step from the active chord on the project Chord Track.
+       - Verified that `eatscript::MidiFxType::ChordFollow`, `ChordStabs`, `ChordArp`, and `.eats` MIDI FX scripts audibly modify and conform playback notes in real time.
+    4. **Piano Roll Chord Strip & Selection Removal**:
+       - Removed `chordStripBounds_`, `chordHeaderBadgeBounds_`, `detectedChords_`, and associated click/dialog handlers from `EditView` (Piano Roll), giving full vertical canvas height to piano keys gutter and note grid.
+       - Centralized chord creation, selection, auditioning, and editing in the Arranger Chord Track lane and Circle of Fifths dialog.
+  - **Test/Validation**: `test_chord_track.exe` (11/11 tests pass), `test_modular_ui.exe` (22/22 tests pass), `.\build.ps1 -Test` (45/45 suites pass), and `.\build-web.ps1 -NoServe` (clean Wasm build).
 
 - [x] **Clip Rendering Parity (No Phantom Notes), Clip Duplicate & Delete Parity, Track Deletion Sidebar Fix & Project History Undo/Redo Integration**
   - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
@@ -88,35 +112,3 @@ To execute items automatically, run in Antigravity:
     5. Integrate `+ BROWSE ALL THEMES` button into Settings dialog with full pointer and keyboard navigation routing.
   - **Test/Validation**: `ctest -C Release` (43/43 tests pass) and `.\build-web.ps1 -NoServe` (clean Wasm build)
 
-- [x] **Terminal CLI Keyboard Focus Isolation & Monospace Text Editor Parity**
-  - **Context/Files**: `include/eatsbits/ui/widgets/terminal_console_drawer.hpp`, `src/ui/widgets/terminal_console_drawer.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `tests/test_terminal_console.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. Implement `IFocusable` on `TerminalConsoleDrawer` and synchronize focus state with `FocusManager` upon expanding, collapsing, or pointer clicking in drawer bounds.
-    2. Absorb non-universal keystrokes in `TerminalConsoleDrawer::handleKey` when focused/expanded to shield terminal typing from triggering DAW shortcuts (such as 'p' for Preset Dialog, 'b' for Browser, and Space for playback), while strictly preserving DAW universals (Escape to dismiss drawer, F11 for fullscreen).
-    3. Transition `TextEditorWidget` text line and gutter rendering to `BatchRenderer2D::drawMonospaceText`, establishing 1:1 cell metric parity with the CLI tool and eliminating font metric cumulative drift and phantom whitespace at ends of lines.
-    4. Validate unit test suites across `test_terminal_console.exe`, `test_modular_ui.exe`, and ensure WebAssembly clean compilation with `build-web.ps1 -NoServe`.
-  - **Test/Validation**: `.\build.ps1 -Test` and `.\build-web.ps1 -NoServe`
-
-- [ ] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration**
-  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
-  - **Acceptance Criteria**:
-    1. Fix Audio FX Preset UI extraction: When adding an Audio FX from `PluginSearchDialog` or `ProjectBrowserDrawer`, load its `PresetDefinition` via `PresetManager::loadPresetDefinition` (matching instrument preset loading) and populate `TrackAudioFxItem::knobs` from the script's `def init()` and `def gui()`.
-    2. Expand `TrackAudioFxItem::ensureDefaultKnobs()` with dedicated fallback layouts and knob definitions for `EQ` / `PARAMETRIC` (Low, Mid, High, Q, Gain), `LIMITER` (Ceiling, Release, Gain), `FILTER` / `SVF` (Cutoff, Reso, Type, Drive), and ensure devices do not inappropriately fall through to the Tube Distortion fallback (`drive`, `tone`, `bias`, `mix`).
-    3. Wire parameter dispatch in `AudioEngine::setTrackAudioFxParam`:
-       - Add routing for `ParametricEqNode` (frequency, gain, Q) and `LimiterNode` (ceiling, release, gain).
-       - Add `tone` and `bias` parameter handling to `WaveShaperNode` (implementing a tilt/lowpass filter and DC bias offset in DSP).
-    4. Fix WaveShaper saturation & volume ramp-up: In `WaveShaperNode::processBlock`, recalibrate input pre-gain boost and implement output makeup/wet gain compensation so that turning the Drive knob produces rich harmonic saturation/overdrive rather than behaving as a linear volume amplifier.
-    5. Wire `projectBrowserDrawerWidget_->onAddAudioFx` in `GuiWindow` so adding FX cards from the Project Browser drawer inserts the effect into the active track.
-  - **Test/Validation**: Add unit tests in `test_studio_fx.cpp` and `test_modular_ui.cpp` verifying Audio FX knob generation, parameter routing, and distortion wave shaping.
-
-- [ ] **Design Tab Live Project Track, Instrument & Insert FX Synchronization**
-  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. Replace hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` (`eats_kick`, `eats_snare`, `eats_hats`, `eats_303`, dummy distortion inserts) with dynamic project synchronization.
-    2. Implement `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, instrument replacement, and FX insertion/removal.
-    3. Ensure the Design Tab left sidebar "In Use" section accurately reflects:
-       - Real active tracks and their assigned synth/instrument DSP engines.
-       - Actual Audio FX and MIDI FX inserts assigned to each track (with their real names, types, and script/preset parameters).
-       - Active pattern/clip scripts for each track.
-    4. Fix `selectTargetByTrackAndType` so clicking the "Design Chip" icon from `FullscreenDeviceModal` on any Audio FX, MIDI FX, or instrument on any track navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
-  - **Test/Validation**: Unit tests in `test_modular_ui.cpp` verifying `DesignView` tracks dynamically update when arranger tracks or FX are modified, and verifying navigation selects the corresponding active device.
