@@ -907,6 +907,32 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-05] Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration (commit `20fe776`)
+- **Architectural Context**:
+  - Solved Audio FX parameter binding and preset extraction across `PluginSearchDialog`, `ProjectBrowserDrawer`, `TrackPropertiesPanel`, and `FullscreenDeviceModal`.
+  - Recalibrated `WaveShaperNode` saturation DSP, adding output makeup compensation, a 1-pole tilt/lowpass tone filter, and DC bias offset compensation.
+- **Key Changes Implemented**:
+  - **Audio FX Preset UI Extraction**:
+    - Implemented `TrackAudioFxItem::populateFromPresetDefinition(const PresetDefinition& def)` in [track_properties_panel.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/track_properties_panel.hpp), extracting GUI layout knobs, parameter ranges, default values, units, and custom hex accent colors directly from `.eats` script declarations.
+    - Wired `presetSearchDialog_.onPluginSelected` (mode `AddAudioFx`) and `projectBrowserDrawerWidget_->onAddAudioFx` in [gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp) to load the effect's `PresetDefinition` via `PresetManager::loadPresetDefinition` and populate `TrackAudioFxItem::knobs`.
+    - Wired `projectBrowserDrawerWidget_->onAddMidiFx` to support direct MIDI insert creation from drawer cards.
+  - **`TrackAudioFxItem::ensureDefaultKnobs()` Fallback Expansion**:
+    - Added dedicated fallback knob layouts and background themes for `EQ` / `PARAMETRIC` (`low`, `mid`, `high`, `q`, `gain` on `"dark"` chassis), `LIMITER` (`ceiling`, `release`, `gain` on `"silver"` chassis), and `FILTER` / `SVF` (`cutoff`, `reso`, `type`, `drive` on `"carbon"` chassis), preventing improper fall-through to Tube Distortion.
+  - **AudioEngine Insert FX Parameter Dispatch**:
+    - Expanded `AudioEngine::setTrackAudioFxParam` in [audio_engine.cpp](file:///c:/git/eatsbits/src/audio/audio_engine.cpp) to dispatch parameters to `ParametricEqNode` (low, mid, high, Q, master gain) and `LimiterNode` (ceiling dB, release ms, lookahead ms).
+    - Added `tone` and `bias` parameter handling for `WaveShaperNode`.
+  - **WaveShaper Saturation & Volume Calibration DSP**:
+    - In [waveshaper_node.hpp](file:///c:/git/eatsbits/include/eatsbits/audio/graph/nodes/waveshaper_node.hpp), implemented dynamic makeup gain compensation (`makeup = 1.0f / sqrt(max(1.0f, drive))`) so high drive settings generate rich saturation harmonics without acting as an ear-splitting volume amplifier.
+    - Implemented DC offset bias offset and correction (`(transferCurve(x + biasOffset) - dcComp) * makeup`).
+    - Added 1-pole lowpass tone smoothing filter (`filterState += alpha * (sat - filterState)`).
+- **Validation**:
+  - `test_studio_fx.exe`: All 10 tests pass (including new `testWaveShaperCalibrationAndDspFeatures` and `testAudioEngineParametricEqAndLimiterDispatch`).
+  - `test_modular_ui.exe`: All 23 tests pass (including new `testTrackAudioFxPresetBindingAndDefaults`).
+  - `.\build.ps1 -Test`: All 45 test suites pass with 0 failures (100% pass rate).
+  - `.\build-web.ps1 -NoServe`: Clean WebAssembly + WebGPU + AudioWorklet build (2.26 MB gzip payload).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.

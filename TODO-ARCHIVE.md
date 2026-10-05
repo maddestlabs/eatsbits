@@ -7,6 +7,19 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Script Editor Scrolling, Gutter Scissoring, Immediate Cursor Blink Reset & Mobile Input Roadmap** (commit `7c134c4`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `src/ui/gui_window.cpp`, `include/eatsbits/presenter/text_presenter.hpp`, `tests/test_modular_ui.cpp`, `web/index.html`
+  - **Acceptance Criteria**:
+    1. Wire mouse wheel scroll event routing in `GuiWindow::onMouseScroll` to `modularDesignView_` (`WorkspaceView::Design` / `ModularRack`) and `fullscreenDeviceModal_`, and support horizontal Shift-scroll in `TextEditorWidget::handlePointer`.
+    2. Enforce strict scissoring (`r.pushScissor(gutterBounds_)` / `r.popScissor()`) on gutter line numbers and active line highlight in `TextEditorWidget` to eliminate line numbers bleeding above or below content borders during fractional scrolls.
+    3. Implement `resetCursorBlink()` and track `lastCursor_` so that moving the cursor, clicking, selecting text, or typing immediately resets the blink timer to $t=0$ (solid 100% visibility) without lagging in the invisible phase.
+    4. Implement the optimal Mobile Code Input Roadmap architecture:
+       - In-engine `CodeAccessoryToolbar` with 27 touch-friendly coding buttons: `⇥` (Indent), `⇤` (Outdent), `( )`, `[ ]`, `{ }`, `"`, `'`, `:`, `=`, `+`, `-`, `*`, `/`, `.`, `,`, `_`, `#`, `->`, `param`, `ret`, `◀`, `▶`, `▲`, `▼`, `↶` (Undo), `↷` (Redo), `▶ RUN` (Compile & Run).
+       - Smart auto-pairing and selection wrapping for `()`, `[]`, `{}`, `""`, `''`.
+       - WebAssembly soft-keyboard bridge in `web/index.html` using a hidden proxy `<textarea>` with full `input` and `keydown` event streaming to `eats_on_web_char_input` and `eats_on_web_key_input`.
+       - Automatic mobile context detection (`ctx.isMobile`) on Web (touch/agent/screen detection) and desktop.
+  - **Test/Validation**: `.\build.ps1 -Test` (44/44 test suites passing) and `.\build-web.ps1 -NoServe` (clean Wasm build)
+
 - [x] **Theme System Syntax Foundation, Micro-Lexer & Theme Browser Dialog** (commit `6033a26`)
   - **Context/Files**: `include/eatsbits/ui/theme.hpp`, `src/ui/theme.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `include/eatsbits/ui/widgets/theme_browser_dialog.hpp`, `src/ui/widgets/theme_browser_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_theme.cpp`
   - **Acceptance Criteria**:
