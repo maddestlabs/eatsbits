@@ -10,7 +10,7 @@ if(MSVC)
     add_compile_options(/W4 /O2 /permissive- /wd4244 /wd4267 /wd4324 /openmp)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 elseif(EMSCRIPTEN)
-    add_compile_options(-Wall -Wextra -O3 -msimd128 -fwasm-exceptions)
+    add_compile_options(-Wall -Wextra -O3 -msimd128 -sWASM_WORKERS=1 -fexceptions)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN NDEBUG)
 else()
     add_compile_options(-Wall -Wextra -O3 -fopenmp)
@@ -92,8 +92,7 @@ target_link_libraries(eats_audio PUBLIC eats_core eats_script)
 
 # Core Platform Libraries (Audio Only)
 if(EMSCRIPTEN)
-    target_compile_options(eats_audio PUBLIC -msimd128 -O3)
-    target_compile_definitions(eats_audio PUBLIC NDEBUG)
+    target_compile_definitions(eats_audio PUBLIC NDEBUG MA_ENABLE_AUDIO_WORKLETS)
     target_link_libraries(eats_audio PUBLIC)
 elseif(WIN32)
     target_link_libraries(eats_audio PUBLIC ole32 winmm winhttp)
@@ -156,8 +155,8 @@ add_library(eats_render_wgpu STATIC
 target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter)
 
 if(EMSCRIPTEN)
-    target_compile_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -fwasm-exceptions)
-    target_link_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -sUSE_GLFW=3 -fwasm-exceptions)
+    target_compile_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -fexceptions)
+    target_link_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -sUSE_GLFW=3 -fexceptions)
 elseif(WIN32)
     set(WGPU_NATIVE_LIB "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll.lib")
     target_link_libraries(eats_render_wgpu PUBLIC 
@@ -240,13 +239,13 @@ target_link_libraries(eatsbits_tui_core PUBLIC eats_render_tui eats_presenter ea
 if (EMSCRIPTEN)
     # WebAssembly & WebGPU Application
     add_executable(eatsbits_web src/gui_main.cpp)
-    target_compile_options(eatsbits_web PRIVATE -O3 -msimd128 -fwasm-exceptions)
-    target_compile_definitions(eatsbits_web PRIVATE NDEBUG)
+    target_compile_options(eatsbits_web PRIVATE -O3 -msimd128 -fexceptions)
+    target_compile_definitions(eatsbits_web PRIVATE NDEBUG MA_ENABLE_AUDIO_WORKLETS)
     target_link_libraries(eatsbits_web PRIVATE eatsbits_gui_core)
     set_target_properties(eatsbits_web PROPERTIES
         OUTPUT_NAME "eatsbits"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@/assets --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/presets@/presets --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -sNO_EXIT_RUNTIME=1 -fexceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@/assets --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/presets@/presets --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET eatsbits_web POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

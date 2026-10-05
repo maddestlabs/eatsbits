@@ -7,6 +7,30 @@
 
 #include "eatsbits/audio/audio_engine.hpp"
 
+#ifdef __EMSCRIPTEN__
+#ifndef MA_ENABLE_AUDIO_WORKLETS
+#define MA_ENABLE_AUDIO_WORKLETS
+#endif
+#include <pthread.h>
+#include <emscripten.h>
+// Provide no-op pthread stubs for miniaudio when targeting -sWASM_WORKERS=1 (where -lc-ww omits standard single-threaded stubs)
+extern "C" {
+int pthread_mutex_init(pthread_mutex_t*, const pthread_mutexattr_t*) { return 0; }
+int pthread_mutex_destroy(pthread_mutex_t*) { return 0; }
+int pthread_mutex_lock(pthread_mutex_t*) { return 0; }
+int pthread_mutex_unlock(pthread_mutex_t*) { return 0; }
+int pthread_cond_init(pthread_cond_t*, const pthread_condattr_t*) { return 0; }
+int pthread_cond_destroy(pthread_cond_t*) { return 0; }
+int pthread_cond_wait(pthread_cond_t*, pthread_mutex_t*) { return 0; }
+int pthread_cond_signal(pthread_cond_t*) { return 0; }
+int pthread_cond_broadcast(pthread_cond_t*) { return 0; }
+int pthread_create(pthread_t*, const pthread_attr_t*, void *(*)(void *), void *) { return -1; }
+int pthread_join(pthread_t, void **) { return 0; }
+int pthread_detach(pthread_t) { return 0; }
+void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsigned int>(msecs)); }
+}
+#endif
+
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
@@ -88,6 +112,9 @@ bool AudioEngine::initialize(const AudioEngineConfig& config) {
 
     std::cout << "[Eatsbits] Audio device initialized: " << impl_->device.playback.name
               << " | " << config_.sampleRate << " Hz | Buffer: " << config_.bufferFrameSize << " frames" << std::endl;
+#if defined(MA_USE_AUDIO_WORKLETS)
+    std::cout << "[Eatsbits] AudioWorklet dedicated Wasm worker thread active." << std::endl;
+#endif
 
     graph_.prepare(config_.sampleRate, config_.bufferFrameSize);
     return true;
