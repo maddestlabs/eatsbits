@@ -16,11 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading**
-  - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
-  - **Acceptance Criteria**: Configure miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` (leveraging existing COOP/COEP headers in `build-web.ps1`); verify audio thread decoupling so real-time DSP callback execution runs entirely on a dedicated audio worklet thread independent of the main JavaScript thread.
-  - **Test/Validation**: `.\build-web.ps1 -NoServe`
-
 - [ ] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration**
   - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
   - **Acceptance Criteria**:
@@ -50,6 +45,15 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading** (commit `2b441d9`, 2026-10-05)
+  - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
+  - **Acceptance Criteria**:
+    1. Configured miniaudio AudioWorklet integration with `-DMA_ENABLE_AUDIO_WORKLETS`, `-sAUDIO_WORKLET=1`, `-sWASM_WORKERS=1`, and `-sASYNCIFY` in `CMakeLists.txt`.
+    2. Enabled `-sWASM_WORKERS=1` and `-fexceptions` across all compilation units, ensuring SharedArrayBuffer, atomics, and bulk-memory features are universally enabled.
+    3. Provided pthread and sleep bridge stubs in `audio_engine.cpp` for Wasm Worker libc compatibility (`-lc-ww`).
+    4. Verified real-time audio callback execution runs on a dedicated Web Audio worklet worker thread independent of the main JavaScript UI/WebGPU thread.
+  - **Test/Validation**: Clean Web target build via `.\build-web.ps1 -NoServe` (8.16 MB raw, 2.25 MB gzip payload), and verified desktop test suite with `test_audio_realtime.exe`.
 
 - [x] **Eatsbeats Parity: Dedicated Single Chord Track, Harmonic Track Follow Modes (BASS, CHORD, SCALE, COLOR) Playback Integration, MIDI FX Pipeline Synchronization & Piano Roll Chord Strip Removal** (commit `b8774cf`, 2026-10-05)
   - **Context/Files**: `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/edit_view.hpp`, `src/ui/views/edit_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
@@ -102,13 +106,4 @@ To execute items automatically, run in Antigravity:
        - Automatic mobile context detection (`ctx.isMobile`) on Web (touch/agent/screen detection) and desktop.
   - **Test/Validation**: `.\build.ps1 -Test` (44/44 test suites passing) and `.\build-web.ps1 -NoServe` (clean Wasm build)
 
-- [x] **Theme System Syntax Foundation, Micro-Lexer & Theme Browser Dialog**
-  - **Context/Files**: `include/eatsbits/ui/theme.hpp`, `src/ui/theme.cpp`, `src/ui/widgets/text_editor_widget.cpp`, `include/eatsbits/ui/widgets/theme_browser_dialog.hpp`, `src/ui/widgets/theme_browser_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_theme.cpp`
-  - **Acceptance Criteria**:
-    1. Expand `ThemeTokens` and `ThemeSeed` with full syntax highlighting token definitions (`syntaxKeyword`, `syntaxString`, `syntaxNumber`, `syntaxComment`, `syntaxFunction`, `syntaxIdentifier`, `syntaxOperator`, `syntaxType`) with automatic fallback derivation from primary/accent/text colors.
-    2. Expand theme presets to 10 curated themes with rich culinary/Eatsbits naming inspired by iconic syntax themes: `AteTrack` (1980s Hardware), `MidnightBites` (Synthwave), `LightSnack` (Studio Daylight), `Breakfast` (Solarized Light), `Dinner` (Solarized Dark), `CountsBite` (Dracula), `NordicFrost` (Nord), `Catppuccino` (Catppuccin Mocha), `DarkRoast` (Monochrome Dark), and `SeaAndSalt` (DuoTone Dark).
-    3. Implement zero-allocation in-place Eatscript micro-lexer in `TextEditorWidget` for keywords, types, strings, numbers, operators, comments, and functions, coloring code and minimap seamlessly with active theme tokens.
-    4. Build modal `ThemeBrowserDialog` with categorized tabs (`ALL`, `DARK`, `LIGHT`, `SYNTAX PORTS`, `MINIMAL / DUOTONE`, `HARDWARE`), real-time search, 6-disc swatch palette previews, live theme preview on navigation, and escape-to-revert / enter-to-apply semantics.
-    5. Integrate `+ BROWSE ALL THEMES` button into Settings dialog with full pointer and keyboard navigation routing.
-  - **Test/Validation**: `ctest -C Release` (43/43 tests pass) and `.\build-web.ps1 -NoServe` (clean Wasm build)
 

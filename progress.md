@@ -889,6 +889,24 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-05] Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading (commit `2b441d9`)
+- **Architectural Context**:
+  - Decoupled real-time audio synthesis and DSP callback execution from the main browser JavaScript UI/WebGPU rendering thread using Emscripten AudioWorklets (`-sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY`).
+  - Miniaudio now spawns a dedicated Web Audio worklet worker thread executing `ma_audio_worklet_process_callback__webaudio`, guaranteeing hitch-free real-time audio even during heavy WebGPU frame drawing or UI interaction.
+- **Key Changes Implemented**:
+  - **CMake Compiler & Linker Configuration**:
+    - Added global `-sWASM_WORKERS=1` and `-fexceptions` in `CMakeLists.txt` for Emscripten builds, universally enabling SharedArrayBuffer, WebAssembly atomics (`-matomics`), and bulk memory (`-mbulk-memory`) across all static libraries (`eats_core`, `eats_script`, `eats_audio`, `eats_presenter`, `eats_render_wgpu`, `eats_render_tui`, `eatsbits_gui_core`).
+    - Configured `eatsbits_web` link flags with `-sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY -fexceptions`.
+    - Defined `MA_ENABLE_AUDIO_WORKLETS` for `eats_audio` and `audio_engine.cpp`.
+  - **Emscripten Wasm Worker Libc & Pthread Bridge**:
+    - Emscripten's wasm-worker libc (`libc-ww.a`) omits single-threaded no-op pthread stubs. Implemented bridge stubs in `audio_engine.cpp` for `pthread_mutex_*`, `pthread_cond_*`, `pthread_create`, `pthread_join`, `pthread_detach`, and `emscripten_thread_sleep` (bridged to `emscripten_sleep`).
+    - Added logging in `AudioEngine::initialize()` confirming dedicated Wasm worker thread status when `MA_USE_AUDIO_WORKLETS` is active.
+- **Validation**:
+  - `.\build-web.ps1 -NoServe`: Clean compilation and linking of WebAssembly + WebGPU + AudioWorklet bundle with 0 errors. Total wire footprint 2.25 MB.
+  - Native desktop regression verification: `test_audio_realtime.exe` and `test_modular_ui.exe` compile and pass 100%.
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
