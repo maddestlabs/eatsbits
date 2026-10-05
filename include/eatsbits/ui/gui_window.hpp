@@ -210,6 +210,7 @@ enum class ProjectHubAction {
     ResetCleanSlate,
     SetUiScale,
     SelectTheme,
+    SelectThemeBank,
     OpenThemeBrowser,
     ToggleCrtShader,
     ToggleAnimations,
@@ -261,6 +262,7 @@ struct HitTestProjectHubResult {
     int sectionIndex{-1};
     float scaleValue{1.0f};
     int themeIndex{0};
+    int themeBank{0};
     int aaMode{2};
     int crtSliderIndex{-1};
 };
@@ -681,8 +683,14 @@ public:
     [[nodiscard]] int getActiveThemePreset() const noexcept { return activeThemePreset_; }
     void setActiveThemePreset(int preset) noexcept {
         activeThemePreset_ = preset;
+        userThemeBankOverride_ = -1;
         Theme::setPreset(static_cast<Theme::Preset>(preset));
     }
+    [[nodiscard]] int getThemeBank() const noexcept {
+        if (userThemeBankOverride_ >= 0) return userThemeBankOverride_;
+        return (activeThemePreset_ >= 5) ? 1 : 0;
+    }
+    void setThemeBank(int bank) noexcept { userThemeBankOverride_ = bank; }
     [[nodiscard]] const ThemeTokens& getTheme() const noexcept {
         return Theme::get(static_cast<Theme::Preset>(activeThemePreset_));
     }
@@ -1152,6 +1160,7 @@ private:
     bool autoRestoreSession_{true};
     bool autoSaveEnabled_{true};
     int activeThemePreset_{0};
+    int userThemeBankOverride_{-1};
     bool crtShaderEnabled_{false};
     bool crtTweakerOpen_{false};
     int crtTweakerSliderIndex_{-1};

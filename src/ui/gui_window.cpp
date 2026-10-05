@@ -3857,17 +3857,24 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::Preset, "", [this]() { if (presets_.size() > 3) loadPresetToSelectedTrack(3); }
     });
     commandPaletteDialog_.registerCommand({
-        "theme.neon", "Theme: Cyberpunk Neon", "Electric purple, hot pink, and cyan glow",
-        CommandCategory::Theme, "", [this]() { setActiveThemePreset(0); }
+        "theme.browse", "Theme: Browse All Themes & Palettes", "Open filterable theme browser with live swatches and search",
+        CommandCategory::Theme, "Ctrl+Shift+T", [this]() { openThemeBrowserDialog(); }
     });
-    commandPaletteDialog_.registerCommand({
-        "theme.midnight", "Theme: Midnight Blue", "Deep midnight blue with vibrant accents",
-        CommandCategory::Theme, "", [this]() { setActiveThemePreset(1); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "theme.charcoal", "Theme: Charcoal Studio", "Minimalist sleek dark mode professional studio",
-        CommandCategory::Theme, "", [this]() { setActiveThemePreset(2); }
-    });
+    const auto& themeCatalog = Theme::getPresetCatalog();
+    for (size_t i = 0; i < themeCatalog.size(); ++i) {
+        const auto& item = themeCatalog[i];
+        commandPaletteDialog_.registerCommand({
+            "theme." + std::to_string(i),
+            "Theme: " + item.name,
+            item.description + " (" + item.subtitle + ")",
+            CommandCategory::Theme,
+            "",
+            [this, i]() {
+                setActiveThemePreset(static_cast<int>(i));
+                setStatusMessage("Theme: " + getTheme().name);
+            }
+        });
+    }
     commandPaletteDialog_.registerCommand({
         "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern",
         CommandCategory::Macro, "", [this]() { runMacro(0); }
@@ -5941,28 +5948,68 @@ void GuiWindow::renderFrame() {
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // Theme Engine Chips (5 Curated Eatsbeats Presets) + Theme Browser Modal
-                        drawVectorString("UI THEME ENGINE PALETTE (EATSBEATS CONSOLES)", hubX + 28.0f, contentY + 54.0f, 0.65f, theme.textMuted);
-                        float browseBtnW = 140.0f;
-                        float browseBtnH = 20.0f;
-                        float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
-                        float browseBtnY = contentY + 44.0f;
-                        drawRoundedRect(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 4.0f, theme.primaryAccent.darken(0.35f));
-                        drawRoundedRectOutline(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 4.0f, theme.primaryAccent, 1.2f);
-                        drawVectorString("+ BROWSE ALL THEMES", browseBtnX + 10.0f, browseBtnY + 5.0f, 0.62f, Color(1.0f, 1.0f, 1.0f));
+                        // Theme Engine Palette with Bank Switcher & Theme Browser Modal
+                        drawLine(hubX + 24.0f, contentY + 54.0f, hubX + hubW - 24.0f, contentY + 54.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("THEME:", hubX + 28.0f, contentY + 60.0f, 0.65f, theme.textMuted);
 
-                        const char* themeLabels[5] = {"ATE TRACK", "MIDNIGHT", "LT SNACK", "BREAKFAST", "DINNER"};
+                        int curBank = getThemeBank();
+                        // Bank 0: [ 1: CONSOLES (1-5) ]
+                        float b0X = hubX + 76.0f;
+                        float b0Y = contentY + 57.0f;
+                        float b0W = 120.0f;
+                        float b0H = 18.0f;
+                        drawRoundedRect(b0X, b0Y, b0W, b0H, 3.0f,
+                                       (curBank == 0) ? theme.primaryAccent.darken(0.35f) : theme.controlBackground);
+                        drawRoundedRectOutline(b0X, b0Y, b0W, b0H, 3.0f,
+                                              (curBank == 0) ? theme.primaryAccent : theme.borderSubtle, (curBank == 0) ? 1.2f : 0.8f);
+                        drawVectorString("1: CONSOLES (1-5)", b0X + 10.0f, b0Y + 4.0f, 0.60f,
+                                         (curBank == 0) ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+
+                        // Bank 1: [ 2: SYNTAX (6-10) ]
+                        float b1X = hubX + 202.0f;
+                        float b1Y = contentY + 57.0f;
+                        float b1W = 126.0f;
+                        float b1H = 18.0f;
+                        drawRoundedRect(b1X, b1Y, b1W, b1H, 3.0f,
+                                       (curBank == 1) ? theme.primaryAccent.darken(0.35f) : theme.controlBackground);
+                        drawRoundedRectOutline(b1X, b1Y, b1W, b1H, 3.0f,
+                                              (curBank == 1) ? theme.primaryAccent : theme.borderSubtle, (curBank == 1) ? 1.2f : 0.8f);
+                        drawVectorString("2: SYNTAX (6-10)", b1X + 10.0f, b1Y + 4.0f, 0.60f,
+                                         (curBank == 1) ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+
+                        // Modal Browse Button: [ + BROWSE ALL ]
+                        float browseBtnW = 124.0f;
+                        float browseBtnH = 18.0f;
+                        float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
+                        float browseBtnY = contentY + 57.0f;
+                        drawRoundedRect(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 3.0f, theme.primaryAccent.darken(0.40f));
+                        drawRoundedRectOutline(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 3.0f, theme.primaryAccent, 1.2f);
+                        drawVectorString("+ BROWSE ALL (10)", browseBtnX + 10.0f, browseBtnY + 4.0f, 0.60f, Color(1.0f, 1.0f, 1.0f));
+
+                        // Chips Row (5 Chips per active bank)
+                        const char* themeLabelsBank0[5] = {"ATE TRACK", "MIDNIGHT", "LT SNACK", "BREAKFAST", "DINNER"};
+                        const char* themeLabelsBank1[5] = {"DRACULA", "NORDIC", "CATPPUCCIN", "DARK ROAST", "SEA & SALT"};
+                        const char** currentLabels = (curBank == 1) ? themeLabelsBank1 : themeLabelsBank0;
+
                         for (int th = 0; th < 5; ++th) {
+                            int presetIdx = (curBank == 1) ? (5 + th) : th;
                             float tx = hubX + 24.0f + th * 95.0f;
-                            bool isAct = (activeThemePreset_ == th);
-                            const auto& thToken = Theme::get(static_cast<Theme::Preset>(th));
-                            drawRoundedRect(tx, contentY + 68.0f, 88.0f, 24.0f, 4.0f,
+                            bool isAct = (activeThemePreset_ == presetIdx);
+                            const auto& thToken = Theme::get(static_cast<Theme::Preset>(presetIdx));
+                            drawRoundedRect(tx, contentY + 80.0f, 88.0f, 22.0f, 4.0f,
                                            isAct ? thToken.primaryAccent.darken(0.45f) : theme.controlBackground);
-                            drawRoundedRectOutline(tx, contentY + 68.0f, 88.0f, 24.0f, 4.0f,
+                            drawRoundedRectOutline(tx, contentY + 80.0f, 88.0f, 22.0f, 4.0f,
                                                   isAct ? thToken.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 1.0f);
-                            drawCircle(tx + 10.0f, contentY + 80.0f, 4.0f, thToken.primaryAccent);
-                            drawVectorString(themeLabels[th], tx + 18.0f, contentY + 73.0f, 0.68f,
+                            drawCircle(tx + 10.0f, contentY + 91.0f, 4.0f, thToken.primaryAccent);
+                            drawVectorString(currentLabels[th], tx + 18.0f, contentY + 84.0f, 0.65f,
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+                        }
+
+                        // Active Theme Readout line
+                        const auto& catalog = Theme::getPresetCatalog();
+                        if (static_cast<size_t>(activeThemePreset_) < catalog.size()) {
+                            std::string readout = "Active: " + catalog[activeThemePreset_].name + " (" + catalog[activeThemePreset_].subtitle + ")";
+                            drawVectorString(readout, hubX + 28.0f, contentY + 105.0f, 0.58f, theme.textMuted);
                         }
 
                         // Anti-Aliasing Mode Chips (No AA 1x, 2x Fast, 4x RGSS)
@@ -8342,8 +8389,8 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 res.scaleValue = snappedScale;
                 return res;
             }
-            // 2. Discrete 7 chips hit [contentStartY + 35.0f .. contentStartY + 56.0f]
-            if (y >= contentStartY + 35.0f && y <= contentStartY + 56.0f) {
+            // 2. Discrete 7 chips hit [contentStartY + 35.0f .. contentStartY + 52.0f]
+            if (y >= contentStartY + 35.0f && y <= contentStartY + 52.0f) {
                 const float scales[7] = {0.50f, 0.75f, 1.0f, 1.25f, 1.50f, 1.75f, 2.0f};
                 float chipGap = 5.0f;
                 float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
@@ -8356,21 +8403,38 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                     }
                 }
             }
-            float browseBtnW = 140.0f;
-            float browseBtnH = 20.0f;
-            float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
-            float browseBtnY = contentStartY + 44.0f;
-            if (x >= browseBtnX && x <= browseBtnX + browseBtnW && y >= browseBtnY && y <= browseBtnY + browseBtnH) {
-                res.action = ProjectHubAction::OpenThemeBrowser;
-                return res;
+
+            // 3. Theme Header: Bank Toggles & Browse Button [contentStartY + 54.0f .. contentStartY + 76.0f]
+            if (y >= contentStartY + 54.0f && y <= contentStartY + 76.0f) {
+                // Bank 0: [ 1: CONSOLES (1-5) ]
+                if (x >= hubX + 76.0f && x <= hubX + 196.0f) {
+                    res.action = ProjectHubAction::SelectThemeBank;
+                    res.themeBank = 0;
+                    return res;
+                }
+                // Bank 1: [ 2: SYNTAX (6-10) ]
+                if (x >= hubX + 202.0f && x <= hubX + 328.0f) {
+                    res.action = ProjectHubAction::SelectThemeBank;
+                    res.themeBank = 1;
+                    return res;
+                }
+                // Browse button: [ + BROWSE ALL (10) ]
+                float browseBtnW = 124.0f;
+                float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
+                if (x >= browseBtnX && x <= browseBtnX + browseBtnW) {
+                    res.action = ProjectHubAction::OpenThemeBrowser;
+                    return res;
+                }
             }
 
-            if (y >= contentStartY + 68.0f && y <= contentStartY + 94.0f) {
+            // 4. Theme Preset Chips [contentStartY + 78.0f .. contentStartY + 104.0f]
+            if (y >= contentStartY + 78.0f && y <= contentStartY + 104.0f) {
+                int curBank = getThemeBank();
                 for (int th = 0; th < 5; ++th) {
                     float tx = hubX + 24.0f + th * 95.0f;
                     if (x >= tx && x <= tx + 88.0f) {
                         res.action = ProjectHubAction::SelectTheme;
-                        res.themeIndex = th;
+                        res.themeIndex = (curBank == 1) ? (5 + th) : th;
                         return res;
                     }
                 }
@@ -12166,6 +12230,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::SelectTheme:
                         setActiveThemePreset(hubHit.themeIndex);
                         setStatusMessage("Theme: " + getTheme().name);
+                        break;
+                    case ProjectHubAction::SelectThemeBank:
+                        setThemeBank(hubHit.themeBank);
                         break;
                     case ProjectHubAction::OpenThemeBrowser:
                         openThemeBrowserDialog();
