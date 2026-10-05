@@ -732,6 +732,105 @@ void testDesignView() {
     std::cout << "  [PASS] DesignView validated." << std::endl;
 }
 
+void testDesignViewProjectSync() {
+    std::cout << "[Test 6b] DesignView Live Project & FX Synchronization..." << std::endl;
+
+    ArrangerView arranger;
+    const auto& initialTracks = arranger.getTracks();
+    assert(initialTracks.size() >= 2);
+
+    DesignView design;
+    // 1. Synchronize DesignView with Arranger tracks
+    design.syncWithProject(initialTracks);
+    const auto& targets = design.getAllTargets();
+    assert(!targets.empty());
+
+    // Verify track instruments exist in targets
+    size_t trackDspCount = 0;
+    size_t audioFxCount = 0;
+    size_t midiFxCount = 0;
+    size_t clipScriptCount = 0;
+    for (const auto& t : targets) {
+        if (t.type == ScriptTargetType::TrackDsp) trackDspCount++;
+        else if (t.type == ScriptTargetType::AudioFx) audioFxCount++;
+        else if (t.type == ScriptTargetType::MidiFx) midiFxCount++;
+        else if (t.type == ScriptTargetType::ClipScript) clipScriptCount++;
+    }
+    assert(trackDspCount == initialTracks.size());
+    assert(audioFxCount >= 1);
+    assert(midiFxCount >= 1);
+    assert(clipScriptCount >= 2);
+
+    // 2. Test selecting instrument target on Track 0 (303)
+    design.selectTargetByTrackAndType(0, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().type == ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == 0);
+    assert(design.getScriptCode().find("303") != std::string::npos);
+
+    // 3. Test selecting Audio FX on Track 0 (Tube Distortion)
+    design.selectTargetByTrackAndType(0, ScriptTargetType::AudioFx, 0);
+    assert(design.getActiveTarget().type == ScriptTargetType::AudioFx);
+    assert(design.getActiveTarget().trackIndex == 0);
+    assert(design.getActiveTarget().title.find("Tube Distortion") != std::string::npos);
+    assert(design.getScriptCode().find("Drive") != std::string::npos);
+
+    // 4. Test selecting MIDI FX on Track 0 (Scale Snap)
+    design.selectTargetByTrackAndType(0, ScriptTargetType::MidiFx, 0);
+    assert(design.getActiveTarget().type == ScriptTargetType::MidiFx);
+    assert(design.getActiveTarget().trackIndex == 0);
+    assert(design.getActiveTarget().title.find("Scale Snap") != std::string::npos);
+    assert(design.getScriptCode().find("RootKey") != std::string::npos);
+
+    // 5. Test dynamic project modification: insert Bitcrusher onto Track 1
+    TrackAudioFxItem crushFx("8-Bit Crusher", "BITCRUSHER", 0.5f, 0.8f, true);
+    arranger.getTracks()[1].audioFx.push_back(crushFx);
+    design.syncWithProject(arranger.getTracks());
+
+    // Verify newly added FX is selectable by trackIndex and fxIndex
+    design.selectTargetByTrackAndType(1, ScriptTargetType::AudioFx, static_cast<int>(arranger.getTracks()[1].audioFx.size() - 1));
+    assert(design.getActiveTarget().type == ScriptTargetType::AudioFx);
+    assert(design.getActiveTarget().trackIndex == 1);
+    assert(design.getActiveTarget().title.find("Crusher") != std::string::npos);
+    assert(design.getScriptCode().find("Bits") != std::string::npos);
+
+    // 6. Test code edit persistence across target switching
+    std::string modifiedCode = "# --- User Custom DSP Code Modification ---\ndef process():\n    return 0.42\n";
+    design.setScriptCode(modifiedCode);
+    assert(design.getScriptCode() == modifiedCode);
+
+    // Switch to Track 0 Instrument
+    design.selectTargetByTrackAndType(0, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == 0);
+    assert(design.getScriptCode().find("303") != std::string::npos);
+
+    // Switch back to Track 1 Bitcrusher - code modifications must be preserved!
+    design.selectTargetByTrackAndType(1, ScriptTargetType::AudioFx, static_cast<int>(arranger.getTracks()[1].audioFx.size() - 1));
+    assert(design.getScriptCode() == modifiedCode);
+
+    // 7. Test dynamic track addition
+    size_t prevTargetCount = design.getAllTargets().size();
+    arranger.addTrack("Synth Lead", "Yamaha DX7", 0.8f, 0.2f, 0.5f);
+    design.syncWithProject(arranger.getTracks());
+    assert(design.getAllTargets().size() > prevTargetCount);
+
+    int newTrkIdx = static_cast<int>(arranger.getTracks().size() - 1);
+    design.selectTargetByTrackAndType(newTrkIdx, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == newTrkIdx);
+    assert(design.getActiveTarget().title.find("Synth Lead") != std::string::npos);
+
+    // 8. Test layout & render with dynamically synced targets
+    const ThemeTokens& theme = Theme::current();
+    BatchRenderer2D renderer;
+    ViewContext ctx;
+    ctx.renderer = &renderer;
+    ctx.theme = &theme;
+    ctx.isMobile = false;
+    design.layout(Rect2D{0.0f, 56.0f, 1280.0f, 700.0f}, ctx);
+    design.render(ctx);
+
+    std::cout << "  [PASS] DesignView Live Project & FX Synchronization validated." << std::endl;
+}
+
 void testVirtualKeyboardDrawer() {
     std::cout << "[Test 7/13] VirtualKeyboardDrawer & Dual-Mode Instrument Auditioning..." << std::endl;
 
@@ -2718,6 +2817,7 @@ int main() {
     testTrackInspectorView();
     testMixerView();
     testDesignView();
+    testDesignViewProjectSync();
     testVirtualKeyboardDrawer();
     testDrumPadGridWidget();
     testProjectBrowserDrawer();
@@ -2736,7 +2836,7 @@ int main() {
     testClipActionsAndHistoryRestoration();
     testTrackAudioFxPresetBindingAndDefaults();
 
-    std::cout << "\n>>> ALL 23 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 24 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

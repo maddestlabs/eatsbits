@@ -2863,6 +2863,7 @@ void GuiWindow::addTrackToProject(const std::string& name, const std::string& in
     if (modularArrangerView_) {
         modularArrangerView_->addTrack(trkName, eng, r, g, b);
     }
+    syncDesignViewToProject();
 
     setSelectedTrackIndex(newIdx);
     recordProjectHistory("Add Track " + std::to_string(newIdx + 1), "TRACK");
@@ -2900,6 +2901,7 @@ void GuiWindow::deleteTrack(uint32_t trackIdx) {
     }
     setSelectedTrackIndex(selectedTrackIndex_);
     syncArrangerToSequencer();
+    syncDesignViewToProject();
     recordProjectHistory("Delete Track " + std::to_string(trackIdx + 1), "TRACK");
     setStatusMessage("Deleted Track: " + deletedName);
 }
@@ -2927,6 +2929,7 @@ void GuiWindow::duplicateTrack(uint32_t trackIdx) {
         modularArrangerView_->setActiveTrack(newTrackIdx);
         modularArrangerView_->setSelectedClip(-1);
     }
+    syncDesignViewToProject();
 
     setSelectedTrackIndex(newTrackIdx);
     recordProjectHistory("Duplicate Track " + std::to_string(trackIdx + 1), "TRACK");
@@ -3710,10 +3713,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     if (engine_) {
         terminalConsoleDrawerWidget_->bindAudioEngine(engine_);
     }
+    syncDesignViewToProject();
 
     bottomNavBarWidget_->onTabSelected = [this](int tabIdx) {
         if (tabIdx >= 0 && tabIdx <= 4) {
-            activeView_ = static_cast<WorkspaceView>(tabIdx);
+            setActiveView(static_cast<WorkspaceView>(tabIdx));
         }
     };
     transportHeaderWidget_->onToggleProjectHub = [this]() { toggleProjectHub(); };
@@ -3779,6 +3783,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         }
         modularArrangerView_->getTracks()[selectedTrackIndex_].audioFx.push_back(std::move(fxItem));
         syncTrackAudioFxToEngine(selectedTrackIndex_);
+        syncDesignViewToProject();
         recordProjectHistory("Add Audio FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "AUDIO_FX");
         setStatusMessage("Added Audio FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
     };
@@ -3795,6 +3800,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         mfxItem.id = fxId;
         modularArrangerView_->getTracks()[selectedTrackIndex_].midiFx.push_back(std::move(mfxItem));
         syncTrackMidiFxToEngine(selectedTrackIndex_);
+        syncDesignViewToProject();
         recordProjectHistory("Add MIDI FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "MIDI_FX");
         setStatusMessage("Added MIDI FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
     };
@@ -3969,6 +3975,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
                 modularArrangerView_->getTracks()[trackIndex].audioFx.push_back(std::move(fxItem));
                 syncTrackAudioFxToEngine(trackIndex);
+                syncDesignViewToProject();
                 recordProjectHistory("Add Audio FX " + entry.name + " to Track " + std::to_string(trackIndex + 1), "AUDIO_FX");
             }
             setStatusMessage("Added Audio FX: " + entry.name);
@@ -3976,6 +3983,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (modularArrangerView_ && trackIndex < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[trackIndex].midiFx.push_back({entry.name, entry.engineTag, 0, 0, true});
                 syncTrackMidiFxToEngine(trackIndex);
+                syncDesignViewToProject();
                 recordProjectHistory("Add MIDI FX " + entry.name + " to Track " + std::to_string(trackIndex + 1), "MIDI_FX");
             }
             setStatusMessage("Added MIDI FX: " + entry.name);
@@ -4530,9 +4538,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (modularDesignView_) {
             const auto& tgt = fullscreenDeviceModal_.getTarget();
             if (tgt.type == DeviceTargetType::AudioFx) {
-                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::AudioFx);
+                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::AudioFx, tgt.fxIndex);
             } else if (tgt.type == DeviceTargetType::MidiFx) {
-                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::MidiFx);
+                modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::MidiFx, tgt.fxIndex);
             } else if (tgt.type == DeviceTargetType::Instrument) {
                 modularDesignView_->selectTargetByTrackAndType(static_cast<int>(tgt.trackIndex), ScriptTargetType::TrackDsp);
             }
@@ -9196,9 +9204,23 @@ void GuiWindow::setEditSubView(EditSubView subView) noexcept {
     }
 }
 
+void GuiWindow::setActiveView(WorkspaceView view) noexcept {
+    activeView_ = view;
+    if (view == WorkspaceView::Design) {
+        syncDesignViewToProject();
+    }
+}
+
+void GuiWindow::syncDesignViewToProject() noexcept {
+    if (modularDesignView_ && modularArrangerView_) {
+        modularDesignView_->syncWithProject(modularArrangerView_->getTracks());
+    }
+}
+
 void GuiWindow::setDesignSubView(DesignSubView subView) {
     designSubView_ = subView;
     if (modularDesignView_) {
+        syncDesignViewToProject();
         if (subView == DesignSubView::ModularRack) {
             modularDesignView_->setSubMode(DesignSubMode::ModularRack);
         } else if (subView == DesignSubView::Eatscript) {

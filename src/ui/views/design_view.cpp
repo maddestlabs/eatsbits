@@ -73,26 +73,26 @@ void DesignView::initDefaultTargetsAndCode() {
     allTargets_.clear();
 
     // 1. Synths & DSP (4 tracks)
-    allTargets_.push_back({"eats_kick", "Eats Kick (Synth DSP)", "Procedural Sub Kick Drum", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.55f, 0.0f}, 0, -1});
-    allTargets_.push_back({"eats_snare", "Eats Snare (Synth DSP)", "Analog Filtered Noise Snare", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.85f, 0.0f}, 1, -1});
-    allTargets_.push_back({"eats_hats", "Eats Hats (Synth DSP)", "Metallic Phase Hi-Hat", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.13f, 0.96f, 0.91f}, 2, -1});
-    allTargets_.push_back({"eats_303", "Eats-303 (Synth DSP)", "Acid Diode Ladder Synth", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.2f, 1.0f, 0.45f}, 3, -1});
+    allTargets_.push_back({"eats_kick", "Eats Kick (Synth DSP)", "Procedural Sub Kick Drum", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.55f, 0.0f}, 0, -1, -1});
+    allTargets_.push_back({"eats_snare", "Eats Snare (Synth DSP)", "Analog Filtered Noise Snare", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.85f, 0.0f}, 1, -1, -1});
+    allTargets_.push_back({"eats_hats", "Eats Hats (Synth DSP)", "Metallic Phase Hi-Hat", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.13f, 0.96f, 0.91f}, 2, -1, -1});
+    allTargets_.push_back({"eats_303", "Eats-303 (Synth DSP)", "Acid Diode Ladder Synth", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.2f, 1.0f, 0.45f}, 3, -1, -1});
 
     // 2. Audio FX Inserts (3 tracks)
-    allTargets_.push_back({"fx_kick_dist", "TubeDistortion (Eats Kick)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {1.0f, 0.55f, 0.0f}, 0, -1});
-    allTargets_.push_back({"fx_snare_dist", "TubeDistortion (Eats Snare)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {1.0f, 0.85f, 0.0f}, 1, -1});
-    allTargets_.push_back({"fx_303_dist", "TubeDistortion (Eats-303)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {0.2f, 1.0f, 0.45f}, 3, -1});
+    allTargets_.push_back({"fx_kick_dist", "TubeDistortion (Eats Kick)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {1.0f, 0.55f, 0.0f}, 0, -1, 0});
+    allTargets_.push_back({"fx_snare_dist", "TubeDistortion (Eats Snare)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {1.0f, 0.85f, 0.0f}, 1, -1, 0});
+    allTargets_.push_back({"fx_303_dist", "TubeDistortion (Eats-303)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {0.2f, 1.0f, 0.45f}, 3, -1, 0});
 
     // 2b. MIDI FX Processors
-    allTargets_.push_back({"mfx_scale_snap", "ScaleSnap (C Natural Minor)", "Quantize Pitch to Active Key", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {1.0f, 0.55f, 0.0f}, 0, -1});
-    allTargets_.push_back({"mfx_arpeggiator", "Arpeggiator (16th UpDown)", "Algorithmic Pattern Generator", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.13f, 0.96f, 0.91f}, 1, -1});
-    allTargets_.push_back({"mfx_chord_follow", "Chord Follower (Triad Lock)", "Harmonic Progression Tracking", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.2f, 1.0f, 0.45f}, 3, -1});
+    allTargets_.push_back({"mfx_scale_snap", "ScaleSnap (C Natural Minor)", "Quantize Pitch to Active Key", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {1.0f, 0.55f, 0.0f}, 0, -1, 0});
+    allTargets_.push_back({"mfx_arpeggiator", "Arpeggiator (16th UpDown)", "Algorithmic Pattern Generator", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.13f, 0.96f, 0.91f}, 1, -1, 0});
+    allTargets_.push_back({"mfx_chord_follow", "Chord Follower (Triad Lock)", "Harmonic Progression Tracking", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.2f, 1.0f, 0.45f}, 3, -1, 0});
 
     // 3. Generative Clip Scripts (4 tracks)
-    allTargets_.push_back({"clip_kick", "Kick Rest A (Eats Kick)", "Dynamic Four-on-the-Floor", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.55f, 0.0f}, 0, 0});
-    allTargets_.push_back({"clip_snare", "Snare Pattern (Eats Snare)", "Backbeat 2 & 4 with Ghosts", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.85f, 0.0f}, 1, 0});
-    allTargets_.push_back({"clip_hats", "Hi-Hat Groove (Eats Hats)", "16th-Note Swing Groove", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.13f, 0.96f, 0.91f}, 2, 0});
-    allTargets_.push_back({"clip_303", "Acid 303 Riff (Eats-303)", "16-Step Hypnotic Ostinato", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.2f, 1.0f, 0.45f}, 3, 0});
+    allTargets_.push_back({"clip_kick", "Kick Rest A (Eats Kick)", "Dynamic Four-on-the-Floor", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.55f, 0.0f}, 0, 0, -1});
+    allTargets_.push_back({"clip_snare", "Snare Pattern (Eats Snare)", "Backbeat 2 & 4 with Ghosts", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.85f, 0.0f}, 1, 0, -1});
+    allTargets_.push_back({"clip_hats", "Hi-Hat Groove (Eats Hats)", "16th-Note Swing Groove", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.13f, 0.96f, 0.91f}, 2, 0, -1});
+    allTargets_.push_back({"clip_303", "Acid 303 Riff (Eats-303)", "16-Step Hypnotic Ostinato", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.2f, 1.0f, 0.45f}, 3, 0, -1});
 
     // 4. Built-in Preset Library Reference
     auto builtins = project::PresetLoader::getBuiltinPresets();
@@ -100,10 +100,110 @@ void DesignView::initDefaultTargetsAndCode() {
         allTargets_.push_back({bp.metadata.id, bp.metadata.name, bp.metadata.category, ScriptTargetType::BuiltinPreset,
                               bp.metadata.category == "instrument" ? "INSTRUMENT" : "AUDIO FX",
                               bp.metadata.category == "instrument" ? Color{0.0f, 0.95f, 1.0f} : Color{1.0f, 0.16f, 0.55f},
-                              Color{0.7f, 0.75f, 0.85f}, -1, -1});
+                              Color{0.7f, 0.75f, 0.85f}, -1, -1, -1});
     }
 
     activeTargetIndex_ = 0;
+    updateActiveTargetCodeAndParams();
+}
+
+void DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks) {
+    std::string prevSelectedId = (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size()))
+                                     ? allTargets_[activeTargetIndex_].id : "";
+    int prevTrack = (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size()))
+                        ? allTargets_[activeTargetIndex_].trackIndex : -1;
+    ScriptTargetType prevType = (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size()))
+                                    ? allTargets_[activeTargetIndex_].type : ScriptTargetType::TrackDsp;
+    int prevFx = (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size()))
+                     ? allTargets_[activeTargetIndex_].fxIndex : -1;
+
+    cachedTracks_ = tracks;
+    if (cachedTracks_.empty()) {
+        initDefaultTargetsAndCode();
+        return;
+    }
+
+    allTargets_.clear();
+
+    // 1. Synths & DSP (Active tracks)
+    for (size_t t = 0; t < cachedTracks_.size(); ++t) {
+        const auto& trk = cachedTracks_[t];
+        std::string engName = trk.instrument.empty() ? (trk.instrumentEngine.empty() ? "Synth DSP" : trk.instrumentEngine) : trk.instrument;
+        std::string sub = trk.instrumentEngine.empty() ? "Procedural Synthesizer" : (trk.instrumentEngine + " DSP Engine");
+        std::string id = "track_" + std::to_string(t) + "_dsp";
+        Color trkCol{trk.r, trk.g, trk.b};
+        allTargets_.push_back({id, trk.name + " (" + engName + ")", sub, ScriptTargetType::TrackDsp,
+                               "SYNTH DSP", Color{0.0f, 0.95f, 1.0f}, trkCol, static_cast<int>(t), -1, -1});
+    }
+
+    // 2. Audio FX Inserts
+    for (size_t t = 0; t < cachedTracks_.size(); ++t) {
+        const auto& trk = cachedTracks_[t];
+        Color trkCol{trk.r, trk.g, trk.b};
+        for (size_t f = 0; f < trk.audioFx.size(); ++f) {
+            const auto& afx = trk.audioFx[f];
+            std::string id = "track_" + std::to_string(t) + "_afx_" + std::to_string(f);
+            std::string sub = afx.type.empty() ? "Audio FX Insert" : (afx.type + " Insert");
+            allTargets_.push_back({id, afx.name + " (" + trk.name + ")", sub, ScriptTargetType::AudioFx,
+                                   "AUDIO FX", Color{1.0f, 0.16f, 0.55f}, trkCol, static_cast<int>(t), -1, static_cast<int>(f)});
+        }
+    }
+
+    // 3. Track MIDI FX Processors
+    for (size_t t = 0; t < cachedTracks_.size(); ++t) {
+        const auto& trk = cachedTracks_[t];
+        Color trkCol{trk.r, trk.g, trk.b};
+        for (size_t m = 0; m < trk.midiFx.size(); ++m) {
+            const auto& mfx = trk.midiFx[m];
+            std::string id = "track_" + std::to_string(t) + "_mfx_" + std::to_string(m);
+            std::string sub = mfx.type.empty() ? "MIDI FX Processor" : (mfx.type + " Processor");
+            allTargets_.push_back({id, mfx.name + " (" + trk.name + ")", sub, ScriptTargetType::MidiFx,
+                                   "MIDI FX", Color{1.0f, 0.85f, 0.0f}, trkCol, static_cast<int>(t), -1, static_cast<int>(m)});
+        }
+    }
+
+    // 4. Clip Scripts
+    for (size_t t = 0; t < cachedTracks_.size(); ++t) {
+        const auto& trk = cachedTracks_[t];
+        Color trkCol{trk.r, trk.g, trk.b};
+        for (size_t c = 0; c < trk.clips.size(); ++c) {
+            const auto& clp = trk.clips[c];
+            std::string id = "track_" + std::to_string(t) + "_clip_" + std::to_string(c);
+            std::string sub = "Bar " + std::to_string(clp.startBar) + " (" + std::to_string(clp.lengthBars) + " bars)";
+            allTargets_.push_back({id, clp.name + " (" + trk.name + ")", sub, ScriptTargetType::ClipScript,
+                                   "CLIP SCRIPT", Color{0.0f, 1.0f, 0.62f}, trkCol, static_cast<int>(t), static_cast<int>(c), -1});
+        }
+    }
+
+    // 5. Built-in Preset Library Reference
+    auto builtins = project::PresetLoader::getBuiltinPresets();
+    for (const auto& bp : builtins) {
+        allTargets_.push_back({bp.metadata.id, bp.metadata.name, bp.metadata.category, ScriptTargetType::BuiltinPreset,
+                              bp.metadata.category == "instrument" ? "INSTRUMENT" : "AUDIO FX",
+                              bp.metadata.category == "instrument" ? Color{0.0f, 0.95f, 1.0f} : Color{1.0f, 0.16f, 0.55f},
+                              Color{0.7f, 0.75f, 0.85f}, -1, -1, -1});
+    }
+
+    // Restore selection or select best matching target
+    int targetToSelect = 0;
+    if (!prevSelectedId.empty()) {
+        for (size_t i = 0; i < allTargets_.size(); ++i) {
+            if (allTargets_[i].id == prevSelectedId) {
+                targetToSelect = static_cast<int>(i);
+                break;
+            }
+        }
+    } else if (prevTrack >= 0) {
+        for (size_t i = 0; i < allTargets_.size(); ++i) {
+            if (allTargets_[i].type == prevType && allTargets_[i].trackIndex == prevTrack &&
+                (prevFx < 0 || allTargets_[i].fxIndex == prevFx)) {
+                targetToSelect = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+
+    activeTargetIndex_ = targetToSelect;
     updateActiveTargetCodeAndParams();
 }
 
@@ -159,16 +259,53 @@ void DesignView::initDefaultGuiPanel() {
         r2.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "OUTPUT LEVEL", "Volume", GuiKnobStyle::Standard, 70.0f, 0.82f, 0.0f, 1.0f, "dB", {0.0f, 0.95f, 1.0f}});
         guiPanel_.rows.push_back(r2);
     } else if (activeT.type == ScriptTargetType::AudioFx) {
-        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
-        GuiRowDef r1;
-        r1.widgets.push_back({"w_drive", GuiWidgetType::Knob, "SATURATION DRIVE", "Drive", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.60f, 1.0f, 20.0f, "x", {1.0f, 0.16f, 0.55f}});
-        r1.widgets.push_back({"w_warmth", GuiWidgetType::Knob, "WARMTH HARMONICS", "Warmth", GuiKnobStyle::CreamFluted, 56.0f, 0.70f, 0.0f, 1.0f, "", {1.0f, 0.85f, 0.0f}});
-        guiPanel_.rows.push_back(r1);
+        std::string nameUpper = activeT.title + " " + activeT.subtitle;
+        for (char& c : nameUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
-        GuiRowDef r2;
-        r2.widgets.push_back({"w_mix", GuiWidgetType::Slider, "DRY / WET MIX", "Mix", GuiKnobStyle::Standard, 140.0f, 0.85f, 0.0f, 1.0f, "%", {0.0f, 0.95f, 1.0f}});
-        r2.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "DISTORTION PEAK", "Level", GuiKnobStyle::Standard, 60.0f, 0.75f, 0.0f, 1.0f, "dB", {1.0f, 0.16f, 0.55f}});
-        guiPanel_.rows.push_back(r2);
+        if (nameUpper.find("CRUSH") != std::string::npos || nameUpper.find("8-BIT") != std::string::npos || nameUpper.find("BITCRUSHER") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_bits", GuiWidgetType::Knob, "BIT DEPTH", "Bits", GuiKnobStyle::AnodizedKnurled, 56.0f, 0.5f, 1.0f, 16.0f, "bit", {0.13f, 0.96f, 0.91f}});
+            r1.widgets.push_back({"w_downsample", GuiWidgetType::Knob, "DOWNSAMPLE", "Downsample", GuiKnobStyle::CreamFluted, 56.0f, 0.2f, 1.0f, 32.0f, "x", {1.0f, 0.55f, 0.0f}});
+            r1.widgets.push_back({"w_drive", GuiWidgetType::Knob, "PRE-DRIVE", "Drive", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.25f, 0.5f, 4.0f, "x", {1.0f, 0.16f, 0.55f}});
+            r1.widgets.push_back({"w_mix", GuiWidgetType::Knob, "DRY / WET", "Mix", GuiKnobStyle::TwoToneStepped, 56.0f, 0.85f, 0.0f, 1.0f, "%", {0.0f, 0.95f, 1.0f}});
+            guiPanel_.rows.push_back(r1);
+        } else if (nameUpper.find("DELAY") != std::string::npos || nameUpper.find("ECHO") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::Silver;
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_time", GuiWidgetType::Knob, "DELAY TIME", "Time", GuiKnobStyle::CreamFluted, 56.0f, 0.375f, 10.0f, 1000.0f, "ms", {0.0f, 0.95f, 1.0f}});
+            r1.widgets.push_back({"w_fb", GuiWidgetType::Knob, "FEEDBACK", "Feedback", GuiKnobStyle::AnodizedKnurled, 56.0f, 0.45f, 0.0f, 0.95f, "%", {1.0f, 0.55f, 0.0f}});
+            r1.widgets.push_back({"w_damp", GuiWidgetType::Knob, "HIGH DAMP", "Damp", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.4f, 1000.0f, 20000.0f, "Hz", {1.0f, 0.85f, 0.0f}});
+            r1.widgets.push_back({"w_mix", GuiWidgetType::Knob, "WET MIX", "Mix", GuiKnobStyle::TwoToneStepped, 56.0f, 0.40f, 0.0f, 1.0f, "%", {1.0f, 0.16f, 0.55f}});
+            guiPanel_.rows.push_back(r1);
+        } else if (nameUpper.find("EQ") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_low", GuiWidgetType::Knob, "LOW GAIN", "LowGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {1.0f, 0.55f, 0.0f}});
+            r1.widgets.push_back({"w_mid", GuiWidgetType::Knob, "MID GAIN", "MidGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {1.0f, 0.85f, 0.0f}});
+            r1.widgets.push_back({"w_high", GuiWidgetType::Knob, "HIGH GAIN", "HighGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {0.13f, 0.96f, 0.91f}});
+            r1.widgets.push_back({"w_midf", GuiWidgetType::Knob, "MID FREQ", "MidFreq", GuiKnobStyle::Standard, 56.0f, 0.3f, 200.0f, 5000.0f, "Hz", {0.0f, 0.95f, 1.0f}});
+            guiPanel_.rows.push_back(r1);
+        } else if (nameUpper.find("LIMIT") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_ceil", GuiWidgetType::Knob, "CEILING", "Ceiling", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.99f, -12.0f, 0.0f, "dB", {1.0f, 0.16f, 0.55f}});
+            r1.widgets.push_back({"w_thresh", GuiWidgetType::Knob, "THRESHOLD", "Threshold", GuiKnobStyle::TwoToneStepped, 56.0f, 0.85f, -24.0f, 0.0f, "dB", {1.0f, 0.55f, 0.0f}});
+            r1.widgets.push_back({"w_rel", GuiWidgetType::Knob, "RELEASE", "Release", GuiKnobStyle::CreamFluted, 56.0f, 0.2f, 10.0f, 500.0f, "ms", {0.0f, 0.95f, 1.0f}});
+            r1.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "GAIN REDUCT", "GR", GuiKnobStyle::Standard, 60.0f, 0.2f, 0.0f, 1.0f, "dB", {1.0f, 0.85f, 0.0f}});
+            guiPanel_.rows.push_back(r1);
+        } else {
+            guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
+            GuiRowDef r1;
+            r1.widgets.push_back({"w_drive", GuiWidgetType::Knob, "SATURATION DRIVE", "Drive", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.60f, 1.0f, 20.0f, "x", {1.0f, 0.16f, 0.55f}});
+            r1.widgets.push_back({"w_warmth", GuiWidgetType::Knob, "WARMTH HARMONICS", "Warmth", GuiKnobStyle::CreamFluted, 56.0f, 0.70f, 0.0f, 1.0f, "", {1.0f, 0.85f, 0.0f}});
+            guiPanel_.rows.push_back(r1);
+
+            GuiRowDef r2;
+            r2.widgets.push_back({"w_mix", GuiWidgetType::Slider, "DRY / WET MIX", "Mix", GuiKnobStyle::Standard, 140.0f, 0.85f, 0.0f, 1.0f, "%", {0.0f, 0.95f, 1.0f}});
+            r2.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "DISTORTION PEAK", "Level", GuiKnobStyle::Standard, 60.0f, 0.75f, 0.0f, 1.0f, "dB", {1.0f, 0.16f, 0.55f}});
+            guiPanel_.rows.push_back(r2);
+        }
     } else {
         guiPanel_.chassisStyle = GuiChassisStyle::Silver;
         GuiRowDef r1;
@@ -180,6 +317,18 @@ void DesignView::initDefaultGuiPanel() {
         }
         if (!r1.widgets.empty()) {
             guiPanel_.rows.push_back(r1);
+        }
+        if (currentParams_.size() > 4) {
+            GuiRowDef r2;
+            for (size_t i = 4; i < currentParams_.size() && i < 8; ++i) {
+                r2.widgets.push_back({"w_" + std::to_string(i), GuiWidgetType::Knob, currentParams_[i].name, currentParams_[i].name,
+                                      static_cast<GuiKnobStyle>(i % 5), 56.0f, currentParams_[i].currentVal,
+                                      currentParams_[i].minVal, currentParams_[i].maxVal, currentParams_[i].unit,
+                                      activeT.badgeColor});
+            }
+            if (!r2.widgets.empty()) {
+                guiPanel_.rows.push_back(r2);
+            }
         }
     }
 
@@ -325,6 +474,26 @@ void DesignView::updateActiveTargetCodeAndParams() {
     const auto& t = allTargets_[activeTargetIndex_];
     currentParams_.clear();
 
+    std::string engKey = t.id + " " + t.title + " " + t.subtitle;
+    if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
+        const auto& trk = cachedTracks_[t.trackIndex];
+        engKey += " " + trk.instrument + " " + trk.instrumentEngine;
+    }
+    for (auto& c : engKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    // Check if user or session already has cached/edited script code
+    auto itCode = targetCodeMap_.find(t.id);
+    if (itCode != targetCodeMap_.end()) {
+        currentScriptCode_ = itCode->second;
+        auto itParams = targetParamsMap_.find(t.id);
+        if (itParams != targetParamsMap_.end()) {
+            currentParams_ = itParams->second;
+        }
+        setScriptCode(currentScriptCode_);
+        initDefaultGuiPanel();
+        return;
+    }
+
     if (t.id == "eats_kick") {
         currentScriptCode_ =
             "# --- Procedural Sub Kick Drum (Eatscript) ---\n"
@@ -398,7 +567,7 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Metallic", 0.1f, 1.0f, 0.75f, 0.80f, ""},
             {"Pitch", 4000.0f, 12000.0f, 8500.0f, 8600.0f, "Hz"}
         };
-    } else if (t.id == "eats_303") {
+    } else if (engKey.find("303") != std::string::npos || t.id == "eats_303") {
         currentScriptCode_ =
             "# --- TB-303 Acid Bassline Synthesizer (Eatscript) ---\n"
             "import math\n\n"
@@ -407,7 +576,8 @@ void DesignView::updateActiveTargetCodeAndParams() {
             "    eat.param(\"Resonance\", min=0.1, max=0.98, default=0.78)\n"
             "    eat.param(\"EnvMod\", min=0.0, max=1.0, default=0.65)\n"
             "    eat.param(\"Decay\", min=0.05, max=1.5, default=0.45)\n"
-            "    eat.param(\"Accent\", min=0.0, max=1.0, default=0.70)\n\n"
+            "    eat.param(\"Accent\", min=0.0, max=1.0, default=0.70)\n"
+            "    eat.param(\"Drive\", min=0.0, max=1.0, default=0.25)\n\n"
             "def process(time, freq, note, params):\n"
             "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n"
             "    cutoff = params.get(\"Cutoff\", 850.0)\n"
@@ -419,49 +589,303 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Resonance", 0.1f, 0.98f, 0.78f, 0.85f, ""},
             {"EnvMod", 0.0f, 1.0f, 0.65f, 0.60f, ""},
             {"Decay", 0.05f, 1.5f, 0.45f, 0.45f, "s"},
-            {"Accent", 0.0f, 1.0f, 0.70f, 0.75f, ""}
+            {"Accent", 0.0f, 1.0f, 0.70f, 0.75f, ""},
+            {"Drive", 0.0f, 1.0f, 0.25f, 0.25f, ""}
+        };
+    } else if (engKey.find("dx7") != std::string::npos || engKey.find("fm") != std::string::npos) {
+        currentScriptCode_ =
+            "# --- Yamaha DX7 6-Operator FM Synthesizer (Eatscript) ---\n"
+            "def init():\n"
+            "    eat.param(\"Algorithm\", min=1.0, max=32.0, default=5.0)\n"
+            "    eat.param(\"Feedback\", min=0.0, max=7.0, default=6.0)\n"
+            "    eat.param(\"Brightness\", min=0.0, max=2.0, default=1.0)\n"
+            "    eat.param(\"TineBell\", min=0.0, max=2.0, default=0.85)\n"
+            "    eat.param(\"BodyWarmth\", min=0.0, max=2.0, default=1.0)\n\n"
+            "def process(time, freq, note, params):\n"
+            "    return dx7_voice(time, freq, note, params)\n";
+
+        currentParams_ = {
+            {"Algorithm", 1.0f, 32.0f, 5.0f, 5.0f, ""},
+            {"Feedback", 0.0f, 7.0f, 6.0f, 6.0f, ""},
+            {"Brightness", 0.0f, 2.0f, 1.0f, 1.0f, ""},
+            {"TineBell", 0.0f, 2.0f, 0.85f, 0.85f, ""},
+            {"BodyWarmth", 0.0f, 2.0f, 1.0f, 1.0f, ""}
+        };
+    } else if (engKey.find("sid") != std::string::npos || engKey.find("c64") != std::string::npos) {
+        currentScriptCode_ =
+            "# --- MOS 6581/8580 SID Chip Voice (Eatscript) ---\n"
+            "def init():\n"
+            "    eat.param(\"Waveform\", min=0.0, max=3.0, default=0.0)\n"
+            "    eat.param(\"Cutoff\", min=30.0, max=12000.0, default=1200.0)\n"
+            "    eat.param(\"Resonance\", min=0.0, max=15.0, default=9.0)\n"
+            "    eat.param(\"Overdrive\", min=1.0, max=4.0, default=1.2)\n\n"
+            "def process(time, freq, note, params):\n"
+            "    return sid_voice(time, freq, note, params)\n";
+
+        currentParams_ = {
+            {"Waveform", 0.0f, 3.0f, 0.0f, 0.0f, ""},
+            {"Cutoff", 30.0f, 12000.0f, 1200.0f, 1200.0f, "Hz"},
+            {"Resonance", 0.0f, 15.0f, 9.0f, 9.0f, ""},
+            {"Overdrive", 1.0f, 4.0f, 1.2f, 1.2f, "x"}
+        };
+    } else if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
+        const auto& trk = cachedTracks_[t.trackIndex];
+        std::string k1 = trk.knob1Name.empty() ? "Tone" : trk.knob1Name;
+        std::string k2 = trk.knob2Name.empty() ? "Snappy" : trk.knob2Name;
+        std::string k3 = trk.knob3Name.empty() ? "Decay" : trk.knob3Name;
+        std::string k4 = trk.knob4Name.empty() ? "Var" : trk.knob4Name;
+
+        std::ostringstream ss;
+        ss << "# --- Procedural Synthesizer Engine (Eatscript) ---\n";
+        ss << "# Track: " << trk.name << " (" << (trk.instrument.empty() ? "Synth DSP" : trk.instrument) << ")\n";
+        ss << "import math\n\n";
+        ss << "def init():\n";
+        ss << "    eat.param(\"" << k1 << "\", min=0.0, max=1.0, default=" << trk.knob1 << ")\n";
+        ss << "    eat.param(\"" << k2 << "\", min=0.0, max=1.0, default=" << trk.knob2 << ")\n";
+        ss << "    eat.param(\"" << k3 << "\", min=0.0, max=1.0, default=" << trk.knob3 << ")\n";
+        ss << "    eat.param(\"" << k4 << "\", min=0.0, max=1.0, default=" << trk.knob4 << ")\n\n";
+        ss << "def process(time, freq, note, params):\n";
+        ss << "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n";
+        ss << "    return saw * params.get(\"" << k1 << "\", 0.5)\n";
+        currentScriptCode_ = ss.str();
+
+        currentParams_ = {
+            {k1, 0.0f, 1.0f, trk.knob1, trk.knob1, ""},
+            {k2, 0.0f, 1.0f, trk.knob2, trk.knob2, ""},
+            {k3, 0.0f, 1.0f, trk.knob3, trk.knob3, ""},
+            {k4, 0.0f, 1.0f, trk.knob4, trk.knob4, ""}
         };
     } else if (t.type == ScriptTargetType::AudioFx) {
+        std::string afxKey = t.id + " " + t.title + " " + t.subtitle;
+        if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size()) &&
+            t.fxIndex >= 0 && t.fxIndex < static_cast<int>(cachedTracks_[t.trackIndex].audioFx.size())) {
+            const auto& afx = cachedTracks_[t.trackIndex].audioFx[t.fxIndex];
+            afxKey += " " + afx.type + " " + afx.name;
+        }
+        for (char& c : afxKey) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        if (afxKey.find("CRUSH") != std::string::npos || afxKey.find("8-BIT") != std::string::npos || afxKey.find("BITCRUSHER") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- 8-Bit Digital Bitcrusher & Sample Reducer (Eatscript FX) ---\n"
+                "import math\n\n"
+                "def init():\n"
+                "    eat.param(\"Bits\", min=1.0, max=16.0, default=8.0)\n"
+                "    eat.param(\"Downsample\", min=1.0, max=32.0, default=4.0)\n"
+                "    eat.param(\"Drive\", min=0.5, max=4.0, default=1.0)\n"
+                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    bits = params.get(\"Bits\", 8.0)\n"
+                "    crush = params.get(\"Downsample\", 4.0)\n"
+                "    mix = params.get(\"Mix\", 0.85)\n"
+                "    levels = math.pow(2.0, bits)\n"
+                "    out_l = math.floor(in_l * levels) / levels\n"
+                "    out_r = math.floor(in_r * levels) / levels\n"
+                "    return [out_l * mix + in_l * (1.0 - mix), out_r * mix + in_r * (1.0 - mix)]\n";
+
+            currentParams_ = {
+                {"Bits", 1.0f, 16.0f, 8.0f, 8.0f, "bit"},
+                {"Downsample", 1.0f, 32.0f, 4.0f, 4.0f, "x"},
+                {"Drive", 0.5f, 4.0f, 1.0f, 1.0f, "x"},
+                {"Mix", 0.0f, 1.0f, 0.85f, 0.85f, "%"}
+            };
+        } else if (afxKey.find("DELAY") != std::string::npos || afxKey.find("ECHO") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- Digital Stereo Delay (Eatscript FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"Time\", min=10.0, max=1000.0, default=375.0) # ms\n"
+                "    eat.param(\"Feedback\", min=0.0, max=0.95, default=0.45)\n"
+                "    eat.param(\"Damp\", min=1000.0, max=20000.0, default=8000.0) # Hz\n"
+                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.40)\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    time_ms = params.get(\"Time\", 375.0)\n"
+                "    fb = params.get(\"Feedback\", 0.45)\n"
+                "    mix = params.get(\"Mix\", 0.40)\n"
+                "    return [in_l * (1.0 - mix) + in_l * mix, in_r * (1.0 - mix) + in_r * mix]\n";
+
+            currentParams_ = {
+                {"Time", 10.0f, 1000.0f, 375.0f, 375.0f, "ms"},
+                {"Feedback", 0.0f, 0.95f, 0.45f, 0.45f, "%"},
+                {"Damp", 1000.0f, 20000.0f, 8000.0f, 8000.0f, "Hz"},
+                {"Mix", 0.0f, 1.0f, 0.40f, 0.40f, "%"}
+            };
+        } else if (afxKey.find("EQ") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- 3-Band Parametric EQ (Eatscript FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"LowGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
+                "    eat.param(\"MidGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
+                "    eat.param(\"HighGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
+                "    eat.param(\"MidFreq\", min=200.0, max=5000.0, default=1000.0) # Hz\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    return [in_l, in_r]\n";
+
+            currentParams_ = {
+                {"LowGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
+                {"MidGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
+                {"HighGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
+                {"MidFreq", 200.0f, 5000.0f, 1000.0f, 1000.0f, "Hz"}
+            };
+        } else if (afxKey.find("LIMIT") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- Brickwall Studio Limiter (Eatscript FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"Ceiling\", min=-12.0, max=0.0, default=-0.1) # dB\n"
+                "    eat.param(\"Threshold\", min=-24.0, max=0.0, default=-3.0) # dB\n"
+                "    eat.param(\"Release\", min=10.0, max=500.0, default=100.0) # ms\n"
+                "    eat.param(\"Lookahead\", min=0.0, max=10.0, default=2.0) # ms\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    return [in_l, in_r]\n";
+
+            currentParams_ = {
+                {"Ceiling", -12.0f, 0.0f, -0.1f, -0.1f, "dB"},
+                {"Threshold", -24.0f, 0.0f, -3.0f, -3.0f, "dB"},
+                {"Release", 10.0f, 500.0f, 100.0f, 100.0f, "ms"},
+                {"Lookahead", 0.0f, 10.0f, 2.0f, 2.0f, "ms"}
+            };
+        } else if (afxKey.find("FILTER") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- State Variable Resonant Filter (Eatscript FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"Cutoff\", min=20.0, max=20000.0, default=1200.0) # Hz\n"
+                "    eat.param(\"Resonance\", min=0.1, max=0.98, default=0.65)\n"
+                "    eat.param(\"Drive\", min=1.0, max=10.0, default=1.0)\n"
+                "    eat.param(\"Mode\", min=0.0, max=2.0, default=0.0) # 0=LP, 1=BP, 2=HP\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    return [in_l, in_r]\n";
+
+            currentParams_ = {
+                {"Cutoff", 20.0f, 20000.0f, 1200.0f, 1200.0f, "Hz"},
+                {"Resonance", 0.1f, 0.98f, 0.65f, 0.65f, ""},
+                {"Drive", 1.0f, 10.0f, 1.0f, 1.0f, "x"},
+                {"Mode", 0.0f, 2.0f, 0.0f, 0.0f, ""}
+            };
+        } else {
+            currentScriptCode_ =
+                "# --- Warm Analog Tube Distortion (Eatscript FX) ---\n"
+                "import math\n\n"
+                "def init():\n"
+                "    eat.param(\"Drive\", min=1.0, max=20.0, default=4.5)\n"
+                "    eat.param(\"Warmth\", min=0.0, max=1.0, default=0.70)\n"
+                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    drive = params.get(\"Drive\", 4.5)\n"
+                "    mix = params.get(\"Mix\", 0.85)\n"
+                "    out_l = math.tanh(in_l * drive) * mix + in_l * (1.0 - mix)\n"
+                "    out_r = math.tanh(in_r * drive) * mix + in_r * (1.0 - mix)\n"
+                "    return [out_l, out_r]\n";
+
+            currentParams_ = {
+                {"Drive", 1.0f, 20.0f, 4.5f, 6.2f, "x"},
+                {"Warmth", 0.0f, 1.0f, 0.70f, 0.75f, ""},
+                {"Mix", 0.0f, 1.0f, 0.85f, 0.90f, "%"}
+            };
+        }
+    } else if (t.type == ScriptTargetType::MidiFx) {
+        std::string mfxKey = t.id + " " + t.title + " " + t.subtitle;
+        if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size()) &&
+            t.fxIndex >= 0 && t.fxIndex < static_cast<int>(cachedTracks_[t.trackIndex].midiFx.size())) {
+            const auto& mfx = cachedTracks_[t.trackIndex].midiFx[t.fxIndex];
+            mfxKey += " " + mfx.type + " " + mfx.name;
+        }
+        for (char& c : mfxKey) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        if (mfxKey.find("ARP") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- Algorithmic 16-Step Arpeggiator (Eatscript MIDI FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"Rate\", min=1.0, max=8.0, default=4.0) # 16th notes\n"
+                "    eat.param(\"Octaves\", min=1.0, max=4.0, default=2.0)\n"
+                "    eat.param(\"Gate\", min=0.1, max=1.0, default=0.75)\n"
+                "    eat.param(\"Pattern\", min=0.0, max=4.0, default=0.0)\n\n"
+                "def process_notes(notes, context):\n"
+                "    return notes\n";
+
+            currentParams_ = {
+                {"Rate", 1.0f, 8.0f, 4.0f, 4.0f, "st"},
+                {"Octaves", 1.0f, 4.0f, 2.0f, 2.0f, "oct"},
+                {"Gate", 0.1f, 1.0f, 0.75f, 0.75f, "%"},
+                {"Pattern", 0.0f, 4.0f, 0.0f, 0.0f, ""}
+            };
+        } else if (mfxKey.find("CHORD") != std::string::npos) {
+            currentScriptCode_ =
+                "# --- Harmonic Chord Follower & Voicing (Eatscript MIDI FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"FollowMode\", min=0.0, max=3.0, default=1.0)\n"
+                "    eat.param(\"Voicing\", min=0.0, max=3.0, default=0.0)\n"
+                "    eat.param(\"Inversion\", min=0.0, max=3.0, default=0.0)\n"
+                "    eat.param(\"VelocitySpread\", min=0.0, max=0.5, default=0.10)\n\n"
+                "def process_notes(notes, context):\n"
+                "    return notes\n";
+
+            currentParams_ = {
+                {"FollowMode", 0.0f, 3.0f, 1.0f, 1.0f, ""},
+                {"Voicing", 0.0f, 3.0f, 0.0f, 0.0f, ""},
+                {"Inversion", 0.0f, 3.0f, 0.0f, 0.0f, ""},
+                {"VelocitySpread", 0.0f, 0.5f, 0.10f, 0.10f, "%"}
+            };
+        } else {
+            currentScriptCode_ =
+                "# --- Real-Time MIDI Scale Quantizer (Eatscript MIDI FX) ---\n"
+                "# Transforms note pitch, velocity, and timing before voice trigger\n"
+                "def init():\n"
+                "    eat.param(\"RootKey\", min=0, max=11, default=0) # 0 = C\n"
+                "    eat.param(\"ScaleMode\", min=0, max=6, default=0) # 0 = Major, 1 = Minor\n"
+                "    eat.param(\"HumanizeVel\", min=0.0, max=0.5, default=0.15)\n\n"
+                "def process_notes(notes, context):\n"
+                "    out = []\n"
+                "    for n in notes:\n"
+                "        snapped = eat.snap_to_scale(n.pitch, root=0, minor=True)\n"
+                "        out.append(eat.Note(snapped, n.velocity, n.length))\n"
+                "    return out\n";
+
+            currentParams_ = {
+                {"RootKey", 0.0f, 11.0f, 0.0f, 0.0f, "st"},
+                {"ScaleMode", 0.0f, 6.0f, 0.0f, 0.0f, ""},
+                {"HumanizeVel", 0.0f, 0.50f, 0.15f, 0.20f, "%"},
+                {"Transpose", -24.0f, 24.0f, 0.0f, 0.0f, "st"}
+            };
+        }
+    } else if (t.type == ScriptTargetType::ClipScript) {
         currentScriptCode_ =
-            "# --- Warm Analog Tube Distortion (Eatscript FX) ---\n"
+            "# --- Dynamic Pattern Generator (Eatscript Clip) ---\n"
+            "# Generates rhythmic and harmonic variations on the timeline\n"
             "import math\n\n"
             "def init():\n"
-            "    eat.param(\"Drive\", min=1.0, max=20.0, default=4.5)\n"
-            "    eat.param(\"Warmth\", min=0.0, max=1.0, default=0.70)\n"
-            "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
-            "def process(in_l, in_r, params):\n"
-            "    drive = params.get(\"Drive\", 4.5)\n"
-            "    mix = params.get(\"Mix\", 0.85)\n"
-            "    out_l = math.tanh(in_l * drive) * mix + in_l * (1.0 - mix)\n"
-            "    out_r = math.tanh(in_r * drive) * mix + in_r * (1.0 - mix)\n"
-            "    return [out_l, out_r]\n";
+            "    eat.param(\"Density\", min=0.1, max=1.0, default=0.75)\n"
+            "    eat.param(\"Swing\", min=0.0, max=0.75, default=0.15)\n"
+            "    eat.param(\"HumanizeVel\", min=0.0, max=0.4, default=0.10)\n"
+            "    eat.param(\"OctaveSpread\", min=0.0, max=2.0, default=1.0)\n\n"
+            "def generate(bars, step):\n"
+            "    return []\n";
 
         currentParams_ = {
-            {"Drive", 1.0f, 20.0f, 4.5f, 6.2f, "x"},
-            {"Warmth", 0.0f, 1.0f, 0.70f, 0.75f, ""},
-            {"Mix", 0.0f, 1.0f, 0.85f, 0.90f, "%"}
+            {"Density", 0.1f, 1.0f, 0.75f, 0.75f, ""},
+            {"Swing", 0.0f, 0.75f, 0.15f, 0.15f, "%"},
+            {"HumanizeVel", 0.0f, 0.4f, 0.10f, 0.10f, "%"},
+            {"OctaveSpread", 0.0f, 2.0f, 1.0f, 1.0f, "oct"}
         };
-    } else if (t.type == ScriptTargetType::MidiFx) {
-        currentScriptCode_ =
-            "# --- Real-Time MIDI FX Pipeline (Eatscript) ---\n"
-            "# Transforms note pitch, velocity, and timing before voice trigger\n"
-            "def init():\n"
-            "    eat.param(\"RootKey\", min=0, max=11, default=0) # 0 = C\n"
-            "    eat.param(\"ScaleMode\", min=0, max=6, default=0) # 0 = Major, 1 = Minor\n"
-            "    eat.param(\"HumanizeVel\", min=0.0, max=0.5, default=0.15)\n\n"
-            "def process_notes(notes, context):\n"
-            "    out = []\n"
-            "    for n in notes:\n"
-            "        snapped = eat.snap_to_scale(n.pitch, root=0, minor=True)\n"
-            "        out.append(eat.Note(snapped, n.velocity, n.length))\n"
-            "    return out\n";
-
-        currentParams_ = {
-            {"RootKey", 0.0f, 11.0f, 0.0f, 0.0f, "st"},
-            {"ScaleMode", 0.0f, 6.0f, 0.0f, 0.0f, ""},
-            {"HumanizeVel", 0.0f, 0.50f, 0.15f, 0.20f, "%"},
-            {"Transpose", -24.0f, 24.0f, 0.0f, 0.0f, "st"}
-        };
+    } else if (t.type == ScriptTargetType::BuiltinPreset) {
+        auto builtins = project::PresetLoader::getBuiltinPresets();
+        bool found = false;
+        for (const auto& bp : builtins) {
+            if (bp.metadata.id == t.id || bp.metadata.name == t.title) {
+                currentScriptCode_ = bp.rawScript;
+                for (const auto& [pName, pDef] : bp.params) {
+                    currentParams_.push_back({pDef.name, pDef.minVal, pDef.maxVal, pDef.defaultVal, pDef.currentVal, pDef.unit});
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            currentScriptCode_ =
+                "# --- Built-in Preset Definition ---\n"
+                "# " + t.title + "\n";
+            currentParams_ = {
+                {"Param1", 0.0f, 1.0f, 0.5f, 0.5f, ""},
+                {"Param2", 0.0f, 1.0f, 0.5f, 0.5f, ""}
+            };
+        }
     } else {
         currentScriptCode_ =
             "# --- Eatscript Generative Model ---\n"
@@ -478,12 +902,18 @@ void DesignView::updateActiveTargetCodeAndParams() {
         };
     }
 
+    targetCodeMap_[t.id] = currentScriptCode_;
+    targetParamsMap_[t.id] = currentParams_;
+
     setScriptCode(currentScriptCode_);
     initDefaultGuiPanel();
 }
 
 void DesignView::setScriptCode(const std::string& code) {
     currentScriptCode_ = code;
+    if (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size())) {
+        targetCodeMap_[allTargets_[activeTargetIndex_].id] = code;
+    }
     codeLines_.clear();
     std::stringstream ss(code);
     std::string line;
@@ -498,27 +928,67 @@ void DesignView::setScriptCode(const std::string& code) {
 
 void DesignView::selectTargetByIndex(int index) {
     if (index >= 0 && index < static_cast<int>(allTargets_.size())) {
+        if (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size())) {
+            targetCodeMap_[allTargets_[activeTargetIndex_].id] = textEditor_.getText();
+            targetParamsMap_[allTargets_[activeTargetIndex_].id] = currentParams_;
+        }
         activeTargetIndex_ = index;
         updateActiveTargetCodeAndParams();
     }
 }
 
 void DesignView::selectTargetById(const std::string& id) {
+    // 1. Exact match on target id
     for (size_t i = 0; i < allTargets_.size(); ++i) {
         if (allTargets_[i].id == id) {
             selectTargetByIndex(static_cast<int>(i));
             return;
         }
     }
+    // 2. Exact match on track engine / instrument or preset name
+    for (size_t i = 0; i < allTargets_.size(); ++i) {
+        if (allTargets_[i].type == ScriptTargetType::TrackDsp && allTargets_[i].trackIndex >= 0 &&
+            allTargets_[i].trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[allTargets_[i].trackIndex];
+            if (trk.instrumentEngine == id || trk.instrument == id ||
+                (id == "eats_303" && (trk.instrumentEngine == "tb303" || trk.instrument.find("303") != std::string::npos)) ||
+                (id == "eats_kick" && (trk.instrumentEngine == "kick" || trk.instrumentEngine == "tr808")) ||
+                (id == "eats_snare" && (trk.instrumentEngine == "snare" || trk.instrumentEngine == "tr909")) ||
+                (id == "eats_hats" && (trk.instrumentEngine == "hats" || trk.instrument.find("Hat") != std::string::npos))) {
+                selectTargetByIndex(static_cast<int>(i));
+                return;
+            }
+        }
+    }
+    // 3. Substring match on title or subtitle
+    for (size_t i = 0; i < allTargets_.size(); ++i) {
+        if (allTargets_[i].title.find(id) != std::string::npos || allTargets_[i].subtitle.find(id) != std::string::npos) {
+            selectTargetByIndex(static_cast<int>(i));
+            return;
+        }
+    }
 }
 
-void DesignView::selectTargetByTrackAndType(int trackIndex, ScriptTargetType type) {
+void DesignView::selectTargetByTrackAndType(int trackIndex, ScriptTargetType type, int fxIndex) {
+    // 1. If fxIndex >= 0, look for exact trackIndex + type + fxIndex match
+    if (fxIndex >= 0) {
+        for (size_t i = 0; i < allTargets_.size(); ++i) {
+            if (allTargets_[i].type == type && allTargets_[i].trackIndex == trackIndex && allTargets_[i].fxIndex == fxIndex) {
+                selectTargetByIndex(static_cast<int>(i));
+                return;
+            }
+        }
+    }
+
+    // 2. Exact trackIndex + type match
     for (size_t i = 0; i < allTargets_.size(); ++i) {
         if (allTargets_[i].type == type && (trackIndex < 0 || allTargets_[i].trackIndex == trackIndex)) {
             selectTargetByIndex(static_cast<int>(i));
             return;
         }
     }
+
+    // 3. Fallback to any target of matching type
     for (size_t i = 0; i < allTargets_.size(); ++i) {
         if (allTargets_[i].type == type) {
             selectTargetByIndex(static_cast<int>(i));
@@ -531,7 +1001,7 @@ const ScriptTarget& DesignView::getActiveTarget() const {
     if (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size())) {
         return allTargets_[activeTargetIndex_];
     }
-    static ScriptTarget fallback{"unknown", "Unknown Target", "", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.55f, 0.0f}, 0, -1};
+    static ScriptTarget fallback{"unknown", "Unknown Target", "", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.55f, 0.0f}, 0, -1, -1};
     return fallback;
 }
 
@@ -846,6 +1316,13 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
         int count = 0;
         for (size_t i = 0; i < allTargets_.size(); ++i) {
             if (allTargets_[i].type != type) continue;
+            if (!scriptFilterQuery_.empty()) {
+                std::string q = scriptFilterQuery_;
+                for (char& c : q) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                std::string tit = allTargets_[i].title + " " + allTargets_[i].subtitle + " " + allTargets_[i].id;
+                for (char& c : tit) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (tit.find(q) == std::string::npos) continue;
+            }
             count++;
 
             Rect2D itemR(explorerBounds_.x + 6.0f, ey, explorerBounds_.w - 12.0f, 20.0f);
@@ -878,11 +1355,23 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
         ey += 8.0f;
     };
 
-    renderGroup("SYNTHS & DSP (4)", theme.primaryAccent, ScriptTargetType::TrackDsp);
-    renderGroup("AUDIO FX INSERTS (3)", Color{1.0f, 0.16f, 0.55f}, ScriptTargetType::AudioFx);
-    renderGroup("TRACK MIDI FX (0)", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::MidiFx);
-    renderGroup("CLIP SCRIPTS (4)", Color{0.0f, 1.0f, 0.62f}, ScriptTargetType::ClipScript);
-    renderGroup("BUILT-IN PRESETS (156)", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::BuiltinPreset);
+    size_t countDsp = 0, countAfx = 0, countMfx = 0, countClips = 0, countPresets = 0;
+    for (const auto& t : allTargets_) {
+        switch (t.type) {
+            case ScriptTargetType::TrackDsp: countDsp++; break;
+            case ScriptTargetType::AudioFx: countAfx++; break;
+            case ScriptTargetType::MidiFx: countMfx++; break;
+            case ScriptTargetType::ClipScript: countClips++; break;
+            case ScriptTargetType::BuiltinPreset: countPresets++; break;
+            default: break;
+        }
+    }
+
+    renderGroup("SYNTHS & DSP (" + std::to_string(countDsp) + ")", theme.primaryAccent, ScriptTargetType::TrackDsp);
+    renderGroup("AUDIO FX INSERTS (" + std::to_string(countAfx) + ")", Color{1.0f, 0.16f, 0.55f}, ScriptTargetType::AudioFx);
+    renderGroup("TRACK MIDI FX (" + std::to_string(countMfx) + ")", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::MidiFx);
+    renderGroup("CLIP SCRIPTS (" + std::to_string(countClips) + ")", Color{0.0f, 1.0f, 0.62f}, ScriptTargetType::ClipScript);
+    renderGroup("BUILT-IN PRESETS (" + std::to_string(countPresets) + ")", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::BuiltinPreset);
 }
 
 void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {

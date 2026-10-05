@@ -648,7 +648,8 @@ public:
 
     // Workspace View Navigation
     [[nodiscard]] WorkspaceView getActiveView() const noexcept { return activeView_; }
-    void setActiveView(WorkspaceView view) noexcept { activeView_ = view; }
+    void setActiveView(WorkspaceView view) noexcept;
+    void syncDesignViewToProject() noexcept;
 
     [[nodiscard]] EditSubView getEditSubView() const noexcept { return editSubView_; }
     void setEditSubView(EditSubView subView) noexcept;

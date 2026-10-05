@@ -1,6 +1,7 @@
 #pragma once
 
 #include "view_base.hpp"
+#include "arranger_view.hpp"
 #include "../gui_panel_def.hpp"
 #include "../widgets/text_editor_widget.hpp"
 #include <string>
@@ -38,6 +39,7 @@ struct ScriptTarget {
     Color trackColor{1.0f, 0.55f, 0.0f};
     int trackIndex{-1};
     int clipIndex{-1};
+    int fxIndex{-1};
 };
 
 struct ScriptParamDef {
@@ -109,7 +111,8 @@ public:
     // Target Selection & Script Management
     void selectTargetByIndex(int index);
     void selectTargetById(const std::string& id);
-    void selectTargetByTrackAndType(int trackIndex, ScriptTargetType type);
+    void selectTargetByTrackAndType(int trackIndex, ScriptTargetType type, int fxIndex = -1);
+    void syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks);
     [[nodiscard]] const ScriptTarget& getActiveTarget() const;
     [[nodiscard]] const std::vector<ScriptTarget>& getAllTargets() const noexcept { return allTargets_; }
     [[nodiscard]] const std::string& getScriptCode() const noexcept { return currentScriptCode_; }
@@ -203,9 +206,12 @@ private:
     Rect2D btnGuiPr_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Targets & Parameters
+    std::vector<ArrangerTimelineTrack> cachedTracks_;
     std::vector<ScriptTarget> allTargets_;
     int activeTargetIndex_{0};
     std::vector<ScriptParamDef> currentParams_;
+    std::map<std::string, std::string> targetCodeMap_;
+    std::map<std::string, std::vector<ScriptParamDef>> targetParamsMap_;
     int draggingParamIndex_{-1};
     int draggingFaceplateKnobIndex_{-1};
     float lastDragY_{0.0f};
