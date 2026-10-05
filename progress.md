@@ -929,7 +929,34 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
   - `test_studio_fx.exe`: All 10 tests pass (including new `testWaveShaperCalibrationAndDspFeatures` and `testAudioEngineParametricEqAndLimiterDispatch`).
   - `test_modular_ui.exe`: All 23 tests pass (including new `testTrackAudioFxPresetBindingAndDefaults`).
   - `.\build.ps1 -Test`: All 45 test suites pass with 0 failures (100% pass rate).
-  - `.\build-web.ps1 -NoServe`: Clean WebAssembly + WebGPU + AudioWorklet build (2.26 MB gzip payload).
+---
+
+### [2026-10-05] Design Tab Live Project Track, Instrument & Insert FX Synchronization (commit `6f832a3`)
+- **Architectural Context**:
+  - Replaced prototype static dummy targets in `DesignView` with dynamic bidirectional project track, instrument, and insert FX synchronization.
+  - Linked `FullscreenDeviceModal`'s "Design Chip" button directly to the exact target device and code/script representation, eliminating fallback to unrelated Tube Distortion templates.
+  - Added user edit caching in `DesignView` so modifying Eatscript code or GUI parameters in the Design tab persists across device switching.
+- **Key Changes Implemented**:
+  - **Dynamic Target Model & Sync Architecture**:
+    - Expanded `ScriptTarget` in [design_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/design_view.hpp) with `int fxIndex{-1};` to distinguish between multiple Audio FX and MIDI FX inserts on the same track.
+    - Implemented `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` in [design_view.cpp](file:///c:/git/eatsbits/src/ui/views/design_view.cpp), enumerating all active tracks (`ScriptTargetType::TrackDsp`), audio inserts (`AudioFx`), MIDI processors (`MidiFx`), and arrangement clips (`ClipScript`), while preserving active target selection.
+    - Cached project tracks in `cachedTracks_`, user code edits in `targetCodeMap_`, and custom GUI parameters in `targetParamsMap_`.
+  - **Authentic DSP & FX Eatscript Code Generators**:
+    - Enhanced `DesignView::updateActiveTargetCodeAndParams()` with dedicated Eatscript code and parameter definitions for:
+      - Synths: TB-303 Acid Bassline, Procedural Sub Kick, Snare, Hi-Hats, DX7 6-Op FM, MOS SID chip voice, and custom track engine fallbacks exposing real track knob names and values.
+      - Audio FX: 8-Bit Bitcrusher, Stereo Delay, 3-Band Parametric EQ, Brickwall Limiter, State Variable Resonant Filter, and Tube Distortion.
+      - MIDI FX: Note Arpeggiator, Chord Follower, and Scale Quantizer.
+      - Clip Scripts: Generative note sequencers.
+      - Built-in Presets: Library reference scripts.
+    - Enhanced `DesignView::initDefaultGuiPanel()` with specialized faceplates (`PcbGreen` for Bitcrusher, `Silver` for Delay, `MinimalWhite` for EQ, `Grunge` for Limiter, `Walnut` for Distortion, and multi-row knob layouts for arbitrary parameters).
+  - **GuiWindow Integration & Direct Device Modal Navigation**:
+    - Implemented `GuiWindow::setActiveView(WorkspaceView view)` and `syncDesignViewToProject()`, guaranteeing that navigating to the Design tab automatically pulls the freshest project state from `modularArrangerView_->getTracks()`.
+    - Wired project synchronization to track creation, deletion, duplication, audio FX insertion, and MIDI FX insertion.
+    - Updated `fullscreenDeviceModal_.onOpenCodeEditor` to pass `tgt.fxIndex` to `selectTargetByTrackAndType(trackIndex, type, fxIndex)`, ensuring clicking the Design Chip on any Audio FX or MIDI FX opens that exact effect's code and faceplate.
+- **Validation**:
+  - `test_modular_ui.exe`: Test 6b (`testDesignViewProjectSync`) passes all 8 test assertions (initial track sync, instrument selection, Audio FX selection, MIDI FX selection, dynamic insert addition, code modification persistence across device switching, dynamic track addition, and batch rendering).
+  - `.\build.ps1 -Test`: All 45 test suites pass with 0 failures (100% pass rate).
+  - `.\build-web.ps1 -NoServe`: Clean WebAssembly + WebGPU + AudioWorklet compilation and linking.
 
 ---
 

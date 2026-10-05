@@ -16,23 +16,23 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Design Tab Live Project Track, Instrument & Insert FX Synchronization**
-  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. Replace hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` (`eats_kick`, `eats_snare`, `eats_hats`, `eats_303`, dummy distortion inserts) with dynamic project synchronization.
-    2. Implement `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, instrument replacement, and FX insertion/removal.
-    3. Ensure the Design Tab left sidebar "In Use" section accurately reflects:
-       - Real active tracks and their assigned synth/instrument DSP engines.
-       - Actual Audio FX and MIDI FX inserts assigned to each track (with their real names, types, and script/preset parameters).
-       - Active pattern/clip scripts for each track.
-    4. Fix `selectTargetByTrackAndType` so clicking the "Design Chip" icon from `FullscreenDeviceModal` on any Audio FX, MIDI FX, or instrument on any track navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
-  - **Test/Validation**: Unit tests in `test_modular_ui.cpp` verifying `DesignView` tracks dynamically update when arranger tracks or FX are modified, and verifying navigation selects the corresponding active device.
+*(Active queue empty. All pending items completed!)*
 
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Design Tab Live Project Track, Instrument & Insert FX Synchronization** (commit `6f832a3`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Replaced hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` with dynamic project synchronization.
+    2. Implemented `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, track duplication, instrument replacement, FX insertion/removal, and upon switching to the Design Tab via bottom bar or modal navigation.
+    3. Ensured Design Tab left sidebar accurately reflects real active tracks, DSP engines, actual Audio FX and MIDI FX inserts (with authentic Eatscript code templates and parameters), and clip scripts.
+    4. Enhanced target code caching (`targetCodeMap_` and `targetParamsMap_`) so user modifications in the Eatscript Code Tab persist across target switching.
+    5. Updated `selectTargetByTrackAndType` with `fxIndex` support so clicking the "Design Chip" icon from `FullscreenDeviceModal` navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
+  - **Test/Validation**: `test_modular_ui.exe` Test 6b (`testDesignViewProjectSync`) validated dynamic updates, FX insert selection, code persistence, and track addition. `.\build.ps1 -Test` (45/45 suites pass), and `.\build-web.ps1 -NoServe` (clean Wasm build).
 
 - [x] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration** (commit `20fe776`, 2026-10-05)
   - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
@@ -82,15 +82,5 @@ To execute items automatically, run in Antigravity:
     3. **Clip Action Parity (`DUPLICATE` & `DELETE`)**: Added `DUPLICATE` and `DELETE` action buttons in Track Properties sidebar Clip section matching original Eatsbeats (`arranger_context_inspector.dart`). Implemented `duplicateClip` and `deleteClip` in `ArrangerView` and `GuiWindow`, and mapped Ctrl+D and Delete/Backspace hotkeys.
     4. **History Manager Integration**: Connected all Track Properties and Arranger operations to `diffHistory_.recordState(...)` via `recordProjectHistory` (track add, track delete, track duplicate, clip add, clip duplicate, clip delete, instrument selection, and FX changes). Updated `undoHistory()`, `redoHistory()`, and `jumpToHistoryIndex()` to call `syncArrangerFromSequencer()`, fully restoring Arranger tracks/clips, Mixer channel strips, and Track Inspector state.
   - **Test/Validation**: `test_modular_ui.exe` Test 22 validated all 6 sub-cases cleanly, and `.\build.ps1` completed with 0 errors.
-
-- [x] **Track Creation Without Default Clips, Empty Grid Double Click Clip Creation, Mute/Solo Desync Fix & Track Properties Actions Parity**
-  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/mixer_view.hpp`, `src/ui/views/mixer_view.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. New track/instrument creation creates a clean, clip-free track so users can place audio clips or MIDI clips freely.
-    2. Double-click or double-touch on any empty area within a track row on the Arranger timeline creates an empty 4-bar clip aligned to that bar position.
-    3. Fix mute/solo bug where newly created tracks could not be muted or soloed due to local ArrangerView tracks desynchronizing from `GuiWindow::arrangerTracks_`, `mixerStrips_`, and `AudioEngine::sequencer_`.
-    4. Restore Eatsbeats parity action card at bottom of Track Properties panel (`+ ADD CLIP`, `DUPLICATE`, `DELETE` with 1-track minimum guard and header mute/solo buttons), functional across Arranger View drawer, Mixer View drawer, and Track Inspector View.
-    5. Track deletion automatically cascades and updates/shrinks the mixer channel strips, audio engine sequencer patterns, audio channel nodes, and inspector selection.
-  - **Test/Validation**: `test_modular_ui.exe` Test 21 validated clean end-to-end.
 
 

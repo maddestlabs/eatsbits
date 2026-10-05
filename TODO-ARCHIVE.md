@@ -7,6 +7,16 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Track Creation Without Default Clips, Empty Grid Double Click Clip Creation, Mute/Solo Desync Fix & Track Properties Actions Parity** (commit `a92ec21`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/views/mixer_view.hpp`, `src/ui/views/mixer_view.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. New track/instrument creation creates a clean, clip-free track so users can place audio clips or MIDI clips freely.
+    2. Double-click or double-touch on any empty area within a track row on the Arranger timeline creates an empty 4-bar clip aligned to that bar position.
+    3. Fix mute/solo bug where newly created tracks could not be muted or soloed due to local ArrangerView tracks desynchronizing from `GuiWindow::arrangerTracks_`, `mixerStrips_`, and `AudioEngine::sequencer_`.
+    4. Restore Eatsbeats parity action card at bottom of Track Properties panel (`+ ADD CLIP`, `DUPLICATE`, `DELETE` with 1-track minimum guard and header mute/solo buttons), functional across Arranger View drawer, Mixer View drawer, and Track Inspector View.
+    5. Track deletion automatically cascades and updates/shrinks the mixer channel strips, audio engine sequencer patterns, audio channel nodes, and inspector selection.
+  - **Test/Validation**: `test_modular_ui.exe` Test 21 validated clean end-to-end.
+
 - [x] **Script Editor Scrolling, Gutter Scissoring, Immediate Cursor Blink Reset & Mobile Input Roadmap** (commit `7c134c4`, 2026-10-05)
   - **Context/Files**: `include/eatsbits/ui/widgets/text_editor_widget.hpp`, `src/ui/widgets/text_editor_widget.cpp`, `src/ui/gui_window.cpp`, `include/eatsbits/presenter/text_presenter.hpp`, `tests/test_modular_ui.cpp`, `web/index.html`
   - **Acceptance Criteria**:
