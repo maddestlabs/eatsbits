@@ -51,7 +51,7 @@ void drawGuiFaceplate(BatchRenderer2D& r,
     if (!isLightChassis) {
         ProceduralTextureSystem::instance().drawFaceplateBackground(&r, rect, panel.chassisStyle, theme,
                                                                    panel.chassisTint, panel.textureWear,
-                                                                   panel.cornerRadius);
+                                                                   panel.cornerRadius, panel.chassisRotation);
     } else {
         drawRoundedRect(r, fpX, fpY, fpW, fpH, panel.cornerRadius, cr, cg, cb, 1.0f);
         drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius, 0.68f, 0.71f, 0.76f, 0.9f, 1.2f);

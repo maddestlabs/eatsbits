@@ -295,6 +295,7 @@ bool TrackPropertiesDrawer::handlePointer(const PointerEvent& ev, TrackPropertie
                 return true;
             }
         }
+        return true;
     }
 
     if (isResizing_) {
@@ -336,8 +337,9 @@ bool TrackPropertiesDrawer::handlePointer(const PointerEvent& ev, TrackPropertie
             }
         }
 
-        // Delegate to unified panel
-        return panel_.handlePointer(ev, data, ctx);
+        // Delegate to unified panel and absorb interaction so it never passes through to components behind it
+        panel_.handlePointer(ev, data, ctx);
+        return true;
     }
 
     return false;

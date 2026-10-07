@@ -50,6 +50,7 @@ struct ViewContext {
     bool isMobile{false};
     float mouseX{-1.0f};
     float mouseY{-1.0f};
+    float browserOffset{0.0f};
 
     // Global navigation callbacks matching Eatsbeats
     std::function<void(WorkspaceView)> onNavigateTab;

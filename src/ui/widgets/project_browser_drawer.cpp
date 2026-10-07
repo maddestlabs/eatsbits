@@ -1,5 +1,6 @@
 #include "eatsbits/ui/widgets/project_browser_drawer.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/icon_registry.hpp"
 #include "eatsbits/project/preset_manager.hpp"
 #include <algorithm>
 #include <cmath>
@@ -163,6 +164,16 @@ std::string ProjectBrowserDrawer::formatBytes(uint64_t bytes) const {
     return ss.str();
 }
 
+void ProjectBrowserDrawer::setTracks(const std::vector<BrowserTrackAssetItem>& tracks) {
+    tracks_ = tracks;
+}
+
+void ProjectBrowserDrawer::setHistory(const std::vector<BrowserHistoryMilestoneItem>& history, bool canUndo, bool canRedo) {
+    history_ = history;
+    canUndo_ = canUndo;
+    canRedo_ = canRedo;
+}
+
 void ProjectBrowserDrawer::open() noexcept {
     isOpen_ = true;
     scanSavedProjects();
@@ -183,22 +194,137 @@ void ProjectBrowserDrawer::setTab(BrowserDrawerTab tab) noexcept {
     selectedIndex_ = 0;
     scrollOffset_ = 0.0f;
     selectedCategory_ = "ALL";
+    selectedScriptCategory_ = "ALL";
+    isDraggingScroll_ = false;
     if (tab == BrowserDrawerTab::Projects) {
         scanSavedProjects();
     }
 }
 
-void ProjectBrowserDrawer::setTracks(const std::vector<BrowserTrackAssetItem>& tracks) {
-    tracks_ = tracks;
+void ProjectBrowserDrawer::setScriptCategoryFilter(const std::string& cat) noexcept {
+    selectedScriptCategory_ = cat;
+    selectedIndex_ = 0;
+    scrollOffset_ = 0.0f;
+    isDraggingScroll_ = false;
 }
 
-void ProjectBrowserDrawer::setHistory(const std::vector<BrowserHistoryMilestoneItem>& history, bool canUndo, bool canRedo) {
-    history_ = history;
-    canUndo_ = canUndo;
-    canRedo_ = canRedo;
+float ProjectBrowserDrawer::computeMaxScroll() const {
+    float contentY = (activeTab_ == BrowserDrawerTab::Scripts) ?
+                     (scriptCategoryBounds_[0].y + scriptCategoryBounds_[0].h + 8.0f) :
+                     (searchBoxBounds_.y + searchBoxBounds_.h + 8.0f);
+    float availH = drawerBounds_.y + drawerBounds_.h - contentY - 8.0f;
+    return computeMaxScroll(contentY, availH);
+}
+
+float ProjectBrowserDrawer::computeMaxScroll([[maybe_unused]] float contentY, float availH) const {
+    float totalH = 0.0f;
+    switch (activeTab_) {
+        case BrowserDrawerTab::Assets: {
+            float cardH = 40.0f;
+            totalH = static_cast<float>(tracks_.size()) * (cardH + 6.0f);
+            break;
+        }
+        case BrowserDrawerTab::Scripts: {
+            float cardH = 46.0f;
+            totalH = static_cast<float>(getFilteredScriptsCount()) * (cardH + 6.0f);
+            break;
+        }
+        case BrowserDrawerTab::Presets: {
+            float cardH = 46.0f;
+            totalH = static_cast<float>(getFilteredPatchesCount()) * (cardH + 6.0f);
+            break;
+        }
+        case BrowserDrawerTab::Packs: {
+            float toolCardH = 50.0f;
+            float packH = 46.0f;
+            totalH = toolCardH + 34.0f + static_cast<float>(packs_.empty() ? 0 : packs_.size() - 1) * (packH + 6.0f);
+            break;
+        }
+        case BrowserDrawerTab::Projects: {
+            float actH = 32.0f;
+            float cardH = 50.0f;
+            totalH = actH + static_cast<float>(getFilteredProjectsCount()) * (cardH + 6.0f);
+            break;
+        }
+        case BrowserDrawerTab::History: {
+            float toolH = 32.0f;
+            float cardH = 38.0f;
+            totalH = toolH + static_cast<float>(history_.size()) * (cardH + 6.0f);
+            break;
+        }
+    }
+    return std::max(0.0f, totalH - availH);
+}
+
+size_t ProjectBrowserDrawer::getFilteredScriptsCount() const {
+    size_t count = 0;
+    std::string q = searchQuery_;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    for (const auto& item : scripts_) {
+        if (selectedScriptCategory_ != "ALL") {
+            if (selectedScriptCategory_ == "SYNTH" && item.category != "SYNTH") continue;
+            if (selectedScriptCategory_ == "AUDIO_FX" && item.category != "AUDIO_FX") continue;
+            if (selectedScriptCategory_ == "MIDI_FX" && item.category != "MIDI_FX") continue;
+            if (selectedScriptCategory_ == "MIDI_SEQ" && item.category != "MIDI_SEQ") continue;
+            if (selectedScriptCategory_ == "MACRO" && item.category != "MACRO") continue;
+        }
+        if (!q.empty()) {
+            std::string nameLower = item.name;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            std::string catLower = item.category;
+            std::transform(catLower.begin(), catLower.end(), catLower.begin(), ::tolower);
+            std::string descLower = item.description;
+            std::transform(descLower.begin(), descLower.end(), descLower.begin(), ::tolower);
+            if (nameLower.find(q) == std::string::npos && catLower.find(q) == std::string::npos && descLower.find(q) == std::string::npos) {
+                continue;
+            }
+        }
+        count++;
+    }
+    return count;
+}
+
+size_t ProjectBrowserDrawer::getFilteredPatchesCount() const {
+    size_t count = 0;
+    std::string q = searchQuery_;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    for (const auto& item : patches_) {
+        if (selectedCategory_ != "ALL" && item.category != selectedCategory_) continue;
+        if (!q.empty()) {
+            std::string nameLower = item.name;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            std::string catLower = item.category;
+            std::transform(catLower.begin(), catLower.end(), catLower.begin(), ::tolower);
+            std::string descLower = item.description;
+            std::transform(descLower.begin(), descLower.end(), descLower.begin(), ::tolower);
+            if (nameLower.find(q) == std::string::npos && catLower.find(q) == std::string::npos && descLower.find(q) == std::string::npos) {
+                continue;
+            }
+        }
+        count++;
+    }
+    return count;
+}
+
+size_t ProjectBrowserDrawer::getFilteredProjectsCount() const {
+    size_t count = 0;
+    std::string q = searchQuery_;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+    for (const auto& proj : savedProjects_) {
+        if (!q.empty()) {
+            std::string nameLower = proj.name;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            if (nameLower.find(q) == std::string::npos && proj.fileName.find(q) == std::string::npos) {
+                continue;
+            }
+        }
+        count++;
+    }
+    return count;
 }
 
 void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float topHeaderHeight, float bottomNavHeight) {
+    isMobile_ = (screenWidth < 768.0f);
     float drawerH = screenHeight - topHeaderHeight - bottomNavHeight;
     float currentX = screenWidth - (kDrawerWidth * animProgress_);
 
@@ -208,17 +334,26 @@ void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float t
     closeBtnBounds_ = Rect2D(currentX + kDrawerWidth - 32.0f, headerY, 24.0f, 24.0f);
 
     // 6 Tabs layout
-    float tabY = headerY + 30.0f;
+    float tabY = headerY + 28.0f;
     float totalTabW = kDrawerWidth - 24.0f;
     float tabW = totalTabW / 6.0f;
+    float tabH = isMobile_ ? 26.0f : 28.0f;
 
     for (size_t i = 0; i < 6; ++i) {
-        tabBounds_[i] = Rect2D(currentX + 12.0f + (static_cast<float>(i) * tabW), tabY, tabW - 2.0f, 22.0f);
+        tabBounds_[i] = Rect2D(currentX + 12.0f + (static_cast<float>(i) * tabW), tabY, tabW - 2.0f, tabH);
     }
 
     // Search bar below tab strip
-    float subY = tabY + 28.0f;
+    float subY = tabY + tabH + 6.0f;
     searchBoxBounds_ = Rect2D(currentX + 12.0f, subY, kDrawerWidth - 24.0f, 24.0f);
+
+    // Script category filter chips (below search bar)
+    float chipY = subY + 28.0f;
+    float totalChipW = kDrawerWidth - 24.0f;
+    float chipW = (totalChipW - (5.0f * 4.0f)) / 6.0f;
+    for (size_t i = 0; i < 6; ++i) {
+        scriptCategoryBounds_[i] = Rect2D(currentX + 12.0f + (static_cast<float>(i) * (chipW + 4.0f)), chipY, chipW, 22.0f);
+    }
 }
 
 void ProjectBrowserDrawer::update(float dt) {
@@ -236,13 +371,6 @@ void ProjectBrowserDrawer::update(float dt) {
 
 void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     if (animProgress_ <= 0.001f) return;
-
-    // Semi-transparent backdrop shadow
-    if (isOpen_ && animProgress_ > 0.05f) {
-        float shadowAlpha = 0.40f * animProgress_;
-        drawRect(r, 0.0f, drawerBounds_.y, drawerBounds_.x, drawerBounds_.h,
-                 0.0f, 0.0f, 0.0f, shadowAlpha);
-    }
 
     // Drawer chassis background
     drawRect(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, drawerBounds_.h,
@@ -262,20 +390,38 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
     bool closeHov = closeBtnBounds_.contains(mouseX_, mouseY_) || std::hypot(mouseX_ - cx, mouseY_ - cy) <= 12.0f;
     drawScrewCloseButton(r, cx, cy, 9.0f, closeHov, theme.primaryAccent);
 
-    // 6 Tab Strip
+    // 6 Tab Strip with Flutter Icons (Mobile: icon only; Desktop: icon + label)
+    const char* tabIcons[6] = {"ui_tab_assets", "ui_tab_script", "ui_tab_preset", "ui_tab_packs", "ui_tab_projects", "ui_tab_history"};
     const char* tabNames[6] = {"ASSETS", "SCRIPT", "PRESET", "PACKS", "PROJ", "HIST"};
     for (size_t i = 0; i < 6; ++i) {
         bool active = (static_cast<size_t>(activeTab_) == i);
-        if (active) {
-            Color bg{theme.primaryAccent.r * 0.25f, theme.primaryAccent.g * 0.25f, theme.primaryAccent.b * 0.25f, 0.95f};
-            drawButton(r, tabBounds_[i], tabNames[i], bg, theme.primaryAccent, theme.primaryAccent, 8.5f, 3.0f, 1.0f);
+        const auto& tb = tabBounds_[i];
+        bool hov = tb.contains(mouseX_, mouseY_);
+
+        Color bg = active ? (theme.primaryAccent * 0.25f) : (hov ? theme.panelHeader * 1.25f : theme.panelHeader);
+        Color border = active ? theme.primaryAccent : (hov ? theme.borderSubtle * 1.5f : Color(0.0f, 0.0f, 0.0f, 0.0f));
+        Color fg = active ? theme.primaryAccent : (hov ? theme.textPrimary : theme.textMuted);
+
+        drawRoundedRect(r, tb.x, tb.y, tb.w, tb.h, 4.0f, bg);
+        if (active || hov) {
+            drawRoundedRectOutline(r, tb.x, tb.y, tb.w, tb.h, 4.0f, border.r, border.g, border.b, active ? 0.95f : 0.5f, 1.0f);
+        }
+
+        if (isMobile_) {
+            // Mobile: only icon centered for space efficiency
+            float iconSize = 14.0f;
+            float ix = tb.x + (tb.w - iconSize) * 0.5f;
+            float iy = tb.y + (tb.h - iconSize) * 0.5f;
+            IconRegistry::instance().renderIcon(r, tabIcons[i], Rect2D(ix, iy, iconSize, iconSize), fg);
         } else {
-            drawButton(r, tabBounds_[i], tabNames[i], theme.panelHeader, Color(0.0f, 0.0f, 0.0f, 0.0f), theme.textMuted, 8.5f, 3.0f, 0.0f);
+            // Desktop: Flutter icon + text
+            float iconSize = 11.5f;
+            float ix = tb.x + 4.5f;
+            float iy = tb.y + (tb.h - iconSize) * 0.5f;
+            IconRegistry::instance().renderIcon(r, tabIcons[i], Rect2D(ix, iy, iconSize, iconSize), fg);
+            drawText(r, tabNames[i], tb.x + 18.0f, tb.y + 7.5f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
         }
     }
-
-    float contentY = searchBoxBounds_.y + searchBoxBounds_.h + 8.0f;
-    float availH = drawerBounds_.y + drawerBounds_.h - contentY - 8.0f;
 
     // Search bar or tab header
     if (activeTab_ == BrowserDrawerTab::Scripts || activeTab_ == BrowserDrawerTab::Presets || activeTab_ == BrowserDrawerTab::Projects) {
@@ -314,6 +460,66 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
         drawButton(r, clearRect, "CLEAR", theme.panelHeader, theme.borderSubtle, theme.muteActive, 8.5f, 3.0f, 1.0f);
     }
 
+    // Script Category Sub-sections Filter Strip (ALL, INST, FX, MIDI, SEQ, MACRO)
+    if (activeTab_ == BrowserDrawerTab::Scripts) {
+        const char* catIcons[6] = {"ui_cat_all", "ui_cat_instruments", "ui_cat_fx", "ui_cat_midifx", "ui_cat_seq", "ui_cat_macro"};
+        const char* catNames[6] = {"ALL", "INST", "FX", "MIDI", "SEQ", "MACRO"};
+        const char* catFilters[6] = {"ALL", "SYNTH", "AUDIO_FX", "MIDI_FX", "MIDI_SEQ", "MACRO"};
+        const Color catColors[6] = {
+            theme.primaryAccent,
+            Color(1.0f, 0.55f, 0.0f, 1.0f),   // Instruments (Orange)
+            Color(0.13f, 0.96f, 0.91f, 1.0f),  // Audio FX (Cyan)
+            Color(0.0f, 1.0f, 0.4f, 1.0f),     // MIDI FX (Neon Green)
+            Color(1.0f, 0.84f, 0.0f, 1.0f),    // Sequences (Gold)
+            Color(0.74f, 0.0f, 1.0f, 1.0f)     // Macros (Purple)
+        };
+
+        for (size_t i = 0; i < 6; ++i) {
+            const auto& cb = scriptCategoryBounds_[i];
+            bool isSel = (selectedScriptCategory_ == catFilters[i]);
+            bool hov = cb.contains(mouseX_, mouseY_);
+            const auto& cCol = catColors[i];
+
+            Color bg = isSel ? (cCol * 0.25f) : (hov ? (cCol * 0.12f) : Color(0.0f, 0.0f, 0.0f, 0.35f));
+            Color border = isSel ? cCol : (hov ? (cCol * 0.6f) : theme.borderSubtle * 0.7f);
+            Color fg = isSel ? cCol : (hov ? theme.textPrimary : (cCol * 0.75f));
+
+            drawRoundedRect(r, cb.x, cb.y, cb.w, cb.h, 4.0f, bg);
+            drawRoundedRectOutline(r, cb.x, cb.y, cb.w, cb.h, 4.0f, border.r, border.g, border.b, isSel ? 0.95f : 0.45f, 1.0f);
+
+            if (isMobile_) {
+                // Mobile: Only icon
+                float icSize = 13.0f;
+                float ix = cb.x + (cb.w - icSize) * 0.5f;
+                float iy = cb.y + (cb.h - icSize) * 0.5f;
+                IconRegistry::instance().renderIcon(r, catIcons[i], Rect2D(ix, iy, icSize, icSize), fg);
+            } else {
+                // Desktop: Icon + short label
+                float icSize = 11.0f;
+                float ix = cb.x + 3.5f;
+                float iy = cb.y + (cb.h - icSize) * 0.5f;
+                IconRegistry::instance().renderIcon(r, catIcons[i], Rect2D(ix, iy, icSize, icSize), fg);
+                drawText(r, catNames[i], cb.x + 16.5f, cb.y + 6.0f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
+            }
+        }
+    }
+
+    float contentY = (activeTab_ == BrowserDrawerTab::Scripts) ?
+                     (scriptCategoryBounds_[0].y + scriptCategoryBounds_[0].h + 8.0f) :
+                     (searchBoxBounds_.y + searchBoxBounds_.h + 8.0f);
+    float availH = drawerBounds_.y + drawerBounds_.h - contentY - 8.0f;
+    maxScroll_ = computeMaxScroll(contentY, availH);
+    scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxScroll_);
+
+    // Scrollbar indicator
+    if (maxScroll_ > 0.0f) {
+        float scrollbarX = drawerBounds_.x + drawerBounds_.w - 5.0f;
+        float thumbH = std::max(24.0f, availH * (availH / (availH + maxScroll_)));
+        float thumbY = contentY + (scrollOffset_ / maxScroll_) * (availH - thumbH);
+        drawRoundedRect(r, scrollbarX, contentY, 3.0f, availH, 1.5f, 0.0f, 0.0f, 0.0f, 0.18f);
+        drawRoundedRect(r, scrollbarX, thumbY, 3.0f, thumbH, 1.5f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.55f);
+    }
+
     // -------------------------------------------------------------
     // TAB BODY RENDERING
     // -------------------------------------------------------------
@@ -328,13 +534,13 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
                 const auto& trk = tracks_[i];
                 bool isSel = (static_cast<int>(i) == selectedIndex_);
 
-                drawRoundedRect(r, drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH, 4.0f,
+                drawRoundedRect(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
                                 isSel ? theme.panelHeader.r * 1.3f : theme.panelHeader.r,
                                 isSel ? theme.panelHeader.g * 1.3f : theme.panelHeader.g,
                                 isSel ? theme.panelHeader.b * 1.3f : theme.panelHeader.b, 0.85f);
 
                 if (isSel) {
-                    drawRoundedRectOutline(r, drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH, 4.0f,
+                    drawRoundedRectOutline(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
                                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f, 1.0f);
                 }
 
@@ -353,9 +559,9 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
 
                 // Mute / Solo badges
                 if (trk.isMuted) {
-                    drawText(r, "MUTE", drawerBounds_.x + kDrawerWidth - 68.0f, cy + 12.0f, 8.5f, theme.muteActive);
+                    drawText(r, "MUTE", drawerBounds_.x + drawerBounds_.w - 68.0f, cy + 12.0f, 8.5f, theme.muteActive);
                 } else if (trk.isSolo) {
-                    drawText(r, "SOLO", drawerBounds_.x + kDrawerWidth - 68.0f, cy + 12.0f, 8.5f, theme.soloActive);
+                    drawText(r, "SOLO", drawerBounds_.x + drawerBounds_.w - 68.0f, cy + 12.0f, 8.5f, theme.soloActive);
                 }
             }
             break;
@@ -367,12 +573,23 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
             size_t visIdx = 0;
             for (size_t i = 0; i < scripts_.size(); ++i) {
                 const auto& item = scripts_[i];
+                if (selectedScriptCategory_ != "ALL") {
+                    if (selectedScriptCategory_ == "SYNTH" && item.category != "SYNTH") continue;
+                    if (selectedScriptCategory_ == "AUDIO_FX" && item.category != "AUDIO_FX") continue;
+                    if (selectedScriptCategory_ == "MIDI_FX" && item.category != "MIDI_FX") continue;
+                    if (selectedScriptCategory_ == "MIDI_SEQ" && item.category != "MIDI_SEQ") continue;
+                    if (selectedScriptCategory_ == "MACRO" && item.category != "MACRO") continue;
+                }
                 if (!searchQuery_.empty()) {
                     std::string q = searchQuery_;
                     std::transform(q.begin(), q.end(), q.begin(), ::tolower);
                     std::string nameLower = item.name;
                     std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
-                    if (nameLower.find(q) == std::string::npos && item.category.find(searchQuery_) == std::string::npos) {
+                    std::string catLower = item.category;
+                    std::transform(catLower.begin(), catLower.end(), catLower.begin(), ::tolower);
+                    std::string descLower = item.description;
+                    std::transform(descLower.begin(), descLower.end(), descLower.begin(), ::tolower);
+                    if (nameLower.find(q) == std::string::npos && catLower.find(q) == std::string::npos && descLower.find(q) == std::string::npos) {
                         continue;
                     }
                 }
@@ -382,30 +599,52 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
                 if (cy + cardH < contentY || cy > contentY + availH) continue;
 
                 bool isSel = (static_cast<int>(i) == selectedIndex_);
-                drawRoundedRect(r, drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH, 4.0f,
+                Color badgeCol = theme.secondaryAccent;
+                const char* iconRef = "ui_cat_all";
+                if (item.category == "SYNTH") {
+                    badgeCol = Color(1.0f, 0.55f, 0.0f, 1.0f);
+                    iconRef = "ui_cat_instruments";
+                } else if (item.category == "AUDIO_FX") {
+                    badgeCol = Color(0.13f, 0.96f, 0.91f, 1.0f);
+                    iconRef = "ui_cat_fx";
+                } else if (item.category == "MIDI_FX") {
+                    badgeCol = Color(0.0f, 1.0f, 0.4f, 1.0f);
+                    iconRef = "ui_cat_midifx";
+                } else if (item.category == "MIDI_SEQ") {
+                    badgeCol = Color(1.0f, 0.84f, 0.0f, 1.0f);
+                    iconRef = "ui_cat_seq";
+                } else if (item.category == "MACRO") {
+                    badgeCol = Color(0.74f, 0.0f, 1.0f, 1.0f);
+                    iconRef = "ui_cat_macro";
+                }
+
+                drawRoundedRect(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
                                 isSel ? theme.panelHeader.r * 1.3f : theme.panelHeader.r,
                                 isSel ? theme.panelHeader.g * 1.3f : theme.panelHeader.g,
                                 isSel ? theme.panelHeader.b * 1.3f : theme.panelHeader.b, 0.85f);
 
                 if (isSel) {
-                    drawRoundedRectOutline(r, drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH, 4.0f,
+                    drawRoundedRectOutline(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
                                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f, 1.0f);
                 }
 
-                drawText(r, item.name, drawerBounds_.x + 20.0f, cy + 6.0f, 10.5f,
+                // Render category mini icon
+                IconRegistry::instance().renderIcon(r, iconRef, Rect2D(drawerBounds_.x + 18.0f, cy + 8.0f, 13.0f, 13.0f), badgeCol);
+
+                drawText(r, item.name, drawerBounds_.x + 36.0f, cy + 6.0f, 10.5f,
                          isSel ? theme.primaryAccent.r : theme.textPrimary.r,
                          isSel ? theme.primaryAccent.g : theme.textPrimary.g,
                          isSel ? theme.primaryAccent.b : theme.textPrimary.b, 1.0f);
 
-                drawText(r, item.description, drawerBounds_.x + 20.0f, cy + 24.0f, 9.0f,
+                drawText(r, item.description, drawerBounds_.x + 36.0f, cy + 24.0f, 9.0f,
                          theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
                 float tagW = 56.0f;
-                float tagX = drawerBounds_.x + kDrawerWidth - 24.0f - tagW;
+                float tagX = drawerBounds_.x + drawerBounds_.w - 24.0f - tagW;
                 drawRoundedRect(r, tagX, cy + 6.0f, tagW, 16.0f, 2.0f,
-                                theme.secondaryAccent.r * 0.2f, theme.secondaryAccent.g * 0.2f, theme.secondaryAccent.b * 0.2f, 0.8f);
+                                badgeCol.r * 0.2f, badgeCol.g * 0.2f, badgeCol.b * 0.2f, 0.8f);
                 drawCenteredText(r, item.category, tagX, cy + 6.0f, tagW, 16.0f, 8.0f,
-                                 theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.95f);
+                                 badgeCol.r, badgeCol.g, badgeCol.b, 0.95f);
             }
             break;
         }
@@ -611,19 +850,14 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
     mouseX_ = ev.x;
     mouseY_ = ev.y;
 
-    if (ev.action == PointerAction::Move && isDraggingScroll_) {
-        float dy = ev.y - dragStartY_;
-        scrollOffset_ = std::max(0.0f, dragStartOffset_ - dy);
-        return true;
-    }
-
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
         isDraggingScroll_ = false;
     }
 
-    // Click outside drawer -> close
-    if (isOpen_ && ev.action == PointerAction::Down && ev.x < drawerBounds_.x) {
-        close();
+    if (ev.action == PointerAction::Move && isDraggingScroll_) {
+        float dy = ev.y - dragStartY_;
+        float maxSc = computeMaxScroll();
+        scrollOffset_ = std::clamp(dragStartOffset_ - dy, 0.0f, maxSc);
         return true;
     }
 
@@ -634,9 +868,6 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
     }
 
     if (ev.action == PointerAction::Down) {
-        isDraggingScroll_ = true;
-        dragStartY_ = ev.y;
-        dragStartOffset_ = scrollOffset_;
         // 1. Close button
         if (closeBtnBounds_.contains(ev.x, ev.y)) {
             close();
@@ -651,15 +882,59 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
             }
         }
 
-        float contentY = searchBoxBounds_.y + searchBoxBounds_.h + 8.0f;
+        // 3. Script category filter chips (when on Scripts tab)
+        if (activeTab_ == BrowserDrawerTab::Scripts) {
+            const char* catFilters[6] = {"ALL", "SYNTH", "AUDIO_FX", "MIDI_FX", "MIDI_SEQ", "MACRO"};
+            for (size_t i = 0; i < 6; ++i) {
+                if (scriptCategoryBounds_[i].contains(ev.x, ev.y)) {
+                    setScriptCategoryFilter(catFilters[i]);
+                    return true;
+                }
+            }
+        }
 
-        // 3. Tab-specific interactive elements
+        // 4. History tab toolbar inside searchBoxBounds_
+        if (activeTab_ == BrowserDrawerTab::History) {
+            float btnW = (searchBoxBounds_.w - 18.0f) / 4.0f;
+            Rect2D undoRect(searchBoxBounds_.x, searchBoxBounds_.y, btnW, 24.0f);
+            Rect2D redoRect(searchBoxBounds_.x + btnW + 6.0f, searchBoxBounds_.y, btnW, 24.0f);
+            Rect2D checkptRect(searchBoxBounds_.x + (btnW + 6.0f) * 2.0f, searchBoxBounds_.y, btnW, 24.0f);
+            Rect2D clearRect(searchBoxBounds_.x + (btnW + 6.0f) * 3.0f, searchBoxBounds_.y, btnW, 24.0f);
+
+            if (undoRect.contains(ev.x, ev.y)) {
+                if (onUndo) onUndo();
+                return true;
+            }
+            if (redoRect.contains(ev.x, ev.y)) {
+                if (onRedo) onRedo();
+                return true;
+            }
+            if (checkptRect.contains(ev.x, ev.y)) {
+                if (onCreateCheckpoint) onCreateCheckpoint("Milestone");
+                return true;
+            }
+            if (clearRect.contains(ev.x, ev.y)) {
+                if (onClearHistory) onClearHistory();
+                return true;
+            }
+        }
+
+        // 5. Search box bounds (do not drag scroll when clicked)
+        if (searchBoxBounds_.contains(ev.x, ev.y)) {
+            return true;
+        }
+
+        float contentY = (activeTab_ == BrowserDrawerTab::Scripts) ?
+                         (scriptCategoryBounds_[0].y + scriptCategoryBounds_[0].h + 8.0f) :
+                         (searchBoxBounds_.y + searchBoxBounds_.h + 8.0f);
+
+        // 6. Tab-specific interactive elements
         switch (activeTab_) {
             case BrowserDrawerTab::Assets: {
                 float cardH = 40.0f;
                 for (size_t i = 0; i < tracks_.size(); ++i) {
                     float cy = contentY + static_cast<float>(i) * (cardH + 6.0f) - scrollOffset_;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         selectedIndex_ = static_cast<int>(i);
                         if (onSelectTrack) onSelectTrack(tracks_[i].index);
@@ -674,19 +949,30 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
                 size_t visIdx = 0;
                 for (size_t i = 0; i < scripts_.size(); ++i) {
                     const auto& item = scripts_[i];
+                    if (selectedScriptCategory_ != "ALL") {
+                        if (selectedScriptCategory_ == "SYNTH" && item.category != "SYNTH") continue;
+                        if (selectedScriptCategory_ == "AUDIO_FX" && item.category != "AUDIO_FX") continue;
+                        if (selectedScriptCategory_ == "MIDI_FX" && item.category != "MIDI_FX") continue;
+                        if (selectedScriptCategory_ == "MIDI_SEQ" && item.category != "MIDI_SEQ") continue;
+                        if (selectedScriptCategory_ == "MACRO" && item.category != "MACRO") continue;
+                    }
                     if (!searchQuery_.empty()) {
                         std::string q = searchQuery_;
                         std::transform(q.begin(), q.end(), q.begin(), ::tolower);
                         std::string nameLower = item.name;
                         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
-                        if (nameLower.find(q) == std::string::npos && item.category.find(searchQuery_) == std::string::npos) {
+                        std::string catLower = item.category;
+                        std::transform(catLower.begin(), catLower.end(), catLower.begin(), ::tolower);
+                        std::string descLower = item.description;
+                        std::transform(descLower.begin(), descLower.end(), descLower.begin(), ::tolower);
+                        if (nameLower.find(q) == std::string::npos && catLower.find(q) == std::string::npos && descLower.find(q) == std::string::npos) {
                             continue;
                         }
                     }
 
                     float cy = contentY + static_cast<float>(visIdx) * (cardH + 6.0f) - scrollOffset_;
                     visIdx++;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         selectedIndex_ = static_cast<int>(i);
                         if (item.category == "SYNTH" && onAddPresetTrack) {
@@ -721,7 +1007,7 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
 
                     float cy = contentY + static_cast<float>(visIdx) * (cardH + 6.0f) - scrollOffset_;
                     visIdx++;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         selectedIndex_ = static_cast<int>(i);
                         if (onSelectPreset) onSelectPreset(item.id);
@@ -734,7 +1020,7 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
             case BrowserDrawerTab::Packs: {
                 // Quick Launch Card
                 float toolCardH = 50.0f;
-                Rect2D launchBtn(drawerBounds_.x + kDrawerWidth - 84.0f, contentY + 12.0f, 60.0f, 24.0f);
+                Rect2D launchBtn(drawerBounds_.x + drawerBounds_.w - 84.0f, contentY + 12.0f, 60.0f, 24.0f);
                 if (launchBtn.contains(ev.x, ev.y)) {
                     if (onLaunchAudioToMidi) onLaunchAudioToMidi();
                     return true;
@@ -745,7 +1031,7 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
                 float packH = 46.0f;
                 for (size_t i = 1; i < packs_.size(); ++i) {
                     float cy = listY + static_cast<float>(i - 1) * (packH + 6.0f) - scrollOffset_;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, packH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, packH);
                     if (card.contains(ev.x, ev.y)) {
                         if (onSelectPreset) onSelectPreset(packs_[i].id);
                         return true;
@@ -797,7 +1083,7 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
 
                     float cy = listY + static_cast<float>(visIdx) * (cardH + 6.0f) - scrollOffset_;
                     visIdx++;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         if (onLoadProject) onLoadProject(proj.filePath);
                         return true;
@@ -807,35 +1093,11 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
             }
 
             case BrowserDrawerTab::History: {
-                // Toolbar (UNDO, REDO, +PIN, CLEAR)
-                float btnW = (searchBoxBounds_.w - 18.0f) / 4.0f;
-                Rect2D undoRect(searchBoxBounds_.x, searchBoxBounds_.y, btnW, 24.0f);
-                Rect2D redoRect(searchBoxBounds_.x + btnW + 6.0f, searchBoxBounds_.y, btnW, 24.0f);
-                Rect2D checkptRect(searchBoxBounds_.x + (btnW + 6.0f) * 2.0f, searchBoxBounds_.y, btnW, 24.0f);
-                Rect2D clearRect(searchBoxBounds_.x + (btnW + 6.0f) * 3.0f, searchBoxBounds_.y, btnW, 24.0f);
-
-                if (undoRect.contains(ev.x, ev.y)) {
-                    if (onUndo) onUndo();
-                    return true;
-                }
-                if (redoRect.contains(ev.x, ev.y)) {
-                    if (onRedo) onRedo();
-                    return true;
-                }
-                if (checkptRect.contains(ev.x, ev.y)) {
-                    if (onCreateCheckpoint) onCreateCheckpoint("Milestone");
-                    return true;
-                }
-                if (clearRect.contains(ev.x, ev.y)) {
-                    if (onClearHistory) onClearHistory();
-                    return true;
-                }
-
                 // Milestone rows
                 float cardH = 38.0f;
                 for (size_t i = 0; i < history_.size(); ++i) {
                     float cy = contentY + static_cast<float>(i) * (cardH + 6.0f) - scrollOffset_;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, kDrawerWidth - 24.0f, cardH);
+                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         if (onJumpToHistory) onJumpToHistory(history_[i].stepIndex);
                         return true;
@@ -844,9 +1106,18 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
                 break;
             }
         }
+
+        // Only start drag scrolling if click is inside the scrollable content area and didn't hit any interactive card/button
+        if (ev.y >= contentY) {
+            isDraggingScroll_ = true;
+            dragStartY_ = ev.y;
+            dragStartOffset_ = scrollOffset_;
+        }
+        return true;
     } else if (ev.action == PointerAction::Scroll) {
+        float maxSc = computeMaxScroll();
         scrollOffset_ -= ev.scrollY * 24.0f;
-        scrollOffset_ = std::max(0.0f, scrollOffset_);
+        scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxSc);
         return true;
     }
 

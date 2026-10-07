@@ -805,11 +805,12 @@ private:
 inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
                              GuiChassisStyle style = GuiChassisStyle::DarkChassis,
                              const std::optional<Color>& tint = std::nullopt,
-                             float wear = 0.20f) {
+                             float wear = 0.20f,
+                             float rotation = 0.0f) {
     if (g_activeBatchRenderer) {
         ProceduralTextureSystem::instance().drawChassis(
             g_activeBatchRenderer, x, y, w, h, style, theme,
-            tint, wear, 0.0f, isTopPanel);
+            tint, wear, 0.0f, isTopPanel, rotation);
     }
 }
 
@@ -5118,6 +5119,8 @@ ViewContext GuiWindow::createViewContext() noexcept {
     ctx.time.isOfflineExport = false;
     ctx.mouseX = mouseX_;
     ctx.mouseY = mouseY_;
+    ctx.browserOffset = (projectBrowserDrawerWidget_ && (browserOpen_ || projectBrowserDrawerWidget_->getAnimOffset() < ProjectBrowserDrawer::getDrawerWidth()))
+        ? projectBrowserDrawerWidget_->getEffectiveWidth() : 0.0f;
     ctx.onNavigateTab = [this](WorkspaceView v) {
         if (v == WorkspaceView::Edit && modularEditView_) {
             modularEditView_->autoCenterOnNotesOrDefault();
@@ -5293,7 +5296,7 @@ void GuiWindow::drawTopTransportBar() {
     // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
     // =========================================================================
     // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
-    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_);
+    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_, panelChassisRotation_);
 
     // Top specular rim highlight & uniform bottom machined bevel
     drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -5867,7 +5870,7 @@ void GuiWindow::renderFrame() {
         const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
         const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
         // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
-        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_);
+        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_, panelChassisRotation_);
 
         // Top lip specular highlight line & crevice
         drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -6060,7 +6063,7 @@ void GuiWindow::renderFrame() {
                 if (projectHubSection_ == 0) curDrawerH = 190.0f;
                 else if (projectHubSection_ == 1) curDrawerH = 114.0f;
                 else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-                else if (projectHubSection_ == 3) curDrawerH = 226.0f;
+                else if (projectHubSection_ == 3) curDrawerH = 268.0f;
                 else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
                 else if (projectHubSection_ == 5) curDrawerH = 100.0f;
                 else if (projectHubSection_ == 6) curDrawerH = 100.0f;
@@ -6439,29 +6442,31 @@ void GuiWindow::renderFrame() {
                             const char* label;
                             GuiChassisStyle style;
                         };
-                        const MatChip matChips[10] = {
-                            {"DARK CHASSIS", GuiChassisStyle::DarkChassis},
-                            {"ALUMINUM",     GuiChassisStyle::BrushedAluminum},
-                            {"STEEL",        GuiChassisStyle::BrushedSteel},
-                            {"POWDER COAT",  GuiChassisStyle::MattePowderCoat},
-                            {"CRINKLE",      GuiChassisStyle::CrinklePaint},
-                            {"BAKELITE",     GuiChassisStyle::Bakelite},
-                            {"WALNUT",       GuiChassisStyle::Walnut},
-                            {"ROSEWOOD",     GuiChassisStyle::Rosewood},
-                            {"PCB GREEN",    GuiChassisStyle::PcbGreen},
-                            {"CARBON",       GuiChassisStyle::Carbon}
+                        const MatChip matChips[9] = {
+                            {"DARK CHASSIS",  GuiChassisStyle::DarkChassis},
+                            {"BRUSHED METAL", GuiChassisStyle::BrushedMetal},
+                            {"POWDER COAT",   GuiChassisStyle::MattePowderCoat},
+                            {"CRINKLE",       GuiChassisStyle::CrinklePaint},
+                            {"BAKELITE",      GuiChassisStyle::Bakelite},
+                            {"WALNUT",        GuiChassisStyle::Walnut},
+                            {"ROSEWOOD",      GuiChassisStyle::Rosewood},
+                            {"PCB GREEN",     GuiChassisStyle::PcbGreen},
+                            {"CARBON",        GuiChassisStyle::Carbon}
                         };
 
                         const float chipGap = 5.0f;
                         const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
                         const float chipH = 22.0f;
 
-                        for (int i = 0; i < 10; ++i) {
+                        for (int i = 0; i < 9; ++i) {
                             int col = i % 5;
                             int row = i / 5;
                             float cx = drawerX + 12.0f + col * (chipW + chipGap);
                             float cy = contentY + 22.0f + row * (chipH + 4.0f);
-                            bool isAct = (panelChassisTexture_ == matChips[i].style);
+                            bool isAct = (panelChassisTexture_ == matChips[i].style ||
+                                          (matChips[i].style == GuiChassisStyle::BrushedMetal &&
+                                           (panelChassisTexture_ == GuiChassisStyle::BrushedAluminum ||
+                                            panelChassisTexture_ == GuiChassisStyle::BrushedSteel)));
 
                             drawRoundedRect(cx, cy, chipW, chipH, 3.0f,
                                             isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
@@ -6474,8 +6479,38 @@ void GuiWindow::renderFrame() {
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // 2. Anodized / Harmonic Color Tint Header & Swatches (6 swatches)
-                        const float tintRowY = contentY + 76.0f;
+                        // 2. Chassis Rotation / Orientation (2 buttons: Normal 0 deg and 90 deg Vertical)
+                        const float rotRowY = contentY + 76.0f;
+                        drawLine(drawerX + 12.0f, rotRowY, drawerX + drawerW - 12.0f, rotRowY, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("CHASSIS ROTATION / ORIENTATION", hubX + 28.0f, rotRowY + 6.0f, 0.65f, theme.textMuted);
+
+                        struct RotOption {
+                            const char* label;
+                            float value;
+                        };
+                        const RotOption rotOpts[2] = {
+                            {"NORMAL (0 DEG)",   0.0f},
+                            {"90 DEG (VERTICAL)", 90.0f}
+                        };
+                        const float rotGap = 8.0f;
+                        const float rotW = (drawerW - 24.0f - rotGap) / 2.0f;
+                        const float rotH = 20.0f;
+                        const float rotBtnsY = rotRowY + 18.0f;
+
+                        for (int r = 0; r < 2; ++r) {
+                            float rx = drawerX + 12.0f + r * (rotW + rotGap);
+                            bool isAct = (std::abs(panelChassisRotation_ - rotOpts[r].value) < 1.0f);
+
+                            drawRoundedRect(rx, rotBtnsY, rotW, rotH, 3.0f,
+                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
+                            drawRoundedRectOutline(rx, rotBtnsY, rotW, rotH, 3.0f,
+                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
+                            drawVectorString(rotOpts[r].label, rx + 14.0f, rotBtnsY + 4.0f, 0.65f,
+                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
+                        }
+
+                        // 3. Anodized / Harmonic Color Tint Header & Swatches (8 swatches)
+                        const float tintRowY = rotBtnsY + 24.0f;
                         drawLine(drawerX + 12.0f, tintRowY, drawerX + drawerW - 12.0f, tintRowY, theme.borderSubtle.darken(0.15f), 1.0f);
                         drawVectorString("ANODIZED / HARMONIC COLOR TINT", hubX + 28.0f, tintRowY + 6.0f, 0.65f, theme.textMuted);
 
@@ -6484,21 +6519,23 @@ void GuiWindow::renderFrame() {
                             std::optional<Color> color;
                             Color displayColor;
                         };
-                        const TintPreset tints[6] = {
-                            {"NATURAL",  std::nullopt,                 Color(0.50f, 0.50f, 0.50f)},
-                            {"BLUE",     Color(0.20f, 0.55f, 0.95f),  Color(0.20f, 0.55f, 0.95f)},
-                            {"GOLD",     Color(0.88f, 0.76f, 0.45f),  Color(0.88f, 0.76f, 0.45f)},
-                            {"GREEN",    Color(0.22f, 0.65f, 0.40f),  Color(0.22f, 0.65f, 0.40f)},
-                            {"OXBLOOD",  Color(0.80f, 0.25f, 0.30f),  Color(0.80f, 0.25f, 0.30f)},
-                            {"SLATE",    Color(0.40f, 0.45f, 0.52f),  Color(0.40f, 0.45f, 0.52f)}
+                        const TintPreset tints[8] = {
+                            {"NATURAL",    std::nullopt,                 Color(0.50f, 0.50f, 0.50f)},
+                            {"LIGHT GRAY", Color(0.78f, 0.80f, 0.84f),  Color(0.78f, 0.80f, 0.84f)},
+                            {"DARK GRAY",  Color(0.28f, 0.30f, 0.34f),  Color(0.28f, 0.30f, 0.34f)},
+                            {"BLUE",       Color(0.20f, 0.55f, 0.95f),  Color(0.20f, 0.55f, 0.95f)},
+                            {"GOLD",       Color(0.88f, 0.76f, 0.45f),  Color(0.88f, 0.76f, 0.45f)},
+                            {"GREEN",      Color(0.22f, 0.65f, 0.40f),  Color(0.22f, 0.65f, 0.40f)},
+                            {"OXBLOOD",    Color(0.80f, 0.25f, 0.30f),  Color(0.80f, 0.25f, 0.30f)},
+                            {"SLATE",      Color(0.40f, 0.45f, 0.52f),  Color(0.40f, 0.45f, 0.52f)}
                         };
 
-                        const float tintGap = 5.0f;
-                        const float tintW = (drawerW - 24.0f - (5.0f * tintGap)) / 6.0f;
+                        const float tintGap = 4.0f;
+                        const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
                         const float tintH = 20.0f;
                         const float swatchesY = tintRowY + 18.0f;
 
-                        for (int t = 0; t < 6; ++t) {
+                        for (int t = 0; t < 8; ++t) {
                             float tx = drawerX + 12.0f + t * (tintW + tintGap);
                             bool isAct = false;
                             if (!tints[t].color.has_value()) {
@@ -6513,12 +6550,12 @@ void GuiWindow::renderFrame() {
                                             isAct ? theme.controlWell : theme.controlBackground);
                             drawRoundedRectOutline(tx, swatchesY, tintW, tintH, 3.0f,
                                                    isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
-                            drawCircle(tx + 10.0f, swatchesY + tintH * 0.5f, 4.0f, tints[t].displayColor);
-                            drawVectorString(tints[t].label, tx + 18.0f, swatchesY + 4.0f, 0.60f,
+                            drawCircle(tx + 8.0f, swatchesY + tintH * 0.5f, 3.5f, tints[t].displayColor);
+                            drawVectorString(tints[t].label, tx + 14.0f, swatchesY + 4.0f, 0.55f,
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // 3. Surface Wear & Patina (4 levels)
+                        // 4. Surface Wear & Patina (4 levels)
                         const float wearRowY = swatchesY + 24.0f;
                         drawLine(drawerX + 12.0f, wearRowY, drawerX + drawerW - 12.0f, wearRowY, theme.borderSubtle.darken(0.15f), 1.0f);
                         drawVectorString("SURFACE WEAR & PATINA", hubX + 28.0f, wearRowY + 6.0f, 0.65f, theme.textMuted);
@@ -6551,7 +6588,7 @@ void GuiWindow::renderFrame() {
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // 4. Live Hardware Preview Plate
+                        // 5. Live Hardware Preview Plate
                         const float prevLineY = wearBtnsY + 24.0f;
                         drawLine(drawerX + 12.0f, prevLineY, drawerX + drawerW - 12.0f, prevLineY, theme.borderSubtle.darken(0.15f), 1.0f);
 
@@ -6564,7 +6601,7 @@ void GuiWindow::renderFrame() {
                             ProceduralTextureSystem::instance().drawChassis(
                                 batchRenderer_.get(), prevX, prevY, prevW, prevH,
                                 panelChassisTexture_, theme, panelChassisTint_, panelChassisWear_,
-                                0.0f, true);
+                                0.0f, true, panelChassisRotation_);
                         }
                         drawRoundedRectOutline(prevX, prevY, prevW, prevH, 4.0f, theme.borderSubtle.lighten(0.15f), 1.0f);
                         drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 8.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
@@ -8812,7 +8849,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
         if (projectHubSection_ == 0) curDrawerH = 190.0f;
         else if (projectHubSection_ == 1) curDrawerH = 114.0f;
         else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-        else if (projectHubSection_ == 3) curDrawerH = 226.0f;
+        else if (projectHubSection_ == 3) curDrawerH = 268.0f;
         else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
         else if (projectHubSection_ == 5) curDrawerH = 100.0f;
         else if (projectHubSection_ == 6) curDrawerH = 100.0f;
@@ -8972,10 +9009,9 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
             const float chipGap = 5.0f;
             const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
             const float chipH = 22.0f;
-            const GuiChassisStyle matStyles[10] = {
+            const GuiChassisStyle matStyles[9] = {
                 GuiChassisStyle::DarkChassis,
-                GuiChassisStyle::BrushedAluminum,
-                GuiChassisStyle::BrushedSteel,
+                GuiChassisStyle::BrushedMetal,
                 GuiChassisStyle::MattePowderCoat,
                 GuiChassisStyle::CrinklePaint,
                 GuiChassisStyle::Bakelite,
@@ -8984,7 +9020,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 GuiChassisStyle::PcbGreen,
                 GuiChassisStyle::Carbon
             };
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 9; ++i) {
                 int col = i % 5;
                 int row = i / 5;
                 float cx = drawerX + 12.0f + col * (chipW + chipGap);
@@ -8996,21 +9032,39 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 }
             }
 
-            // 2. Tint swatches (6 swatches)
-            const float tintRowY = contentStartY + 76.0f;
-            const float tintGap = 5.0f;
-            const float tintW = (drawerW - 24.0f - (5.0f * tintGap)) / 6.0f;
+            // 2. Chassis Rotation / Orientation (2 buttons)
+            const float rotRowY = contentStartY + 76.0f;
+            const float rotGap = 8.0f;
+            const float rotW = (drawerW - 24.0f - rotGap) / 2.0f;
+            const float rotH = 20.0f;
+            const float rotBtnsY = rotRowY + 18.0f;
+            const float rotVals[2] = {0.0f, 90.0f};
+            for (int r = 0; r < 2; ++r) {
+                float rx = drawerX + 12.0f + r * (rotW + rotGap);
+                if (x >= rx && x <= rx + rotW && y >= rotBtnsY && y <= rotBtnsY + rotH) {
+                    res.action = ProjectHubAction::SetPanelRotation;
+                    res.panelRotation = rotVals[r];
+                    return res;
+                }
+            }
+
+            // 3. Tint swatches (8 swatches)
+            const float tintRowY = rotBtnsY + 24.0f;
+            const float tintGap = 4.0f;
+            const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
             const float tintH = 20.0f;
             const float swatchesY = tintRowY + 18.0f;
-            const std::optional<Color> tintVals[6] = {
+            const std::optional<Color> tintVals[8] = {
                 std::nullopt,
+                Color(0.78f, 0.80f, 0.84f),
+                Color(0.28f, 0.30f, 0.34f),
                 Color(0.20f, 0.55f, 0.95f),
                 Color(0.88f, 0.76f, 0.45f),
                 Color(0.22f, 0.65f, 0.40f),
                 Color(0.80f, 0.25f, 0.30f),
-                Color(0.40f, 0.55f, 0.52f)
+                Color(0.40f, 0.45f, 0.52f)
             };
-            for (int t = 0; t < 6; ++t) {
+            for (int t = 0; t < 8; ++t) {
                 float tx = drawerX + 12.0f + t * (tintW + tintGap);
                 if (x >= tx && x <= tx + tintW && y >= swatchesY && y <= swatchesY + tintH) {
                     res.action = ProjectHubAction::SetPanelTint;
@@ -9019,7 +9073,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 }
             }
 
-            // 3. Wear buttons (4 buttons)
+            // 4. Wear buttons (4 buttons)
             const float wearRowY = swatchesY + 24.0f;
             const float wearGap = 6.0f;
             const float wearW = (drawerW - 24.0f - (3.0f * wearGap)) / 4.0f;
@@ -12159,7 +12213,12 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.rawY = y;
         pev.dx = x - mouseX_;
         pev.dy = y - mouseY_;
-        projectBrowserDrawerWidget_->handlePointer(pev);
+        bool handled = projectBrowserDrawerWidget_->handlePointer(pev);
+        if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
     }
 
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -12855,6 +12914,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::SetPanelWear:
                         setPanelChassisWear(hubHit.panelWear);
                         break;
+                    case ProjectHubAction::SetPanelRotation:
+                        setPanelChassisRotation(hubHit.panelRotation);
+                        break;
                     case ProjectHubAction::CrtPresetStudioRef: {
                         auto cfg = dawnBridge_.getMaterialConfig();
                         cfg.scanlineIntensity = 0.38f;
@@ -13024,14 +13086,11 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 PointerEvent pev;
                 pev.type = PointerType::Mouse;
                 pev.action = PointerAction::Down;
-                pev.button = PointerButton::Left;
+                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
                 pev.x = x;
                 pev.y = y;
-                if (projectBrowserDrawerWidget_->handlePointer(pev)) {
-                    return;
-                } else if (y >= 56.0f && x < projectBrowserDrawerWidget_->getDrawerBounds().x) {
-                    // Clicked outside drawer in workspace area -> close drawer
-                    setBrowserOpen(false);
+                bool handled = projectBrowserDrawerWidget_->handlePointer(pev);
+                if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
                     return;
                 }
             }
@@ -14491,6 +14550,21 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         return;
     }
 
+    if (browserOpen_ && projectBrowserDrawerWidget_) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        bool handled = projectBrowserDrawerWidget_->handlePointer(pev);
+        if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
+            return;
+        }
+    }
+
     if (projectHubOpen_) {
         projectHubScrollArea_.stopDragging();
     }
@@ -14650,6 +14724,18 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         activeDragHandler_ = nullptr;
     }
 
+    if (browserOpen_ && projectBrowserDrawerWidget_) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        projectBrowserDrawerWidget_->handlePointer(pev);
+    }
+
     isMarqueeSelecting_ = false;
     dragMode_ = DragMode::None;
 }
@@ -14708,7 +14794,10 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
 
     // 3. Sidebars & Drawers
     if (browserOpen_ && projectBrowserDrawerWidget_) {
-        if (projectBrowserDrawerWidget_->handlePointer(pev)) return;
+        bool handled = projectBrowserDrawerWidget_->handlePointer(pev);
+        if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(mouseX_, mouseY_)) {
+            return;
+        }
     }
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         ViewContext ctx = createViewContext();
@@ -14854,8 +14943,17 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    bool modalOrTerminalActive = valueEditDialog_.isOpen() ||
+                                 commandPaletteDialog_.isOpen() ||
+                                 audioToMidiDialog_.isOpen() ||
+                                 themeBrowserDialog_.isOpen() ||
+                                 fullscreenDeviceModal_.isOpen() ||
+                                 (activePluginDialog && activePluginDialog->isOpen()) ||
+                                 (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded());
+
     // Spacebar: Global DAW playback toggle
-    if (key == 32 && !isCtrl && !isAlt && !valueEditDialog_.isOpen() && !focusManager_.isAnyFocused()) {
+    if (key == 32 && !isCtrl && !isAlt && !modalOrTerminalActive) {
         if (engine_) {
             if (engine_->getSequencer().isPlaying()) {
                 engine_->getSequencer().stop();
@@ -14867,7 +14965,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
 
     // Grave Accent / Tilde (` / ~): In-DAW WebGPU Terminal & REPL Toggle
-    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen() && !focusManager_.isAnyFocused()) {
+    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen() && !modalOrTerminalActive) {
         toggleTerminalConsole();
         markNeedsRedraw();
         return;
@@ -14926,7 +15024,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
 
     // Intercept keyboard input if Plugin / Preset Search Modal Dialog is open
-    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
         // If printable key and not Ctrl/Alt, let onChar handle text insertion
         if (key >= 32 && key <= 126 && !isCtrl && !isAlt) {

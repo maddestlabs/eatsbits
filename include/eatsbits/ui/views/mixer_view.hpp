@@ -289,7 +289,7 @@ private:
     // Responsive Density & Toolbar State
     MixerDensityMode densityMode_{MixerDensityMode::Comfortable};
     bool autoDensity_{true};
-    bool showToolbar_{false};
+    bool showToolbar_{true};
     Rect2D optionsPillBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Active drag interaction tracking (Multi-Touch Multi-Fader Mixing)

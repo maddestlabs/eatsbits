@@ -120,8 +120,8 @@ ArrangerView::ArrangerView() {
     t4.midiFx.push_back({"Arpeggiator Pro", "ARP_PRO", 0, 0, true});
     t4.audioFx.push_back({"Chorus / Flanger", "CHORUS_FLANGER", 0.50f, 0.75f, true});
 
-    // Sub Bass follows project Chord Track in Bass mode
-    t2.chordFollowMode = theory::ChordFollowMode::Bass;
+    // Drum tracks must not follow project chords
+    t2.chordFollowMode = theory::ChordFollowMode::Off;
 
     // 5. Concert Grand Piano (Waveguide Physical Modeling)
     ArrangerTimelineTrack t5;
@@ -887,11 +887,11 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     trackHeaderWidth_ = ctx.isMobile ? 130.0f : 190.0f;
     inspectorWidth_ = ctx.isMobile ? 260.0f : 320.0f;
 
-    propertiesDrawer_.layout(bounds, 0.0f);
+    propertiesDrawer_.layout(bounds, ctx.browserOffset);
     inspectorOpen_ = propertiesDrawer_.isExpanded();
 
     float inspW = propertiesDrawer_.getEffectiveWidth();
-    float mainW = bounds_.w - inspW;
+    float mainW = bounds_.w - inspW - ctx.browserOffset;
 
     rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
     minimapBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_, mainW - trackHeaderWidth_, minimapHeight_);
@@ -914,7 +914,7 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     pluginDialog_.layout(bounds_.w, bounds_.h);
     circleOfFifthsDialog_.layout(bounds_.w, bounds_.h);
     iconDialog_.layout(bounds_.w, bounds_.h);
-    mixerDrawer_.layout(bounds, inspW);
+    mixerDrawer_.layout(bounds, inspW + ctx.browserOffset);
 }
 
 void ArrangerView::render(const ViewContext& ctx) {
@@ -923,9 +923,9 @@ void ArrangerView::render(const ViewContext& ctx) {
 
     float frameDt = ctx.dt > 0.0f ? ctx.dt : 0.016f;
     propertiesDrawer_.update(frameDt);
-    propertiesDrawer_.layout(bounds_, 0.0f);
+    propertiesDrawer_.layout(bounds_, ctx.browserOffset);
     mixerDrawer_.update(frameDt);
-    mixerDrawer_.layout(bounds_, propertiesDrawer_.getEffectiveWidth());
+    mixerDrawer_.layout(bounds_, propertiesDrawer_.getEffectiveWidth() + ctx.browserOffset);
 
     if (kineticScroller_.isGliding()) {
         float dx = 0.0f, dy = 0.0f;
@@ -1579,6 +1579,11 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return iconDialog_.handlePointer(ev);
     }
 
+    // 0. Disallow arranger interactions in Project Browser area
+    if (ctx.browserOffset > 0.0f && ev.x >= bounds_.x + bounds_.w - ctx.browserOffset) {
+        return false;
+    }
+
     // 0a. Continuous active drag inside Properties Drawer (knobs, sliders, scrollbar)
     if (propertiesDrawer_.isDragging()) {
         propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
@@ -1587,10 +1592,9 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
 
     // 0b. Interaction or Scroll inside expanded Properties Drawer Sidebar
     if (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y)) {
-        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
-            inspectorOpen_ = propertiesDrawer_.isExpanded();
-            return true;
-        }
+        propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
+        inspectorOpen_ = propertiesDrawer_.isExpanded();
+        return true;
     }
 
     // 0c. Active Continuous Drag in Mixer Drawer (faders, pan, resize, scrollbar)
@@ -1817,8 +1821,8 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         }
         if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
             inspectorOpen_ = propertiesDrawer_.isExpanded();
-            return true;
         }
+        return true;
     }
 
     // 2. Timeline Minimap Scrubbing / Jump

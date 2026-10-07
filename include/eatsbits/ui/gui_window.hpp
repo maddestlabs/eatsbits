@@ -219,6 +219,7 @@ enum class ProjectHubAction {
     SetPanelTexture,
     SetPanelTint,
     SetPanelWear,
+    SetPanelRotation,
     Scrollbar,
     ContentDrag,
     OpenCrtTweaker,
@@ -271,6 +272,7 @@ struct HitTestProjectHubResult {
     GuiChassisStyle panelStyle{GuiChassisStyle::DarkChassis};
     std::optional<Color> panelTint{std::nullopt};
     float panelWear{0.20f};
+    float panelRotation{0.0f};
 };
 
 struct HitTestJackResult {
@@ -619,6 +621,9 @@ public:
 
     [[nodiscard]] float getPanelChassisWear() const noexcept { return panelChassisWear_; }
     void setPanelChassisWear(float wear) noexcept { panelChassisWear_ = wear; markNeedsRedraw(); }
+
+    [[nodiscard]] float getPanelChassisRotation() const noexcept { return panelChassisRotation_; }
+    void setPanelChassisRotation(float rot) noexcept { panelChassisRotation_ = rot; markNeedsRedraw(); }
 
     [[nodiscard]] GLFWwindow* getWindowHandle() const noexcept { return window_; }
     [[nodiscard]] BatchRenderer2D* getBatchRenderer() noexcept { return batchRenderer_.get(); }
@@ -1187,6 +1192,7 @@ private:
     GuiChassisStyle panelChassisTexture_{GuiChassisStyle::DarkChassis};
     std::optional<Color> panelChassisTint_{std::nullopt};
     float panelChassisWear_{0.20f};
+    float panelChassisRotation_{0.0f};
     bool crtShaderEnabled_{false};
     bool crtTweakerOpen_{false};
     int crtTweakerSliderIndex_{-1};

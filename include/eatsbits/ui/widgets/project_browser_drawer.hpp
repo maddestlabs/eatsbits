@@ -105,6 +105,8 @@ public:
         return std::abs(animProgress_ - (isOpen_ ? 1.0f : 0.0f)) > 0.001f;
     }
     [[nodiscard]] float getAnimOffset() const noexcept { return animOffset_; }
+    [[nodiscard]] float getAnimProgress() const noexcept { return animProgress_; }
+    [[nodiscard]] float getEffectiveWidth() const noexcept { return kDrawerWidth * animProgress_; }
     [[nodiscard]] Rect2D getDrawerBounds() const noexcept { return drawerBounds_; }
     [[nodiscard]] static constexpr float getDrawerWidth() noexcept { return kDrawerWidth; }
 
@@ -116,6 +118,14 @@ public:
 
     void setCategoryFilter(const std::string& cat) { selectedCategory_ = cat; }
     [[nodiscard]] const std::string& getCategoryFilter() const noexcept { return selectedCategory_; }
+
+    void setScriptCategoryFilter(const std::string& cat) noexcept;
+    [[nodiscard]] const std::string& getScriptCategoryFilter() const noexcept { return selectedScriptCategory_; }
+
+    [[nodiscard]] bool isMobile() const noexcept { return isMobile_; }
+    void setIsMobile(bool mobile) noexcept { isMobile_ = mobile; }
+
+    [[nodiscard]] float getScrollOffset() const noexcept { return scrollOffset_; }
 
     // Live state updates from engine / sequencer / history
     void setTracks(const std::vector<BrowserTrackAssetItem>& tracks);
@@ -146,8 +156,14 @@ public:
 private:
     void initData();
     std::string formatBytes(uint64_t bytes) const;
+    float computeMaxScroll() const;
+    float computeMaxScroll(float contentY, float availH) const;
+    size_t getFilteredScriptsCount() const;
+    size_t getFilteredPatchesCount() const;
+    size_t getFilteredProjectsCount() const;
 
     bool isOpen_{false};
+    bool isMobile_{false};
     float animProgress_{0.0f}; // 0.0 (closed) to 1.0 (open)
     float animOffset_{380.0f}; // Pixels offscreen to the right
 
@@ -156,8 +172,10 @@ private:
     BrowserDrawerTab activeTab_{BrowserDrawerTab::Assets};
     std::string searchQuery_{""};
     std::string selectedCategory_{"ALL"};
+    std::string selectedScriptCategory_{"ALL"};
     int selectedIndex_{0};
     float scrollOffset_{0.0f};
+    float maxScroll_{0.0f};
     float mouseX_{0.0f};
     float mouseY_{0.0f};
     bool isDraggingScroll_{false};
@@ -173,6 +191,9 @@ private:
 
     // 6 Tab Bounds
     std::array<Rect2D, 6> tabBounds_{};
+
+    // Script Category Sub-section Filter Bounds (ALL, INST, FX, MIDI, SEQ, MACRO)
+    std::array<Rect2D, 6> scriptCategoryBounds_{};
 
     // Data stores
     std::vector<BrowserTrackAssetItem> tracks_;

@@ -2,6 +2,8 @@
 #include <cassert>
 #include <cmath>
 #include <string>
+#include <thread>
+#include <chrono>
 
 #include "eatsbits/ui/input/pointer_event.hpp"
 #include "eatsbits/ui/views/view_base.hpp"
@@ -28,6 +30,7 @@
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/project/project_file.hpp"
 #include <filesystem>
 
@@ -225,6 +228,23 @@ void testArrangerView() {
     size_t countBeforeDel = arranger.getTracks().size();
     arranger.deleteTrack(static_cast<uint32_t>(countBeforeDel - 1));
     assert(arranger.getTracks().size() == countBeforeDel - 1);
+
+    // 14. Side-by-side positioning with browserOffset & event absorption
+    ctx.browserOffset = 380.0f;
+    arranger.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+    arranger.getPropertiesDrawer().setExpanded(true);
+    arranger.getPropertiesDrawer().layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx.browserOffset);
+    auto drawerBoundsWithBrowser = arranger.getPropertiesDrawer().getDrawerBounds();
+    assertNear(drawerBoundsWithBrowser.x + drawerBoundsWithBrowser.w, 1280.0f - 380.0f, 0.5f);
+
+    // Ensure pointer events on properties drawer absorb (never fall through)
+    PointerEvent drawerClick = makePointer(drawerBoundsWithBrowser.x + 10.0f, drawerBoundsWithBrowser.y + 100.0f, PointerAction::Down);
+    assert(arranger.handlePointer(drawerClick, ctx));
+
+    // Pointer events inside browser area return false to arranger
+    PointerEvent browserAreaClick = makePointer(1280.0f - 50.0f, 200.0f, PointerAction::Down);
+    assert(!arranger.handlePointer(browserAreaClick, ctx));
+    ctx.browserOffset = 0.0f;
 
     std::cout << "  [PASS] ArrangerView validated." << std::endl;
 }
@@ -582,6 +602,28 @@ void testMixerView() {
                          0, 1.0f, 0.0f, false, 0.0f, 0.0f, nullptr, nullptr, 0,
                          false, 300.0f, true, true, true, true, true, true, false, 0.0f);
     assert(mixer.getChannels().size() == 3);
+
+    // Verify top bar toolbar is permanently visible & side-by-side layout with browserOffset
+    assert(mixer.isToolbarVisible());
+    ctx.browserOffset = 380.0f;
+    mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+    mixer.getPropertiesDrawer().setExpanded(true);
+    mixer.getPropertiesDrawer().layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx.browserOffset);
+    auto mDrawerBounds = mixer.getPropertiesDrawer().getDrawerBounds();
+    assertNear(mDrawerBounds.x + mDrawerBounds.w, 1280.0f - 380.0f, 0.5f);
+
+    // Pointer event inside top toolbar absorbs without passing to channels
+    PointerEvent tbClick = makePointer(100.0f, 65.0f, PointerAction::Down);
+    assert(mixer.handlePointer(tbClick, ctx));
+
+    // Pointer event inside properties drawer absorbs without passing to channels
+    PointerEvent mDrawerClick = makePointer(mDrawerBounds.x + 10.0f, mDrawerBounds.y + 100.0f, PointerAction::Down);
+    assert(mixer.handlePointer(mDrawerClick, ctx));
+
+    // Pointer event inside browser area returns false to mixer
+    PointerEvent mBrowserClick = makePointer(1280.0f - 50.0f, 200.0f, PointerAction::Down);
+    assert(!mixer.handlePointer(mBrowserClick, ctx));
+    ctx.browserOffset = 0.0f;
 
     std::cout << "  [PASS] MixerView validated." << std::endl;
 }
@@ -973,9 +1015,39 @@ void testProjectBrowserDrawer() {
     browser.setTab(BrowserDrawerTab::History);
     assert(browser.getTab() == BrowserDrawerTab::History);
 
-    // Layout
+    // Layout desktop
     browser.layout(1280.0f, 800.0f, 56.0f, 48.0f);
     assert(browser.getDrawerBounds().w == ProjectBrowserDrawer::getDrawerWidth());
+    assert(!browser.isMobile());
+
+    // Layout mobile
+    browser.layout(480.0f, 800.0f, 56.0f, 48.0f);
+    assert(browser.isMobile());
+    browser.layout(1280.0f, 800.0f, 56.0f, 48.0f);
+
+    // Test Script Category sub-sections
+    browser.setTab(BrowserDrawerTab::Scripts);
+    assert(browser.getScriptCategoryFilter() == "ALL");
+    browser.setScriptCategoryFilter("SYNTH");
+    assert(browser.getScriptCategoryFilter() == "SYNTH");
+    browser.setScriptCategoryFilter("AUDIO_FX");
+    assert(browser.getScriptCategoryFilter() == "AUDIO_FX");
+    browser.setScriptCategoryFilter("MIDI_FX");
+    assert(browser.getScriptCategoryFilter() == "MIDI_FX");
+    browser.setScriptCategoryFilter("MIDI_SEQ");
+    assert(browser.getScriptCategoryFilter() == "MIDI_SEQ");
+    browser.setScriptCategoryFilter("MACRO");
+    assert(browser.getScriptCategoryFilter() == "MACRO");
+
+    // Test Scroll Stability: Pointer Move/Hover must NOT arbitrarily alter scroll offset
+    browser.update(1.0f); // fully open animProgress_ = 1.0
+    float initialScroll = browser.getScrollOffset();
+    PointerEvent hoverEv{};
+    hoverEv.action = PointerAction::Move;
+    hoverEv.x = browser.getDrawerBounds().x + 50.0f;
+    hoverEv.y = browser.getDrawerBounds().y + 200.0f;
+    browser.handlePointer(hoverEv);
+    assert(browser.getScrollOffset() == initialScroll);
 
     // Callbacks
     bool presetTriggered = false;
@@ -1060,6 +1132,7 @@ void testGuiWindowIntegration() {
 
     audio::AudioEngine engine;
     engine.initialize();
+    engine.setupDefaultAcidBeatGraph();
 
     GuiWindow window(1280, 800, "Modular Eatsbits Test");
     bool initOk = window.initialize(engine);
@@ -1156,6 +1229,20 @@ void testGuiWindowIntegration() {
     // Restore TR-909 back to Bar 5
     window.getModularArrangerView()->getTracks()[2].clips[0].startBar = 5;
     window.syncArrangerToSequencer();
+
+    // Verify audio generation when Play is pressed
+    assert(window.getTransportHeaderWidget()->onTogglePlay != nullptr);
+    window.getTransportHeaderWidget()->onTogglePlay();
+    assert(engine.getSequencer().isPlaying());
+
+    std::vector<float> audioOut(1024 * 2, 0.0f);
+    engine.audioCallbackInternal(audioOut.data(), 1024);
+    float peakAudio = 0.0f;
+    for (float s : audioOut) {
+        if (std::abs(s) > peakAudio) peakAudio = std::abs(s);
+    }
+    std::cout << "  -> GuiWindow Play test: peak audio = " << peakAudio << std::endl;
+    assert(peakAudio > 0.001f);
 
     std::cout << "  [PASS] GuiWindow Modular Integration validated." << std::endl;
 }

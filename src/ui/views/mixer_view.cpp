@@ -315,12 +315,13 @@ void MixerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
             break;
     }
 
-    // Top Collapsible Options Toolbar (30px when expanded, 0px when collapsed)
-    float toolbarH = showToolbar_ ? 30.0f : 0.0f;
-    toolbarBounds_ = Rect2D(bounds_.x, bounds_.y, bounds_.w, toolbarH);
+    // Top Options Toolbar (always visible, 32px height)
+    float toolbarH = 32.0f;
+    float toolbarW = bounds_.w - ctx.browserOffset;
+    toolbarBounds_ = Rect2D(bounds_.x, bounds_.y, std::max(0.0f, toolbarW), toolbarH);
 
     // Sliding Track Properties Drawer Layout
-    propertiesDrawer_.layout(bounds_, 0.0f);
+    propertiesDrawer_.layout(bounds_, ctx.browserOffset);
     float drawerTotalW = propertiesDrawer_.getEffectiveWidth();
 
     float stripTopY = bounds_.y + toolbarH + 8.0f;
@@ -328,9 +329,9 @@ void MixerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     // Master Bus Strip Position (Left or Far-Right)
     if (masterPosition_ == MixerMasterPosition::Right) {
-        float mX = bounds_.x + bounds_.w - drawerTotalW - masterStripWidth_ - 10.0f;
+        float mX = bounds_.x + bounds_.w - drawerTotalW - ctx.browserOffset - masterStripWidth_ - 10.0f;
         masterBounds_ = Rect2D(mX, stripTopY, masterStripWidth_, stripH);
-        channelsScrollBounds_ = Rect2D(bounds_.x + 40.0f, stripTopY, mX - bounds_.x - 50.0f, stripH);
+        channelsScrollBounds_ = Rect2D(bounds_.x + 40.0f, stripTopY, std::max(80.0f, mX - bounds_.x - 50.0f), stripH);
         optionsPillBounds_ = Rect2D(bounds_.x + 10.0f, bounds_.y + 6.0f, 68.0f, 20.0f);
     } else {
         // Pinned Left (Default, matches Eatsbeats)
@@ -338,7 +339,7 @@ void MixerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
         float scrollX = (densityMode_ == MixerDensityMode::Comfortable) ? (bounds_.x + 195.0f) :
                         ((densityMode_ == MixerDensityMode::Compact) ? (bounds_.x + masterStripWidth_ + 20.0f) :
                                                                        (bounds_.x + masterStripWidth_ + 14.0f));
-        float scrollW = bounds_.w - scrollX - drawerTotalW;
+        float scrollW = bounds_.w - scrollX - drawerTotalW - ctx.browserOffset;
         channelsScrollBounds_ = Rect2D(scrollX, stripTopY, std::max(80.0f, scrollW), stripH);
         optionsPillBounds_ = Rect2D(bounds_.x + masterStripWidth_ + 14.0f, bounds_.y + 6.0f, 68.0f, 20.0f);
     }
@@ -496,13 +497,9 @@ void MixerView::render(const ViewContext& ctx) {
 
     float frameDt = ctx.dt > 0.0f ? ctx.dt : 0.016f;
     propertiesDrawer_.update(frameDt);
-    propertiesDrawer_.layout(bounds_, 0.0f);
+    propertiesDrawer_.layout(bounds_, ctx.browserOffset);
 
     // 0. Meter ballistics and peaks are updated from TelemetryPresenter via syncFromWindow
-
-
-    // 0. Top Collapsible Options Toolbar
-    renderToolbar(r, theme);
 
     // 1. Pinned Master Bus Strip (Always in view on the left, Eatsbeats parity)
     renderMasterStrip(r, theme, masterBounds_);
@@ -520,6 +517,9 @@ void MixerView::render(const ViewContext& ctx) {
     const float gap = channelGap_;
 
     float rightBound = propertiesDrawer_.getPullTabBounds().x;
+    if (rightBound <= 0.0f) {
+        rightBound = bounds_.x + bounds_.w - ctx.browserOffset;
+    }
 
     for (size_t i = 0; i < channels_.size(); ++i) {
         float cx = startX + static_cast<float>(i) * (stripW + gap) - scrollX_;
@@ -530,6 +530,9 @@ void MixerView::render(const ViewContext& ctx) {
         Rect2D stripRect(cx, masterBounds_.y, stripW, masterBounds_.h);
         renderChannelStrip(r, theme, channels_[i], stripRect, i, selectedChannel_ == static_cast<int>(i));
     }
+
+    // 3. Top Options Toolbar (Always visible, renders crisp above channel strips)
+    renderToolbar(r, theme);
 
     // 3. Sliding Track Properties Drawer (Reusing Decoupled Drawer)
     drawerData_.isMixerMode = true;
@@ -613,26 +616,14 @@ void MixerView::render(const ViewContext& ctx) {
 }
 
 void MixerView::renderToolbar(BatchRenderer2D& r, const ThemeTokens& theme) {
-    if (!showToolbar_) {
-        // Subtle options trigger pill when collapsed
-        float px = optionsPillBounds_.x;
-        float py = optionsPillBounds_.y;
-        float pw = optionsPillBounds_.w;
-        float ph = optionsPillBounds_.h;
-        drawRoundedRect(r, px, py, pw, ph, 4.0f, 0.12f, 0.14f, 0.18f, 0.90f);
-        drawRoundedRectOutline(r, px, py, pw, ph, 4.0f, 0.35f, 0.40f, 0.50f, 0.70f, 1.0f);
-        drawText(r, "OPTS v", px + 8.0f, py + 4.5f, 8.5f, 0.85f, 0.75f, 0.30f, 0.95f);
-        return;
-    }
-
-    // Top Collapsible Options Toolbar
+    // Top Options Toolbar (always visible in Mixer)
     float tx = toolbarBounds_.x;
     float ty = toolbarBounds_.y;
     float tw = toolbarBounds_.w;
     float th = toolbarBounds_.h;
 
-    drawRoundedRect(r, tx, ty, tw, th, 0.0f, 0.09f, 0.10f, 0.13f, 0.98f);
-    drawLine(r, tx, ty + th - 1.0f, tx + tw, ty + th - 1.0f, 0.22f, 0.26f, 0.34f, 0.8f, 1.0f);
+    drawRoundedRect(r, tx, ty, tw, th, 0.0f, 0.09f, 0.10f, 0.13f, 1.0f);
+    drawLine(r, tx, ty + th - 1.0f, tx + tw, ty + th - 1.0f, 0.22f, 0.26f, 0.34f, 0.9f, 1.5f);
 
     // Title
     drawText(r, "MIXER", tx + 12.0f, ty + 8.5f, 10.0f, 1.0f, 0.75f, 0.25f, 1.0f);
@@ -675,14 +666,6 @@ void MixerView::renderToolbar(BatchRenderer2D& r, const ThemeTokens& theme) {
     // Master Position Pill
     std::string mPosLabel = (masterPosition_ == MixerMasterPosition::Left) ? "MST: LEFT" : "MST: RIGHT";
     drawPill(curX, ty + 4.0f, 74.0f, 22.0f, mPosLabel.c_str(), true, Color(0.80f, 0.70f, 0.35f));
-
-    // Collapse pill at far right
-    float hideX = tx + tw - 64.0f;
-    if (hideX > curX + 80.0f) {
-        drawRoundedRect(r, hideX, ty + 4.0f, 54.0f, 22.0f, 3.0f, 0.16f, 0.18f, 0.22f, 0.85f);
-        drawRoundedRectOutline(r, hideX, ty + 4.0f, 54.0f, 22.0f, 3.0f, 0.35f, 0.40f, 0.50f, 0.60f, 1.0f);
-        drawText(r, "^ HIDE", hideX + 8.0f, ty + 4.5f, 8.5f, 0.75f, 0.80f, 0.88f, 0.90f);
-    }
 }
 
 void MixerView::renderBacklitLcd(BatchRenderer2D& r, float x, float y, float w, float h,
@@ -1036,95 +1019,81 @@ void MixerView::renderLedMeter(BatchRenderer2D& r, const ThemeTokens& theme, flo
 
 bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     // 0. Top Collapsible Options Toolbar clicks
-    if (!showToolbar_) {
-        if (ev.action == PointerAction::Down && optionsPillBounds_.contains(ev.x, ev.y)) {
-            showToolbar_ = true;
-            return true;
-        }
-    } else {
-        if (toolbarBounds_.contains(ev.x, ev.y)) {
-            if (ev.action == PointerAction::Down) {
-                float tx = toolbarBounds_.x;
-                float ty = toolbarBounds_.y;
-                float tw = toolbarBounds_.w;
-
-                // Density Mode Pills
-                // COMFORT [tx + 64, ty + 4, 76, 22]
-                if (ev.x >= tx + 64.0f && ev.x <= tx + 140.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    setDensityMode(MixerDensityMode::Comfortable);
-                    autoDensity_ = false;
-                    return true;
-                }
-                // COMPACT [tx + 144, ty + 4, 66, 22]
-                if (ev.x >= tx + 144.0f && ev.x <= tx + 210.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    setDensityMode(MixerDensityMode::Compact);
-                    autoDensity_ = false;
-                    return true;
-                }
-                // MICRO [tx + 214, ty + 4, 54, 22]
-                if (ev.x >= tx + 214.0f && ev.x <= tx + 268.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    setDensityMode(MixerDensityMode::Micro);
-                    autoDensity_ = false;
-                    return true;
-                }
-
-                // Section Toggles
-                // METERS [tx + 276, ty + 4, 56, 22]
-                if (ev.x >= tx + 276.0f && ev.x <= tx + 332.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    showMeters_ = !showMeters_;
-                    return true;
-                }
-                // ROUTING [tx + 336, ty + 4, 62, 22]
-                if (ev.x >= tx + 336.0f && ev.x <= tx + 398.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    showRouting_ = !showRouting_;
-                    return true;
-                }
-                // PAN [tx + 402, ty + 4, 42, 22]
-                if (ev.x >= tx + 402.0f && ev.x <= tx + 444.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    showPan_ = !showPan_;
-                    return true;
-                }
-                // READOUT [tx + 448, ty + 4, 68, 22]
-                if (ev.x >= tx + 448.0f && ev.x <= tx + 516.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    showReadouts_ = !showReadouts_;
-                    return true;
-                }
-                // MASTER POS [tx + 522, ty + 4, 74, 22]
-                if (ev.x >= tx + 522.0f && ev.x <= tx + 596.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    setMasterPosition(masterPosition_ == MixerMasterPosition::Left ? MixerMasterPosition::Right : MixerMasterPosition::Left);
-                    return true;
-                }
-
-                // HIDE [tx + tw - 64, ty + 4, 54, 22]
-                float hideX = tx + tw - 64.0f;
-                if (ev.x >= hideX && ev.x <= hideX + 54.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
-                    showToolbar_ = false;
-                    return true;
-                }
-            }
-            return true;
-        }
+    // 0a. Disallow mixer interactions in Project Browser area
+    if (ctx.browserOffset > 0.0f && ev.x >= bounds_.x + bounds_.w - ctx.browserOffset) {
+        return false;
     }
 
-    // 1. Sliding Track Properties Drawer (Pull-tab, Drag-resize, Controls)
-    if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
-        if (onPropertiesDrawerStateChanged) {
-            onPropertiesDrawerStateChanged(propertiesDrawer_.isExpanded(), propertiesDrawer_.getWidth());
+    // 0b. Top Options Toolbar
+    if (toolbarBounds_.contains(ev.x, ev.y)) {
+        if (ev.action == PointerAction::Down) {
+            float tx = toolbarBounds_.x;
+            float ty = toolbarBounds_.y;
+
+            // Density Mode Pills
+            // COMFORT [tx + 64, ty + 4, 76, 22]
+            if (ev.x >= tx + 64.0f && ev.x <= tx + 140.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                setDensityMode(MixerDensityMode::Comfortable);
+                autoDensity_ = false;
+                return true;
+            }
+            // COMPACT [tx + 144, ty + 4, 66, 22]
+            if (ev.x >= tx + 144.0f && ev.x <= tx + 210.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                setDensityMode(MixerDensityMode::Compact);
+                autoDensity_ = false;
+                return true;
+            }
+            // MICRO [tx + 214, ty + 4, 54, 22]
+            if (ev.x >= tx + 214.0f && ev.x <= tx + 268.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                setDensityMode(MixerDensityMode::Micro);
+                autoDensity_ = false;
+                return true;
+            }
+
+            // Section Toggles
+            // METERS [tx + 276, ty + 4, 56, 22]
+            if (ev.x >= tx + 276.0f && ev.x <= tx + 332.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                showMeters_ = !showMeters_;
+                return true;
+            }
+            // ROUTING [tx + 336, ty + 4, 62, 22]
+            if (ev.x >= tx + 336.0f && ev.x <= tx + 398.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                showRouting_ = !showRouting_;
+                return true;
+            }
+            // PAN [tx + 402, ty + 4, 42, 22]
+            if (ev.x >= tx + 402.0f && ev.x <= tx + 444.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                showPan_ = !showPan_;
+                return true;
+            }
+            // READOUT [tx + 448, ty + 4, 68, 22]
+            if (ev.x >= tx + 448.0f && ev.x <= tx + 516.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                showReadouts_ = !showReadouts_;
+                return true;
+            }
+            // MASTER POS [tx + 522, ty + 4, 74, 22]
+            if (ev.x >= tx + 522.0f && ev.x <= tx + 596.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
+                setMasterPosition(masterPosition_ == MixerMasterPosition::Left ? MixerMasterPosition::Right : MixerMasterPosition::Left);
+                return true;
+            }
         }
         return true;
     }
 
-    // Isolate drawer bounds: if pointer is over the pull tab or inside expanded drawer,
-    // never let clicks or gestures fall through to channels underneath!
+    // 1. Sliding Track Properties Drawer (Pull-tab, Drag-resize, Controls)
+    if (propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
+        (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
+        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
+            if (onPropertiesDrawerStateChanged) {
+                onPropertiesDrawerStateChanged(propertiesDrawer_.isExpanded(), propertiesDrawer_.getWidth());
+            }
+        }
+        return true;
+    }
+
     float rightBound = propertiesDrawer_.getPullTabBounds().x;
     if (rightBound <= 0.0f) {
-        rightBound = (bounds_.w > 0.0f) ? (bounds_.x + bounds_.w - 24.0f) : 1256.0f;
-    }
-    if (ev.x >= rightBound) {
-        if (propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
-            (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
-            return true;
-        }
+        rightBound = (bounds_.w > 0.0f) ? (bounds_.x + bounds_.w - ctx.browserOffset - 24.0f) : 1256.0f;
     }
 
     // 2. Master Strip Pointer Events

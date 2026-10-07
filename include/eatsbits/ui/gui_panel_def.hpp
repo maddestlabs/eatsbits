@@ -44,6 +44,7 @@ enum class GuiChassisStyle {
     Rosewood,
     BrushedSteel,
     BrushedAluminum,
+    BrushedMetal = BrushedAluminum,
     MattePowderCoat,
     Bakelite,
     CrinklePaint,
@@ -77,6 +78,7 @@ struct GuiPanelDef {
     Color accentColor{0.0f, 0.95f, 1.0f};
     std::optional<Color> chassisTint{std::nullopt};
     float textureWear{0.20f};
+    float chassisRotation{0.0f};
     bool woodCheeks{true};
     bool hideHeader{false};
     float cornerRadius{8.0f};

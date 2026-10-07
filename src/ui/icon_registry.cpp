@@ -624,6 +624,163 @@ void IconRegistry::initStockLibrary() {
         "M 6 4 L 10 4 L 10 10 L 6 10 Z M 14 9 L 18 9 L 18 15 L 14 15 Z M 8 14 L 12 14 L 12 20 L 8 20 Z",
         {0, 0, 24, 24}, true
     });
+
+    // ------------------------------------------------------------------------
+    // FLUTTER-PARITY BROWSER WORKSTATION HUB & CATEGORY ICONS
+    // ------------------------------------------------------------------------
+    // Tab 1: Project Assets (Icons.inventory_2_outlined)
+    registerIcon({
+        "ui_tab_assets", "Project Assets Tab", "UI",
+        {"ui", "browser", "assets", "inventory", "box"},
+        "M 3 3 L 21 3 L 21 6.5 L 3 6.5 Z "
+        "M 4 7.5 L 6.5 7.5 L 6.5 21 L 4 21 Z "
+        "M 17.5 7.5 L 20 7.5 L 20 21 L 17.5 21 Z "
+        "M 6.5 18.5 L 17.5 18.5 L 17.5 21 L 6.5 21 Z "
+        "M 9 12 L 15 12 L 15 14.5 L 9 14.5 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Tab 2: Script & Engine Library (Icons.code)
+    registerIcon({
+        "ui_tab_script", "Script Library Tab", "UI",
+        {"ui", "browser", "script", "code", "engine"},
+        "M 8 5 L 2.5 12 L 8 19 L 9.5 17.5 L 5.5 12 L 9.5 6.5 Z "
+        "M 16 5 L 14.5 6.5 L 18.5 12 L 14.5 17.5 L 16 19 L 21.5 12 Z "
+        "M 13.5 4 L 9.5 20 L 11 20 L 15 4 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Tab 3: Preset Library (Icons.library_music_outlined)
+    registerIcon({
+        "ui_tab_preset", "Preset Library Tab", "UI",
+        {"ui", "browser", "preset", "library", "soundpatch"},
+        "M 2 6 L 4 6 L 4 21 L 2 21 Z "
+        "M 4 19 L 17 19 L 17 21 L 4 21 Z "
+        "M 6 2 L 22 2 L 22 4 L 6 4 Z "
+        "M 6 4 L 8 4 L 8 18 L 6 18 Z "
+        "M 20 4 L 22 4 L 22 18 L 20 18 Z "
+        "M 6 16 L 22 16 L 22 18 L 6 18 Z "
+        "M 15 6 L 17 6 L 17 12 L 15 12 Z "
+        "M 12 11 L 16 11 L 16 14.5 L 12 14.5 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Tab 4: Expansion Packs (Icons.cloud_download_outlined)
+    registerIcon({
+        "ui_tab_packs", "Expansion Packs Tab", "UI",
+        {"ui", "browser", "packs", "download", "cloud"},
+        "M 3 15 L 7 15 L 7 17 L 3 17 Z "
+        "M 17 15 L 21 15 L 21 17 L 17 17 Z "
+        "M 9 5 L 15 5 L 15 7 L 9 7 Z "
+        "M 5 10 L 9 6 L 10.5 7.5 L 6.5 11.5 Z "
+        "M 19 10 L 17.5 11.5 L 13.5 7.5 L 15 6 Z "
+        "M 3 11 L 5 11 L 5 15 L 3 15 Z "
+        "M 19 11 L 21 11 L 21 15 L 19 15 Z "
+        "M 11 9 L 13 9 L 13 14 L 11 14 Z "
+        "M 8.5 13.5 L 12 18.5 L 15.5 13.5 L 14 13.5 L 12 16.5 L 10 13.5 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Tab 5: Local Saved Projects (Icons.folder_special_outlined)
+    registerIcon({
+        "ui_tab_projects", "Saved Projects Tab", "UI",
+        {"ui", "browser", "projects", "folder", "star"},
+        "M 2 5 L 8 5 L 10 7.5 L 22 7.5 L 22 9.5 L 2 9.5 Z "
+        "M 2 9.5 L 4 9.5 L 4 20 L 2 20 Z "
+        "M 20 9.5 L 22 9.5 L 22 20 L 20 20 Z "
+        "M 2 18 L 22 18 L 22 20 L 2 20 Z "
+        "M 12 9 L 13.2 12.5 L 17 12.5 L 14 14.8 L 15.2 18.5 L 12 16.2 L 8.8 18.5 L 10 14.8 L 7 12.5 L 10.8 12.5 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Tab 6: History & Time Travel (Icons.history)
+    registerIcon({
+        "ui_tab_history", "History & Undo Tab", "UI",
+        {"ui", "browser", "history", "undo", "redo", "clock"},
+        "M 12 4 L 18 4 L 18 6 L 12 6 Z "
+        "M 18 6 L 20 6 L 20 18 L 18 18 Z "
+        "M 6 18 L 18 18 L 18 20 L 6 20 Z "
+        "M 4 11 L 6 11 L 6 18 L 4 18 Z "
+        "M 2 8 L 8 8 L 5 4 Z "
+        "M 11 8 L 13 8 L 13 13 L 11 13 Z "
+        "M 11 11 L 16 11 L 16 13 L 11 13 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: All (Icons.apps)
+    registerIcon({
+        "ui_cat_all", "All Presets Chip", "UI",
+        {"ui", "chip", "all", "apps", "grid"},
+        "M 3 3 L 7.5 3 L 7.5 7.5 L 3 7.5 Z "
+        "M 9.75 3 L 14.25 3 L 14.25 7.5 L 9.75 7.5 Z "
+        "M 16.5 3 L 21 3 L 21 7.5 L 16.5 7.5 Z "
+        "M 3 9.75 L 7.5 9.75 L 7.5 14.25 L 3 14.25 Z "
+        "M 9.75 9.75 L 14.25 9.75 L 14.25 14.25 L 9.75 14.25 Z "
+        "M 16.5 9.75 L 21 9.75 L 21 14.25 L 16.5 14.25 Z "
+        "M 3 16.5 L 7.5 16.5 L 7.5 21 L 3 21 Z "
+        "M 9.75 16.5 L 14.25 16.5 L 14.25 21 L 9.75 21 Z "
+        "M 16.5 16.5 L 21 16.5 L 21 21 L 16.5 21 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: Instruments (Icons.piano)
+    registerIcon({
+        "ui_cat_instruments", "Synth Instruments Chip", "UI",
+        {"ui", "chip", "instruments", "piano", "synth"},
+        "M 2 5 L 22 5 L 22 8 L 2 8 Z "
+        "M 2 9.5 L 5.2 9.5 L 5.2 21 L 2 21 Z "
+        "M 6.2 9.5 L 9.4 9.5 L 9.4 21 L 6.2 21 Z "
+        "M 10.4 9.5 L 13.6 9.5 L 13.6 21 L 10.4 21 Z "
+        "M 14.6 9.5 L 17.8 9.5 L 17.8 21 L 14.6 21 Z "
+        "M 18.8 9.5 L 22 9.5 L 22 21 L 18.8 21 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: Audio FX (Icons.graphic_eq)
+    registerIcon({
+        "ui_cat_fx", "Audio FX Chip", "UI",
+        {"ui", "chip", "fx", "audio", "eq", "bars"},
+        "M 1.5 10 L 3.8 10 L 3.8 14 L 1.5 14 Z "
+        "M 6 6 L 8.5 6 L 8.5 18 L 6 18 Z "
+        "M 10.7 3 L 13.3 3 L 13.3 21 L 10.7 21 Z "
+        "M 15.5 6 L 18 6 L 18 18 L 15.5 18 Z "
+        "M 20.2 10 L 22.5 10 L 22.5 14 L 20.2 14 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: MIDI FX (Icons.music_note)
+    registerIcon({
+        "ui_cat_midifx", "MIDI FX Chip", "UI",
+        {"ui", "chip", "midifx", "note", "music"},
+        "M 11 3 L 17 3 L 17 6.5 L 12.5 6.5 Z "
+        "M 11 3 L 13 3 L 13 14 L 11 14 Z "
+        "M 6.5 12 L 12 12 L 12 16 L 6.5 16 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: MIDI Sequences (Icons.view_timeline_outlined)
+    registerIcon({
+        "ui_cat_seq", "MIDI Sequences Chip", "UI",
+        {"ui", "chip", "seq", "timeline", "pattern"},
+        "M 3 4 L 21 4 L 21 6 L 3 6 Z "
+        "M 3 18 L 21 18 L 21 20 L 3 20 Z "
+        "M 3 6 L 5 6 L 5 18 L 3 18 Z "
+        "M 19 6 L 21 6 L 21 18 L 19 18 Z "
+        "M 6 8 L 12 8 L 12 10 L 6 10 Z "
+        "M 10 11.5 L 18 11.5 L 18 13.5 L 10 13.5 Z "
+        "M 7 15 L 15 15 L 15 17 L 7 17 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // Script Filter Chip: Macros (Icons.auto_awesome)
+    registerIcon({
+        "ui_cat_macro", "Macros & Automation Chip", "UI",
+        {"ui", "chip", "macro", "sparkle", "stars", "auto"},
+        "M 10 5 L 11.5 9.5 L 16 11 L 11.5 12.5 L 10 17 L 8.5 12.5 L 4 11 L 8.5 9.5 Z "
+        "M 18 2 L 19 4.5 L 21.5 5.5 L 19 6.5 L 18 9 L 17 6.5 L 14.5 5.5 L 17 4.5 Z "
+        "M 18 14 L 19 16.5 L 21.5 17.5 L 19 18.5 L 18 21 L 17 18.5 L 14.5 17.5 L 17 16.5 Z",
+        {0, 0, 24, 24}, true
+    });
 }
 
 } // namespace eatsbits::ui

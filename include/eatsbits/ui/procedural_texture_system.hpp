@@ -20,6 +20,7 @@ enum class ProceduralMaterialType {
     CastIronGrungy,     // Default legacy grungy cast iron / metal plate
     BrushedSteel,       // Heavy machined directional brushed steel
     BrushedAluminum,    // Anodized / satin aluminum with fine directional streaks & specular sheen
+    BrushedMetal = BrushedAluminum, // Unified brushed metal material
     MattePowderCoat,    // Tactile fine isotropic micro-stipple, diffuse non-glare finish
     WalnutWood,         // Rich walnut growth rings, grain turbulence, and longitudinal pore cuts
     Rosewood,           // Deep exotic rosewood grain with dense ring fibers
@@ -87,7 +88,8 @@ public:
                      const std::optional<Color>& customTint = std::nullopt,
                      float wearIntensity = 0.20f,
                      float cornerRadius = 0.0f,
-                     bool isTopPanel = false);
+                     bool isTopPanel = false,
+                     float rotation = 0.0f);
 
     /**
      * Draw faceplate background with rounded corners and skeuomorphic bevels.
@@ -98,7 +100,8 @@ public:
                                  const ThemeTokens& theme,
                                  const std::optional<Color>& customTint = std::nullopt,
                                  float wearIntensity = 0.20f,
-                                 float cornerRadius = 8.0f);
+                                 float cornerRadius = 8.0f,
+                                 float rotation = 0.0f);
 
     /**
      * Tactile micro-noise for hardware buttons and push switches.
@@ -125,6 +128,25 @@ public:
      */
     static float evaluateWorldAnomaly(float worldX, float worldY, uint32_t seed) noexcept;
 
+    struct CachedTintedTexture {
+        int width{0};
+        int height{0};
+        std::vector<uint8_t> rgba;
+        uint32_t tintKey{0};
+        uint32_t themeKey{0};
+        float wear{0.0f};
+        float rotation{0.0f};
+    };
+
+    /**
+     * Get or bake cached tinted RGBA texture with rotation and wear.
+     */
+    const CachedTintedTexture& getOrCreateTinted(ProceduralMaterialType mat,
+                                                const ThemeTokens& theme,
+                                                const std::optional<Color>& customTint,
+                                                float wearIntensity,
+                                                float rotation = 0.0f);
+
     /**
      * Clear cached RGBA textures (e.g. on full theme reset).
      */
@@ -136,21 +158,8 @@ private:
         std::vector<float> modulator;         // kModWidth * kModHeight
     };
 
-    struct CachedTintedTexture {
-        int width{0};
-        int height{0};
-        std::vector<uint8_t> rgba;
-        uint32_t tintKey{0};
-        uint32_t themeKey{0};
-        float wear{0.0f};
-    };
-
     void initMasterMaps();
     void generateMaterialMaster(ProceduralMaterialType mat, MaterialMasterBuffer& buf);
-    const CachedTintedTexture& getOrCreateTinted(ProceduralMaterialType mat,
-                                                const ThemeTokens& theme,
-                                                const std::optional<Color>& customTint,
-                                                float wearIntensity);
 
     std::unordered_map<int, MaterialMasterBuffer> masterBuffers_;
     std::unordered_map<std::string, CachedTintedTexture> tintedCache_;

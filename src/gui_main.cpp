@@ -65,10 +65,9 @@ int main(int /*argc*/, char** /*argv*/) {
 #endif
 
     std::cout << "[Audio] Initializing real-time audio engine..." << std::endl;
-    if (!engine.initialize(cfg)) {
+    bool audioOk = engine.initialize(cfg);
+    if (!audioOk) {
         std::cerr << "[Audio] Warning: Failed to open hardware audio output. Running in headless audio mode." << std::endl;
-    } else {
-        engine.start();
     }
 
     std::cout << "[Modular] Configuring TB-303 Acid + TR-808 Drums base song..." << std::endl;
@@ -257,6 +256,11 @@ int main(int /*argc*/, char** /*argv*/) {
 #endif
     std::cout << "[GUI] Initializing GuiWindow with engine..." << std::endl;
     window.initialize(engine);
+
+    if (audioOk) {
+        std::cout << "[Audio] Starting real-time audio hardware output..." << std::endl;
+        engine.start();
+    }
 
     std::cout << "[GUI] Running main event loop." << std::endl;
     window.runEventLoop();
