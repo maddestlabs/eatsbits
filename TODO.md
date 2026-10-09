@@ -16,28 +16,27 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Remove Eatsbeats Settings & Project Hub Texture Options**
-  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `tests/test_gui_interaction.cpp`, `tests/test_vector_surfaces.cpp`
-  - **Acceptance Criteria**:
-    1. **Eliminate Obsolete Texture Settings from Project Hub**:
-       - Remove the legacy texture options in Project Hub / Settings (Section 3), including the material texture chips (Dark Chassis, Brushed Metal, Powder Coat, Crinkle, Bakelite, Walnut, Rosewood, PCB Green, Carbon), Chassis Rotation (0° vs 90° Vertical), and Surface Wear & Patina levels (Pristine, Mint, Patina, Vintage).
-       - Streamline the Project Hub drawer sections from 7 to 6 (or repurpose Section 3 into a clean UI Accent & Color Theme selector), updating `secTitles`, drawer layout calculations, and section icons.
-    2. **Purge Texture Action Enums & State**:
-       - Remove obsolete enum values from `ProjectHubAction` (`SetPanelTexture`, `SetPanelWear`, `SetPanelRotation`).
-       - Remove unused chassis texture state variables from `GuiWindow` (`panelChassisTexture_`, `panelChassisWear_`, `panelChassisRotation_`) and their associated setters (`setPanelChassisTexture`, `setPanelChassisWear`, `setPanelChassisRotation`).
-    3. **Simplify Chassis Plate Rendering**:
-       - Streamline `drawChassisPlate` signatures in `GuiWindow` to remove unused `panelChassisTexture_`, `panelChassisWear_`, and `panelChassisRotation_` parameters, rendering sleek, uniform vector gradients and 1px specular bevels directly.
-    4. **Clean Up Hit Testing & Event Handlers**:
-       - Excised all material chip, rotation toggle, and patina level hit-testing blocks from `hitTestProjectHub()` and `onMouseDown()` in `GuiWindow`.
-    5. **Test Suite Verification**:
-       - Update `tests/test_gui_interaction.cpp` to align with the streamlined Project Hub section indices and actions.
-       - Verify full compilation and run the test suite via `.\build.ps1 -Test -NoRun` (all 48 suites passing).
-
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Remove Eatsbeats Settings & Project Hub Texture Options** (commit `e3d4d8a`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_gui_interaction.cpp`, `tests/test_vector_surfaces.cpp`
+  - **Acceptance Criteria**:
+    1. **Eliminated Obsolete Texture Settings from Project Hub**:
+       - Removed legacy texture options in Project Hub (Section 3), including 9 material texture chips (Dark Chassis, Brushed Metal, Powder Coat, Crinkle, Bakelite, Walnut, Rosewood, PCB Green, Carbon), Chassis Rotation (0° vs 90° Vertical), and Surface Wear & Patina levels (Pristine, Mint, Patina, Vintage).
+       - Streamlined Section 3 into a clean `"CHASSIS COLOR ACCENTS & TINTS"` drawer with 8 anodized harmonic color swatches and a live vector chassis plate preview, updating drawer height calculations (from 268.0f to 100.0f) and section header icons.
+    2. **Purged Texture Action Enums & State**:
+       - Removed obsolete enum values from `ProjectHubAction` (`SetPanelTexture`, `SetPanelWear`, `SetPanelRotation`).
+       - Removed unused chassis texture state variables from `GuiWindow` (`panelChassisTexture_`, `panelChassisWear_`, `panelChassisRotation_`) and their setters (`setPanelChassisTexture`, `setPanelChassisWear`, `setPanelChassisRotation`). Kept `panelChassisTint_` and `setPanelChassisTint()`.
+    3. **Simplified Chassis Plate Rendering**:
+       - Streamlined `drawChassisPlate` signatures in `GuiWindow` to eliminate unused style, wear, and rotation parameters, rendering crisp resolution-independent vector gradients and specular bevels directly.
+    4. **Cleaned Up Hit Testing & Event Handlers**:
+       - Excised all material chip, rotation toggle, and patina level hit-testing loops and click-action handling in `hitTestProjectHub()` and `onMouseDown()`.
+    5. **Test Suite Verification**:
+       - Updated `tests/test_gui_interaction.cpp` to verify the streamlined Chassis Color Accents & Tints swatch selection. Verified 100% pass across all 48 test suites with `.\build.ps1 -Test -NoRun`.
 
 - [x] **Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration** (commit `7648c86`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/widgets/fullscreen_device_modal.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `tests/test_studio_fx.cpp`
@@ -95,16 +94,6 @@ To execute items automatically, run in Antigravity:
     4. **Mixer View Hit-Test Ordering Fix**: Fixed hit-test priority in `MixerView` where pan knob hit-testing was intercepting clicks before Mute/Solo button checks.
     5. **Automated Unit Testing**: Created `test_vector_surfaces.cpp` verifying all 14 `GuiChassisStyle` surfaces, custom color tints, wood cheeks, and minimal white vector faceplates across full headless passes.
   - **Test/Validation**: `test_vector_surfaces.exe` (10/10 tests pass), all 48 test suites passing (`.\build.ps1 -Test -NoRun`), 0 compile warnings or errors.
-
-- [x] **Design Tab Live Project Track, Instrument & Insert FX Synchronization** (commit `6f832a3`, 2026-10-05)
-  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. Replaced hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` with dynamic project synchronization.
-    2. Implemented `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, track duplication, instrument replacement, FX insertion/removal, and upon switching to the Design Tab via bottom bar or modal navigation.
-    3. Ensured Design Tab left sidebar accurately reflects real active tracks, DSP engines, actual Audio FX and MIDI FX inserts (with authentic Eatscript code templates and parameters), and clip scripts.
-    4. Enhanced target code caching (`targetCodeMap_` and `targetParamsMap_`) so user modifications in the Eatscript Code Tab persist across target switching.
-    5. Updated `selectTargetByTrackAndType` with `fxIndex` support so clicking the "Design Chip" icon from `FullscreenDeviceModal` navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
-  - **Test/Validation**: `test_modular_ui.exe` Test 6b (`testDesignViewProjectSync`) validated dynamic updates, FX insert selection, code persistence, and track addition. `.\build.ps1 -Test` (45/45 suites pass), and `.\build-web.ps1 -NoServe` (clean Wasm build).
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

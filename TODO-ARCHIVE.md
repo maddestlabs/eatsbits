@@ -7,6 +7,16 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Design Tab Live Project Track, Instrument & Insert FX Synchronization** (commit `6f832a3`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. Replaced hardcoded prototype targets in `DesignView::initDefaultTargetsAndCode()` with dynamic project synchronization.
+    2. Implemented `DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& tracks)` called on project initialization, track creation/deletion, track duplication, instrument replacement, FX insertion/removal, and upon switching to the Design Tab via bottom bar or modal navigation.
+    3. Ensured Design Tab left sidebar accurately reflects real active tracks, DSP engines, actual Audio FX and MIDI FX inserts (with authentic Eatscript code templates and parameters), and clip scripts.
+    4. Enhanced target code caching (`targetCodeMap_` and `targetParamsMap_`) so user modifications in the Eatscript Code Tab persist across target switching.
+    5. Updated `selectTargetByTrackAndType` with `fxIndex` support so clicking the "Design Chip" icon from `FullscreenDeviceModal` navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
+  - **Test/Validation**: `test_modular_ui.exe` Test 6b (`testDesignViewProjectSync`) validated dynamic updates, FX insert selection, code persistence, and track addition. `.\build.ps1 -Test` (45/45 suites pass), and `.\build-web.ps1 -NoServe` (clean Wasm build).
+
 - [x] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration** (commit `20fe776`, 2026-10-05)
   - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
   - **Acceptance Criteria**:

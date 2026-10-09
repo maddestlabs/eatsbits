@@ -1029,6 +1029,32 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] Remove Eatsbeats Settings & Project Hub Texture Options (commit `e3d4d8a`)
+- **Architectural Context**:
+  - Eliminated legacy skeuomorphic chassis texture generation and settings from Project Hub Section 3, aligning with the pure vector graphics architecture established in Eatsbits.
+  - Repurposed Section 3 into `"CHASSIS COLOR ACCENTS & TINTS"`, providing 8 sleek anodized/harmonic color swatches (`NATURAL`, `LIGHT GRAY`, `DARK GRAY`, `BLUE`, `GOLD`, `GREEN`, `OXBLOOD`, `SLATE`) with a live vector chassis plate preview.
+  - Streamlined drawer height calculations from 268px to 100px and preserved all 7 section indices (avoiding shifts for CRT Shader at index 4 and Audio Engine Config at index 5).
+  - Cleaned up state variables, setters, and event dispatch across `GuiWindow` and automated interaction test suites.
+- **Key Changes Implemented**:
+  - **Removed Obsolete Enums & State**:
+    - Removed `SetPanelTexture`, `SetPanelWear`, and `SetPanelRotation` from `ProjectHubAction`.
+    - Removed `panelStyle`, `panelWear`, and `panelRotation` from `HitTestProjectHubResult`.
+    - Removed `panelChassisTexture_`, `panelChassisWear_`, `panelChassisRotation_` and their setters (`setPanelChassisTexture`, `setPanelChassisWear`, `setPanelChassisRotation`) from `GuiWindow`. Kept `panelChassisTint_` and `setPanelChassisTint()`.
+  - **Simplified Vector Chassis Plate Rendering**:
+    - Streamlined `drawChassisPlate` signatures in `GuiWindow` to `drawChassisPlate(x, y, w, h, isTopPanel, theme, tint)`, rendering uniform vector gradients and crisp 1px specular bevels directly with zero obsolete texture styling arguments.
+  - **Project Hub Section 3 Streamlining**:
+    - Updated section title to `"CHASSIS COLOR ACCENTS & TINTS"`.
+    - Replaced the 4-box grid icon with a clean color swatch circle icon.
+    - Updated `curDrawerH` for Section 3 to `100.0f`.
+    - Rendered 8 tint swatches and the live hardware vector preview plate.
+  - **Hit Testing & Event Handling**:
+    - Purged material chip, rotation toggle, and patina wear hit-testing loops and click-action handling in `hitTestProjectHub()` and `onMouseDown()`.
+- **Validation**:
+  - Updated `tests/test_gui_interaction.cpp` to verify tint swatch selection (`ProjectHubAction::SetPanelTint`, `window.getPanelChassisTint()`).
+  - `.\build.ps1 -Test -NoRun`: All 48 test suites passing cleanly (100% pass rate, 0 errors, 0 warnings).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
