@@ -960,6 +960,30 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] Fix Chord Follow & Project Harmony Playback Pipeline Desynchronization (commit `33a8fb6`)
+- **Architectural Context**:
+  - Eliminated desynchronization between Track Inspector chord follow mode selections, Arranger timeline view, and `StepSequencer` real-time playback.
+  - Linked Arranger timeline chord lane edits (adding, dragging, resizing, progression presets) to immediately propagate to `StepSequencer::setChordTrack()`, guaranteeing `StepSequencer::getActiveChordAtBar()` always has the latest progression.
+  - Extended `AudioEngine::postNoteOn` and `postNoteOff` with real-time harmony remapping so virtual keyboard, tracker, and piano roll preview auditioning dynamically reflect active track chord follow modes (`Bass`, `Chord`, `Scale`, `ColorLead`).
+- **Key Changes Implemented**:
+  - **Multi-View Chord Follow State Unification**:
+    - Wired `modularTrackInspectorView_->onChordFollowChanged` in `GuiWindow::initModularViews()`: updates `arrangerTracks_[idx].chordFollowMode`, `modularArrangerView_->getTracks()[idx].chordFollowMode`, and invokes `engine_->getSequencer().getTrack(idx)->setChordFollowMode(mode)`.
+    - Wired `modularArrangerView_->onTrackChordFollowChanged` in `GuiWindow`: syncs `arrangerTracks_` and `modularTrackInspectorView_->getTracks()[idx].chordFollowMode` and updates the sequencer.
+    - Updated `GuiWindow::handleTrackInspectorInteraction(TrackInspectorHitArea::ChordFollowChip)` to propagate mode changes to `modularArrangerView_`, `modularTrackInspectorView_`, and `SequencerTrack`.
+    - Added `trackChordFollowModes` synchronization parameter to `TrackInspectorView::syncFromWindow`.
+  - **Timeline Chord Lane to Sequencer Synchronization**:
+    - Added `onChordTrackChanged` callback to `ArrangerView`, triggered on `setChordTrack()`, `clearChordTrack()`, `addOrUpdateChord()`, `removeChord()`, `applyChordProgressionPreset()`, and upon chord move/resize drag completion (`PointerAction::Up`).
+    - Wired `modularArrangerView_->onChordTrackChanged` in `GuiWindow::initModularViews()` to immediately push `modularArrangerView_->getChordTrack()` to `engine_->getSequencer().setChordTrack(...)`.
+  - **Auditioning & Note Preview Harmony Support**:
+    - In `AudioEngine::postNoteOn` and `postNoteOff`, checked destination track `chordFollowMode != ChordFollowMode::Off`.
+    - Sampled active chord from `sequencer_.getActiveChordAtBar(currentBar)` (or fallback to first progression chord if transport is stopped) and remapped preview pitch via `theory::ChordTheory::remapPitchForChord()`.
+- **Validation**:
+  - `test_chord_track.exe`: 12/12 tests passing (including new `testChordFollowPipelineSyncAndAuditioning`).
+  - `test_modular_ui.exe`: All 24 modular UI test suites passing (including multi-view chord follow synchronization & auditioning in `testGuiWindowIntegration`).
+  - `.\build.ps1 -Test -NoRun`: All 48 test suites passing (100% pass rate).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
