@@ -48,7 +48,15 @@ void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsign
 #include "eatsbits/audio/graph/nodes/convolver_node.hpp"
 #include "eatsbits/audio/graph/nodes/limiter_node.hpp"
 #include "eatsbits/audio/graph/nodes/waveshaper_node.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
+#include "eatsbits/audio/graph/nodes/dx7_node.hpp"
+#include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/sid_node.hpp"
+#include "eatsbits/audio/graph/nodes/snes_node.hpp"
+#include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
+#include "eatsbits/audio/clap/clap_plugin_loader.hpp"
+#include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/project/project_file.hpp"
 
 namespace eatsbits::audio {
@@ -187,23 +195,15 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
     auto drum909Strip = std::make_shared<GainNode>("Track3_Gain");
     drum909Strip->setVolume(0.80f);
 
-    // Track 4: DX7 Rhodes (PolySynth configured with warm EP/Rhodes parameters)
-    auto dx7 = std::make_shared<PolySynthNode>("Dx7Rhodes");
-    dx7->setWaveform(::eatsbits::dsp::Waveform::Triangle);
-    dx7->setFilterCutoff(3400.0f);
-    dx7->setFilterResonance(1.1f);
-    dx7->setAdsr(0.015f, 1.8f, 0.55f, 0.8f);
+    // Track 4: DX7 Rhodes (6-Operator FM Synthesizer)
+    auto dx7 = std::make_shared<Dx7Node>("Dx7Rhodes");
     auto dx7Strip = std::make_shared<GainNode>("Track4_Gain");
     dx7Strip->setVolume(0.75f);
 
-    // Track 5: Concert Grand (PolySynth with rich harmonic piano timbre)
-    auto piano = std::make_shared<PolySynthNode>("ConcertGrand");
-    piano->setWaveform(::eatsbits::dsp::Waveform::Saw);
-    piano->setFilterCutoff(4200.0f);
-    piano->setFilterResonance(1.0f);
-    piano->setAdsr(0.008f, 2.4f, 0.35f, 1.0f);
+    // Track 5: Concert Grand (Physical Modeling Waveguide Piano)
+    auto piano = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::ConcertGrandPiano, "ConcertGrand");
     auto pianoStrip = std::make_shared<GainNode>("Track5_Gain");
-    pianoStrip->setVolume(0.75f);
+    pianoStrip->setVolume(0.70f);
 
     // Master Output
     auto masterGain = std::make_shared<GainNode>("MasterOut");
@@ -317,6 +317,22 @@ uint32_t AudioEngine::getBufferFrameSize() const noexcept {
 }
 
 bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent, int trackIndex) noexcept {
+    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    if (tIdx < sequencer_.getNumTracks()) {
+        const auto* trk = sequencer_.getTrack(tIdx);
+        if (trk && trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
+            float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+            const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+            if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                activeChord = &sequencer_.getChordTrack().front();
+            }
+            if (activeChord) {
+                int remapped = theory::ChordTheory::remapPitchForChord(static_cast<int>(note), *activeChord, trk->getChordFollowMode());
+                note = static_cast<uint8_t>(std::clamp(remapped, 0, 127));
+            }
+        }
+    }
+
     AudioEvent evt{};
     evt.type = AudioEventType::NoteOn;
     evt.note = note;
@@ -324,7 +340,6 @@ bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool is
     evt.paramId = isSlide ? 1 : 0;
     evt.paramValue = isAccent ? 1.0f : 0.0f;
 
-    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
     NodeId targetNodeId = 0;
     if (tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
@@ -332,20 +347,40 @@ bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool is
             targetNodeId = trk->getTargetNodeId();
         }
     }
-    if (targetNodeId == 0 && tIdx < 5) {
-        targetNodeId = static_cast<NodeId>(tIdx + 1);
+    if (targetNodeId == 0 || targetNodeId == INVALID_NODE_ID) {
+        targetNodeId = getTrackSourceNodeId(tIdx);
     }
-    evt.channel = static_cast<uint8_t>(targetNodeId);
+    if (targetNodeId == 0 || targetNodeId == INVALID_NODE_ID) {
+        // Track has no assigned instrument node: do NOT broadcast to every node in the graph!
+        return false;
+    }
+    evt.targetNodeId = targetNodeId;
+    evt.channel = 0;
     return eventQueue_.push(evt);
 }
 
 bool AudioEngine::postNoteOff(uint8_t note, int trackIndex) noexcept {
+    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    if (tIdx < sequencer_.getNumTracks()) {
+        const auto* trk = sequencer_.getTrack(tIdx);
+        if (trk && trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
+            float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+            const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+            if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                activeChord = &sequencer_.getChordTrack().front();
+            }
+            if (activeChord) {
+                int remapped = theory::ChordTheory::remapPitchForChord(static_cast<int>(note), *activeChord, trk->getChordFollowMode());
+                note = static_cast<uint8_t>(std::clamp(remapped, 0, 127));
+            }
+        }
+    }
+
     AudioEvent evt{};
     evt.type = AudioEventType::NoteOff;
     evt.note = note;
     evt.velocity = 0.0f;
 
-    uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
     NodeId targetNodeId = 0;
     if (tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
@@ -353,10 +388,14 @@ bool AudioEngine::postNoteOff(uint8_t note, int trackIndex) noexcept {
             targetNodeId = trk->getTargetNodeId();
         }
     }
-    if (targetNodeId == 0 && tIdx < 5) {
-        targetNodeId = static_cast<NodeId>(tIdx + 1);
+    if (targetNodeId == 0 || targetNodeId == INVALID_NODE_ID) {
+        targetNodeId = getTrackSourceNodeId(tIdx);
     }
-    evt.channel = static_cast<uint8_t>(targetNodeId);
+    if (targetNodeId == 0 || targetNodeId == INVALID_NODE_ID) {
+        return false;
+    }
+    evt.targetNodeId = targetNodeId;
+    evt.channel = 0;
     return eventQueue_.push(evt);
 }
 
@@ -380,7 +419,8 @@ bool AudioEngine::postParameter(uint32_t paramId, float value) noexcept {
 bool AudioEngine::postNodeParameter(NodeId nodeId, uint32_t paramId, float value) noexcept {
     AudioEvent evt{};
     evt.type = AudioEventType::SetParameter;
-    evt.channel = static_cast<uint8_t>(nodeId);
+    evt.targetNodeId = nodeId;
+    evt.channel = static_cast<uint8_t>(nodeId > 255 ? 0 : nodeId);
     evt.paramId = paramId;
     evt.paramValue = value;
     return eventQueue_.push(evt);
@@ -451,11 +491,141 @@ void AudioEngine::flushMeterFeedback() noexcept {
     while (feedbackQueue_.pop(dummyFeedback)) {}
 }
 
-uint32_t AudioEngine::addTrack(const std::string& name, NodeId targetNodeId, uint32_t numSteps) {
+NodeId AudioEngine::assignTrackInstrument(uint32_t trackIndex, const std::string& instrumentIdOrName) {
+    if (trackIndex >= sequencer_.getNumTracks()) {
+        sequencer_.addTrack("Track " + std::to_string(trackIndex + 1), 0, 16);
+    }
+    auto* trk = sequencer_.getTrack(trackIndex);
+
+    // 1. Ensure track gain strip exists and connects to MasterOut
+    NodeId gainId = getTrackGainNodeId(trackIndex);
+    if (gainId == INVALID_NODE_ID) {
+        auto gainNode = std::make_shared<GainNode>("Track" + std::to_string(trackIndex + 1) + "_Gain");
+        gainNode->setVolume(0.80f);
+        gainId = graph_.addNode(gainNode);
+        trackGainNodeCache_[trackIndex] = gainId;
+
+        NodeId masterId = graph_.findNodeByName("MasterOut");
+        if (masterId != INVALID_NODE_ID) {
+            graph_.connect(gainId, 0, masterId, 0);
+        } else if (graph_.getOutputNodeId() != INVALID_NODE_ID) {
+            graph_.connect(gainId, 0, graph_.getOutputNodeId(), 0);
+        }
+    }
+
+    // 2. Disconnect and remove any old source node for this track
+    NodeId oldSrcId = getTrackSourceNodeId(trackIndex);
+    if (oldSrcId != INVALID_NODE_ID) {
+        auto fxIt = trackFxNodeIds_.find(trackIndex);
+        if (fxIt != trackFxNodeIds_.end() && !fxIt->second.empty()) {
+            graph_.disconnect(oldSrcId, 0, fxIt->second.front(), 0);
+        } else {
+            graph_.disconnect(oldSrcId, 0, gainId, 0);
+        }
+        graph_.removeNode(oldSrcId);
+        trackSourceNodeCache_.erase(trackIndex);
+    }
+
+    // 3. Instantiate appropriate instrument node based on ID or name
+    std::string key = instrumentIdOrName;
+    for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    std::shared_ptr<GraphNode> newInstrument;
+    std::string nodeName = "Trk" + std::to_string(trackIndex + 1) + "_" + (instrumentIdOrName.empty() ? "Synth" : instrumentIdOrName);
+
+    if (instrumentIdOrName.rfind("clap:", 0) == 0 || key.find(".clap") != std::string::npos) {
+        std::string clapId = (instrumentIdOrName.rfind("clap:", 0) == 0)
+            ? instrumentIdOrName.substr(5)
+            : instrumentIdOrName;
+        const auto* desc = ClapPluginLoader::instance().findPluginById(clapId);
+        if (!desc) desc = ClapPluginLoader::instance().findPluginByName(clapId);
+
+        if (desc) {
+            newInstrument = ClapAudioNode::create(desc->libraryPath, desc->id, nodeName);
+        } else if (key.find(".clap") != std::string::npos) {
+            newInstrument = ClapAudioNode::create(instrumentIdOrName, clapId, nodeName);
+        }
+    }
+
+    if (!newInstrument) {
+        if (key.find("909") != std::string::npos) {
+            newInstrument = std::make_shared<DrumKitNode>(nodeName, DrumKitType::TR909);
+        } else if (key.find("808") != std::string::npos) {
+            newInstrument = std::make_shared<DrumKitNode>(nodeName, DrumKitType::TR808);
+        } else if (key.find("drum") != std::string::npos || key.find("percussion") != std::string::npos ||
+                   key.find("mpc") != std::string::npos || key.find("drumpad") != std::string::npos ||
+                   key.find("drum_pad") != std::string::npos) {
+            newInstrument = std::make_shared<DrumKitNode>(nodeName, DrumKitType::Combined);
+        } else if (key.find("pad") != std::string::npos || key.find("ambient") != std::string::npos ||
+                   key.find("string") != std::string::npos || key.find("warm") != std::string::npos) {
+            auto poly = std::make_shared<PolySynthNode>(nodeName);
+            poly->setWaveform(::eatsbits::dsp::Waveform::Saw);
+            poly->setFilterCutoff(2200.0f);
+            poly->setFilterResonance(0.6f);
+            poly->setAdsr(0.20f, 0.8f, 0.7f, 0.8f);
+            newInstrument = poly;
+        } else if (key.find("303") != std::string::npos || key.find("acid") != std::string::npos) {
+            newInstrument = std::make_shared<Tb303Node>(nodeName);
+        } else if (key.find("dx7") != std::string::npos || key.find("rhodes") != std::string::npos ||
+                   key.find("epiano") != std::string::npos || key.find("fm") != std::string::npos) {
+            newInstrument = std::make_shared<Dx7Node>(nodeName);
+        } else if (key.find("piano") != std::string::npos || key.find("grand") != std::string::npos ||
+                   key.find("harpsichord") != std::string::npos || key.find("clavinet") != std::string::npos) {
+            newInstrument = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::ConcertGrandPiano, nodeName);
+        } else if (key.find("upright_bass") != std::string::npos || key.find("double_bass") != std::string::npos ||
+                   (key.find("bass") != std::string::npos && key.find("synth") == std::string::npos && key.find("sub") == std::string::npos)) {
+            newInstrument = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::UprightBass, nodeName);
+        } else if (key.find("guitar") != std::string::npos || key.find("lute") != std::string::npos ||
+                   key.find("banjo") != std::string::npos || key.find("ukulele") != std::string::npos ||
+                   key.find("mandolin") != std::string::npos) {
+            newInstrument = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::SpanishGuitar, nodeName);
+        } else if (key.find("sid") != std::string::npos || key.find("c64") != std::string::npos ||
+                   key.find("chiptune") != std::string::npos) {
+            newInstrument = std::make_shared<SidNode>(nodeName);
+        } else if (key.find("snes") != std::string::npos || key.find("spc") != std::string::npos) {
+            newInstrument = std::make_shared<SnesNode>(nodeName);
+        } else if (key.find("ym2612") != std::string::npos || key.find("genesis") != std::string::npos) {
+            newInstrument = std::make_shared<Ym2612Node>(nodeName);
+        } else {
+            auto poly = std::make_shared<PolySynthNode>(nodeName);
+            poly->setWaveform(::eatsbits::dsp::Waveform::Saw);
+            poly->setFilterCutoff(2800.0f);
+            poly->setFilterResonance(0.8f);
+            poly->setAdsr(0.015f, 0.6f, 0.5f, 0.4f);
+            newInstrument = poly;
+        }
+    }
+
+    newInstrument->prepare(static_cast<double>(config_.sampleRate), config_.bufferFrameSize);
+    NodeId newSrcId = graph_.addNode(newInstrument);
+    trackSourceNodeCache_[trackIndex] = newSrcId;
+    if (trk) {
+        trk->setTargetNodeId(newSrcId);
+    }
+
+    // 4. Connect to FX chain or gain strip
+    auto fxIt = trackFxNodeIds_.find(trackIndex);
+    if (fxIt != trackFxNodeIds_.end() && !fxIt->second.empty()) {
+        graph_.connect(newSrcId, 0, fxIt->second.front(), 0);
+    } else {
+        graph_.connect(newSrcId, 0, gainId, 0);
+    }
+
+    graph_.compile();
+    return newSrcId;
+}
+
+uint32_t AudioEngine::addTrack(const std::string& name, NodeId targetNodeId, uint32_t numSteps, const std::string& instrumentIdOrName) {
     size_t idx = sequencer_.addTrack(name, targetNodeId, numSteps);
-    invalidateTrackStripCache();
+    uint32_t trackIndex = static_cast<uint32_t>(idx);
+    if (targetNodeId == 0) {
+        std::string inst = instrumentIdOrName.empty() ? name : instrumentIdOrName;
+        assignTrackInstrument(trackIndex, inst);
+    } else {
+        trackSourceNodeCache_[trackIndex] = targetNodeId;
+    }
     updateMuteSoloRouting();
-    return static_cast<uint32_t>(idx);
+    return trackIndex;
 }
 
 void AudioEngine::removeTrack(uint32_t trackIndex) {
@@ -501,6 +671,21 @@ NodeId AudioEngine::getTrackSourceNodeId(uint32_t trackIndex) const {
     return INVALID_NODE_ID;
 }
 
+std::shared_ptr<ClapAudioNode> AudioEngine::getTrackClapNode(uint32_t trackIndex) const {
+    NodeId srcId = getTrackSourceNodeId(trackIndex);
+    if (srcId == INVALID_NODE_ID) return nullptr;
+    auto node = graph_.getNode(srcId);
+    return std::dynamic_pointer_cast<ClapAudioNode>(node);
+}
+
+std::shared_ptr<ClapAudioNode> AudioEngine::getTrackAudioFxClapNode(uint32_t trackIndex, size_t fxIndex) const {
+    auto fxIt = trackFxNodeIds_.find(trackIndex);
+    if (fxIt == trackFxNodeIds_.end() || fxIndex >= fxIt->second.size()) return nullptr;
+    NodeId fxId = fxIt->second[fxIndex];
+    auto node = graph_.getNode(fxId);
+    return std::dynamic_pointer_cast<ClapAudioNode>(node);
+}
+
 bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<TrackAudioFxItem>& fxList) {
     NodeId srcId = getTrackSourceNodeId(trackIndex);
     NodeId gainId = getTrackGainNodeId(trackIndex);
@@ -533,8 +718,21 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
         for (char c : searchKey) tUpper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
 
         std::shared_ptr<GraphNode> node;
-        if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
-            tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
+        if (fx.type == "CLAP" || fx.id.rfind("clap:", 0) == 0 || tUpper.find(".CLAP") != std::string::npos) {
+            std::string clapId = (fx.id.rfind("clap:", 0) == 0) ? fx.id.substr(5) : fx.id;
+            const auto* desc = ClapPluginLoader::instance().findPluginById(clapId);
+            if (!desc) desc = ClapPluginLoader::instance().findPluginByName(clapId);
+
+            if (desc) {
+                node = ClapAudioNode::create(desc->libraryPath, desc->id, fx.name.empty() ? desc->name : fx.name);
+            } else if (fx.id.find(".clap") != std::string::npos) {
+                node = ClapAudioNode::create(fx.id, clapId, fx.name.empty() ? "ClapFX" : fx.name);
+            }
+        }
+
+        if (!node) {
+            if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
+                tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
             auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
             d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
             d->setFeedback(std::clamp(fx.drive * 0.75f, 0.0f, 0.90f));
@@ -579,6 +777,9 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
             ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
             node = ws;
         }
+        }
+
+        if (!node) continue;
 
         NodeId fxId = graph_.addNode(node);
         newFxNodeIds.push_back(fxId);
@@ -868,12 +1069,16 @@ void AudioEngine::processEvents() noexcept {
     AudioEvent evt;
     while (eventQueue_.pop(evt)) {
         if (engineMode_ == SynthEngineMode::ModularGraph) {
-            if (evt.channel != 0) {
+            if (evt.targetNodeId != 0 && evt.targetNodeId != INVALID_NODE_ID) {
+                graph_.sendNodeEvent(evt.targetNodeId, evt);
+            } else if (evt.channel != 0) {
                 graph_.sendNodeEvent(evt.channel, evt);
-            } else if (evt.type != AudioEventType::SetParameter) {
+            } else if (evt.type != AudioEventType::SetParameter &&
+                       evt.type != AudioEventType::NoteOn &&
+                       evt.type != AudioEventType::NoteOff) {
                 graph_.broadcastEvent(evt);
             }
-            if (evt.type == AudioEventType::SetParameter && evt.paramId == 2 && evt.channel == 0) {
+            if (evt.type == AudioEventType::SetParameter && evt.paramId == 2 && evt.channel == 0 && evt.targetNodeId == 0) {
                 masterMixer_.setVolume(evt.paramValue);
             }
             continue;

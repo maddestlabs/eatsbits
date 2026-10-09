@@ -601,6 +601,78 @@ void testPlaybackFollowModeAndMidiFxSync() {
     std::cout << "  -> Passed (Real-time playback follow mode, timeContext & MIDI FX sync)." << std::endl;
 }
 
+// -------------------------------------------------------------------------
+// 12. Test Chord Follow & Project Harmony Playback Pipeline Desynchronization Fix
+// -------------------------------------------------------------------------
+void testChordFollowPipelineSyncAndAuditioning() {
+    std::cout << "[Test 12/12] Arranger-Sequencer Chord Track Sync & Chord Follow Pipeline..." << std::endl;
+
+    audio::AudioGraph graph;
+    sequencer::StepSequencer seq;
+    seq.setBpm(120.0);
+
+    ArrangerView arranger;
+    bool syncTriggered = false;
+    arranger.onChordTrackChanged = [&]() {
+        seq.setChordTrack(arranger.getChordTrack());
+        syncTriggered = true;
+    };
+
+    // 1. Adding/Updating chords in Arranger immediately propagates to StepSequencer
+    ChordEvent c0{"c0", 0, 1.0f, 0, ChordQuality::Major, -1}; // C Major at bar 0
+    ChordEvent c1{"c1", 1, 1.0f, 7, ChordQuality::Major, -1}; // G Major at bar 1
+    arranger.addOrUpdateChord(c0);
+    assert(syncTriggered);
+    assert(seq.getChordTrack().size() == 1);
+    assert(seq.getActiveChordAtBar(0.0f) != nullptr);
+    assert(seq.getActiveChordAtBar(0.0f)->rootPitchClass == 0);
+
+    arranger.addOrUpdateChord(c1);
+    assert(seq.getChordTrack().size() == 2);
+    assert(seq.getActiveChordAtBar(1.0f)->rootPitchClass == 7);
+
+    // 2. Dragging/moving chords triggers onChordTrackChanged and syncs to StepSequencer
+    c1.startBar = 2;
+    arranger.addOrUpdateChord(c1);
+    assert(seq.getActiveChordAtBar(2.0f) != nullptr);
+    assert(seq.getActiveChordAtBar(2.0f)->rootPitchClass == 7);
+
+    // 3. StepSequencer real-time chord follow mode playback
+    size_t trkIdx = seq.addTrack("Synth Track", 0, 32);
+    auto* trk = seq.getTrack(trkIdx);
+    assert(trk != nullptr);
+
+    // Set step 0 (bar 0, C Major) to pitch 62 (D4)
+    sequencer::StepData s0{};
+    s0.active = true;
+    s0.note = 62; // D4
+    s0.velocity = 0.9f;
+    s0.gateLength = 0.5f;
+    trk->setStep(0, s0);
+
+    // Verify toggling chord follow mode on track immediately alters rendered playback pitch
+    assert(trk->getChordFollowMode() == ChordFollowMode::Off);
+    trk->setChordFollowMode(ChordFollowMode::Bass);
+    assert(trk->getChordFollowMode() == ChordFollowMode::Bass);
+
+    // Start playback and process step 0
+    seq.start();
+    seq.processBlock(480, graph);
+    assert(seq.getTimeContext().activeChordRoot == 0); // Conformed to C Major
+    seq.stop();
+
+    // Verify Chord mode remapping
+    trk->setChordFollowMode(ChordFollowMode::Chord);
+    assert(trk->getChordFollowMode() == ChordFollowMode::Chord);
+
+    // 4. Removing a chord from Arranger updates StepSequencer
+    arranger.removeChord("c1");
+    assert(seq.getChordTrack().size() == 1);
+    assert(seq.getActiveChordAtBar(2.0f) == nullptr);
+
+    std::cout << "  -> Passed (Arranger-Sequencer chord track sync & chord follow pipeline)." << std::endl;
+}
+
 int main() {
     std::cout << "=================================================" << std::endl;
     std::cout << "  EATSBITS CHORD TRACK & HARMONIC ENGINE TESTS   " << std::endl;
@@ -617,9 +689,10 @@ int main() {
     testProjectSerializationRoundtrip();
     testClipChordsAndTrackSync();
     testPlaybackFollowModeAndMidiFxSync();
+    testChordFollowPipelineSyncAndAuditioning();
 
     std::cout << "=================================================" << std::endl;
-    std::cout << "  ALL 11 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
+    std::cout << "  ALL 12 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
     std::cout << "=================================================" << std::endl;
     return 0;
 }

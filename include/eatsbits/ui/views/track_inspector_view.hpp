@@ -81,10 +81,15 @@ public:
         const std::string& activePresetSubtitle,
         size_t activePresetIdx,
         size_t totalPresets,
-        float scrollY
+        float scrollY,
+        const std::vector<std::string>& trackInstruments = {},
+        const std::vector<std::string>& trackInstrumentEngines = {},
+        const std::vector<theory::ChordFollowMode>& trackChordFollowModes = {}
     );
 
     // Callbacks for Window & Audio Engine synchronization
+    std::function<void(uint32_t trackIdx)> onOpenPluginGui;
+    std::function<void(uint32_t trackIdx, TrackPropertiesDrawerData& data)> onPopulateClapData;
     std::function<void(uint32_t trackIdx)> onTrackSelected;
     std::function<void(uint32_t trackIdx, float vol)> onVolumeChanged;
     std::function<void(uint32_t trackIdx, float pan)> onPanChanged;
@@ -94,6 +99,7 @@ public:
     std::function<void(uint32_t trackIdx, float r, float g, float b)> onColorChanged;
     std::function<void(uint32_t trackIdx)> onOpenCodeEditor;
     std::function<void(uint32_t trackIdx)> onChangeInstrument;
+    std::function<void(uint32_t trackIdx, const std::string& instrumentId, const std::string& instrumentName)> onInstrumentChanged;
     std::function<void()> onPrevPreset;
     std::function<void()> onNextPreset;
     std::function<void(uint32_t trackIdx)> onAddMidiFx;

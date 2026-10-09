@@ -140,6 +140,9 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
         if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
     };
+    panel_.onOpenPluginGui = [this](uint32_t trackIdx) {
+        if (onOpenPluginGui) onOpenPluginGui(trackIdx);
+    };
     panel_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
     };
@@ -168,11 +171,12 @@ TrackInspectorView::TrackInspectorView() {
             auto& trk = tracks_[trackIndex];
             if (mode == PluginDialogMode::AddInstrument) {
                 trk.instrument = entry.name;
-                trk.instrumentEngine = entry.engineTag;
+                trk.instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
                 trk.r = entry.r;
                 trk.g = entry.g;
                 trk.b = entry.b;
                 syncKnobsForTrack(trk);
+                if (onInstrumentChanged) onInstrumentChanged(trackIndex, trk.instrumentEngine, entry.name);
                 if (onChangeInstrument) onChangeInstrument(trackIndex);
             } else if (mode == PluginDialogMode::AddMidiFx) {
                 TrackMidiFxItem mfx;
@@ -331,7 +335,16 @@ void TrackInspectorView::initDefaultTracks() {
 }
 
 void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
-    if (trk.instrumentEngine == "tb303") {
+    if (trk.instrumentEngine.rfind("clap:", 0) == 0 || trk.instrumentEngine == "CLAP" || trk.instrumentEngine == "clap") {
+        trk.knobs = {
+            {"cutoff", "CUTOFF", 0.50f, "1.2 kHz"},
+            {"resonance", "RESONANCE", 0.30f, "30%"},
+            {"attack", "ATTACK", 0.15f, "15 ms"},
+            {"decay", "DECAY", 0.40f, "400 ms"},
+            {"sustain", "SUSTAIN", 0.70f, "70%"},
+            {"release", "RELEASE", 0.35f, "350 ms"}
+        };
+    } else if (trk.instrumentEngine == "tb303") {
         trk.knobs = {
             {"waveform", "WAVEFORM", 0.0f, "Saw"},
             {"pitch", "PITCH", 0.50f, "0 st"},
@@ -436,6 +449,11 @@ TrackPropertiesDrawerData TrackInspectorView::buildDrawerData() const {
     d.totalPresets = totalPresets_;
     d.scopeBuffer = scopeBuffer_;
     d.scopeBufferCount = scopeBufferCount_;
+
+    if (onPopulateClapData) {
+        onPopulateClapData(selectedTrackIndex_, d);
+    }
+
     return d;
 }
 
@@ -504,7 +522,10 @@ void TrackInspectorView::syncFromWindow(
     const std::string& activePresetSubtitle,
     size_t activePresetIdx,
     size_t totalPresets,
-    float scrollY
+    float scrollY,
+    const std::vector<std::string>& trackInstruments,
+    const std::vector<std::string>& trackInstrumentEngines,
+    const std::vector<theory::ChordFollowMode>& trackChordFollowModes
 ) {
     setActiveTrack(selectedTrackIdx);
     setPresetInfo(activePresetIdx, totalPresets, activePresetTitle, activePresetSubtitle);
@@ -539,6 +560,20 @@ void TrackInspectorView::syncFromWindow(
         trk.r = trackColors[i].r;
         trk.g = trackColors[i].g;
         trk.b = trackColors[i].b;
+
+        if (i < trackChordFollowModes.size()) {
+            trk.chordFollowMode = trackChordFollowModes[i];
+        }
+
+        if (i < trackInstruments.size() && !trackInstruments[i].empty()) {
+            trk.instrument = trackInstruments[i];
+        }
+        if (i < trackInstrumentEngines.size() && !trackInstrumentEngines[i].empty()) {
+            if (trk.instrumentEngine != trackInstrumentEngines[i]) {
+                trk.instrumentEngine = trackInstrumentEngines[i];
+                syncKnobsForTrack(trk);
+            }
+        }
     }
 }
 

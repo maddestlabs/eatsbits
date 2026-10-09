@@ -15,9 +15,10 @@
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
+#include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
-#include "eatsbits/ui/procedural_texture_system.hpp"
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -478,351 +479,113 @@ void drawKnurledRing(float cx, float cy, float rInner, float rOuter, int numTeet
 void drawSvgLayers(const std::vector<SvgLayerDef>& layers, float x, float y, float w, float h, float opacity = 1.0f) {
     if (layers.empty() || w <= 0.0f || h <= 0.0f || !g_activeBatchRenderer) return;
 
-    int texDim = std::clamp(static_cast<int>(std::max(w, h) * 2.0f), 32, 256);
-    static std::unordered_map<std::string, std::vector<uint8_t>> s_rgbaCache;
+    struct CachedPathMesh {
+        std::vector<SvgPoint> triangles;
+        SvgRect bounds;
+    };
+    static std::unordered_map<std::string, CachedPathMesh> s_vectorMeshCache;
 
-    std::string key = std::to_string(texDim) + "_" + std::to_string(layers.size());
-    for (const auto& l : layers) {
-        key += "_" + std::string(l.path) + "_" + std::to_string(l.color) + "_" + std::to_string(l.isFill);
+    SvgRect unionBounds{};
+    for (const auto& layer : layers) {
+        auto it = s_vectorMeshCache.find(layer.path);
+        if (it == s_vectorMeshCache.end()) {
+            SvgPath p = SvgPath::parse(layer.path);
+            CachedPathMesh mesh;
+            mesh.triangles = p.triangulate();
+            mesh.bounds = p.getBounds();
+            it = s_vectorMeshCache.emplace(layer.path, std::move(mesh)).first;
+        }
+        const auto& b = it->second.bounds;
+        if (!b.isEmpty()) {
+            if (unionBounds.isEmpty()) {
+                unionBounds = b;
+            } else {
+                unionBounds.minX = std::min(unionBounds.minX, b.minX);
+                unionBounds.minY = std::min(unionBounds.minY, b.minY);
+                unionBounds.maxX = std::max(unionBounds.maxX, b.maxX);
+                unionBounds.maxY = std::max(unionBounds.maxY, b.maxY);
+            }
+        }
     }
 
-    auto it = s_rgbaCache.find(key);
-    if (it == s_rgbaCache.end()) {
-        auto rgba = SvgTextureCache::rasterizeLayersToRgba(layers, texDim, texDim, 1.0f);
-        it = s_rgbaCache.emplace(key, std::move(rgba)).first;
-    }
+    if (unionBounds.isEmpty()) return;
 
-    if (!it->second.empty()) {
-        g_activeBatchRenderer->drawRgbaBitmap(x, y, w, h, it->second.data(), texDim, texDim, opacity);
+    float ubW = std::max(0.001f, unionBounds.width());
+    float ubH = std::max(0.001f, unionBounds.height());
+    float scale = std::min(w / ubW, h / ubH);
+    float offsetX = x + (w - ubW * scale) * 0.5f - unionBounds.minX * scale;
+    float offsetY = y + (h - ubH * scale) * 0.5f - unionBounds.minY * scale;
+
+    for (const auto& layer : layers) {
+        auto it = s_vectorMeshCache.find(layer.path);
+        if (it == s_vectorMeshCache.end()) continue;
+        const auto& tris = it->second.triangles;
+        if (tris.empty()) continue;
+
+        uint8_t r = static_cast<uint8_t>(layer.color & 0xFF);
+        uint8_t g = static_cast<uint8_t>((layer.color >> 8) & 0xFF);
+        uint8_t b = static_cast<uint8_t>((layer.color >> 16) & 0xFF);
+        uint8_t a = static_cast<uint8_t>((layer.color >> 24) & 0xFF);
+        float alpha = (static_cast<float>(a) / 255.0f) * layer.opacity * opacity;
+
+        const size_t numTris = tris.size() / 3;
+        for (size_t t = 0; t < numTris; ++t) {
+            const auto& p0 = tris[t * 3 + 0];
+            const auto& p1 = tris[t * 3 + 1];
+            const auto& p2 = tris[t * 3 + 2];
+            g_activeBatchRenderer->drawTriangle(
+                p0.x * scale + offsetX, p0.y * scale + offsetY,
+                p1.x * scale + offsetX, p1.y * scale + offsetY,
+                p2.x * scale + offsetX, p2.y * scale + offsetY,
+                static_cast<float>(r) / 255.0f,
+                static_cast<float>(g) / 255.0f,
+                static_cast<float>(b) / 255.0f,
+                alpha
+            );
+        }
     }
 }
 
-// =============================================================================
-// PROCEDURAL GRUNGY CAST-METAL CHASSIS TEXTURE SYSTEM (THEME-TINTED)
-// Generates a master monochrome micro-pitted cast-iron & chipped-rim surface
-// map once at boot, then tints it to the active theme with zero per-frame cost.
-// =============================================================================
 namespace {
 
-struct ChassisSurfaceSample {
-    float stipple;      // 0.0 .. 1.0 (neutral 0.5)
-    float fleck;        // 0.0 .. 1.0 (sparse brass flecks)
-    float edgeErosion;  // 0.0 .. 1.0 (chipped rim wear)
-    float edgeGrime;    // 0.0 .. 1.0 (crevice shadow)
-};
-
-class ChassisTextureSystem {
-public:
-    static constexpr int kWidth = 512;
-    static constexpr int kHeight = 64;
-    static constexpr int kNoiseDim = 64;
-
-    static ChassisTextureSystem& instance() {
-        static ChassisTextureSystem s_sys;
-        return s_sys;
-    }
-
-    ChassisTextureSystem() {
-        initMasterGrayscale();
-    }
-
-    void draw(BatchRenderer2D* r, float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
-        if (!r || w <= 0.0f || h <= 0.0f) return;
-        ensureTinted(theme);
-
-        const auto& rgba = isTopPanel ? tintedTop_ : tintedBottom_;
-        if (rgba.empty()) return;
-
-        // Tile horizontally across [x, x + w]
-        for (float curX = x; curX < x + w; curX += static_cast<float>(kWidth)) {
-            float chunkW = std::min(static_cast<float>(kWidth), x + w - curX);
-            r->drawRgbaBitmap(curX, y, chunkW, h, rgba.data(), kWidth, kHeight, 1.0f);
-        }
-    }
-
-    void drawButtonNoise(BatchRenderer2D* r, float x, float y, float w, float h,
-                         bool isTop = true, float opacity = 0.28f, float cornerRadius = 0.0f,
-                         bool roundTL = true, bool roundTR = true, bool roundBL = true, bool roundBR = true,
-                         bool pressed = false, float pressShiftY = 3.0f) {
-        if (!r || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
-
-        int iW = static_cast<int>(std::round(w));
-        int iH = static_cast<int>(std::round(h));
-        if (iW <= 0 || iH <= 0) return;
-
-        static std::vector<uint8_t> s_buttonNoiseBuf;
-        s_buttonNoiseBuf.resize(static_cast<size_t>(iW * iH * 4));
-
-        const auto& master = isTop ? masterTop_ : masterBottom_;
-        if (master.empty()) return;
-
-        int sampleShiftY = pressed ? static_cast<int>(std::round(pressShiftY)) : 0;
-
-        for (int py = 0; py < iH; ++py) {
-            float fy = static_cast<float>(py) + 0.5f;
-            for (int px = 0; px < iW; ++px) {
-                float fx = static_cast<float>(px) + 0.5f;
-                int idx = (py * iW + px) * 4;
-
-                // Precision corner masking
-                if (cornerRadius > 0.5f) {
-                    bool inCorner = false;
-                    float cornerCx = 0.0f, cornerCy = 0.0f;
-                    if (roundTL && fx < cornerRadius && fy < cornerRadius) {
-                        inCorner = true; cornerCx = cornerRadius; cornerCy = cornerRadius;
-                    } else if (roundTR && fx > w - cornerRadius && fy < cornerRadius) {
-                        inCorner = true; cornerCx = w - cornerRadius; cornerCy = cornerRadius;
-                    } else if (roundBL && fx < cornerRadius && fy > h - cornerRadius) {
-                        inCorner = true; cornerCx = cornerRadius; cornerCy = h - cornerRadius;
-                    } else if (roundBR && fx > w - cornerRadius && fy > h - cornerRadius) {
-                        inCorner = true; cornerCx = w - cornerRadius; cornerCy = h - cornerRadius;
-                    }
-
-                    if (inCorner) {
-                        float dx = fx - cornerCx;
-                        float dy = fy - cornerCy;
-                        if (dx * dx + dy * dy > cornerRadius * cornerRadius) {
-                            s_buttonNoiseBuf[idx + 0] = 0;
-                            s_buttonNoiseBuf[idx + 1] = 0;
-                            s_buttonNoiseBuf[idx + 2] = 0;
-                            s_buttonNoiseBuf[idx + 3] = 0;
-                            continue;
-                        }
-                    }
-                }
-
-                // Sample corresponding coordinate in the panel's procedural master map (with pressed down-stroke shift)
-                int srcX = (static_cast<int>(x) + px) % kWidth;
-                if (srcX < 0) srcX += kWidth;
-                int srcY = (static_cast<int>(y) + py + sampleShiftY) % kHeight;
-                if (srcY < 0) srcY += kHeight;
-
-                const auto& s = master[srcY * kWidth + srcX];
-                float diff = s.stipple - 0.50f;
-
-                uint8_t rCol = 0, gCol = 0, bCol = 0, aCol = 0;
-                if (s.fleck > 0.04f) {
-                    // Warm metallic micro-fleck glint matching chassis plate (toned down)
-                    rCol = 255;
-                    gCol = 225;
-                    bCol = 160;
-                    aCol = static_cast<uint8_t>(std::clamp(s.fleck * 120.0f + 25.0f, 0.0f, 135.0f));
-                } else if (diff < -0.022f) {
-                    // Tactile micro-pit shadow (toned down, subtle powder-coat crevice)
-                    rCol = 0; gCol = 0; bCol = 0;
-                    float pit = (-diff - 0.022f) / 0.40f;
-                    aCol = static_cast<uint8_t>(std::clamp(pit * 130.0f, 0.0f, 150.0f));
-                } else if (diff > 0.022f) {
-                    // Stipple powder-coat micro-highlight (toned down, gentle specular sheen)
-                    rCol = 245; gCol = 245; bCol = 250;
-                    float peak = (diff - 0.022f) / 0.40f;
-                    aCol = static_cast<uint8_t>(std::clamp(peak * 110.0f, 0.0f, 130.0f));
-                }
-
-                // Top socket crevice shadow when physically pressed into faceplate well
-                if (pressed && py < 4) {
-                    float socketShadow = (4.0f - static_cast<float>(py)) / 4.0f * 100.0f;
-                    if (socketShadow > static_cast<float>(aCol)) {
-                        aCol = static_cast<uint8_t>(socketShadow);
-                        rCol = 0; gCol = 0; bCol = 0;
-                    }
-                }
-
-                s_buttonNoiseBuf[idx + 0] = rCol;
-                s_buttonNoiseBuf[idx + 1] = gCol;
-                s_buttonNoiseBuf[idx + 2] = bCol;
-                s_buttonNoiseBuf[idx + 3] = aCol;
-            }
-        }
-
-        r->drawRgbaBitmap(x, y, w, h, s_buttonNoiseBuf.data(), iW, iH, opacity);
-    }
-
-
-private:
-    void initMasterGrayscale() {
-        masterTop_.resize(kWidth * kHeight);
-        masterBottom_.resize(kWidth * kHeight);
-        buttonNoiseMaster_.resize(kNoiseDim * kNoiseDim);
-
-        auto hash2D = [](int x, int y, uint32_t seed) -> float {
-            uint32_t n = static_cast<uint32_t>(x) * 374761393u + static_cast<uint32_t>(y) * 668265263u + seed * 1442695040888963407u;
-            n = (n ^ (n >> 13)) * 1274126177u;
-            return static_cast<float>(n & 0x7FFFFFFF) / static_cast<float>(0x7FFFFFFF);
-        };
-
-        // 1. Button Noise Master Tile (pure tactile stipple noise)
-        for (int ny = 0; ny < kNoiseDim; ++ny) {
-            for (int nx = 0; nx < kNoiseDim; ++nx) {
-                float n1 = hash2D(nx, ny, 401) - 0.5f;
-                float n2 = hash2D((nx / 2) % (kNoiseDim / 2), (ny / 2) % (kNoiseDim / 2), 503) - 0.5f;
-                buttonNoiseMaster_[ny * kNoiseDim + nx] = 0.5f + (n1 * 0.65f + n2 * 0.35f) * 0.40f;
-            }
-        }
-
-        // 2. Chassis Master Surface Maps (Top & Bottom panels)
-        for (int y = 0; y < kHeight; ++y) {
-            for (int x = 0; x < kWidth; ++x) {
-                float fx = static_cast<float>(x);
-                float fy = static_cast<float>(y);
-
-                // Multi-octave cast iron stipple and micro-pitting
-                float h1 = hash2D(x, y, 101) - 0.5f;
-                float h2 = hash2D((x / 2) % (kWidth / 2), y / 2, 203) - 0.5f;
-                float h3 = hash2D((x / 6) % (kWidth / 6), y / 6, 307) - 0.5f;
-                float xWarp = std::sin(fx * 0.045f) * 0.18f + std::cos(fx * 0.09f + fy * 0.12f) * 0.12f;
-                float stipple = 0.5f + (h1 * 0.52f + h2 * 0.32f + h3 * 0.16f + xWarp * 0.14f) * 0.45f;
-
-                // Subtle organic pixels of slightly lighter intensity (replacing harsh horizontal lines)
-                float fleck = 0.0f;
-                float randSubtle = hash2D(x, y, 888);
-                if (randSubtle > 0.965f) {
-                    fleck = (randSubtle - 0.965f) / 0.035f * 0.22f; // Soft intensity 0.0 to 0.22
-                }
-
-                // Sparse warm flecks - toned down to gentle metallic micro-highlights
-                float randFleck = hash2D(x, y, 777);
-                if (randFleck > 0.988f) {
-                    float bright = (randFleck - 0.988f) / 0.012f * 0.38f; // Softened peak
-                    fleck = std::max(fleck, bright);
-                }
-
-                // --- Top Panel Specifics ---
-                // Uniform machined chassis crevice along bottom edge (y = kHeight - 1)
-                ChassisSurfaceSample sampleTop;
-                sampleTop.stipple = stipple;
-                sampleTop.fleck = fleck;
-                sampleTop.edgeErosion = 0.0f;
-                sampleTop.edgeGrime = 0.0f;
-
-                float distToBottom = static_cast<float>(kHeight - 1 - y);
-                if (distToBottom < 3.5f) {
-                    sampleTop.edgeGrime = std::clamp((3.5f - distToBottom) / 3.5f, 0.0f, 1.0f) * 0.50f;
-                }
-                masterTop_[y * kWidth + x] = sampleTop;
-
-                // --- Bottom Panel Specifics ---
-                // Uniform machined chassis crevice along top edge (y = 0)
-                ChassisSurfaceSample sampleBot;
-                sampleBot.stipple = stipple;
-                sampleBot.fleck = fleck;
-                sampleBot.edgeErosion = 0.0f;
-                sampleBot.edgeGrime = 0.0f;
-
-                float distToTop = fy;
-                if (distToTop < 3.5f) {
-                    sampleBot.edgeGrime = std::clamp((3.5f - distToTop) / 3.5f, 0.0f, 1.0f) * 0.50f;
-                }
-                masterBottom_[y * kWidth + x] = sampleBot;
-            }
-        }
-    }
-
-    void ensureTinted(const ThemeTokens& theme) {
-        if (!tintedTop_.empty() && cachedThemeName_ == theme.name &&
-            cachedGradTop_ == theme.panelHeaderGradientTop.toRgba8() &&
-            cachedGradBot_ == theme.panelHeaderGradientBottom.toRgba8()) {
-            return;
-        }
-
-        cachedThemeName_ = theme.name;
-        cachedGradTop_ = theme.panelHeaderGradientTop.toRgba8();
-        cachedGradBot_ = theme.panelHeaderGradientBottom.toRgba8();
-
-        tintedTop_.resize(kWidth * kHeight * 4);
-        tintedBottom_.resize(kWidth * kHeight * 4);
-        buttonNoiseRgba_.resize(kNoiseDim * kNoiseDim * 4);
-
-        // 1. Bake Button Tactile Noise Tile
-        for (int i = 0; i < kNoiseDim * kNoiseDim; ++i) {
-            float s = buttonNoiseMaster_[i];
-            float delta = (s - 0.5f) * 0.35f;
-            Color base = Color(0.18f, 0.18f, 0.19f);
-            Color c = (delta >= 0.0f) ? base.lighten(delta) : base.darken(-delta * 1.2f);
-            buttonNoiseRgba_[i * 4 + 0] = static_cast<uint8_t>(std::clamp(c.r * 255.0f, 0.0f, 255.0f));
-            buttonNoiseRgba_[i * 4 + 1] = static_cast<uint8_t>(std::clamp(c.g * 255.0f, 0.0f, 255.0f));
-            buttonNoiseRgba_[i * 4 + 2] = static_cast<uint8_t>(std::clamp(c.b * 255.0f, 0.0f, 255.0f));
-            buttonNoiseRgba_[i * 4 + 3] = 255;
-        }
-
-        // 2. Bake Top and Bottom Panel Plates
-        auto bakePanel = [&](const std::vector<ChassisSurfaceSample>& master, std::vector<uint8_t>& dst, bool /*isTop*/) {
-            for (int y = 0; y < kHeight; ++y) {
-                float t = static_cast<float>(y) / static_cast<float>(kHeight - 1);
-                Color base = Color::lerp(theme.panelHeaderGradientTop, theme.panelHeaderGradientBottom, t);
-
-                for (int x = 0; x < kWidth; ++x) {
-                    const auto& s = master[y * kWidth + x];
-
-                    // Modulate base color with stipple pitting
-                    float stippleDelta = (s.stipple - 0.5f) * 0.20f;
-                    Color c = (stippleDelta >= 0.0f)
-                        ? base.lighten(stippleDelta)
-                        : base.darken(-stippleDelta * 1.35f);
-
-                    // Grime and dirt shadow in crevices
-                    if (s.edgeGrime > 0.005f) {
-                        Color grimeCol = theme.backgroundDark.darken(0.35f);
-                        c = Color::lerp(c, grimeCol, s.edgeGrime * 0.85f);
-                    }
-
-                    // Warm brass/bronze flecks and surface micro-highlights (subtle & toned down)
-                    if (s.fleck > 0.01f) {
-                        Color brassFleck = Color::lerp(base.lighten(0.10f), theme.primaryAccent.lighten(0.10f), 0.22f);
-                        c = Color::lerp(c, brassFleck, s.fleck * 0.40f);
-                    }
-
-                    // Exposed raw brass/steel chipped rim wear along edge
-                    if (s.edgeErosion > 0.02f) {
-                        Color wornMetal = Color::lerp(Color(0.88f, 0.74f, 0.46f), theme.borderSubtle.lighten(0.40f), 0.30f);
-                        c = Color::lerp(c, wornMetal, s.edgeErosion * 0.95f);
-                    }
-
-                    int idx = (y * kWidth + x) * 4;
-                    dst[idx + 0] = static_cast<uint8_t>(std::clamp(c.r * 255.0f, 0.0f, 255.0f));
-                    dst[idx + 1] = static_cast<uint8_t>(std::clamp(c.g * 255.0f, 0.0f, 255.0f));
-                    dst[idx + 2] = static_cast<uint8_t>(std::clamp(c.b * 255.0f, 0.0f, 255.0f));
-                    dst[idx + 3] = 255;
-                }
-            }
-        };
-
-        bakePanel(masterTop_, tintedTop_, true);
-        bakePanel(masterBottom_, tintedBottom_, false);
-    }
-
-    std::vector<ChassisSurfaceSample> masterTop_;
-    std::vector<ChassisSurfaceSample> masterBottom_;
-    std::vector<float> buttonNoiseMaster_;
-    std::vector<uint8_t> tintedTop_;
-    std::vector<uint8_t> tintedBottom_;
-    std::vector<uint8_t> buttonNoiseRgba_;
-    std::string cachedThemeName_;
-    uint32_t cachedGradTop_{0};
-    uint32_t cachedGradBot_{0};
-};
-
 inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
-                             GuiChassisStyle style = GuiChassisStyle::DarkChassis,
+                             GuiChassisStyle /*style*/ = GuiChassisStyle::DarkChassis,
                              const std::optional<Color>& tint = std::nullopt,
-                             float wear = 0.20f,
-                             float rotation = 0.0f) {
-    if (g_activeBatchRenderer) {
-        ProceduralTextureSystem::instance().drawChassis(
-            g_activeBatchRenderer, x, y, w, h, style, theme,
-            tint, wear, 0.0f, isTopPanel, rotation);
+                             float /*wear*/ = 0.20f,
+                             float /*rotation*/ = 0.0f) {
+    if (!g_activeBatchRenderer || w <= 0.0f || h <= 0.0f) return;
+
+    Color gradTop, gradBot;
+    if (tint.has_value()) {
+        gradTop = tint->lighten(0.06f);
+        gradBot = tint->darken(0.08f);
+    } else {
+        gradTop = isTopPanel ? theme.panelHeaderGradientTop : theme.panelHeaderGradientTop.darken(0.04f);
+        gradBot = isTopPanel ? theme.panelHeaderGradientBottom : theme.panelHeaderGradientBottom.darken(0.08f);
+    }
+
+    g_activeBatchRenderer->drawRectGradient(x, y, w, h,
+                                           gradTop.r, gradTop.g, gradTop.b,
+                                           gradBot.r, gradBot.g, gradBot.b, 1.0f);
+
+    // Subtle 1px specular bevel highlight along outer edge & crisp border separator
+    if (isTopPanel) {
+        drawLine(x, y + 1.0f, x + w, y + 1.0f,
+                 gradTop.lighten(0.12f).r, gradTop.lighten(0.12f).g, gradTop.lighten(0.12f).b, 0.40f, 1.0f);
+        drawLine(x, y + h - 1.0f, x + w, y + h - 1.0f,
+                 theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.65f, 1.0f);
+    } else {
+        drawLine(x, y, x + w, y,
+                 theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.65f, 1.0f);
+        drawLine(x, y + 1.0f, x + w, y + 1.0f,
+                 gradTop.lighten(0.10f).r, gradTop.lighten(0.10f).g, gradTop.lighten(0.10f).b, 0.30f, 1.0f);
     }
 }
 
-inline void drawButtonNoise(float x, float y, float w, float h, bool isTop = true, float opacity = 0.28f,
-                            float cornerRadius = 0.0f, bool roundTL = true, bool roundTR = true,
-                            bool roundBL = true, bool roundBR = true, bool pressed = false, float pressShiftY = 3.0f) {
-    if (g_activeBatchRenderer) {
-        ProceduralTextureSystem::instance().drawButtonNoise(
-            g_activeBatchRenderer, x, y, w, h, isTop, opacity,
-            cornerRadius, roundTL, roundTR, roundBL, roundBR,
-            pressed, pressShiftY);
-    }
+inline void drawButtonNoise(float /*x*/, float /*y*/, float /*w*/, float /*h*/, bool /*isTop*/ = true, float /*opacity*/ = 0.28f,
+                            float /*cornerRadius*/ = 0.0f, bool /*roundTL*/ = true, bool /*roundTR*/ = true,
+                            bool /*roundBL*/ = true, bool /*roundBR*/ = true, bool /*pressed*/ = false, float /*pressShiftY*/ = 3.0f) {
+    // Pure vector DAW mode: zero per-pixel CPU loops and zero GPU texture re-uploads
 }
 
 inline void setBlendMode(BlendMode mode) {
@@ -2179,23 +1942,51 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
         data.presetTitle = at.instrument.empty() ? at.name : at.instrument;
         data.presetSubtitle = at.name + " • " + (at.instrument.empty() ? "Track" : at.instrument);
     }
-    const auto* preset = getActivePreset();
-    if (preset && (data.instrumentEngine.empty() || preset->metadata.engineId == data.instrumentEngine)) {
-        data.instrument = preset->metadata.name.empty() ? preset->guiRoot.title : preset->metadata.name;
-        data.instrumentEngine = preset->metadata.engineId;
-        data.presetTitle = preset->guiRoot.title;
-        data.presetSubtitle = preset->guiRoot.subtitle;
-        data.activePresetIdx = activePresetIndex_;
-        data.totalPresets = presets_.size();
+    auto clapNode = engine_ ? engine_->getTrackClapNode(tIdx) : nullptr;
+    if (clapNode) {
+        data.isClapPlugin = true;
+        data.hasNativeGui = clapNode->hasGui();
+        data.isGuiOpen = clapNode->isGuiOpen();
+        data.presetTitle = clapNode->getPluginName().empty() ? data.instrument : clapNode->getPluginName();
+        data.presetSubtitle = data.trackName + " • CLAP Instrument";
+        data.instrument = data.presetTitle;
+        data.instrumentEngine = "clap:" + clapNode->getPluginId();
 
         data.knobs.clear();
-        for (const auto& [name, param] : preset->params) {
+        const auto& params = clapNode->getParameterList();
+        size_t limit = std::min<size_t>(params.size(), 24);
+        for (size_t i = 0; i < limit; ++i) {
+            const auto& p = params[i];
             TrackPropertiesKnob k;
-            k.name = name;
-            k.label = param.name.empty() ? name : param.name;
-            k.value = param.getNormalized();
-            k.display = param.getFormatted();
+            k.name = p.name;
+            k.label = p.name;
+            double norm = 0.5;
+            if (p.maxValue > p.minValue) {
+                norm = (p.currentValue - p.minValue) / (p.maxValue - p.minValue);
+            }
+            k.value = static_cast<float>(std::clamp(norm, 0.0, 1.0));
+            k.display = std::to_string(static_cast<int>(p.currentValue));
             data.knobs.push_back(k);
+        }
+    } else {
+        const auto* preset = getActivePreset();
+        if (preset && (data.instrumentEngine.empty() || preset->metadata.engineId == data.instrumentEngine)) {
+            data.instrument = preset->metadata.name.empty() ? preset->guiRoot.title : preset->metadata.name;
+            data.instrumentEngine = preset->metadata.engineId;
+            data.presetTitle = preset->guiRoot.title;
+            data.presetSubtitle = preset->guiRoot.subtitle;
+            data.activePresetIdx = activePresetIndex_;
+            data.totalPresets = presets_.size();
+
+            data.knobs.clear();
+            for (const auto& [name, param] : preset->params) {
+                TrackPropertiesKnob k;
+                k.name = name;
+                k.label = param.name.empty() ? name : param.name;
+                k.value = param.getNormalized();
+                k.display = param.getFormatted();
+                data.knobs.push_back(k);
+            }
         }
     }
     if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
@@ -2225,6 +2016,26 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
     fullscreenDeviceModal_.syncData(data);
     fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
     fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
+
+#if defined(_WIN32)
+    if (clapNode && clapNode->hasGui()) {
+        HWND mainHwnd = glfwGetWin32Window(window_);
+        const auto& b = fullscreenDeviceModal_.getBodyBounds();
+        bool ok = clapNode->openEmbeddedGui(mainHwnd,
+            static_cast<int>(b.x), static_cast<int>(b.y),
+            static_cast<int>(b.w), static_cast<int>(b.h));
+        if (ok) {
+            fullscreenDeviceModal_.setIsGuiEmbedded(true);
+        } else {
+            clapNode->openGuiWindow();
+            fullscreenDeviceModal_.setIsGuiEmbedded(false);
+        }
+    }
+#else
+    if (clapNode && clapNode->hasGui()) {
+        clapNode->openGuiWindow();
+    }
+#endif
 
     setStatusMessage("Device Full-Display: " + data.instrument + " (Esc to exit)");
 }
@@ -2267,6 +2078,34 @@ void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
         data.knobs = data.audioFx[fxIndex].knobs;
     }
 
+    std::shared_ptr<audio::ClapAudioNode> clapFxNode = nullptr;
+    if (fxIndex >= 0 && engine_) {
+        clapFxNode = engine_->getTrackAudioFxClapNode(tIdx, static_cast<size_t>(fxIndex));
+        if (clapFxNode) {
+            data.isClapPlugin = true;
+            data.hasNativeGui = clapFxNode->hasGui();
+            data.isGuiOpen = clapFxNode->isGuiOpen();
+            data.presetTitle = clapFxNode->getPluginName().empty() ? fxTitle : clapFxNode->getPluginName();
+            data.presetSubtitle = data.trackName + " • Audio FX";
+            data.knobs.clear();
+            const auto& params = clapFxNode->getParameterList();
+            size_t limit = std::min<size_t>(params.size(), 24);
+            for (size_t i = 0; i < limit; ++i) {
+                const auto& p = params[i];
+                TrackPropertiesKnob k;
+                k.name = p.name;
+                k.label = p.name;
+                double norm = 0.5;
+                if (p.maxValue > p.minValue) {
+                    norm = (p.currentValue - p.minValue) / (p.maxValue - p.minValue);
+                }
+                k.value = static_cast<float>(std::clamp(norm, 0.0, 1.0));
+                k.display = std::to_string(static_cast<int>(p.currentValue));
+                data.knobs.push_back(k);
+            }
+        }
+    }
+
     DeviceTarget target;
     target.type = DeviceTargetType::AudioFx;
     target.trackIndex = tIdx;
@@ -2279,6 +2118,26 @@ void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
     fullscreenDeviceModal_.syncData(data);
     fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
     fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
+
+#if defined(_WIN32)
+    if (clapFxNode && clapFxNode->hasGui()) {
+        HWND mainHwnd = glfwGetWin32Window(window_);
+        const auto& b = fullscreenDeviceModal_.getBodyBounds();
+        bool ok = clapFxNode->openEmbeddedGui(mainHwnd,
+            static_cast<int>(b.x), static_cast<int>(b.y),
+            static_cast<int>(b.w), static_cast<int>(b.h));
+        if (ok) {
+            fullscreenDeviceModal_.setIsGuiEmbedded(true);
+        } else {
+            clapFxNode->openGuiWindow();
+            fullscreenDeviceModal_.setIsGuiEmbedded(false);
+        }
+    }
+#else
+    if (clapFxNode && clapFxNode->hasGui()) {
+        clapFxNode->openGuiWindow();
+    }
+#endif
 
     setStatusMessage("Device Full-Display: " + fxTitle + " (Esc to exit)");
 }
@@ -2810,6 +2669,30 @@ void GuiWindow::setSelectedTrackIndex(uint32_t idx) noexcept {
     }
     if (virtualKeyboardDrawerWidget_) {
         virtualKeyboardDrawerWidget_->setActiveTrackIndex(idx);
+        std::string eng;
+        if (idx < arrangerTracks_.size()) {
+            eng = arrangerTracks_[idx].instrumentEngine;
+            if (eng.empty()) eng = arrangerTracks_[idx].instrument;
+        } else if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+            eng = modularArrangerView_->getTracks()[idx].instrumentEngine;
+            if (eng.empty()) eng = modularArrangerView_->getTracks()[idx].instrument;
+        }
+        std::string engLower = eng;
+        for (char& c : engLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (engLower.find("drum") != std::string::npos || engLower.find("808") != std::string::npos ||
+            engLower.find("909") != std::string::npos || engLower.find("mpc") != std::string::npos ||
+            engLower.find("drumpad") != std::string::npos || engLower.find("drum_pad") != std::string::npos) {
+            virtualKeyboardDrawerWidget_->setMode(KeyboardDrawerMode::DrumPads);
+            if (engLower.find("808") != std::string::npos) {
+                virtualKeyboardDrawerWidget_->getDrumPadGrid().setProfile(DrumKitProfile::Eats808);
+            } else if (engLower.find("909") != std::string::npos) {
+                virtualKeyboardDrawerWidget_->getDrumPadGrid().setProfile(DrumKitProfile::Eats909);
+            } else {
+                virtualKeyboardDrawerWidget_->getDrumPadGrid().setProfile(DrumKitProfile::StandardGm);
+            }
+        } else {
+            virtualKeyboardDrawerWidget_->setMode(KeyboardDrawerMode::Piano);
+        }
     }
     if (modularArrangerView_) {
         modularArrangerView_->setActiveTrack(idx);
@@ -2833,8 +2716,13 @@ void GuiWindow::handleTrackAdded(uint32_t trackIdx) {
             atd.clips.clear();
             arrangerTracks_.push_back(atd);
             updateMixerStrips();
-            if (engine_ && trackIdx >= engine_->getSequencer().getNumTracks()) {
-                engine_->addTrack(trk.name, 0, 16);
+            if (engine_) {
+                std::string eng = atd.instrumentEngine.empty() ? atd.instrument : atd.instrumentEngine;
+                if (trackIdx >= engine_->getSequencer().getNumTracks()) {
+                    engine_->addTrack(trk.name, 0, 16, eng);
+                } else {
+                    engine_->assignTrackInstrument(trackIdx, eng);
+                }
             }
         }
         setSelectedTrackIndex(trackIdx);
@@ -2858,7 +2746,11 @@ void GuiWindow::addTrackToProject(const std::string& name, const std::string& in
     updateMixerStrips();
 
     if (engine_) {
-        engine_->addTrack(trkName, 0, 16);
+        if (newIdx >= engine_->getSequencer().getNumTracks()) {
+            engine_->addTrack(trkName, 0, 16, eng);
+        } else {
+            engine_->assignTrackInstrument(newIdx, eng);
+        }
     }
 
     if (modularArrangerView_) {
@@ -2916,7 +2808,12 @@ void GuiWindow::duplicateTrack(uint32_t trackIdx) {
     updateMixerStrips();
 
     if (engine_) {
-        engine_->addTrack(dup.name, 0, 16);
+        std::string eng = dup.instrumentEngine.empty() ? dup.instrument : dup.instrumentEngine;
+        if (newTrackIdx >= engine_->getSequencer().getNumTracks()) {
+            engine_->addTrack(dup.name, 0, 16, eng);
+        } else {
+            engine_->assignTrackInstrument(newTrackIdx, eng);
+        }
     }
 
     if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
@@ -3377,6 +3274,13 @@ void GuiWindow::syncAllTracksFxToEngine() {
 
 void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
     selectedTrackIndex_ = trackIndex;
+    if (engine_) {
+        engine_->setActiveTrack(trackIndex);
+    }
+    if (engine_ && engine_->getTrackClapNode(trackIndex)) {
+        // Track uses a CLAP plugin; do not force-map to built-in presets (e.g. 808/303)
+        return;
+    }
     if (presets_.empty()) return;
 
     std::string targetKeyword;
@@ -3391,6 +3295,7 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
         else if (eng == "dx7" || inst.find("DX7") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
         else if (eng == "piano" || inst.find("Piano") != std::string::npos || name.find("Grand") != std::string::npos) targetKeyword = "piano";
         else if (!eng.empty() && eng != "synth") targetKeyword = eng;
+        else if (!inst.empty() && inst != "synth") targetKeyword = inst;
     }
     if (targetKeyword.empty() && engine_ && trackIndex < engine_->getSequencer().getNumTracks()) {
         auto* trk = engine_->getSequencer().getTrack(trackIndex);
@@ -3408,9 +3313,12 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
                 auto nodePtr = engine_->getGraph().getNode(nId);
                 if (nodePtr) {
                     if (dynamic_cast<audio::Tb303Node*>(nodePtr.get())) targetKeyword = "303";
-                    else if (dynamic_cast<audio::DrumKitNode*>(nodePtr.get())) targetKeyword = "808";
+                    else if (auto* dk = dynamic_cast<audio::DrumKitNode*>(nodePtr.get())) {
+                        targetKeyword = (dk->getKitType() == audio::DrumKitType::TR909) ? "909" : "808";
+                    }
                     else if (dynamic_cast<audio::DelayNode*>(nodePtr.get())) targetKeyword = "delay";
                     else if (dynamic_cast<audio::PolySynthNode*>(nodePtr.get())) targetKeyword = "dx7";
+                    else if (dynamic_cast<audio::PhysicalInstrumentNode*>(nodePtr.get())) targetKeyword = "piano";
                 }
             }
         }
@@ -3421,7 +3329,13 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
         else if (trackIndex == 2) targetKeyword = "909";
         else if (trackIndex == 3) targetKeyword = "dx7";
         else if (trackIndex == 4) targetKeyword = "piano";
-        else targetKeyword = "303";
+        else {
+            if (trackIndex < arrangerTracks_.size()) {
+                targetKeyword = arrangerTracks_[trackIndex].instrumentEngine;
+                if (targetKeyword.empty()) targetKeyword = arrangerTracks_[trackIndex].instrument;
+            }
+            if (targetKeyword.empty()) targetKeyword = "synth";
+        }
     }
 
     for (size_t i = 0; i < presets_.size(); ++i) {
@@ -3477,6 +3391,42 @@ HitTestHardwareKnobResult GuiWindow::hitTestHardwareKnob(float x, float y, float
 }
 
 void GuiWindow::dispatchHardwareParam(const std::string& paramName, float normVal) noexcept {
+    if (engine_) {
+        auto clapNode = engine_->getTrackClapNode(selectedTrackIndex_);
+        if (clapNode) {
+            const auto& params = clapNode->getParameterList();
+            for (const auto& p : params) {
+                if (p.name == paramName) {
+                    double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                    clapNode->setParamValue(p.id, realVal);
+                    return;
+                }
+            }
+            if (paramName.rfind("param", 0) == 0 && paramName.size() > 5) {
+                try {
+                    size_t pIdx = std::stoul(paramName.substr(5)) - 1;
+                    if (pIdx < params.size()) {
+                        const auto& p = params[pIdx];
+                        double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                        clapNode->setParamValue(p.id, realVal);
+                        return;
+                    }
+                } catch (...) {}
+            }
+            std::string lowerParam = paramName;
+            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            for (const auto& p : params) {
+                std::string pLow = p.name;
+                for (char& c : pLow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (pLow.find(lowerParam) != std::string::npos) {
+                    double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                    clapNode->setParamValue(p.id, realVal);
+                    return;
+                }
+            }
+        }
+    }
+
     auto* preset = getActivePreset();
     if (!preset) return;
 
@@ -3913,16 +3863,20 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     };
 
     audioToMidiDialog_.onAuditionStart = [this](const std::vector<float>& /*samples*/, uint32_t /*sampleRate*/) {
-        if (engine_) engine_->postNoteOn(60, 0.85f);
+        if (engine_) engine_->postNoteOn(60, 0.85f, false, false, static_cast<int>(selectedTrackIndex_));
     };
 
     audioToMidiDialog_.onAuditionStop = [this]() {
-        if (engine_) engine_->postNoteOff(60);
+        if (engine_) engine_->postNoteOff(60, static_cast<int>(selectedTrackIndex_));
     };
 
     // Configure Top-Level Reusable PresetSearchDialog
     presetSearchDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex) {
         if (mode == PluginDialogMode::SelectPreset || mode == PluginDialogMode::AddInstrument || mode == PluginDialogMode::AddDrums) {
+            if (trackIndex >= arrangerTracks_.size() && (mode == PluginDialogMode::AddInstrument || mode == PluginDialogMode::AddDrums)) {
+                addTrackToProject(entry.name, entry.id.empty() ? entry.engineTag : entry.id, entry.r, entry.g, entry.b);
+                return;
+            }
             uint32_t targetIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
             setSelectedTrackIndex(targetIdx);
 
@@ -3950,6 +3904,8 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
             if (targetIdx < arrangerTracks_.size()) {
                 arrangerTracks_[targetIdx].name = entry.name;
+                arrangerTracks_[targetIdx].instrument = entry.name;
+                arrangerTracks_[targetIdx].instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
                 arrangerTracks_[targetIdx].type = entry.engineTag.empty() ? entry.category : entry.engineTag;
                 arrangerTracks_[targetIdx].r = entry.r;
                 arrangerTracks_[targetIdx].g = entry.g;
@@ -3959,11 +3915,24 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 auto& trk = modularArrangerView_->getTracks()[targetIdx];
                 trk.name = entry.name;
                 trk.instrument = entry.name;
-                trk.instrumentEngine = entry.engineTag;
+                trk.instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
                 trk.r = entry.r;
                 trk.g = entry.g;
                 trk.b = entry.b;
             }
+            if (modularTrackInspectorView_ && targetIdx < modularTrackInspectorView_->getTracks().size()) {
+                auto& trk = modularTrackInspectorView_->getTracks()[targetIdx];
+                trk.name = entry.name;
+                trk.instrument = entry.name;
+                trk.instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
+                trk.r = entry.r;
+                trk.g = entry.g;
+                trk.b = entry.b;
+            }
+            if (engine_) {
+                engine_->assignTrackInstrument(targetIdx, entry.id.empty() ? entry.name : entry.id);
+            }
+            syncTrackToPreset(targetIdx);
             recordProjectHistory("Change Instrument on Track " + std::to_string(targetIdx + 1) + " to " + entry.name, "INSTRUMENT");
             setStatusMessage("Loaded Preset: " + entry.name + " to Track " + std::to_string(targetIdx + 1));
         } else if (mode == PluginDialogMode::AddAudioFx) {
@@ -4198,6 +4167,12 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             syncArrangerToSequencer();
         };
         modularArrangerView_->onTrackChordFollowChanged = [this](uint32_t idx, theory::ChordFollowMode mode) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].chordFollowMode = mode;
+            }
+            if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
+                modularTrackInspectorView_->getTracks()[idx].chordFollowMode = mode;
+            }
             if (engine_) {
                 auto& seq = engine_->getSequencer();
                 if (auto* trk = seq.getTrack(idx)) {
@@ -4205,10 +4180,15 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
         };
+        modularArrangerView_->onChordTrackChanged = [this]() {
+            if (engine_ && modularArrangerView_) {
+                engine_->getSequencer().setChordTrack(modularArrangerView_->getChordTrack());
+            }
+        };
         modularArrangerView_->onAuditionChord = [this](const theory::ChordEvent& chord) {
             if (engine_) {
                 for (int pc : chord.getPitchClasses()) {
-                    engine_->postNoteOn(static_cast<uint8_t>(60 + pc), 0.80f);
+                    engine_->postNoteOn(static_cast<uint8_t>(60 + pc), 0.80f, false, false, static_cast<int>(selectedTrackIndex_));
                 }
             }
         };
@@ -4304,6 +4284,22 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularArrangerView_->getPropertiesDrawer().onDeleteClip = [this](uint32_t tIdx, int cIdx) {
             deleteClip(tIdx, cIdx);
         };
+        modularArrangerView_->onInstrumentChanged = [this](uint32_t tIdx, const std::string& instId, const std::string& instName) {
+            if (tIdx < arrangerTracks_.size()) {
+                arrangerTracks_[tIdx].instrument = instName;
+                arrangerTracks_[tIdx].instrumentEngine = instId;
+            }
+            if (tIdx < mixerStrips_.size()) {
+                mixerStrips_[tIdx].name = instName;
+            }
+            if (engine_) {
+                engine_->assignTrackInstrument(tIdx, instId.empty() ? instName : instId);
+            }
+            setSelectedTrackIndex(tIdx);
+            syncTrackToPreset(tIdx);
+            recordProjectHistory("Change Track " + std::to_string(tIdx + 1) + " Instrument to " + instName, "INSTRUMENT");
+            setStatusMessage("Changed Track " + std::to_string(tIdx + 1) + " Instrument: " + instName);
+        };
     }
 
     valueEditDialog_.onCopyToClipboard = [this](const std::string& text) {
@@ -4381,6 +4377,15 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 arrangerTracks_[idx].chordFollowMode = mode;
                 recordProjectHistory("Set Chord Follow on Track " + std::to_string(idx + 1), "CHORD");
             }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].chordFollowMode = mode;
+            }
+            if (engine_) {
+                auto& seq = engine_->getSequencer();
+                if (auto* trk = seq.getTrack(idx)) {
+                    trk->setChordFollowMode(mode);
+                }
+            }
         };
         modularTrackInspectorView_->onBakeChords = [this](uint32_t idx) {
             recordProjectHistory("Bake Chords on Track " + std::to_string(idx + 1), "CHORD");
@@ -4441,6 +4446,39 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularTrackInspectorView_->onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularTrackInspectorView_->onOpenPluginGui = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularTrackInspectorView_->onPopulateClapData = [this](uint32_t tIdx, TrackPropertiesDrawerData& d) {
+            if (!engine_) return;
+            auto clapNode = engine_->getTrackClapNode(tIdx);
+            if (clapNode) {
+                d.isClapPlugin = true;
+                d.hasNativeGui = clapNode->hasGui();
+                d.isGuiOpen = clapNode->isGuiOpen();
+                d.presetTitle = clapNode->getPluginName().empty() ? d.instrument : clapNode->getPluginName();
+                d.presetSubtitle = d.trackName + " • CLAP Instrument";
+                d.instrument = d.presetTitle;
+                d.instrumentEngine = "clap:" + clapNode->getPluginId();
+
+                d.knobs.clear();
+                const auto& params = clapNode->getParameterList();
+                size_t limit = std::min<size_t>(params.size(), 24);
+                for (size_t i = 0; i < limit; ++i) {
+                    const auto& p = params[i];
+                    TrackPropertiesKnob k;
+                    k.name = p.name;
+                    k.label = p.name;
+                    double norm = 0.5;
+                    if (p.maxValue > p.minValue) {
+                        norm = (p.currentValue - p.minValue) / (p.maxValue - p.minValue);
+                    }
+                    k.value = static_cast<float>(std::clamp(norm, 0.0, 1.0));
+                    k.display = std::to_string(static_cast<int>(p.currentValue));
+                    d.knobs.push_back(k);
+                }
+            }
+        };
         modularTrackInspectorView_->onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
         };
@@ -4448,6 +4486,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
         };
         modularTrackInspectorView_->getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
+        modularTrackInspectorView_->getPanel().onOpenPluginGui = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
         modularTrackInspectorView_->getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
@@ -4470,6 +4511,26 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onDeleteClip = [this](uint32_t tIdx, int cIdx) {
             deleteClip(tIdx, cIdx);
+        };
+        modularTrackInspectorView_->onInstrumentChanged = [this](uint32_t idx, const std::string& instId, const std::string& instName) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].instrument = instName;
+                arrangerTracks_[idx].instrumentEngine = instId;
+            }
+            if (idx < mixerStrips_.size()) {
+                mixerStrips_[idx].name = instName;
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].instrument = instName;
+                modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
+            }
+            if (engine_) {
+                engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
+            }
+            setSelectedTrackIndex(idx);
+            syncTrackToPreset(idx);
+            recordProjectHistory("Change Track " + std::to_string(idx + 1) + " Instrument to " + instName, "INSTRUMENT");
+            setStatusMessage("Changed Track " + std::to_string(idx + 1) + " Instrument: " + instName);
         };
     }
 
@@ -4495,6 +4556,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularArrangerView_->getPropertiesDrawer().getPanel().onOpenPluginGui = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
         };
@@ -4508,7 +4572,47 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (valueEditDialog_.isOpen()) {
             valueEditDialog_.close();
         }
+        if (engine_) {
+            const auto& tgt = fullscreenDeviceModal_.getTarget();
+            if (tgt.type == DeviceTargetType::Instrument) {
+                auto clapNode = engine_->getTrackClapNode(tgt.trackIndex);
+                if (clapNode && clapNode->isEmbeddedGuiOpen()) {
+                    clapNode->hideEmbeddedGui();
+                }
+            } else if (tgt.type == DeviceTargetType::AudioFx && tgt.fxIndex >= 0) {
+                auto clapFxNode = engine_->getTrackAudioFxClapNode(tgt.trackIndex, static_cast<size_t>(tgt.fxIndex));
+                if (clapFxNode && clapFxNode->isEmbeddedGuiOpen()) {
+                    clapFxNode->hideEmbeddedGui();
+                }
+            }
+        }
+        fullscreenDeviceModal_.setIsGuiEmbedded(false);
         setStatusMessage("Device Full-Display Closed");
+    };
+    fullscreenDeviceModal_.onOpenPluginGui = [this](uint32_t idx) {
+        if (!engine_) return;
+        auto clapNode = engine_->getTrackClapNode(idx);
+        if (!clapNode || !clapNode->hasGui()) return;
+
+        if (fullscreenDeviceModal_.isGuiEmbedded()) {
+            // User clicked DETACH -> Hide embedded child, open floating window
+            clapNode->hideEmbeddedGui();
+            clapNode->openGuiWindow();
+            fullscreenDeviceModal_.setIsGuiEmbedded(false);
+            setStatusMessage("Popped out plugin window: " + clapNode->getPluginName());
+        } else {
+            // User clicked EMBED -> Close floating window, dock into fullscreen view
+            clapNode->closeGuiWindow();
+#if defined(_WIN32)
+            HWND mainHwnd = glfwGetWin32Window(window_);
+            const auto& b = fullscreenDeviceModal_.getBodyBounds();
+            clapNode->openEmbeddedGui(mainHwnd,
+                static_cast<int>(b.x), static_cast<int>(b.y),
+                static_cast<int>(b.w), static_cast<int>(b.h));
+#endif
+            fullscreenDeviceModal_.setIsGuiEmbedded(true);
+            setStatusMessage("Docked plugin into view: " + clapNode->getPluginName());
+        }
     };
     fullscreenDeviceModal_.onPrevPreset = [this]() {
         prevPreset();
@@ -4565,6 +4669,17 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (engine_) {
             int fxIdx = fullscreenDeviceModal_.getTarget().fxIndex;
             if (fxIdx >= 0) {
+                auto clapFxNode = engine_->getTrackAudioFxClapNode(idx, static_cast<size_t>(fxIdx));
+                if (clapFxNode) {
+                    const auto& params = clapFxNode->getParameterList();
+                    for (const auto& p : params) {
+                        if (p.name == paramName) {
+                            double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                            clapFxNode->setParamValue(p.id, realVal);
+                            return;
+                        }
+                    }
+                }
                 engine_->setTrackAudioFxParam(idx, static_cast<size_t>(fxIdx), paramName, normVal);
             }
         }
@@ -4700,6 +4815,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularMixerView_->getPropertiesDrawer().getPanel().onOpenPluginGui = [this](uint32_t idx) {
+            openFullscreenDevice(idx);
+        };
         modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
         };
@@ -4729,6 +4847,26 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularMixerView_->getPropertiesDrawer().onDeleteClip = [this](uint32_t tIdx, int cIdx) {
             deleteClip(tIdx, cIdx);
+        };
+        modularMixerView_->onInstrumentChanged = [this](uint32_t idx, const std::string& instId, const std::string& instName) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].instrument = instName;
+                arrangerTracks_[idx].instrumentEngine = instId;
+            }
+            if (idx < mixerStrips_.size()) {
+                mixerStrips_[idx].name = instName;
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].instrument = instName;
+                modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
+            }
+            if (engine_) {
+                engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
+            }
+            setSelectedTrackIndex(idx);
+            syncTrackToPreset(idx);
+            recordProjectHistory("Change Track " + std::to_string(idx + 1) + " Instrument to " + instName, "INSTRUMENT");
+            setStatusMessage("Changed Track " + std::to_string(idx + 1) + " Instrument: " + instName);
         };
     }
 
@@ -5053,6 +5191,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetCharCallback(window_, [](GLFWwindow* w, unsigned int codepoint) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
+#if defined(__EMSCRIPTEN__)
+            // If soft keyboard proxy is active, typographic characters are streamed
+            // exclusively via eats_on_web_char_input to avoid duplicate entry.
+            int proxyActive = EM_ASM_INT({
+                return (window.eatsbitsSoftKeyboardActive && document.activeElement === document.getElementById('mobile-text-proxy')) ? 1 : 0;
+            });
+            if (proxyActive) return;
+#endif
             app->markNeedsRedraw();
             app->onChar(codepoint);
         }
@@ -5206,6 +5352,7 @@ bool GuiWindow::isAnyDrawerAnimating() const noexcept {
 
 bool GuiWindow::isIdle() const noexcept {
     if (!engine_) return true;
+    if (audio::ClapAudioNode::isAnyGuiOpen()) return false;
     if (engine_->getSequencer().isPlaying()) return false;
     if (!telemetryPresenter_.isSettled()) return false;
     if (activeDragHandler_ != nullptr) return false;
@@ -5226,6 +5373,7 @@ void GuiWindow::runEventLoop() {
     emscripten_set_main_loop_arg([](void* arg) {
         auto* self = static_cast<GuiWindow*>(arg);
         if (self && self->isOpen()) {
+            audio::ClapAudioNode::pollAllMainThreadCallbacks();
             self->pollWebResize();
             glfwPollEvents();
             self->renderFrame();
@@ -5238,6 +5386,16 @@ void GuiWindow::runEventLoop() {
     constexpr auto targetFrameDuration = std::chrono::microseconds(16666); // ~60 FPS smooth frame pacing
 
     while (!glfwWindowShouldClose(window_)) {
+        audio::ClapAudioNode::pollAllMainThreadCallbacks();
+
+#if defined(_WIN32)
+        MSG winMsg;
+        while (PeekMessageA(&winMsg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&winMsg);
+            DispatchMessageA(&winMsg);
+        }
+#endif
+
         bool idle = isIdle();
         if (idle && !needsRedraw_) {
             // Zero-CPU idle sleep: suspend into OS event wait for up to 50ms (wakes immediately on user input/event)
@@ -5731,6 +5889,25 @@ void GuiWindow::renderFrame() {
             fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
             fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
             fullscreenDeviceModal_.update(frameDt);
+            if (fullscreenDeviceModal_.isGuiEmbedded() && engine_) {
+                const auto& b = fullscreenDeviceModal_.getBodyBounds();
+                const auto& tgt = fullscreenDeviceModal_.getTarget();
+                if (tgt.type == DeviceTargetType::Instrument) {
+                    auto clapNode = engine_->getTrackClapNode(tgt.trackIndex);
+                    if (clapNode && clapNode->isEmbeddedGuiOpen()) {
+                        clapNode->setEmbeddedGuiBounds(
+                            static_cast<int>(b.x), static_cast<int>(b.y),
+                            static_cast<int>(b.w), static_cast<int>(b.h));
+                    }
+                } else if (tgt.type == DeviceTargetType::AudioFx && tgt.fxIndex >= 0) {
+                    auto clapFxNode = engine_->getTrackAudioFxClapNode(tgt.trackIndex, static_cast<size_t>(tgt.fxIndex));
+                    if (clapFxNode && clapFxNode->isEmbeddedGuiOpen()) {
+                        clapFxNode->setEmbeddedGuiBounds(
+                            static_cast<int>(b.x), static_cast<int>(b.y),
+                            static_cast<int>(b.w), static_cast<int>(b.h));
+                    }
+                }
+            }
             if (batchRenderer_) {
                 fullscreenDeviceModal_.render(*batchRenderer_, theme);
             }
@@ -5836,6 +6013,10 @@ void GuiWindow::renderFrame() {
             std::vector<bool> trackSolos;
             std::vector<bool> trackFreezes;
             std::vector<Color> trackColors;
+            std::vector<std::string> trackInstruments;
+            std::vector<std::string> trackInstrumentEngines;
+
+            std::vector<theory::ChordFollowMode> trackChordFollowModes;
 
             for (const auto& trk : arrangerTracks_) {
                 trackNames.push_back(trk.name);
@@ -5845,6 +6026,9 @@ void GuiWindow::renderFrame() {
                 trackSolos.push_back(trk.solo);
                 trackFreezes.push_back(trk.freeze);
                 trackColors.push_back(Color(trk.r, trk.g, trk.b));
+                trackInstruments.push_back(trk.instrument);
+                trackInstrumentEngines.push_back(trk.instrumentEngine);
+                trackChordFollowModes.push_back(trk.chordFollowMode);
             }
 
             const auto* preset = getActivePreset();
@@ -5853,7 +6037,8 @@ void GuiWindow::renderFrame() {
 
             modularTrackInspectorView_->syncFromWindow(
                 trackNames, trackVols, trackPans, trackMutes, trackSolos, trackFreezes, trackColors,
-                selectedTrackIndex_, pTitle, pSub, activePresetIndex_, presets_.size(), trackInspectorScrollY_
+                selectedTrackIndex_, pTitle, pSub, activePresetIndex_, presets_.size(), trackInspectorScrollY_,
+                trackInstruments, trackInstrumentEngines, trackChordFollowModes
             );
             modularTrackInspectorView_->setAudioScopeBuffer(scopeBuffer_, 256);
             modularTrackInspectorView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
@@ -6091,7 +6276,7 @@ void GuiWindow::renderFrame() {
                 "PROJECT HUB",
                 "SESSION PERSISTENCE & AUTO-RESTORE",
                 "DISPLAY & WORKSPACE",
-                "CHASSIS & PANEL TEXTURES",
+                "CHASSIS & PANEL SURFACES",
                 "CRT SHADER",
                 "AUDIO ENGINE CONFIG",
                 "CREDITS & ACKNOWLEDGMENTS"
@@ -6434,9 +6619,9 @@ void GuiWindow::renderFrame() {
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
-                        // SECTION 3: CHASSIS & PANEL TEXTURES
-                        // 1. Material Texture Chips Header & Grid (2 rows of 5)
-                        drawVectorString("PANEL MATERIAL & TEXTURE (TOP & BOTTOM CHASSIS)", hubX + 28.0f, contentY + 8.0f, 0.65f, theme.textMuted);
+                        // SECTION 3: CHASSIS & PANEL SURFACES
+                        // 1. Material Surface Chips Header & Grid (2 rows of 5)
+                        drawVectorString("PANEL MATERIAL & SURFACE (TOP & BOTTOM CHASSIS)", hubX + 28.0f, contentY + 8.0f, 0.65f, theme.textMuted);
 
                         struct MatChip {
                             const char* label;
@@ -6598,10 +6783,9 @@ void GuiWindow::renderFrame() {
                         const float prevH = 28.0f;
 
                         if (batchRenderer_) {
-                            ProceduralTextureSystem::instance().drawChassis(
-                                batchRenderer_.get(), prevX, prevY, prevW, prevH,
-                                panelChassisTexture_, theme, panelChassisTint_, panelChassisWear_,
-                                0.0f, true, panelChassisRotation_);
+                            drawChassisPlate(prevX, prevY, prevW, prevH, true, theme,
+                                             panelChassisTexture_, panelChassisTint_, panelChassisWear_,
+                                             panelChassisRotation_);
                         }
                         drawRoundedRectOutline(prevX, prevY, prevW, prevH, 4.0f, theme.borderSubtle.lighten(0.15f), 1.0f);
                         drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 8.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
@@ -9991,6 +10175,18 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
         }
         case TrackInspectorHitArea::ChordFollowChip:
             trk.chordFollowMode = inspHit.chordMode;
+            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[tIdx].chordFollowMode = inspHit.chordMode;
+            }
+            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+                modularTrackInspectorView_->getTracks()[tIdx].chordFollowMode = inspHit.chordMode;
+            }
+            if (engine_) {
+                auto& seq = engine_->getSequencer();
+                if (auto* trkPtr = seq.getTrack(tIdx)) {
+                    trkPtr->setChordFollowMode(inspHit.chordMode);
+                }
+            }
             recordProjectHistory("Set Chord Follow on Track " + std::to_string(tIdx + 1), "CHORD");
             break;
         case TrackInspectorHitArea::BakeChordsButton:
@@ -10371,15 +10567,30 @@ void GuiWindow::loadPresetToSelectedTrack(size_t presetIndex) {
     if (selectedTrackIndex_ < mixerStrips_.size()) {
         mixerStrips_[selectedTrackIndex_].name = p.metadata.name;
     }
-    if (engine_ && selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
-        auto* tr = engine_->getSequencer().getTrack(selectedTrackIndex_);
-        if (tr) tr->setName(p.metadata.name);
+    if (selectedTrackIndex_ < arrangerTracks_.size()) {
+        arrangerTracks_[selectedTrackIndex_].name = p.metadata.name;
+        arrangerTracks_[selectedTrackIndex_].instrument = p.metadata.name;
+        arrangerTracks_[selectedTrackIndex_].instrumentEngine = p.metadata.id;
+    }
+    if (modularArrangerView_ && selectedTrackIndex_ < modularArrangerView_->getTracks().size()) {
+        auto& trk = modularArrangerView_->getTracks()[selectedTrackIndex_];
+        trk.name = p.metadata.name;
+        trk.instrument = p.metadata.name;
+        trk.instrumentEngine = p.metadata.id;
+    }
+    if (engine_) {
+        if (selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
+            auto* tr = engine_->getSequencer().getTrack(selectedTrackIndex_);
+            if (tr) tr->setName(p.metadata.name);
+        }
+        engine_->assignTrackInstrument(selectedTrackIndex_, p.metadata.id);
     }
 
     for (const auto& [paramName, param] : p.params) {
         dispatchHardwareParam(paramName, param.getNormalized());
     }
 
+    setSelectedTrackIndex(selectedTrackIndex_);
     lastStatusMessage_ = "LOADED: " + p.metadata.name;
     recordProjectHistory("Loaded Preset: " + p.metadata.name, "PRESET");
 }
@@ -10969,7 +11180,7 @@ void GuiWindow::selectPianoRollNotesByPitch(int pitch, bool additive) {
     if (!matching.empty()) {
         tr->selectSteps(matching, !additive);
         if (engine_) {
-            engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f);
+            engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f, false, false, static_cast<int>(selectedTrackIndex_));
         }
         previewingPitch_ = pitch;
         previewingVelocity_ = 0.85f;
@@ -10998,6 +11209,9 @@ bool GuiWindow::isAltPressed() const noexcept {
 void GuiWindow::setVirtualKeyboardBaseOctave(int octave) noexcept {
     virtualKeyboardBaseOctave_ = std::clamp(octave, 1, 6);
     virtualPianoDrawerKeyboard_.setBaseOctave(virtualKeyboardBaseOctave_);
+    if (virtualKeyboardDrawerWidget_) {
+        virtualKeyboardDrawerWidget_->setBaseOctave(virtualKeyboardBaseOctave_);
+    }
 }
 
 HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float mx, float my) const noexcept {
@@ -12367,12 +12581,12 @@ void GuiWindow::onMouseMove(float x, float y) {
             if (dHit.hit && dHit.isKey && dHit.pitch != virtualKeyboardActivePitch_) {
                 if (engine_) {
                     if (virtualKeyboardActivePitch_ != -1) {
-                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_));
+                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
                     }
                     if (previewingPitch_ != -1 && previewingPitch_ != virtualKeyboardActivePitch_) {
-                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_));
+                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
                     }
-                    engine_->postNoteOn(static_cast<uint8_t>(dHit.pitch), dHit.velocity);
+                    engine_->postNoteOn(static_cast<uint8_t>(dHit.pitch), dHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                 }
                 virtualKeyboardActivePitch_ = dHit.pitch;
                 previewingPitch_ = dHit.pitch;
@@ -12385,12 +12599,12 @@ void GuiWindow::onMouseMove(float x, float y) {
             if (kHit.hit && kHit.pitch != previewingPitch_) {
                 if (engine_) {
                     if (previewingPitch_ != -1) {
-                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_));
+                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
                     }
                     if (virtualKeyboardActivePitch_ != -1 && virtualKeyboardActivePitch_ != previewingPitch_) {
-                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_));
+                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
                     }
-                    engine_->postNoteOn(static_cast<uint8_t>(kHit.pitch), kHit.velocity);
+                    engine_->postNoteOn(static_cast<uint8_t>(kHit.pitch), kHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                 }
                 previewingPitch_ = kHit.pitch;
                 virtualKeyboardActivePitch_ = kHit.pitch;
@@ -13296,7 +13510,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 previewingPitch_ = drawerHit.pitch;
                 previewingVelocity_ = drawerHit.velocity;
                 if (engine_) {
-                    engine_->postNoteOn(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity);
+                    engine_->postNoteOn(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                 }
                 dragMode_ = DragMode::VirtualKeyboardGlissando;
                 return;
@@ -13368,19 +13582,19 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         engine_->getSequencer().getTransport().setPosition(arrHit.step);
                     }
                 } else if (arrHit.area == ArrangerHitArea::TrackMute) {
-                    selectedTrackIndex_ = arrHit.trackIndex;
+                    setSelectedTrackIndex(arrHit.trackIndex);
                     bool currentMute = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].mute : false;
                     setTrackMuteState(arrHit.trackIndex, !currentMute);
                 } else if (arrHit.area == ArrangerHitArea::TrackSolo) {
-                    selectedTrackIndex_ = arrHit.trackIndex;
+                    setSelectedTrackIndex(arrHit.trackIndex);
                     bool currentSolo = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].solo : false;
                     setTrackSoloState(arrHit.trackIndex, !currentSolo);
                 } else if (arrHit.area == ArrangerHitArea::TrackFreeze) {
-                    selectedTrackIndex_ = arrHit.trackIndex;
+                    setSelectedTrackIndex(arrHit.trackIndex);
                     bool currentFz = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].freeze : false;
                     setTrackFreezeState(arrHit.trackIndex, !currentFz);
                 } else if (arrHit.area == ArrangerHitArea::TrackVolume) {
-                    selectedTrackIndex_ = arrHit.trackIndex;
+                    setSelectedTrackIndex(arrHit.trackIndex);
                     activeArrangerTrack_ = arrHit.trackIndex;
                     dragStartX_ = x;
                     if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) {
@@ -13404,7 +13618,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     activeDragHandler_ = &scalarDragPresenter_;
                     dragMode_ = DragMode::ArrangerTrackVolume;
                 } else if (arrHit.area == ArrangerHitArea::TrackPan) {
-                    selectedTrackIndex_ = arrHit.trackIndex;
+                    setSelectedTrackIndex(arrHit.trackIndex);
                     activeArrangerTrack_ = arrHit.trackIndex;
                     dragStartX_ = x;
                     dragStartY_ = y;
@@ -13957,7 +14171,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     virtualKeyboardActivePitch_ = keyHit.pitch;
                     dragMode_ = DragMode::VirtualKeyboardGlissando;
                     if (engine_) {
-                        engine_->postNoteOn(keyHit.pitch, keyHit.velocity);
+                        engine_->postNoteOn(keyHit.pitch, keyHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                     }
                     return;
                 }
@@ -14021,7 +14235,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                     activeTrk->selectStep(s, true);
                                 }
                                 if (engine_) {
-                                    engine_->postNoteOn(st.note, st.velocity);
+                                    engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                                     previewingPitch_ = st.note;
                                     previewingVelocity_ = st.velocity;
                                 }
@@ -14058,7 +14272,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         activeTrk->setStep(gridHit.step, st);
                         activeTrk->selectStep(gridHit.step, true);
                         if (engine_) {
-                            engine_->postNoteOn(st.note, st.velocity);
+                            engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                             previewingPitch_ = st.note;
                             previewingVelocity_ = st.velocity;
                         }
@@ -14124,16 +14338,16 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                     }
                                 } else {
                                     trackerSelectedTrack_ = trkHit.trackIndex;
-                                    selectedTrackIndex_ = trkHit.trackIndex;
+                                    setSelectedTrackIndex(trkHit.trackIndex);
                                 }
                             } else {
                                 trackerSelectedRow_ = trkHit.row;
                                 trackerSelectedTrack_ = trkHit.trackIndex;
-                                selectedTrackIndex_ = trkHit.trackIndex;
+                                setSelectedTrackIndex(trkHit.trackIndex);
                                 auto st = tr->getStep(trkHit.row);
                                 if (st.active) {
                                     tr->selectStep(trkHit.row, true);
-                                    engine_->postNoteOn(st.note, 0.85f);
+                                    engine_->postNoteOn(st.note, 0.85f, false, false, static_cast<int>(trkHit.trackIndex));
                                     previewingPitch_ = st.note;
                                 } else {
                                     tr->clearSelection();
@@ -14196,7 +14410,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                         st.velocity = 0.85f;
                                         float durSteps = scoreDurationToSteps(scoreDuration_);
                                         st.gateLength = std::clamp(durSteps / 4.0f, 0.25f, 4.0f);
-                                        engine_->postNoteOn(st.note, st.velocity);
+                                        engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                                         previewingPitch_ = st.note;
                                         tr->setStep(scoreHit.step, st);
                                         tr->selectStep(scoreHit.step, true);
@@ -14650,14 +14864,14 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
     if (button == 0 || button == 2) {
         if (previewingPitch_ != -1) {
             if (engine_) {
-                engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_));
+                engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
             }
             previewingPitch_ = -1;
         }
 
         if (virtualKeyboardActivePitch_ != -1) {
             if (engine_) {
-                engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_));
+                engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
             }
             virtualKeyboardActivePitch_ = -1;
         }
@@ -15590,7 +15804,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
                         st.velocity = 0.85f;
                         st.gateLength = 0.75f;
                         tr->setStep(trackerSelectedRow_, st);
-                        engine_->postNoteOn(pitch, 0.85f);
+                        engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f, false, false, static_cast<int>(trackerSelectedTrack_));
                         previewingPitch_ = pitch;
                     }
                 }

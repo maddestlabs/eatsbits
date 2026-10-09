@@ -103,6 +103,11 @@ public:
     void setFollowPlayback(bool follow) noexcept { followPlayback_ = follow; }
     void toggleFollowPlayback() noexcept { followPlayback_ = !followPlayback_; }
 
+    [[nodiscard]] float getScrollX() const noexcept { return scrollX_; }
+    [[nodiscard]] float getScrollY() const noexcept { return scrollY_; }
+    void setScrollX(float sx) noexcept { scrollX_ = (std::max)(0.0f, sx); }
+    void setScrollY(float sy) noexcept { scrollY_ = (std::max)(0.0f, sy); }
+
     [[nodiscard]] uint32_t getActiveTrack() const noexcept { return activeTrackIndex_; }
     [[nodiscard]] uint32_t getActiveTrackIndex() const noexcept { return activeTrackIndex_; }
     void setActiveTrack(uint32_t idx) noexcept;
@@ -140,7 +145,7 @@ public:
                          const float* chPeaksL = nullptr, const float* chPeaksR = nullptr, size_t numPeaks = 0);
 
     // Track addition / modification API
-    void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b);
+    void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine = "");
     void addClipToTrack(uint32_t trackIdx, uint32_t startBar = 1, uint32_t lengthBars = 4);
     void createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars = 4);
     void duplicateClip(uint32_t trackIdx, int clipIdx);
@@ -157,10 +162,16 @@ public:
     // Chord Track & Music Theory APIs (Eatsbeats parity)
     [[nodiscard]] const std::vector<theory::ChordEvent>& getChordTrack() const noexcept { return chordTrack_; }
     std::vector<theory::ChordEvent>& getChordTrack() noexcept { return chordTrack_; }
-    void setChordTrack(std::vector<theory::ChordEvent> chords) { chordTrack_ = std::move(chords); }
+    void setChordTrack(std::vector<theory::ChordEvent> chords) {
+        chordTrack_ = std::move(chords);
+        if (onChordTrackChanged) onChordTrackChanged();
+    }
     void addOrUpdateChord(const theory::ChordEvent& chord);
     void removeChord(const std::string& chordId);
-    void clearChordTrack() noexcept { chordTrack_.clear(); }
+    void clearChordTrack() noexcept {
+        chordTrack_.clear();
+        if (onChordTrackChanged) onChordTrackChanged();
+    }
 
     [[nodiscard]] const theory::ChordEvent* getActiveChordAtBar(float bar) const noexcept;
     [[nodiscard]] const theory::ChordEvent* getActiveChordAtStep(float step) const noexcept;
@@ -197,6 +208,7 @@ public:
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(const theory::ChordEvent& chord)> onAuditionChord;
     std::function<void(uint32_t trackIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
+    std::function<void()> onChordTrackChanged;
     std::function<void()> onClipsChanged;
     std::function<void(uint32_t trackIdx)> onTrackSelected;
     std::function<void(uint32_t trackIdx, int clipIdx)> onEditClipInPianoRoll;
@@ -214,6 +226,7 @@ public:
     std::function<void(float masterPan)> onMasterPanChanged;
     std::function<void(bool masterMute)> onMasterMuteToggled;
     std::function<void(uint32_t trackIdx)> onTrackAdded;
+    std::function<void(uint32_t trackIdx, const std::string& instrumentId, const std::string& instrumentName)> onInstrumentChanged;
     std::function<void(uint32_t trackIdx)> onTrackDeleted;
     std::function<void(uint32_t trackIdx)> onTrackDuplicated;
     std::function<void(uint32_t trackIdx)> onAddClip;

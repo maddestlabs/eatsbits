@@ -246,6 +246,29 @@ void testArrangerView() {
     assert(!arranger.handlePointer(browserAreaClick, ctx));
     ctx.browserOffset = 0.0f;
 
+    // 15. Mobile Touch Panning on Empty Arranger Grid
+    arranger.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+    arranger.setScrollX(0.0f);
+    arranger.setScrollY(0.0f);
+    ViewContext mobileCtx = ctx;
+    mobileCtx.isMobile = true;
+
+    // Touch down on empty grid space
+    PointerEvent touchDown = makePointer(500.0f, 400.0f, PointerAction::Down, PointerType::Touch, 100.0);
+    assert(arranger.handlePointer(touchDown, mobileCtx));
+
+    // Touch move by dx = -80px, dy = -50px (> 14px threshold)
+    PointerEvent touchMove = makePointer(420.0f, 350.0f, PointerAction::Move, PointerType::Touch, 150.0);
+    touchMove.dx = -80.0f;
+    touchMove.dy = -50.0f;
+    assert(arranger.handlePointer(touchMove, mobileCtx));
+    assert(arranger.getScrollX() > 50.0f); // Panned right
+    assert(arranger.getScrollY() > 30.0f); // Panned down
+
+    // Touch release finishes drag and arms kinetic glide
+    PointerEvent touchUp = makePointer(420.0f, 350.0f, PointerAction::Up, PointerType::Touch, 180.0);
+    assert(arranger.handlePointer(touchUp, mobileCtx));
+
     std::cout << "  [PASS] ArrangerView validated." << std::endl;
 }
 
@@ -801,7 +824,15 @@ void testDesignViewProjectSync() {
     assert(trackDspCount == initialTracks.size());
     assert(audioFxCount >= 1);
     assert(midiFxCount >= 1);
-    assert(clipScriptCount >= 2);
+    assert(clipScriptCount == 0); // Design view only loads active project scripts (instruments, FX, MIDI FX)
+    assert(design.getExplorerFilter() == ExplorerFilterMode::All);
+    design.setExplorerFilter(ExplorerFilterMode::Instruments);
+    assert(design.getExplorerFilter() == ExplorerFilterMode::Instruments);
+    design.setExplorerFilter(ExplorerFilterMode::AudioFx);
+    assert(design.getExplorerFilter() == ExplorerFilterMode::AudioFx);
+    design.setExplorerFilter(ExplorerFilterMode::MidiFx);
+    assert(design.getExplorerFilter() == ExplorerFilterMode::MidiFx);
+    design.setExplorerFilter(ExplorerFilterMode::All);
 
     // 2. Test selecting instrument target on Track 0 (303)
     design.selectTargetByTrackAndType(0, ScriptTargetType::TrackDsp);
@@ -1243,6 +1274,38 @@ void testGuiWindowIntegration() {
     }
     std::cout << "  -> GuiWindow Play test: peak audio = " << peakAudio << std::endl;
     assert(peakAudio > 0.001f);
+
+    // 4. Harmonic Chord Follow multi-view synchronization & auditioning
+    auto* insp = window.getModularTrackInspectorView();
+    auto* arr = window.getModularArrangerView();
+    assert(insp != nullptr && arr != nullptr);
+
+    // Initial state on track 0 should be Off
+    assert(window.getArrangerTracks()[0].chordFollowMode == ChordFollowMode::Off);
+    assert(arr->getTracks()[0].chordFollowMode == ChordFollowMode::Off);
+    assert(engine.getSequencer().getTrack(0)->getChordFollowMode() == ChordFollowMode::Off);
+
+    // Change chord follow mode in Track Inspector via onChordFollowChanged
+    insp->onChordFollowChanged(0, ChordFollowMode::Bass);
+    assert(window.getArrangerTracks()[0].chordFollowMode == ChordFollowMode::Bass);
+    assert(arr->getTracks()[0].chordFollowMode == ChordFollowMode::Bass);
+    assert(engine.getSequencer().getTrack(0)->getChordFollowMode() == ChordFollowMode::Bass);
+
+    // Verify modifying Arranger chord track pushes to StepSequencer
+    std::vector<theory::ChordEvent> testProg = {
+        {"c_prog1", 0, 1.0f, 0, theory::ChordQuality::Major, -1}, // C Major at bar 0
+        {"c_prog2", 1, 1.0f, 9, theory::ChordQuality::Minor, -1}  // A Minor at bar 1
+    };
+    arr->setChordTrack(testProg);
+    assert(engine.getSequencer().getChordTrack().size() == 2);
+    assert(engine.getSequencer().getActiveChordAtBar(0.0f)->rootPitchClass == 0);
+    assert(engine.getSequencer().getActiveChordAtBar(1.0f)->rootPitchClass == 9);
+
+    // Verify auditioning note remapping in AudioEngine
+    // Note 65 (F4) in Bass mode over C Major remaps to 60 (C4)
+    bool posted = engine.postNoteOn(65, 0.8f, false, false, 0);
+    assert(posted);
+    engine.postNoteOff(65, 0);
 
     std::cout << "  [PASS] GuiWindow Modular Integration validated." << std::endl;
 }

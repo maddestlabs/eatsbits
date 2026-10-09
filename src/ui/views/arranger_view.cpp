@@ -151,18 +151,24 @@ ArrangerView::ArrangerView() {
     // Connect Reusable PluginSearchDialog callbacks
     pluginDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t targetIdx) {
         if (mode == PluginDialogMode::AddInstrument) {
+            uint32_t effectiveTrackIdx = targetIdx;
             if (targetIdx >= tracks_.size()) {
-                // New track
-                addTrack(entry.name, entry.engineTag, entry.r, entry.g, entry.b);
+                // New track: pass entry.id directly to ensure immediate correct engine configuration
+                addTrack(entry.name, entry.name, entry.r, entry.g, entry.b, entry.id);
+                effectiveTrackIdx = activeTrackIndex_;
             } else {
                 // Change instrument
                 tracks_[targetIdx].instrument = entry.name;
+                tracks_[targetIdx].instrumentEngine = entry.id;
                 tracks_[targetIdx].r = entry.r;
                 tracks_[targetIdx].g = entry.g;
                 tracks_[targetIdx].b = entry.b;
                 for (auto& cl : tracks_[targetIdx].clips) {
                     cl.r = entry.r; cl.g = entry.g; cl.b = entry.b;
                 }
+            }
+            if (onInstrumentChanged) {
+                onInstrumentChanged(effectiveTrackIdx, entry.id, entry.name);
             }
         } else if (mode == PluginDialogMode::AddMidiFx) {
             addMidiFxToTrack(targetIdx, entry.name, entry.id);
@@ -284,15 +290,18 @@ ArrangerView::ArrangerView() {
             if (mode == PluginDialogMode::AddInstrument) {
                 if (targetIdx < tracks_.size()) {
                     tracks_[targetIdx].instrument = entry.name;
-                    tracks_[targetIdx].instrumentEngine = entry.engineTag;
+                    tracks_[targetIdx].instrumentEngine = entry.id;
                     tracks_[targetIdx].r = entry.r;
                     tracks_[targetIdx].g = entry.g;
                     tracks_[targetIdx].b = entry.b;
                     drawerData_.instrument = entry.name;
-                    drawerData_.instrumentEngine = entry.engineTag;
+                    drawerData_.instrumentEngine = entry.id;
                     drawerData_.r = entry.r;
                     drawerData_.g = entry.g;
                     drawerData_.b = entry.b;
+                    if (onInstrumentChanged) {
+                        onInstrumentChanged(targetIdx, entry.id, entry.name);
+                    }
                 }
             } else if (mode == PluginDialogMode::AddMidiFx) {
                 if (targetIdx < tracks_.size()) {
@@ -514,11 +523,11 @@ void ArrangerView::setSelectedClip(int idx) noexcept {
     selectedClipIndex_ = idx;
 }
 
-void ArrangerView::addTrack(const std::string& name, const std::string& instrument, float r, float g, float b) {
+void ArrangerView::addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine) {
     ArrangerTimelineTrack t;
     t.name = name;
     t.instrument = instrument;
-    t.instrumentEngine = "synth";
+    t.instrumentEngine = instrumentEngine.empty() ? "synth" : instrumentEngine;
     t.iconRef = "preset:inst_synth";
     t.r = r; t.g = g; t.b = b;
     // Clean track ready for audio or MIDI clips - no default clip inserted
@@ -699,6 +708,7 @@ void ArrangerView::addOrUpdateChord(const theory::ChordEvent& chord) {
     std::sort(chordTrack_.begin(), chordTrack_.end(), [](const theory::ChordEvent& a, const theory::ChordEvent& b) {
         return a.startBar < b.startBar;
     });
+    if (onChordTrackChanged) onChordTrackChanged();
 }
 
 void ArrangerView::removeChord(const std::string& chordId) {
@@ -708,6 +718,7 @@ void ArrangerView::removeChord(const std::string& chordId) {
         }),
         chordTrack_.end()
     );
+    if (onChordTrackChanged) onChordTrackChanged();
 }
 
 const theory::ChordEvent* ArrangerView::getActiveChordAtBar(float bar) const noexcept {
@@ -761,6 +772,7 @@ void ArrangerView::applyChordProgressionPreset(const theory::ChordProgressionPre
     std::sort(chordTrack_.begin(), chordTrack_.end(), [](const theory::ChordEvent& a, const theory::ChordEvent& b) {
         return a.startBar < b.startBar;
     });
+    if (onChordTrackChanged) onChordTrackChanged();
 }
 
 uint32_t ArrangerView::extractChordsFromTrack(uint32_t trackIdx) {
@@ -1762,6 +1774,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 std::sort(chordTrack_.begin(), chordTrack_.end(), [](const theory::ChordEvent& a, const theory::ChordEvent& b) {
                     return a.startBar < b.startBar;
                 });
+                if (onChordTrackChanged) onChordTrackChanged();
             }
             if (dragMode_ == ClipDragMode::TouchPan) {
                 kineticScroller_.endDrag(ev.timestampMs);
@@ -2056,6 +2069,19 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 }
 
                 return true;
+            } else if (ev.type == PointerType::Touch || ctx.isMobile) {
+                // Touch on empty track list space below last track: allow touch scrolling Y
+                dragMode_ = ClipDragMode::TouchGridPending;
+                touchDownPos_ = Point2D{ev.x, ev.y};
+                touchDownTimePoint_ = std::chrono::steady_clock::now();
+                touchPanCommitted_ = false;
+                dragStartPointerX_ = ev.x;
+                dragStartPointerY_ = ev.y;
+                dragStartScrollX_ = scrollX_;
+                dragStartScrollY_ = scrollY_;
+                kineticScroller_.reset();
+                kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                return true;
             }
         }
     }
@@ -2171,7 +2197,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 lastEmptyClickedBar_ = clickedBar;
             }
 
-            if (ev.type == PointerType::Touch) {
+            if (ev.type == PointerType::Touch || ctx.isMobile) {
                 dragMode_ = ClipDragMode::TouchGridPending;
                 touchDownPos_ = Point2D{ev.x, ev.y};
                 touchDownTimePoint_ = std::chrono::steady_clock::now();
@@ -2258,6 +2284,9 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         }
 
         if (ev.action == PointerAction::Up) {
+            if (dragMode_ == ClipDragMode::TouchPan) {
+                kineticScroller_.endDrag(ev.timestampMs);
+            }
             dragMode_ = ClipDragMode::None;
             dragClipIdx_ = -1;
             return true;
