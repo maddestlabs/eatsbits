@@ -172,8 +172,10 @@ private:
     bool isAudioEffect_{true};
 
     // Thread verification
+#if !defined(__EMSCRIPTEN__)
     std::thread::id mainThreadId_{};
     std::atomic<std::thread::id> audioThreadId_{};
+#endif
 
     // Transport & Timing
     double bpm_{120.0};

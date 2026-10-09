@@ -23,7 +23,10 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source
 )
+add_compile_definitions(USE_DAISYSP_LGPL=1)
 
 if(NOT EMSCRIPTEN)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/include)
@@ -36,6 +39,62 @@ endif()
 # 1. Fundamental Zero-Dependency Core Primitives (Time, Geometry, Color, Memory, Math)
 add_library(eats_core INTERFACE)
 target_include_directories(eats_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# DaisySP Modular DSP Engine (MIT & LGPL Extensions)
+add_library(eats_daisysp STATIC
+    third_party/daisysp/Source/Control/adenv.cpp
+    third_party/daisysp/Source/Control/adsr.cpp
+    third_party/daisysp/Source/Control/phasor.cpp
+    third_party/daisysp/Source/Dynamics/crossfade.cpp
+    third_party/daisysp/Source/Dynamics/limiter.cpp
+    third_party/daisysp/Source/Effects/autowah.cpp
+    third_party/daisysp/Source/Effects/chorus.cpp
+    third_party/daisysp/Source/Effects/decimator.cpp
+    third_party/daisysp/Source/Effects/flanger.cpp
+    third_party/daisysp/Source/Effects/overdrive.cpp
+    third_party/daisysp/Source/Effects/phaser.cpp
+    third_party/daisysp/Source/Effects/sampleratereducer.cpp
+    third_party/daisysp/Source/Effects/tremolo.cpp
+    third_party/daisysp/Source/Effects/wavefolder.cpp
+    third_party/daisysp/Source/Filters/ladder.cpp
+    third_party/daisysp/Source/Filters/svf.cpp
+    third_party/daisysp/Source/Filters/soap.cpp
+    third_party/daisysp/Source/Synthesis/oscillator.cpp
+    third_party/daisysp/Source/Synthesis/variablesawosc.cpp
+    third_party/daisysp/Source/Synthesis/variableshapeosc.cpp
+    third_party/daisysp/Source/Utility/dcblock.cpp
+    third_party/daisysp/Source/Utility/metro.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Effects/reverbsc.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/moogladder.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Dynamics/compressor.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Dynamics/balance.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/allpass.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/tone.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/atone.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/comb.cpp
+    third_party/daisysp/DaisySP-LGPL/Source/Filters/biquad.cpp
+)
+target_include_directories(eats_daisysp PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Control
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Drums
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Dynamics
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Effects
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Filters
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Noise
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/PhysicalModeling
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Synthesis
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source/Utility
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Control
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Dynamics
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Effects
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Filters
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/PhysicalModeling
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Synthesis
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source/Utility
+)
+target_compile_definitions(eats_daisysp PUBLIC USE_DAISYSP_LGPL=1 _USE_MATH_DEFINES)
 
 # 2. Standalone Eatscript Scripting & Host ABI Library (Lexer, Parser, VM, Transpiler, Evaluator, Host ABI, Stdlib, REPL, DependencyScanner)
 add_library(eats_script STATIC
@@ -90,8 +149,14 @@ add_library(eats_audio STATIC
     src/project/preset_manager.cpp
     src/audio/clap/clap_plugin_loader.cpp
     src/audio/graph/nodes/clap_audio_node.cpp
+    src/audio/graph/nodes/daisy/daisy_oscillator_node.cpp
+    src/audio/graph/nodes/daisy/daisy_filter_node.cpp
+    src/audio/graph/nodes/daisy/daisy_reverb_node.cpp
+    src/audio/graph/nodes/daisy/daisy_delay_node.cpp
+    src/audio/graph/nodes/daisy/daisy_modulation_node.cpp
+    src/audio/graph/nodes/daisy/daisy_compressor_node.cpp
 )
-target_link_libraries(eats_audio PUBLIC eats_core eats_script)
+target_link_libraries(eats_audio PUBLIC eats_core eats_script eats_daisysp)
 
 # Core Platform Libraries (Audio Only)
 if(EMSCRIPTEN)
@@ -558,5 +623,14 @@ target_include_directories(test_clap_host PRIVATE
 )
 target_link_libraries(test_clap_host PRIVATE eatsbits_gui_core eats_audio eats_core)
 add_test(NAME ClapHostTest COMMAND test_clap_host)
+
+add_executable(test_daisysp_nodes tests/test_daisysp_nodes.cpp)
+target_include_directories(test_daisysp_nodes PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source
+)
+target_link_libraries(test_daisysp_nodes PRIVATE eats_audio eats_daisysp eats_core)
+add_test(NAME DaisySpNodesTest COMMAND test_daisysp_nodes)
 
 endif() # BUILD_TESTING

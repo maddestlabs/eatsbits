@@ -59,6 +59,7 @@ void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsign
 #include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
+#include "eatsbits/audio/graph/nodes/daisy/daisy_nodes.hpp"
 #include "eatsbits/project/project_file.hpp"
 
 namespace eatsbits::audio {
@@ -761,7 +762,61 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
         }
 
         if (!node) {
-            if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
+            if (tUpper.find("DAISY_REVERB") != std::string::npos || tUpper.find("REVERBSC") != std::string::npos ||
+                tUpper.find("REVERB_SC") != std::string::npos || tUpper.find("DAISY REVERB") != std::string::npos) {
+                auto dr = std::make_shared<DaisyReverbNode>(fx.name.empty() ? "DaisyReverb" : fx.name);
+                dr->setFeedback(std::clamp(fx.drive > 1.0f ? fx.drive / 100.0f : (fx.drive > 0.0f ? fx.drive : 0.85f), 0.1f, 0.99f));
+                dr->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = dr;
+            } else if (tUpper.find("DAISY_DELAY") != std::string::npos || tUpper.find("DAISY DELAY") != std::string::npos) {
+                auto dd = std::make_shared<DaisyDelayNode>(fx.name.empty() ? "DaisyDelay" : fx.name);
+                dd->setDelayTime(std::max(0.01f, (fx.drive > 2.0f) ? fx.drive / 1000.0f : fx.drive * 0.8f));
+                dd->setFeedback(std::clamp(fx.drive * 0.6f, 0.0f, 0.95f));
+                dd->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = dd;
+            } else if (tUpper.find("DAISY_FILTER") != std::string::npos || tUpper.find("MOOG_LADDER") != std::string::npos ||
+                       tUpper.find("MOOG_FILTER") != std::string::npos || tUpper.find("DAISY_SVF") != std::string::npos ||
+                       tUpper.find("DAISY FILTER") != std::string::npos) {
+                auto df = std::make_shared<DaisyFilterNode>(fx.name.empty() ? "DaisyFilter" : fx.name);
+                if (tUpper.find("MOOG") != std::string::npos || tUpper.find("LADDER") != std::string::npos) {
+                    df->setMode(DaisyFilterNode::FilterMode::MoogLadder);
+                } else if (tUpper.find("HIGH") != std::string::npos || tUpper.find("HP") != std::string::npos) {
+                    df->setMode(DaisyFilterNode::FilterMode::SvfHighpass);
+                } else if (tUpper.find("BAND") != std::string::npos || tUpper.find("BP") != std::string::npos) {
+                    df->setMode(DaisyFilterNode::FilterMode::SvfBandpass);
+                } else if (tUpper.find("NOTCH") != std::string::npos) {
+                    df->setMode(DaisyFilterNode::FilterMode::SvfNotch);
+                } else {
+                    df->setMode(DaisyFilterNode::FilterMode::SvfLowpass);
+                }
+                float cutoff = (fx.drive > 20.0f) ? fx.drive : (20.0f * std::pow(1000.0f, std::clamp(fx.drive, 0.0f, 1.0f)));
+                df->setCutoff(cutoff);
+                df->setResonance(std::clamp(fx.mix, 0.0f, 0.98f));
+                node = df;
+            } else if (tUpper.find("DAISY_CHORUS") != std::string::npos || tUpper.find("DAISY_FLANGER") != std::string::npos ||
+                       tUpper.find("DAISY_OVERDRIVE") != std::string::npos || tUpper.find("DAISY_MOD") != std::string::npos ||
+                       tUpper.find("DAISY MODULATION") != std::string::npos) {
+                auto dm = std::make_shared<DaisyModulationNode>(fx.name.empty() ? "DaisyModulation" : fx.name);
+                if (tUpper.find("FLANGER") != std::string::npos) {
+                    dm->setType(DaisyModulationNode::ModType::Flanger);
+                } else if (tUpper.find("OVERDRIVE") != std::string::npos || tUpper.find("DRIVE") != std::string::npos) {
+                    dm->setType(DaisyModulationNode::ModType::Overdrive);
+                } else {
+                    dm->setType(DaisyModulationNode::ModType::Chorus);
+                }
+                dm->setRate(std::max(0.1f, fx.drive * 4.0f));
+                dm->setDepth(std::clamp(fx.drive, 0.1f, 1.0f));
+                dm->setDrive(std::clamp(fx.drive, 0.0f, 1.0f));
+                dm->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = dm;
+            } else if (tUpper.find("DAISY_COMP") != std::string::npos || tUpper.find("DAISY_COMPRESSOR") != std::string::npos ||
+                       tUpper.find("DAISY COMPRESSOR") != std::string::npos) {
+                auto dc = std::make_shared<DaisyCompressorNode>(fx.name.empty() ? "DaisyCompressor" : fx.name);
+                dc->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
+                dc->setRatio(1.5f + fx.drive * 6.0f);
+                dc->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = dc;
+            } else if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
                 tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
                 auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
                 d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
@@ -938,6 +993,62 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
             es->setParameter(0, value);
         } else if (p == "mix" || p == "wet") {
             es->setParameter(1, value);
+        }
+    } else if (auto dr = std::dynamic_pointer_cast<DaisyReverbNode>(node)) {
+        if (p == "decay" || p == "feedback" || p == "time" || p == "fb" || p == "param1" || p == "drive") {
+            dr->setFeedback(std::clamp(value > 1.0f ? value / 100.0f : value, 0.0f, 0.999f));
+        } else if (p == "damping" || p == "damp" || p == "freq" || p == "lpfreq" || p == "param2") {
+            dr->setDampingFreq(std::clamp(value > 1.0f ? value : (100.0f + value * 15000.0f), 100.0f, 20000.0f));
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param3" || p == "param4") {
+            dr->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        }
+    } else if (auto dd = std::dynamic_pointer_cast<DaisyDelayNode>(node)) {
+        if (p == "time" || p == "delay" || p == "rate" || p == "param1" || p == "drive") {
+            dd->setDelayTime(value > 2.0f ? value / 1000.0f : std::clamp(value, 0.005f, 1.95f));
+        } else if (p == "feedback" || p == "fb" || p == "param2") {
+            dd->setFeedback(std::clamp(value, 0.0f, 0.98f));
+        } else if (p == "damping" || p == "damp" || p == "tone" || p == "freq" || p == "param3") {
+            dd->setDampingFreq(std::clamp(value > 1.0f ? value : (200.0f + value * 18000.0f), 200.0f, 20000.0f));
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
+            dd->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        }
+    } else if (auto df = std::dynamic_pointer_cast<DaisyFilterNode>(node)) {
+        if (p == "cutoff" || p == "freq" || p == "param1" || p == "drive") {
+            float cutoff = (value > 20.0f) ? value : (20.0f * std::pow(1000.0f, std::clamp(value, 0.0f, 1.0f)));
+            df->setCutoff(cutoff);
+        } else if (p == "resonance" || p == "reso" || p == "res" || p == "q" || p == "param2") {
+            df->setResonance(std::clamp(value, 0.0f, 0.99f));
+        } else if (p == "drive" || p == "param3") {
+            df->setDrive(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "mode" || p == "type" || p == "param4") {
+            df->setMode(static_cast<DaisyFilterNode::FilterMode>(static_cast<int>(value)));
+        }
+    } else if (auto dm = std::dynamic_pointer_cast<DaisyModulationNode>(node)) {
+        if (p == "rate" || p == "speed" || p == "freq" || p == "param1" || p == "drive") {
+            dm->setRate(std::clamp(value > 1.0f ? value : (0.1f + value * 10.0f), 0.05f, 20.0f));
+        } else if (p == "depth" || p == "param2") {
+            dm->setDepth(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "feedback" || p == "fb" || p == "drive" || p == "param3") {
+            dm->setFeedback(std::clamp(value, 0.0f, 0.95f));
+            dm->setDrive(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
+            dm->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "type" || p == "mode" || p == "param5") {
+            dm->setType(static_cast<DaisyModulationNode::ModType>(static_cast<int>(value)));
+        }
+    } else if (auto dc = std::dynamic_pointer_cast<DaisyCompressorNode>(node)) {
+        if (p == "threshold" || p == "thresh" || p == "param1") {
+            dc->setThreshold(value <= 0.0f && value >= -80.0f ? value : (-60.0f + value * 60.0f));
+        } else if (p == "ratio" || p == "param2" || p == "drive") {
+            dc->setRatio(value >= 1.0f ? value : (1.0f + value * 19.0f));
+        } else if (p == "attack" || p == "att" || p == "param3") {
+            dc->setAttack(value > 0.0001f && value <= 1.0f ? value : (0.001f + value * 0.2f));
+        } else if (p == "release" || p == "rel" || p == "param4") {
+            dc->setRelease(value > 0.001f && value <= 3.0f ? value : (0.01f + value * 1.5f));
+        } else if (p == "gain" || p == "makeup" || p == "param5") {
+            dc->setMakeupGain((value - 0.5f) * 24.0f);
+        } else if (p == "mix" || p == "wet" || p == "param6") {
+            dc->setDryWet(std::clamp(value, 0.0f, 1.0f));
         }
     }
 

@@ -82,6 +82,7 @@ static LRESULT CALLBACK ClapHostWindowProc(HWND hWnd, UINT msg, WPARAM wParam, L
     }
     return DefWindowProcA(hWnd, msg, wParam, lParam);
 }
+#endif // _WIN32
 
 #if defined(_MSC_VER)
 static bool SafeClapGuiCreate(const clap_plugin_gui_t* extGui, const clap_plugin_t* plugin, const char* api, bool isFloating) {
@@ -187,9 +188,10 @@ static void SafeClapGuiDestroy(const clap_plugin_gui_t* extGui, const clap_plugi
     } catch (...) {}
 }
 #endif
-#endif
 
+#if !defined(__EMSCRIPTEN__)
 static std::atomic<std::thread::id> sMainThreadId{std::thread::id{}};
+#endif
 static std::vector<ClapAudioNode*> sActiveNodes;
 static std::mutex sNodesMutex;
 
@@ -204,11 +206,19 @@ bool ClapAudioNode::isAnyGuiOpen() {
 }
 
 void ClapAudioNode::setMainThreadId(std::thread::id id) noexcept {
+#if !defined(__EMSCRIPTEN__)
     sMainThreadId.store(id, std::memory_order_relaxed);
+#else
+    (void)id;
+#endif
 }
 
 std::thread::id ClapAudioNode::getMainThreadId() noexcept {
+#if !defined(__EMSCRIPTEN__)
     return sMainThreadId.load(std::memory_order_relaxed);
+#else
+    return {};
+#endif
 }
 
 void ClapAudioNode::pollAllMainThreadCallbacks() {
@@ -280,10 +290,12 @@ std::shared_ptr<ClapAudioNode> ClapAudioNode::create(
 
 ClapAudioNode::ClapAudioNode(std::string name)
     : GraphNode(std::move(name)) {
+#if !defined(__EMSCRIPTEN__)
     if (sMainThreadId.load(std::memory_order_relaxed) == std::thread::id{}) {
         sMainThreadId.store(std::this_thread::get_id(), std::memory_order_relaxed);
     }
     mainThreadId_ = sMainThreadId.load(std::memory_order_relaxed);
+#endif
     initHostStructure();
 
     // Initialize CLAP Event lists
@@ -380,10 +392,12 @@ ClapAudioNode::~ClapAudioNode() {
 }
 
 void ClapAudioNode::initHostStructure() {
+#if !defined(__EMSCRIPTEN__)
     if (sMainThreadId.load(std::memory_order_relaxed) == std::thread::id{}) {
         sMainThreadId.store(std::this_thread::get_id(), std::memory_order_relaxed);
     }
     mainThreadId_ = sMainThreadId.load(std::memory_order_relaxed);
+#endif
 
     host_.clap_version = CLAP_VERSION;
     host_.host_data = this;
@@ -544,7 +558,9 @@ void ClapAudioNode::reset() noexcept {
 }
 
 void ClapAudioNode::processBlock(uint32_t numFrames) noexcept {
+#if !defined(__EMSCRIPTEN__)
     audioThreadId_.store(std::this_thread::get_id(), std::memory_order_relaxed);
+#endif
 
     float* outL = getOutputBuffer(0, 0);
     float* outR = getOutputBuffer(0, 1);
@@ -852,12 +868,14 @@ bool ClapAudioNode::openGuiWindow() {
     if (!plugin_ || !extGui_) {
         return false;
     }
+#if !defined(__EMSCRIPTEN__)
     if (sMainThreadId.load(std::memory_order_relaxed) != std::thread::id{}) {
         if (std::this_thread::get_id() != sMainThreadId.load(std::memory_order_relaxed)) {
             std::fprintf(stderr, "[CLAP Host] Warning: openGuiWindow called outside main thread!\n");
             return false;
         }
     }
+#endif
     if (isGuiOpen_) {
 #if defined(_WIN32)
         if (guiHwnd_) {
@@ -1010,11 +1028,13 @@ bool ClapAudioNode::openGuiWindow() {
 
 void ClapAudioNode::closeGuiWindow() {
     if (!isGuiOpen_) return;
+#if !defined(__EMSCRIPTEN__)
     if (sMainThreadId.load(std::memory_order_relaxed) != std::thread::id{}) {
         if (std::this_thread::get_id() != sMainThreadId.load(std::memory_order_relaxed)) {
             std::fprintf(stderr, "[CLAP Host] Warning: closeGuiWindow called outside main thread!\n");
         }
     }
+#endif
 
     if (plugin_ && extGui_) {
         SafeClapGuiHide(extGui_, plugin_);
@@ -1317,6 +1337,7 @@ bool CLAP_ABI ClapAudioNode::hostTimerUnregister(const clap_host_t* host, clap_i
 }
 
 bool CLAP_ABI ClapAudioNode::hostThreadCheckIsMainThread(const clap_host_t* host) {
+#if !defined(__EMSCRIPTEN__)
     const auto currentId = std::this_thread::get_id();
     const auto mainId = sMainThreadId.load(std::memory_order_relaxed);
     if (mainId != std::thread::id{}) {
@@ -1325,9 +1346,14 @@ bool CLAP_ABI ClapAudioNode::hostThreadCheckIsMainThread(const clap_host_t* host
     if (!host || !host->host_data) return true;
     auto* self = static_cast<ClapAudioNode*>(host->host_data);
     return currentId == self->mainThreadId_;
+#else
+    (void)host;
+    return true;
+#endif
 }
 
 bool CLAP_ABI ClapAudioNode::hostThreadCheckIsAudioThread(const clap_host_t* host) {
+#if !defined(__EMSCRIPTEN__)
     const auto currentId = std::this_thread::get_id();
     const auto mainId = sMainThreadId.load(std::memory_order_relaxed);
     if (mainId != std::thread::id{} && currentId == mainId) {
@@ -1342,6 +1368,10 @@ bool CLAP_ABI ClapAudioNode::hostThreadCheckIsAudioThread(const clap_host_t* hos
         return currentId == audioId;
     }
     return (mainId != std::thread::id{}) ? (currentId != mainId) : false;
+#else
+    (void)host;
+    return false;
+#endif
 }
 
 void CLAP_ABI ClapAudioNode::hostParamsRescan(const clap_host_t* host, clap_param_rescan_flags /*flags*/) {
@@ -1402,6 +1432,7 @@ void CLAP_ABI ClapAudioNode::hostRequestProcess(const clap_host_t* /*host*/) {}
 void CLAP_ABI ClapAudioNode::hostRequestCallback(const clap_host_t* host) {
     if (!host || !host->host_data) return;
     auto* self = static_cast<ClapAudioNode*>(host->host_data);
+#if !defined(__EMSCRIPTEN__)
     const auto currentId = std::this_thread::get_id();
     const auto mainId = sMainThreadId.load(std::memory_order_relaxed);
 
@@ -1412,6 +1443,11 @@ void CLAP_ABI ClapAudioNode::hostRequestCallback(const clap_host_t* host) {
     } else {
         self->callbackRequested_.store(true, std::memory_order_release);
     }
+#else
+    if (self->plugin_ && self->plugin_->on_main_thread) {
+        self->plugin_->on_main_thread(self->plugin_);
+    }
+#endif
 }
 
 void CLAP_ABI ClapAudioNode::hostGuiResizeHintsChanged(const clap_host_t* host) {

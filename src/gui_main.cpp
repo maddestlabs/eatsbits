@@ -35,7 +35,9 @@ int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, LPSTR /
 #endif
 
 int main(int /*argc*/, char** /*argv*/) {
+#if !defined(__EMSCRIPTEN__)
     ClapAudioNode::setMainThreadId(std::this_thread::get_id());
+#endif
 #if defined(_WIN32)
     // If launched from an existing terminal/PowerShell/cmd prompt, attach to it so stdout/stderr is visible.
     // If launched by double-clicking in Explorer or from a desktop shortcut, no terminal window is spawned.

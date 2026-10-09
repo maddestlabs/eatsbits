@@ -51,7 +51,7 @@ ClapLibraryHandle::~ClapLibraryHandle() {
     if (osHandle_) {
 #if defined(_WIN32)
         FreeLibrary(static_cast<HMODULE>(osHandle_));
-#else
+#elif !defined(__EMSCRIPTEN__)
         dlclose(osHandle_);
 #endif
         osHandle_ = nullptr;
@@ -61,6 +61,10 @@ ClapLibraryHandle::~ClapLibraryHandle() {
 }
 
 std::shared_ptr<ClapLibraryHandle> ClapLibraryHandle::load(const std::string& path) {
+#if defined(__EMSCRIPTEN__)
+    (void)path;
+    return nullptr;
+#else
     void* handle = nullptr;
 
 #if defined(_WIN32)
@@ -122,6 +126,7 @@ std::shared_ptr<ClapLibraryHandle> ClapLibraryHandle::load(const std::string& pa
     }
 
     return std::shared_ptr<ClapLibraryHandle>(new ClapLibraryHandle(path, handle, entry, factory));
+#endif
 }
 
 const clap_plugin_t* ClapLibraryHandle::createPlugin(const clap_host_t* host, const std::string& pluginId) {
