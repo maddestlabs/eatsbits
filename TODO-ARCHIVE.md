@@ -7,6 +7,18 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration** (commit `20fe776`, 2026-10-05)
+  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
+  - **Acceptance Criteria**:
+    1. Fix Audio FX Preset UI extraction: When adding an Audio FX from `PluginSearchDialog` or `ProjectBrowserDrawer`, load its `PresetDefinition` via `PresetManager::loadPresetDefinition` (matching instrument preset loading) and populate `TrackAudioFxItem::knobs` from the script's `def init()` and `def gui()`.
+    2. Expand `TrackAudioFxItem::ensureDefaultKnobs()` with dedicated fallback layouts and knob definitions for `EQ` / `PARAMETRIC` (Low, Mid, High, Q, Gain), `LIMITER` (Ceiling, Release, Gain), `FILTER` / `SVF` (Cutoff, Reso, Type, Drive), and ensure devices do not inappropriately fall through to the Tube Distortion fallback (`drive`, `tone`, `bias`, `mix`).
+    3. Wire parameter dispatch in `AudioEngine::setTrackAudioFxParam`:
+       - Add routing for `ParametricEqNode` (frequency, gain, Q) and `LimiterNode` (ceiling, release, gain).
+       - Add `tone` and `bias` parameter handling to `WaveShaperNode` (implementing a tilt/lowpass filter and DC bias offset in DSP).
+    4. Fix WaveShaper saturation & volume ramp-up: In `WaveShaperNode::processBlock`, recalibrate input pre-gain boost and implement output makeup/wet gain compensation so that turning the Drive knob produces rich harmonic saturation/overdrive rather than behaving as a linear volume amplifier.
+    5. Wire `projectBrowserDrawerWidget_->onAddAudioFx` in `GuiWindow` so adding FX cards from the Project Browser drawer inserts the effect into the active track.
+  - **Test/Validation**: Unit tests in `test_studio_fx.cpp` and `test_modular_ui.cpp` verifying Audio FX knob generation, parameter routing, and distortion wave shaping.
+
 - [x] **Web Audio Optimization Phase 4: AudioWorklet & Dedicated Wasm Worker Threading** (commit `2b441d9`, 2026-10-05)
   - **Context/Files**: `CMakeLists.txt`, `src/audio/audio_engine.cpp`, `build-web.ps1`
   - **Acceptance Criteria**:

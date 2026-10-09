@@ -1002,6 +1002,29 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - Updated `GuiWindow::handleTrackInspectorInteraction` toggles (`MidiFxArpToggle`, `MidiFxScaleToggle`, `MidiFxHumanizeToggle`) and drag lambda (`MidiFxArpKnob`, `MidiFxScaleKnob`, `MidiFxHumanizeKnob`) to update items, mirror models, and trigger `syncTrackMidiFxToEngine`.
 - **Validation**:
   - `tests/test_midi_fx.cpp`: Added `TestCaptureNode` and `testInspectorMidiFxBridgeAndLivePlayback()` verifying that Transpose, Arpeggiator octave cycling, and dynamic parameter mutations alter output notes in `StepSequencer::processBlock`.
+---
+
+### [2026-10-09] Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration (commit `7648c86`)
+- **Architectural Context**:
+  - Overhauled multi-insert audio FX routing in `AudioEngine::rebuildTrackAudioFx` to disconnect all intermediate nodes feeding into `gainId` port 0 and remove default `AcidEcho` delay on Track 1, ensuring a single clean serialized path without parallel summing, phase cancellation, volume boost, or clipping distortion.
+  - Eliminated the fallback where unrecognized audio effects inappropriately instantiated a `WaveShaperNode` tube distortion, replacing it with dedicated `BiquadNode` instantiation for all filter types (`FILTER`, `MULTIMODE_FILTER`, `SVF`, `LOWPASS`, `HIGHPASS`, `BANDPASS`, `VCF`) and `EatscriptNode` for script-based DSP effects (`.eats`).
+  - Calibrated `WaveShaperNode` DSP transfer curve: replaced the negative quadrant foldback curve `d / (1.0f + d * d)` with a strictly monotonic dual hyperbolic tangent curve `(d > 0.0f) ? std::tanh(d) : (0.85f * std::tanh(d * 0.90f))` to eliminate unmusical wavefolding distortion, and calibrated pre-gain boost to subtle warmth and color.
+  - Bridged Track Inspector audio FX models to Arranger tracks and updated callback signatures across all UI views (`TrackPropertiesPanel`, `TrackPropertiesDrawer`, `ArrangerView`, `TrackInspectorView`, `FullscreenDeviceModal`, `GuiWindow`) with explicit `size_t fxIdx` support, enabling multi-insert parameter dispatch on indices > 0.
+- **Key Changes Implemented**:
+  - **Single Clean Gain Path & Multi-Insert Topology**:
+    - Disconnected any incoming connection to `gainId` port 0 and outgoing connection from `srcId` port 0 prior to inserting the new serialized FX chain.
+    - Safely removed the default `AcidEcho` node on Track 1.
+  - **Filter & Script Node Instantiation**:
+    - Added instantiation of `BiquadNode` for all filter types, configuring type (`LowPass`, `HighPass`, `BandPass`, `Notch`), logarithmic cutoff frequency, and resonance.
+    - Added instantiation of `EatscriptNode` for `.eats` script-based DSP effects.
+    - Restricted `WaveShaperNode` instantiation strictly to explicit distortion, overdrive, saturation, and bitcrusher types.
+    - Added parameter handling in `setTrackAudioFxParam` for `BiquadNode` (`cutoff`, `resonance`, `type`, `gain`) and `EatscriptNode`.
+  - **UI Inspector Audio FX Model Mirroring & Parameter Dispatch**:
+    - Bridged `modularTrackInspectorView_` and `modularArrangerView_` audio FX lists in `GuiWindow::syncTrackAudioFxToEngine`.
+    - Mirrored audio FX list across inspector callbacks (`onAddAudioFx`, `onToggleAudioFx`, `onReorderAudioFx`, `onRemoveAudioFx`, `onAudioFxChanged`).
+    - Updated `onAudioFxParamChanged` in `TrackPropertiesPanel`, `TrackPropertiesDrawer`, `ArrangerView`, `TrackInspectorView`, `FullscreenDeviceModal`, and `GuiWindow` to accept `size_t fxIdx`, forwarding to `engine_->setTrackAudioFxParam(idx, fxIdx, paramName, normVal)`.
+- **Validation**:
+  - `tests/test_studio_fx.cpp`: Added `testAudioEngineFilterNodeAndMultiInsertRouting` validating Biquad filter instantiation, multi-insert parameter dispatch (index > 0), and clean single-input gain path on Track 1.
   - `.\build.ps1 -Test -NoRun`: All 48 test suites passing (100% pass rate, 0 errors, 0 warnings).
 
 ---

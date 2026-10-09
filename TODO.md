@@ -16,24 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration**
-  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `include/eatsbits/audio/graph/nodes/biquad_node.hpp`, `include/eatsbits/audio/graph/nodes/eatscript_node.hpp`, `tests/test_studio_fx.cpp`
-  - **Acceptance Criteria**:
-    1. **Bridge Inspector Audio FX to Engine & Support Multi-Insert Param Dispatch**:
-       - Mirror `TrackInspectorView::tracks_[trackIndex].audioFxList` into `modularArrangerView_->getTracks()[trackIndex].audioFx` so `syncTrackAudioFxToEngine` builds the actual FX chain rather than an empty list.
-       - Replace hardcoded `fxIndex = 0` in `modularTrackInspectorView_->onAudioFxParamChanged` with the actual index of the edited effect.
-    2. **Fix Track 1 Dual Audio Path & Initial Delay Disconnect**:
-       - In `AudioEngine::rebuildTrackAudioFx`, safely disconnect any existing default intermediate nodes between `srcId` and `gainId` (including default `AcidEcho` delay on Track 1). Ensure `gainId` has only a single clean input path, eliminating parallel summing, phase cancellation, volume boost, and clipping distortion on Track 1.
-    3. **Stop Defaulting Unrecognized Effects to Tube Distortion**:
-       - Instantiate `BiquadNode` in `rebuildTrackAudioFx` for all `FILTER`, `MULTIMODE_FILTER`, `SVF`, `LOWPASS`, `HIGHPASS`, `BANDPASS`, and `VCF` effects, mapping `cutoff`, `resonance`, and `type` in `setTrackAudioFxParam`.
-       - Instantiate `EatscriptNode` for script-based effects (`.eats` FX), loading and compiling the DSP script.
-       - Restrict `WaveShaperNode` instantiation strictly to explicit distortion, overdrive, saturation, or bitcrusher types.
-    4. **Calibrate `WaveShaperNode` Transfer Curve & Gain Staging**:
-       - Replace the foldback curve in the negative quadrant `d / (1.0f + d * d)` with monotonic soft saturation (e.g., dual tanh or asymmetric cubic curve) to eliminate unmusical wavefolding distortion when driven with hot signals.
-       - Normalize default pre-gain/drive in `TrackAudioFxItem` and `rebuildTrackAudioFx` so effects default to subtle warmth/color rather than aggressive overdrive.
-    5. **Automated Verification**:
-       - Expand `tests/test_studio_fx.cpp` to verify filter node creation, multi-insert parameter dispatch (insert index > 0), and clean distortion-free routing on Track 1.
-
 - [ ] **Remove Eatsbeats Settings & Project Hub Texture Options**
   - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `tests/test_gui_interaction.cpp`, `tests/test_vector_surfaces.cpp`
   - **Acceptance Criteria**:
@@ -56,6 +38,24 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration** (commit `7648c86`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/widgets/fullscreen_device_modal.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `tests/test_studio_fx.cpp`
+  - **Acceptance Criteria**:
+    1. **Bridge Inspector Audio FX to Engine & Support Multi-Insert Param Dispatch**:
+       - Bridged `TrackInspectorView::tracks_[trackIndex].audioFxList` and `ArrangerView::tracks_[trackIndex].audioFx` in `GuiWindow::syncTrackAudioFxToEngine` and across all inspector audio FX callbacks (`onAddAudioFx`, `onToggleAudioFx`, `onReorderAudioFx`, `onRemoveAudioFx`, `onAudioFxChanged`), ensuring engine builds the actual audio FX chain rather than an empty list.
+       - Replaced hardcoded `fxIndex = 0` with actual `fxIdx` in `TrackPropertiesPanel`, `TrackPropertiesDrawer`, `TrackInspectorView`, `ArrangerView`, and `FullscreenDeviceModal` callbacks, dispatching parameters directly to specific insert indices via `engine_->setTrackAudioFxParam(trackIndex, fxIndex, paramName, normVal)`.
+    2. **Fix Track 1 Dual Audio Path & Initial Delay Disconnect**:
+       - In `AudioEngine::rebuildTrackAudioFx`, disconnected all intermediate nodes feeding into `gainId` port 0 and cleanly removed default `AcidEcho` node on Track 1. Guaranteed `gainId` receives only a single clean input path, eliminating parallel summing, phase cancellation, volume boost, and clipping distortion on Track 1.
+    3. **Stop Defaulting Unrecognized Effects to Tube Distortion**:
+       - Instantiated `BiquadNode` in `rebuildTrackAudioFx` for all `FILTER`, `MULTIMODE_FILTER`, `SVF`, `LOWPASS`, `HIGHPASS`, `BANDPASS`, and `VCF` effects, mapping `cutoff`, `resonance`, `type`, and `gain` in `setTrackAudioFxParam`.
+       - Instantiated `EatscriptNode` for script-based effects (`.eats` FX), loading and compiling DSP scripts.
+       - Restricted `WaveShaperNode` instantiation strictly to explicit distortion, overdrive, saturation, or bitcrusher types.
+    4. **Calibrate `WaveShaperNode` Transfer Curve & Gain Staging**:
+       - Replaced foldback curve `d / (1.0f + d * d)` with monotonic dual tanh saturation curve `(d > 0.0f) ? std::tanh(d) : (0.85f * std::tanh(d * 0.90f))` to eliminate unmusical wavefolding distortion when driven with hot signals.
+       - Calibrated pre-gain/drive in `rebuildTrackAudioFx` to `std::clamp(fx.drive * 2.0f, 0.5f, 4.0f)` for subtle harmonic warmth and color.
+    5. **Automated Verification**:
+       - Expanded `tests/test_studio_fx.cpp` with `testAudioEngineFilterNodeAndMultiInsertRouting` validating `BiquadNode` filter creation, multi-insert parameter dispatch (insert index > 0), and clean single-path routing on Track 1. All 48 test suites passing.
 
 - [x] **Fix Live MIDI FX Pipeline Synchronization, Parameter Binding & Inspection** (commit `2c1824f`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `src/sequencer/step_sequencer.cpp`, `tests/test_midi_fx.cpp`
@@ -105,18 +105,6 @@ To execute items automatically, run in Antigravity:
     4. Enhanced target code caching (`targetCodeMap_` and `targetParamsMap_`) so user modifications in the Eatscript Code Tab persist across target switching.
     5. Updated `selectTargetByTrackAndType` with `fxIndex` support so clicking the "Design Chip" icon from `FullscreenDeviceModal` navigates directly to that device's actual code/preset script rather than falling back to an unrelated Tube Distortion template.
   - **Test/Validation**: `test_modular_ui.exe` Test 6b (`testDesignViewProjectSync`) validated dynamic updates, FX insert selection, code persistence, and track addition. `.\build.ps1 -Test` (45/45 suites pass), and `.\build-web.ps1 -NoServe` (clean Wasm build).
-
-- [x] **Audio FX Preset Binding, Node Routing & WaveShaper Distortion Calibration** (commit `20fe776`, 2026-10-05)
-  - **Context/Files**: `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `src/ui/gui_window.cpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/widgets/project_browser_drawer.cpp`, `tests/test_studio_fx.cpp`
-  - **Acceptance Criteria**:
-    1. Fix Audio FX Preset UI extraction: When adding an Audio FX from `PluginSearchDialog` or `ProjectBrowserDrawer`, load its `PresetDefinition` via `PresetManager::loadPresetDefinition` (matching instrument preset loading) and populate `TrackAudioFxItem::knobs` from the script's `def init()` and `def gui()`.
-    2. Expand `TrackAudioFxItem::ensureDefaultKnobs()` with dedicated fallback layouts and knob definitions for `EQ` / `PARAMETRIC` (Low, Mid, High, Q, Gain), `LIMITER` (Ceiling, Release, Gain), `FILTER` / `SVF` (Cutoff, Reso, Type, Drive), and ensure devices do not inappropriately fall through to the Tube Distortion fallback (`drive`, `tone`, `bias`, `mix`).
-    3. Wire parameter dispatch in `AudioEngine::setTrackAudioFxParam`:
-       - Add routing for `ParametricEqNode` (frequency, gain, Q) and `LimiterNode` (ceiling, release, gain).
-       - Add `tone` and `bias` parameter handling to `WaveShaperNode` (implementing a tilt/lowpass filter and DC bias offset in DSP).
-    4. Fix WaveShaper saturation & volume ramp-up: In `WaveShaperNode::processBlock`, recalibrate input pre-gain boost and implement output makeup/wet gain compensation so that turning the Drive knob produces rich harmonic saturation/overdrive rather than behaving as a linear volume amplifier.
-    5. Wire `projectBrowserDrawerWidget_->onAddAudioFx` in `GuiWindow` so adding FX cards from the Project Browser drawer inserts the effect into the active track.
-  - **Test/Validation**: Unit tests in `test_studio_fx.cpp` and `test_modular_ui.cpp` verifying Audio FX knob generation, parameter routing, and distortion wave shaping.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**
