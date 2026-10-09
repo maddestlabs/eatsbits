@@ -108,7 +108,7 @@ public:
     std::function<void(uint32_t trackIdx)> onBakeChords;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onMidiFxParamChanged;
-    std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onRemoveMidiFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onRemoveAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;

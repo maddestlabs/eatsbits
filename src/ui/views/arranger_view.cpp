@@ -393,9 +393,9 @@ ArrangerView::ArrangerView() {
             if (onMidiFxChanged) onMidiFxChanged(trackIdx);
         }
     };
-    propertiesDrawer_.onAudioFxParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+    propertiesDrawer_.onAudioFxParamChanged = [this](uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal) {
         if (onAudioFxParamChanged) {
-            onAudioFxParamChanged(trackIdx, 0, paramName, normVal);
+            onAudioFxParamChanged(trackIdx, fxIdx, paramName, normVal);
         }
     };
     propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {

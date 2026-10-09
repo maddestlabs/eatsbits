@@ -183,6 +183,15 @@ struct TrackAudioFxItem {
                 {"type", "TYPE", 0.0f, "LP", ""},
                 {"drive", "DRIVE", drive, "1.0x", "x"}
             };
+        } else if (tUpper.find("CLAP") != std::string::npos || id.rfind("clap:", 0) == 0) {
+            background = "silver";
+            accentR = 0.85f; accentG = 0.25f; accentB = 0.95f;
+            knobs = {
+                {"param1", "PARAM 1", drive, "50%", "%"},
+                {"param2", "PARAM 2", 0.50f, "50%", "%"},
+                {"mix", "DRY/WET", mix, "80%", "%"},
+                {"output", "OUTPUT", 0.80f, "0.0 dB", "dB"}
+            };
         } else { // DISTORTION / TUBE_DISTORTION / SHAPER / generic
             background = "grunge";
             accentR = 0.95f; accentG = 0.60f; accentB = 0.10f;
@@ -384,12 +393,30 @@ struct TrackPropertiesDrawerData {
     std::vector<std::string> allTrackNames;
     std::vector<Color> allTrackColors;
 
+    // CLAP Native Plugin Integration
+    bool isClapPlugin{false};
+    bool hasNativeGui{false};
+    bool isGuiOpen{false};
+
     void syncKnobsIfEmpty() {
         for (auto& fx : audioFx) fx.ensureDefaultKnobs();
         for (auto& fx : midiFx) fx.ensureDefaultKnobs();
         for (auto& fx : masterAudioFx) fx.ensureDefaultKnobs();
+        if (instrumentEngine.rfind("clap:", 0) == 0 || instrumentEngine == "CLAP" || instrument.find(".clap") != std::string::npos) {
+            isClapPlugin = true;
+            hasNativeGui = true;
+        }
         if (!knobs.empty()) return;
-        if (instrumentEngine == "tb303" || instrument.find("303") != std::string::npos || presetTitle.find("303") != std::string::npos) {
+        if (isClapPlugin || instrumentEngine.rfind("clap:", 0) == 0 || instrumentEngine == "CLAP" || instrument.find(".clap") != std::string::npos) {
+            knobs = {
+                {"cutoff", "CUTOFF", 0.65f, "65%"},
+                {"resonance", "RESONANCE", 0.50f, "50%"},
+                {"attack", "ATTACK", 0.20f, "20%"},
+                {"decay", "DECAY", 0.60f, "60%"},
+                {"sustain", "SUSTAIN", 0.75f, "75%"},
+                {"release", "RELEASE", 0.40f, "40%"}
+            };
+        } else if (instrumentEngine == "tb303" || instrument.find("303") != std::string::npos || presetTitle.find("303") != std::string::npos) {
             knobs = {
                 {"waveform", "WAVEFORM", 0.0f, "Saw"},
                 {"pitch", "PITCH", 0.50f, "0 st"},
@@ -484,6 +511,7 @@ enum class TrackPropertiesHitArea {
     InstrumentKnob,
     ChangeInstrument,
     FullscreenInstrument,
+    OpenPluginGui,
     ToggleInstrumentExpand,
     ChordFollowChip,
     BakeChords,
@@ -596,7 +624,7 @@ public:
     std::function<void(uint32_t trackIndex, float r, float g, float b)> onColorChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
-    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIndex)> onChangeInstrument;
     std::function<void(uint32_t trackIndex)> onOpenDesign;
     std::function<void(uint32_t trackIndex)> onOpenPresets;
@@ -608,6 +636,7 @@ public:
     std::function<void(uint32_t trackIndex, int clipIndex)> onEditInPianoRoll;
     std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
     std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIndex)> onOpenPluginGui;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
     std::function<void(uint32_t trackIndex)> onAddMidiFx;

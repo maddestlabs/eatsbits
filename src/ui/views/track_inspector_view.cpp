@@ -67,8 +67,8 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
         if (onMidiFxParamChanged) onMidiFxParamChanged(idx, paramName, normVal);
     };
-    panel_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-        if (onAudioFxParamChanged) onAudioFxParamChanged(idx, paramName, normVal);
+    panel_.onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
+        if (onAudioFxParamChanged) onAudioFxParamChanged(idx, fxIdx, paramName, normVal);
     };
     panel_.onAddMidiFx = [this](uint32_t idx) {
         if (onAddMidiFx) onAddMidiFx(idx);

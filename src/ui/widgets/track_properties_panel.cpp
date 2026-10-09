@@ -735,9 +735,14 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     float fullBtnX = cx + cw - 10.0f - fullBtnW;
     float fullBtnY = cy + 7.0f;
 
+    float guiBtnW = 46.0f;
+    float guiBtnH = 22.0f;
+    float guiBtnX = fullBtnX - 6.0f - guiBtnW;
+    float guiBtnY = cy + 7.0f;
+
     float presetBtnW = 76.0f;
     float presetBtnH = 22.0f;
-    float presetBtnX = fullBtnX - 6.0f - presetBtnW;
+    float presetBtnX = (data.hasNativeGui ? guiBtnX : fullBtnX) - 6.0f - presetBtnW;
     float presetBtnY = cy + 7.0f;
 
     float designBtnW = 26.0f;
@@ -755,6 +760,14 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     drawRoundedRectOutline(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
     drawSlidersTuneIcon(r, presetBtnX + 7.0f, presetBtnY + 5.0f, 12.0f, theme.textSecondary);
     drawText(r, "PRESETS", presetBtnX + 23.0f, presetBtnY + 6.0f, 9.0f, theme.textSecondary);
+
+    // Native CLAP Plugin GUI button (if plugin supports native GUI)
+    if (data.hasNativeGui) {
+        Color cyanGui(0.15f, 0.88f, 0.95f, 1.0f);
+        drawRoundedRect(r, guiBtnX, guiBtnY, guiBtnW, guiBtnH, 4.0f, 0.10f, 0.16f, 0.22f, 0.95f);
+        drawRoundedRectOutline(r, guiBtnX, guiBtnY, guiBtnW, guiBtnH, 4.0f, cyanGui.r, cyanGui.g, cyanGui.b, 0.85f, 1.2f);
+        drawText(r, "GUI", guiBtnX + 13.0f, guiBtnY + 5.5f, 9.5f, cyanGui);
+    }
 
     // Fullscreen icon button (triggers Fullscreen Device modal)
     Color fullGold(0.95f, 0.62f, 0.10f, 1.0f);
@@ -802,6 +815,17 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
         drawRoundedRect(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.12f, 0.14f, 0.18f, 0.95f);
         drawRoundedRectOutline(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.28f, 0.32f, 0.40f, 0.85f, 1.0f);
         drawText(r, "⇄  CHANGE INSTRUMENT", chgBtnX + 11.0f, chgBtnY + 7.0f, 8.5f, theme.textSecondary);
+
+        if (data.hasNativeGui) {
+            float openGuiBtnW = 150.0f;
+            float openGuiBtnH = 24.0f;
+            float openGuiBtnX = chgBtnX - 8.0f - openGuiBtnW;
+            float openGuiBtnY = chgBtnY;
+            Color cyanGui(0.15f, 0.88f, 0.95f, 1.0f);
+            drawRoundedRect(r, openGuiBtnX, openGuiBtnY, openGuiBtnW, openGuiBtnH, 4.0f, 0.10f, 0.16f, 0.22f, 0.95f);
+            drawRoundedRectOutline(r, openGuiBtnX, openGuiBtnY, openGuiBtnW, openGuiBtnH, 4.0f, cyanGui.r, cyanGui.g, cyanGui.b, 0.85f, 1.2f);
+            drawText(r, "🗔  OPEN PLUGIN GUI", openGuiBtnX + 12.0f, openGuiBtnY + 7.0f, 8.5f, cyanGui);
+        }
     }
 }
 
@@ -1775,15 +1799,27 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         float fullBtnX = cx + cw - 10.0f - fullBtnW;
         float fullBtnY = cy + 7.0f;
 
+        float guiBtnW = 46.0f;
+        float guiBtnH = 22.0f;
+        float guiBtnX = fullBtnX - 6.0f - guiBtnW;
+        float guiBtnY = cy + 7.0f;
+
         float presetBtnW = 76.0f;
         float presetBtnH = 22.0f;
-        float presetBtnX = fullBtnX - 6.0f - presetBtnW;
+        float presetBtnX = (data.hasNativeGui ? guiBtnX : fullBtnX) - 6.0f - presetBtnW;
         float presetBtnY = cy + 7.0f;
 
         float designBtnW = 26.0f;
         float designBtnH = 22.0f;
         float designBtnX = presetBtnX - 6.0f - designBtnW;
         float designBtnY = cy + 7.0f;
+
+        // Native CLAP Plugin GUI button in header
+        if (data.hasNativeGui && mx >= guiBtnX && mx <= guiBtnX + guiBtnW && my >= guiBtnY && my <= guiBtnY + guiBtnH) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::OpenPluginGui;
+            return res;
+        }
 
         // Fullscreen button
         if (mx >= fullBtnX && mx <= fullBtnX + fullBtnW && my >= fullBtnY && my <= fullBtnY + fullBtnH) {
@@ -1824,6 +1860,19 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
             float chgBtnH = 24.0f;
             float chgBtnX = cx + cw - 8.0f - chgBtnW;
             float chgBtnY = guiY + guiH + 7.0f;
+
+            if (data.hasNativeGui) {
+                float openGuiBtnW = 150.0f;
+                float openGuiBtnH = 24.0f;
+                float openGuiBtnX = chgBtnX - 8.0f - openGuiBtnW;
+                float openGuiBtnY = chgBtnY;
+                if (mx >= openGuiBtnX && mx <= openGuiBtnX + openGuiBtnW && my >= openGuiBtnY && my <= openGuiBtnY + openGuiBtnH) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::OpenPluginGui;
+                    return res;
+                }
+            }
+
             if (mx >= chgBtnX && mx <= chgBtnX + chgBtnW && my >= chgBtnY && my <= chgBtnY + chgBtnH) {
                 res.hit = true;
                 res.area = TrackPropertiesHitArea::ChangeInstrument;
@@ -2285,6 +2334,15 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
         return true;
     }
 
+    if (hit.area == TrackPropertiesHitArea::OpenPluginGui) {
+        if (onOpenFullscreenDevice) {
+            onOpenFullscreenDevice(data.trackIndex);
+        } else if (onOpenPluginGui) {
+            onOpenPluginGui(data.trackIndex);
+        }
+        return true;
+    }
+
     if (hit.area == TrackPropertiesHitArea::FullscreenInstrument) {
         if (onOpenFullscreenDevice) onOpenFullscreenDevice(data.trackIndex);
         return true;
@@ -2536,7 +2594,7 @@ bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& h
                     }
                 }
                 if (onAudioFxParamChanged) {
-                    onAudioFxParamChanged(data.trackIndex, pName, val);
+                    onAudioFxParamChanged(data.trackIndex, fxIdx, pName, val);
                 }
             };
             onOpenValueEdit(req);
@@ -3088,7 +3146,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 if (activeKnobIndex_ == 0 && fx.knobs.size() == 2) fx.drive = newVal;
 
                 if (onAudioFxParamChanged) {
-                    onAudioFxParamChanged(data.trackIndex, kname, newVal);
+                    onAudioFxParamChanged(data.trackIndex, activeFxIndex_, kname, newVal);
                 }
                 if (onAudioFxChanged) {
                     onAudioFxChanged(data.trackIndex);

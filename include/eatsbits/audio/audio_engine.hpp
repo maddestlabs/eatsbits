@@ -21,6 +21,8 @@ struct ma_device;
 
 namespace eatsbits::audio {
 
+class ClapAudioNode;
+
 enum class SynthEngineMode {
     PolySynth,
     Tb303Acid,
@@ -101,10 +103,11 @@ public:
     // Track Audio FX Inserts
     struct TrackAudioFxItem {
         std::string name{"Effect"};
-        std::string type{"DELAY"}; // "DELAY", "CHORUS", "COMPRESSOR", "DISTORTION", "EQ", "CONVOLVER", "LIMITER"
+        std::string type{"DELAY"}; // "DELAY", "CHORUS", "COMPRESSOR", "DISTORTION", "EQ", "CONVOLVER", "LIMITER", "CLAP"
         float drive{0.5f};
         float mix{0.8f};
         bool enabled{true};
+        std::string id{""};
     };
 
     bool rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<TrackAudioFxItem>& fxList);
@@ -112,6 +115,10 @@ public:
     bool setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float value);
     [[nodiscard]] std::vector<TrackAudioFxItem> getTrackAudioFx(uint32_t trackIndex) const;
     [[nodiscard]] NodeId getTrackSourceNodeId(uint32_t trackIndex) const;
+    [[nodiscard]] NodeId getTrackGainNodeId(uint32_t trackIndex) const;
+    [[nodiscard]] std::shared_ptr<ClapAudioNode> getTrackClapNode(uint32_t trackIndex) const;
+    [[nodiscard]] std::shared_ptr<ClapAudioNode> getTrackAudioFxClapNode(uint32_t trackIndex, size_t fxIndex) const;
+    NodeId assignTrackInstrument(uint32_t trackIndex, const std::string& instrumentIdOrName);
 
     // Step Sequencer
     sequencer::StepSequencer& getSequencer() noexcept { return sequencer_; }
@@ -138,7 +145,7 @@ public:
     [[nodiscard]] bool isTrackFrozen(uint32_t trackIndex) const noexcept;
 
     // Track Topology Management
-    uint32_t addTrack(const std::string& name, NodeId targetNodeId = 0, uint32_t numSteps = 16);
+    uint32_t addTrack(const std::string& name, NodeId targetNodeId = 0, uint32_t numSteps = 16, const std::string& instrumentIdOrName = "");
     void removeTrack(uint32_t trackIndex);
     void invalidateTrackStripCache() noexcept;
 
@@ -150,8 +157,6 @@ public:
 
 private:
     void processEvents() noexcept;
-
-    [[nodiscard]] NodeId getTrackGainNodeId(uint32_t trackIndex) const;
 
     AudioEngineConfig config_;
     std::atomic<bool> isRunning_{false};

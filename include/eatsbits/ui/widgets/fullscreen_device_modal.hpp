@@ -76,6 +76,11 @@ public:
     void setIsMobile(bool mobile) noexcept { isMobile_ = mobile; }
     [[nodiscard]] bool isMobile() const noexcept { return isMobile_; }
 
+    [[nodiscard]] const Rect2D& getBodyBounds() const noexcept { return bodyBounds_; }
+    [[nodiscard]] const Rect2D& getHeaderBounds() const noexcept { return headerBounds_; }
+    [[nodiscard]] bool isGuiEmbedded() const noexcept { return isGuiEmbedded_; }
+    void setIsGuiEmbedded(bool emb) noexcept { isGuiEmbedded_ = emb; }
+
     // Callbacks
     std::function<void()> onClose;
     std::function<void()> onPrevPreset;
@@ -83,8 +88,9 @@ public:
     std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
     std::function<void(uint32_t trackIndex)> onOpenPresetDialog;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
-    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
+    std::function<void(uint32_t trackIndex)> onOpenPluginGui;
     std::function<void(const ValueEditRequest& req)> onOpenValueEdit;
 
 private:
@@ -115,6 +121,7 @@ private:
     Rect2D nextBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D designBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D presetBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D openPluginGuiBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     float mouseX_{0.0f};
@@ -152,6 +159,7 @@ private:
     // Unified GUI system panel
     GuiPanelDef guiPanel_{};
     Rect2D oscBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    bool isGuiEmbedded_{false};
     void syncGuiPanelFromTrackData() noexcept;
 };
 

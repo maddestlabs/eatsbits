@@ -41,7 +41,7 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) { if (onReorderAudioFx) onReorderAudioFx(idx, fromIdx, toIdx); };
     panel_.onMidiFxChanged = [this](uint32_t idx) { if (onMidiFxChanged) onMidiFxChanged(idx); };
     panel_.onAudioFxChanged = [this](uint32_t idx) { if (onAudioFxChanged) onAudioFxChanged(idx); };
-    panel_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onAudioFxParamChanged) onAudioFxParamChanged(idx, p, v); };
+    panel_.onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& p, float v) { if (onAudioFxParamChanged) onAudioFxParamChanged(idx, fxIdx, p, v); };
     panel_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& p, float v) { if (onMidiFxParamChanged) onMidiFxParamChanged(idx, p, v); };
     panel_.onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(idx, fi); };
     panel_.onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fi) { if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(idx, fi); };

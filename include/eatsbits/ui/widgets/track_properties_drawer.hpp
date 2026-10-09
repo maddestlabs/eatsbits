@@ -95,7 +95,7 @@ public:
     std::function<void(uint32_t trackIndex, size_t fromIdx, size_t toIdx)> onReorderAudioFx;
     std::function<void(uint32_t trackIndex)> onMidiFxChanged;
     std::function<void(uint32_t trackIndex)> onAudioFxChanged;
-    std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;

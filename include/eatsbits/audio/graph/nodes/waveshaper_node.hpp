@@ -103,9 +103,9 @@ public:
                 // Sine wavefolding
                 return std::sin(sample * drive * 1.57079632679f);
             } else {
-                // Asymmetric tube distortion (shape 0 default)
+                // Asymmetric tube distortion (shape 0 default): strictly monotonic dual tanh curve
                 float d = sample * drive;
-                return (d > 0.0f) ? std::tanh(d) : (d / (1.0f + d * d));
+                return (d > 0.0f) ? std::tanh(d) : (0.85f * std::tanh(d * 0.90f));
             }
         };
 

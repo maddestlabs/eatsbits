@@ -514,6 +514,64 @@ void testAudioEngineParametricEqAndLimiterDispatch() {
     std::cout << "  -> PASSED\n";
 }
 
+void testAudioEngineFilterNodeAndMultiInsertRouting() {
+    std::cout << "[Test 11] Testing Filter Node Dispatch, Multi-Insert Routing & Track 1 Clean Gain Path...\n";
+
+    AudioEngine engine;
+    engine.setupDefaultAcidBeatGraph();
+
+    // Verify initial Track 1 routing has AcidEcho
+    NodeId gain1 = engine.getTrackGainNodeId(0);
+    TEST_ASSERT(gain1 != INVALID_NODE_ID);
+
+    // Rebuild Track 1 with multi-insert FX chain: BiquadFilter, StereoDelay, and Saturation
+    std::vector<AudioEngine::TrackAudioFxItem> inserts = {
+        {"HighpassFilter", "FILTER", 0.25f, 0.80f, true, ""},
+        {"StereoDelay", "DELAY", 0.35f, 0.40f, true, ""},
+        {"WarmDrive", "SATURATION", 0.50f, 0.60f, true, ""}
+    };
+
+    bool ok = engine.rebuildTrackAudioFx(0, inserts);
+    TEST_ASSERT(ok);
+
+    // Verify AcidEcho node is safely removed from Track 1
+    NodeId echoId = engine.getGraph().findNodeByName("AcidEcho");
+    TEST_ASSERT(echoId == INVALID_NODE_ID);
+
+    // Verify gain node has exactly ONE incoming connection (eliminating parallel summing / volume boost)
+    int gainInputs = 0;
+    for (const auto& conn : engine.getGraph().getConnections()) {
+        if (conn.dstNode == gain1 && conn.dstPort == 0) {
+            gainInputs++;
+        }
+    }
+    TEST_ASSERT(gainInputs == 1);
+
+    // Test BiquadNode parameter dispatch at insert index 0
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "cutoff", 850.0f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "resonance", 3.0f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 0, "type", 1.0f)); // HighPass
+
+    // Test Multi-insert parameter dispatch on index > 0
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 1, "feedback", 0.55f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 1, "time", 0.25f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "drive", 1.2f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "tone", 0.85f));
+    TEST_ASSERT(engine.setTrackAudioFxParam(0, 2, "mix", 0.70f));
+
+    // Verify audio rendering runs smoothly without clipping or crash
+    std::vector<float> outL(512, 0.0f);
+    std::vector<float> outR(512, 0.0f);
+    engine.getGraph().process(outL.data(), outR.data(), 512);
+
+    for (size_t i = 0; i < 512; ++i) {
+        TEST_ASSERT(!std::isnan(outL[i]));
+        TEST_ASSERT(!std::isnan(outR[i]));
+    }
+
+    std::cout << "  -> PASSED\n";
+}
+
 int main() {
     std::cout << "====================================================\n";
     std::cout << "   EATSBITS STUDIO DYNAMICS & INSERT FX SUITE TESTS \n";
@@ -529,9 +587,10 @@ int main() {
     testAudioEngineDynamicFxRouting();
     testWaveShaperCalibrationAndDspFeatures();
     testAudioEngineParametricEqAndLimiterDispatch();
+    testAudioEngineFilterNodeAndMultiInsertRouting();
 
     std::cout << "====================================================\n";
-    std::cout << " ALL 10 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
+    std::cout << " ALL 11 STUDIO FX & DYNAMICS TESTS PASSED SUCCESSFULLY \n";
     std::cout << "====================================================\n";
     return 0;
 }

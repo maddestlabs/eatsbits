@@ -396,9 +396,21 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     float presetY = (headerH - presetBtnH) * 0.5f;
     presetBtnBounds_ = Rect2D{presetX, presetY, presetBtnW, presetBtnH};
 
-    // 3. Design chip icon button (left of preset button)
+    float nextBtnRight = presetX;
+    if (trackData_.hasNativeGui) {
+        float guiBtnW = 130.0f;
+        float guiBtnH = 26.0f;
+        float guiX = nextBtnRight - guiBtnW - 10.0f;
+        float guiY = (headerH - guiBtnH) * 0.5f;
+        openPluginGuiBtnBounds_ = Rect2D{guiX, guiY, guiBtnW, guiBtnH};
+        nextBtnRight = guiX;
+    } else {
+        openPluginGuiBtnBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
+    }
+
+    // 3. Design chip icon button (left of preset button / gui button)
     float designBtnSize = 28.0f;
-    float designX = presetX - designBtnSize - 10.0f;
+    float designX = nextBtnRight - designBtnSize - 10.0f;
     float designY = (headerH - designBtnSize) * 0.5f;
     designBtnBounds_ = Rect2D{designX, designY, designBtnSize, designBtnSize};
 
@@ -572,6 +584,22 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
     Color chipCol = guiPanel_.accentColor;
     drawDesignChipIcon(r, chipX, chipY, chipSize, chipCol);
 
+    // CLAP Native Plugin GUI Button
+    if (trackData_.hasNativeGui && openPluginGuiBtnBounds_.w > 0.0f) {
+        Color cyanGui(0.15f, 0.88f, 0.95f, 1.0f);
+        bool guiHov = openPluginGuiBtnBounds_.contains(mouseX_, mouseY_);
+        drawRoundedRect(r, openPluginGuiBtnBounds_.x, openPluginGuiBtnBounds_.y,
+                        openPluginGuiBtnBounds_.w, openPluginGuiBtnBounds_.h, 4.0f,
+                        guiHov ? 0.16f : 0.12f, guiHov ? 0.22f : 0.16f, guiHov ? 0.28f : 0.20f, 0.95f);
+        drawRoundedRectOutline(r, openPluginGuiBtnBounds_.x, openPluginGuiBtnBounds_.y,
+                               openPluginGuiBtnBounds_.w, openPluginGuiBtnBounds_.h, 4.0f,
+                               cyanGui.r, cyanGui.g, cyanGui.b, guiHov ? 1.0f : 0.85f, 1.2f);
+        const char* btnLabel = isGuiEmbedded_ ? "DETACH / POP OUT" : "EMBED IN VIEW";
+        drawCenteredText(r, btnLabel, openPluginGuiBtnBounds_.x, openPluginGuiBtnBounds_.y + 2.0f,
+                         openPluginGuiBtnBounds_.w, openPluginGuiBtnBounds_.h - 2.0f, 9.5f,
+                         cyanGui.r, cyanGui.g, cyanGui.b, 1.0f);
+    }
+
     // Right: 2. Preset Button linking to Preset Dialog
     drawRoundedRect(r, presetBtnBounds_.x, presetBtnBounds_.y, presetBtnBounds_.w, presetBtnBounds_.h, 4.0f,
                     0.13f, 0.14f, 0.18f, 0.95f);
@@ -601,6 +629,13 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
 }
 
 void FullscreenDeviceModal::renderInstrumentFaceplate(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
+    if (trackData_.isClapPlugin && trackData_.hasNativeGui && isGuiEmbedded_) {
+        // Native CLAP plugin GUI is embedded directly into bodyBounds_!
+        drawRoundedRect(r, bodyBounds_.x, bodyBounds_.y, bodyBounds_.w, bodyBounds_.h, 4.0f, 0.08f, 0.09f, 0.11f, 1.0f);
+        drawRoundedRectOutline(r, bodyBounds_.x, bodyBounds_.y, bodyBounds_.w, bodyBounds_.h, 4.0f, 0.20f, 0.24f, 0.30f, 0.6f, 1.5f);
+        return;
+    }
+
     // 1. Unified GUI Faceplate with authentic skeuomorphic hardware styling,
     // wood cheeks, 3D multi-stop radial gradient knobs, sliders, nixies, etc.
     drawGuiFaceplate(r, guiPanel_, guiPanel_.bounds, theme, scopeBuffer_, scopeBufferCount_, draggingRow_, draggingWidget_);
@@ -763,7 +798,8 @@ void FullscreenDeviceModal::openValueEditForWidget(int rIdx, int wIdx) noexcept 
                 }
             }
             if (onAudioFxParamChanged) {
-                onAudioFxParamChanged(target_.trackIndex, pName, val);
+                size_t fxIdx = target_.fxIndex >= 0 ? static_cast<size_t>(target_.fxIndex) : 0;
+                onAudioFxParamChanged(target_.trackIndex, fxIdx, pName, val);
             }
         } else if (target_.type == DeviceTargetType::MidiFx) {
             if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
@@ -846,7 +882,8 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                             }
                         }
                         if (onAudioFxParamChanged) {
-                            onAudioFxParamChanged(target_.trackIndex, w.param, newVal);
+                            size_t fxIdx = target_.fxIndex >= 0 ? static_cast<size_t>(target_.fxIndex) : 0;
+                            onAudioFxParamChanged(target_.trackIndex, fxIdx, w.param, newVal);
                         }
                     } else if (target_.type == DeviceTargetType::MidiFx) {
                         if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {
@@ -914,6 +951,12 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
         if (presetBtnBounds_.contains(mx, my)) {
             pluginDialog_.open(PluginDialogMode::SelectPreset, trackData_.trackName, target_.trackIndex);
             if (onOpenPresetDialog) onOpenPresetDialog(target_.trackIndex);
+            return true;
+        }
+
+        // CLAP Native Plugin GUI button
+        if (trackData_.hasNativeGui && openPluginGuiBtnBounds_.w > 0.0f && openPluginGuiBtnBounds_.contains(mx, my)) {
+            if (onOpenPluginGui) onOpenPluginGui(target_.trackIndex);
             return true;
         }
 
@@ -1041,7 +1084,8 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                         }
                     }
                     if (onAudioFxParamChanged) {
-                        onAudioFxParamChanged(target_.trackIndex, w.param, newVal);
+                        size_t fxIdx = target_.fxIndex >= 0 ? static_cast<size_t>(target_.fxIndex) : 0;
+                        onAudioFxParamChanged(target_.trackIndex, fxIdx, w.param, newVal);
                     }
                 } else if (target_.type == DeviceTargetType::MidiFx) {
                     if (target_.fxIndex >= 0 && static_cast<size_t>(target_.fxIndex) < trackData_.midiFx.size()) {

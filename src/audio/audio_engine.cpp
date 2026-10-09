@@ -35,6 +35,7 @@ void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsign
 #include "miniaudio.h"
 
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <cmath>
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
@@ -48,6 +49,7 @@ void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsign
 #include "eatsbits/audio/graph/nodes/convolver_node.hpp"
 #include "eatsbits/audio/graph/nodes/limiter_node.hpp"
 #include "eatsbits/audio/graph/nodes/waveshaper_node.hpp"
+#include "eatsbits/audio/graph/nodes/eatscript_node.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/dx7_node.hpp"
@@ -702,8 +704,36 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
         fxIt->second.clear();
     }
 
-    // 2. Disconnect existing direct connection between srcId and gainId
-    graph_.disconnect(srcId, 0, gainId, 0);
+    // 2. Safely disconnect any intermediate nodes between srcId and gainId
+    // If track 0, remove default "AcidEcho" node if it exists in the graph
+    if (trackIndex == 0) {
+        NodeId echoId = graph_.findNodeByName("AcidEcho");
+        if (echoId != INVALID_NODE_ID) {
+            graph_.removeNode(echoId);
+        }
+    }
+
+    // Safely disconnect any incoming connection to gainId port 0 (preventing parallel summing/distortion)
+    std::vector<GraphConnection> toDisconnect;
+    for (const auto& conn : graph_.getConnections()) {
+        if (conn.dstNode == gainId && conn.dstPort == 0) {
+            toDisconnect.push_back(conn);
+        }
+    }
+    for (const auto& conn : toDisconnect) {
+        graph_.disconnect(conn.srcNode, conn.srcPort, gainId, 0);
+    }
+
+    // Safely disconnect any outgoing connection from srcId port 0
+    toDisconnect.clear();
+    for (const auto& conn : graph_.getConnections()) {
+        if (conn.srcNode == srcId && conn.srcPort == 0) {
+            toDisconnect.push_back(conn);
+        }
+    }
+    for (const auto& conn : toDisconnect) {
+        graph_.disconnect(srcId, 0, conn.dstNode, conn.dstPort);
+    }
 
     // 3. Build new serialized chain between srcId and gainId
     NodeId prevNode = srcId;
@@ -733,50 +763,82 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
         if (!node) {
             if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
                 tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
-            auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
-            d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
-            d->setFeedback(std::clamp(fx.drive * 0.75f, 0.0f, 0.90f));
-            d->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
-            node = d;
-        } else if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("REVERB") != std::string::npos ||
-                   tUpper.find("ZERO-LATENCY IR") != std::string::npos || tUpper.find("ROOM") != std::string::npos ||
-                   tUpper.find("HALL") != std::string::npos || tUpper.find("SPACE") != std::string::npos) {
-            auto conv = std::make_shared<ConvolverNode>(fx.name.empty() ? "ConvolverReverb" : fx.name);
-            conv->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-            conv->setDecay(0.4f + fx.drive * 3.6f);
-            conv->setRoomSize(0.5f + fx.drive * 0.9f);
-            node = conv;
-        } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos ||
-                   tUpper.find("BUCKET") != std::string::npos || tUpper.find("BBD") != std::string::npos) {
-            auto ch = std::make_shared<ChorusNode>(fx.name.empty() ? "ChorusFlanger" : fx.name);
-            ch->setRateHz(std::max(0.1f, fx.drive * 4.0f));
-            ch->setDepthMs(std::max(0.5f, fx.drive * 6.0f));
-            ch->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-            node = ch;
-        } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
-            auto comp = std::make_shared<CompressorNode>(fx.name.empty() ? "Compressor" : fx.name);
-            comp->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
-            comp->setRatio(1.5f + fx.drive * 6.0f);
-            comp->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-            node = comp;
-        } else if (tUpper.find("LIMIT") != std::string::npos) {
-            auto lim = std::make_shared<LimiterNode>(fx.name.empty() ? "BrickwallLimiter" : fx.name);
-            lim->setCeilingDbfs(-0.1f);
-            node = lim;
-        } else if (tUpper.find("EQ") != std::string::npos || tUpper.find("PARAMETRIC") != std::string::npos) {
-            auto eq = std::make_shared<ParametricEqNode>(fx.name.empty() ? "ParametricEQ" : fx.name);
-            node = eq;
-        } else if (tUpper.find("CRUSH") != std::string::npos || tUpper.find("BIT") != std::string::npos) {
-            auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "Bitcrusher" : fx.name);
-            ws->setDrive(1.5f + fx.drive * 6.0f);
-            ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-            node = ws;
-        } else { // DISTORTION / TUBE_DISTORTION / SHAPER / fallback
-            auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "TubeDistortion" : fx.name);
-            ws->setDrive(1.0f + fx.drive * 6.0f);
-            ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-            node = ws;
-        }
+                auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
+                d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
+                d->setFeedback(std::clamp(fx.drive * 0.75f, 0.0f, 0.90f));
+                d->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = d;
+            } else if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("REVERB") != std::string::npos ||
+                       tUpper.find("ZERO-LATENCY IR") != std::string::npos || tUpper.find("ROOM") != std::string::npos ||
+                       tUpper.find("HALL") != std::string::npos || tUpper.find("SPACE") != std::string::npos) {
+                auto conv = std::make_shared<ConvolverNode>(fx.name.empty() ? "ConvolverReverb" : fx.name);
+                conv->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                conv->setDecay(0.4f + fx.drive * 3.6f);
+                conv->setRoomSize(0.5f + fx.drive * 0.9f);
+                node = conv;
+            } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos ||
+                       tUpper.find("BUCKET") != std::string::npos || tUpper.find("BBD") != std::string::npos) {
+                auto ch = std::make_shared<ChorusNode>(fx.name.empty() ? "ChorusFlanger" : fx.name);
+                ch->setRateHz(std::max(0.1f, fx.drive * 4.0f));
+                ch->setDepthMs(std::max(0.5f, fx.drive * 6.0f));
+                ch->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = ch;
+            } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
+                auto comp = std::make_shared<CompressorNode>(fx.name.empty() ? "Compressor" : fx.name);
+                comp->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
+                comp->setRatio(1.5f + fx.drive * 6.0f);
+                comp->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = comp;
+            } else if (tUpper.find("LIMIT") != std::string::npos) {
+                auto lim = std::make_shared<LimiterNode>(fx.name.empty() ? "BrickwallLimiter" : fx.name);
+                lim->setCeilingDbfs(-0.1f);
+                node = lim;
+            } else if (tUpper.find("EQ") != std::string::npos || tUpper.find("PARAMETRIC") != std::string::npos) {
+                auto eq = std::make_shared<ParametricEqNode>(fx.name.empty() ? "ParametricEQ" : fx.name);
+                node = eq;
+            } else if (tUpper.find("FILTER") != std::string::npos || tUpper.find("SVF") != std::string::npos ||
+                       tUpper.find("VCF") != std::string::npos || tUpper.find("LOWPASS") != std::string::npos ||
+                       tUpper.find("HIGHPASS") != std::string::npos || tUpper.find("BANDPASS") != std::string::npos) {
+                auto bq = std::make_shared<BiquadNode>(fx.name.empty() ? "BiquadFilter" : fx.name);
+                dsp::BiquadType filterType = dsp::BiquadType::LowPass;
+                if (tUpper.find("HIGH") != std::string::npos || tUpper.find("HP") != std::string::npos) {
+                    filterType = dsp::BiquadType::HighPass;
+                } else if (tUpper.find("BAND") != std::string::npos || tUpper.find("BP") != std::string::npos) {
+                    filterType = dsp::BiquadType::BandPass;
+                } else if (tUpper.find("NOTCH") != std::string::npos) {
+                    filterType = dsp::BiquadType::Notch;
+                }
+                bq->setFilterType(filterType);
+                float cutoff = (fx.drive > 20.0f) ? fx.drive : (20.0f * std::pow(1000.0f, std::clamp(fx.drive, 0.0f, 1.0f)));
+                bq->setCutoff(cutoff);
+                bq->setResonance(std::max(0.1f, fx.mix * 10.0f + 0.5f));
+                node = bq;
+            } else if (tUpper.find(".EATS") != std::string::npos || fx.id.find(".eats") != std::string::npos ||
+                       tUpper.find("SCRIPT") != std::string::npos || tUpper.find("EATSCRIPT") != std::string::npos) {
+                auto esNode = std::make_shared<EatscriptNode>(fx.name.empty() ? "EatscriptFX" : fx.name);
+                std::string scriptPath = !fx.id.empty() ? fx.id : fx.name;
+                std::ifstream ifs(scriptPath);
+                if (ifs.is_open()) {
+                    std::string code((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+                    esNode->setScript(code);
+                } else {
+                    esNode->setScript("process(inL, inR) { return (inL, inR); }");
+                }
+                node = esNode;
+            } else if (tUpper.find("CRUSH") != std::string::npos || tUpper.find("BIT") != std::string::npos) {
+                auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "Bitcrusher" : fx.name);
+                ws->setDrive(1.5f + fx.drive * 4.0f);
+                ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = ws;
+            } else if (tUpper.find("DISTORT") != std::string::npos || tUpper.find("OVERDRIVE") != std::string::npos ||
+                       tUpper.find("SATURAT") != std::string::npos || tUpper.find("DRIVE") != std::string::npos ||
+                       tUpper.find("FUZZ") != std::string::npos || tUpper.find("TUBE") != std::string::npos ||
+                       tUpper.find("SHAPER") != std::string::npos) {
+                auto ws = std::make_shared<WaveShaperNode>(fx.name.empty() ? "TubeDistortion" : fx.name);
+                ws->setDrive(std::clamp(fx.drive * 2.0f, 0.5f, 4.0f));
+                ws->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                node = ws;
+            }
         }
 
         if (!node) continue;
@@ -855,13 +917,35 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
         if (p == "ceiling" || p == "ceil" || p == "threshold" || p == "param1") lim->setCeilingDb((value <= 0.0f && value >= -24.0f) ? value : (-12.0f + value * 12.0f));
         else if (p == "release" || p == "rel" || p == "param2") lim->setRelease((value > 1.0f) ? value : (10.0f + value * 990.0f));
         else if (p == "gain" || p == "lookahead" || p == "param3") lim->setLookaheadMs((value > 1.0f) ? value : (1.0f + value * 9.0f));
+    } else if (auto bq = std::dynamic_pointer_cast<BiquadNode>(node)) {
+        if (p == "cutoff" || p == "freq" || p == "param1" || p == "drive") {
+            float cutoff = (value > 20.0f) ? value : (20.0f * std::pow(1000.0f, std::clamp(value, 0.0f, 1.0f)));
+            bq->setCutoff(cutoff);
+        } else if (p == "resonance" || p == "q" || p == "param2" || p == "reso") {
+            bq->setResonance(value > 10.0f ? value : std::max(0.1f, value * 10.0f + 0.5f));
+        } else if (p == "type" || p == "mode" || p == "param3") {
+            bq->setFilterType(static_cast<dsp::BiquadType>(static_cast<int>(value)));
+        } else if (p == "gain" || p == "param4") {
+            bq->setGainDb((std::abs(value) > 1.0f) ? value : ((value - 0.5f) * 24.0f));
+        }
+    } else if (auto es = std::dynamic_pointer_cast<EatscriptNode>(node)) {
+        if (p.rfind("param", 0) == 0 && p.size() > 5) {
+            try {
+                uint32_t pid = static_cast<uint32_t>(std::stoul(p.substr(5))) - 1;
+                es->setParameter(pid, value);
+            } catch (...) {}
+        } else if (p == "drive" || p == "gain") {
+            es->setParameter(0, value);
+        } else if (p == "mix" || p == "wet") {
+            es->setParameter(1, value);
+        }
     }
 
     auto cfgIt = trackFxConfigs_.find(trackIndex);
     if (cfgIt != trackFxConfigs_.end() && fxIndex < cfgIt->second.size()) {
-        if (p == "drive" || p == "param1" || p == "time" || p == "rate" || p == "decay" || p == "pre") {
+        if (p == "drive" || p == "param1" || p == "time" || p == "rate" || p == "decay" || p == "pre" || p == "cutoff" || p == "freq") {
             cfgIt->second[fxIndex].drive = value;
-        } else if (p == "mix" || p == "param4" || p == "wet") {
+        } else if (p == "mix" || p == "param4" || p == "wet" || p == "resonance" || p == "reso" || p == "q") {
             cfgIt->second[fxIndex].mix = value;
         }
     }

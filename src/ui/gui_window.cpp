@@ -3220,6 +3220,16 @@ void GuiWindow::syncArrangerFromSequencer() {
 
 void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
     if (!engine_ || !modularArrangerView_) return;
+
+    // Bridge Inspector and Arranger Audio FX lists
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size() && trackIdx < modularArrangerView_->getTracks().size()) {
+        if (!modularArrangerView_->getTracks()[trackIdx].audioFx.empty()) {
+            modularTrackInspectorView_->getTracks()[trackIdx].audioFxList = modularArrangerView_->getTracks()[trackIdx].audioFx;
+        } else if (!modularTrackInspectorView_->getTracks()[trackIdx].audioFxList.empty()) {
+            modularArrangerView_->getTracks()[trackIdx].audioFx = modularTrackInspectorView_->getTracks()[trackIdx].audioFxList;
+        }
+    }
+
     const auto& tracks = modularArrangerView_->getTracks();
     if (trackIdx >= tracks.size()) return;
 
@@ -3233,6 +3243,7 @@ void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
         item.drive = fx.drive;
         item.mix = fx.mix;
         item.enabled = fx.enabled;
+        item.id = fx.id;
         engineFxList.push_back(item);
     }
     engine_->rebuildTrackAudioFx(trackIdx, engineFxList);
@@ -4476,9 +4487,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             syncTrackToPreset(idx);
             dispatchHardwareParam(paramName, normVal);
         };
-        modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             if (engine_) {
-                engine_->setTrackAudioFxParam(idx, 0, paramName, normVal);
+                engine_->setTrackAudioFxParam(idx, fxIdx, paramName, normVal);
             }
             dispatchHardwareParam(paramName, normVal);
         };
@@ -4500,10 +4516,20 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onAddAudioFx = [this](uint32_t idx) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
             (void)fxIdx; (void)en;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
@@ -4517,6 +4543,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
             (void)fromIdx; (void)toIdx;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onReorderMidiFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
@@ -4530,6 +4561,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onRemoveAudioFx = [this](uint32_t idx, size_t fxIdx) {
             (void)fxIdx;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onRemoveMidiFx = [this](uint32_t idx, size_t fxIdx) {
@@ -4542,6 +4578,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onAudioFxChanged = [this](uint32_t idx) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].audioFx = modularTrackInspectorView_->getTracks()[idx].audioFxList;
+                }
+            }
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onMidiFxChanged = [this](uint32_t idx) {
@@ -4777,23 +4818,20 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         (void)idx;
         dispatchHardwareParam(paramName, normVal);
     };
-    fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+    fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
         if (engine_) {
-            int fxIdx = fullscreenDeviceModal_.getTarget().fxIndex;
-            if (fxIdx >= 0) {
-                auto clapFxNode = engine_->getTrackAudioFxClapNode(idx, static_cast<size_t>(fxIdx));
-                if (clapFxNode) {
-                    const auto& params = clapFxNode->getParameterList();
-                    for (const auto& p : params) {
-                        if (p.name == paramName) {
-                            double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
-                            clapFxNode->setParamValue(p.id, realVal);
-                            return;
-                        }
+            auto clapFxNode = engine_->getTrackAudioFxClapNode(idx, fxIdx);
+            if (clapFxNode) {
+                const auto& params = clapFxNode->getParameterList();
+                for (const auto& p : params) {
+                    if (p.name == paramName) {
+                        double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                        clapFxNode->setParamValue(p.id, realVal);
+                        return;
                     }
                 }
-                engine_->setTrackAudioFxParam(idx, static_cast<size_t>(fxIdx), paramName, normVal);
             }
+            engine_->setTrackAudioFxParam(idx, fxIdx, paramName, normVal);
         }
         dispatchHardwareParam(paramName, normVal);
     };
