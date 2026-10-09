@@ -16,27 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Fix Desktop CLAP Host GUI Lifecycle & Window Compatibility (Cardinal & DPF Plugins)**
-  - **Context/Files**: `include/eatsbits/audio/graph/nodes/clap_audio_node.hpp`, `src/audio/graph/nodes/clap_audio_node.cpp`, `src/ui/gui_window.cpp`, `src/gui_main.cpp`, `tests/test_clap_host.cpp`
-  - **Problem Statement**:
-    While headless instantiation and audio rendering work for CLAP plugins (including Cardinal), opening the GUI for Cardinal triggers an immediate crash. Cardinal is built on DPF (DISTRHO Plugin Framework) and creates its own OpenGL context bound to the host Win32 `HWND`. Incompatibilities in window styles, parent-vs-floating mode negotiation, thread affinity, or the message pump cause `wglCreateContext` or DPF's event loop to segfault.
-  - **Acceptance Criteria**:
-    1. **Strict Window API & Mode Negotiation**:
-       - Query `clap_plugin_gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, false)` (embedded) and `true` (floating).
-       - If embedded is supported, create a dedicated Win32 host window configured with `WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS` and valid pixel format attributes suitable for OpenGL/DirectX rendering.
-       - If only floating is supported, create a top-level `WS_OVERLAPPEDWINDOW` shell or invoke `clap_plugin_gui->set_parent(NULL)` / `clap_plugin_gui->show()`.
-    2. **Main-Thread Affection & Message Pump Isolation**:
-       - Guarantee all `gui->create()`, `gui->set_parent()`, `gui->show()`, `gui->hide()`, and `gui->destroy()` calls happen strictly on the designated main thread (`ClapAudioNode::getMainThreadId()`).
-       - Ensure `pollAllMainThreadCallbacks()` processes plugin UI timer requests and host resize callbacks (`request_resize`, `request_show`) without deadlocking GLFW or the WebGPU render loop.
-    3. **Dimension Negotiation & HiDPI Scaling**:
-       - Call `gui->get_size(&w, &h)` and `gui->set_size(w, h)` to properly size the container before invoking `gui->show()`.
-       - Handle plugin dynamic resizing via `clap_host_gui::request_resize`.
-    4. **Safety Wrappers & Generic Parameter Inspector Fallback**:
-       - Add structured exception / guard checks around `gui->show()` and window creation.
-       - If a plugin's GUI fails to load, gracefully catch the error and fall back to Eatsbits' generic parameter slider UI in `TrackPropertiesPanel` instead of terminating the host process.
-    5. **Automated Verification**:
-       - Update `tests/test_clap_host.cpp` to test Cardinal GUI lifecycle (`create` -> `show` -> `hide` -> `destroy`) headlessly and in windowed mode.
-
 - [ ] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite**
   - **Context/Files**: `third_party/daisysp/` (new), `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp` (new)
   - **Rationale**:
@@ -71,6 +50,25 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Fix Desktop CLAP Host GUI Lifecycle & Window Compatibility (Cardinal & DPF Plugins)** (commit `e84ef3e`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/clap_audio_node.hpp`, `src/audio/graph/nodes/clap_audio_node.cpp`, `src/ui/gui_window.cpp`, `src/gui_main.cpp`, `tests/test_clap_host.cpp`
+  - **Acceptance Criteria**:
+    1. **Strict Window API & Mode Negotiation**:
+       - Query `clap_plugin_gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, false)` (embedded) and `true` (floating).
+       - Create dedicated Win32 host window configured with `WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS`, `CS_OWNDC`, and valid double-buffered pixel format attributes for embedded DPF/OpenGL child windows.
+       - Support both floating native `WS_OVERLAPPEDWINDOW` shell and embedded docking.
+    2. **Main-Thread Affinity & Message Pump Isolation**:
+       - Guaranteed all `gui->create()`, `gui->set_parent()`, `gui->show()`, `gui->hide()`, and `gui->destroy()` calls happen strictly on the designated main thread (`ClapAudioNode::getMainThreadId()`).
+       - Drained Win32 message queue in `pollAllMainThreadCallbacks()`, providing plugin UI timer dispatch via `CLAP_EXT_TIMER_SUPPORT` without deadlocking GLFW or the WebGPU render loop.
+    3. **Dimension Negotiation & HiDPI Scaling**:
+       - Initialized GUI with `gui->create()` prior to size queries, honoring DPF requirements (`gui != nullptr`).
+       - Handled plugin dynamic resizing and dimension queries via `clap_host_gui::request_resize` and `resize_hints_changed`.
+    4. **Safety Wrappers & Generic Parameter Inspector Fallback**:
+       - Implemented SEH safe wrappers (`SafeClapGuiCreate`, `SafeClapGuiSetParent`, `SafeClapGuiShow`, `SafeClapGuiHide`, `SafeClapGuiDestroy`) to protect host stability.
+       - In `GuiWindow`, gracefully catch windowing or runtime failures and fall back to generic parameter slider UI in `TrackPropertiesPanel`.
+    5. **Automated Verification**:
+       - Comprehensive testing in `tests/test_clap_host.cpp` verifying full Cardinal floating and embedded GUI lifecycle (`create` -> `show` -> `hide` -> `destroy`, bounds resizing, and child window destruction). Verified 100% pass across all 47 test suites.
 
 - [x] **Remove Eatsbeats Settings & Project Hub Texture Options** (commit `e3d4d8a`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_gui_interaction.cpp`, `tests/test_vector_surfaces.cpp`
@@ -135,16 +133,6 @@ To execute items automatically, run in Antigravity:
     4. **Automated Verification**:
        - Added unit test coverage in `tests/test_chord_track.cpp` (`testChordFollowPipelineSyncAndAuditioning`) and `tests/test_modular_ui.cpp` (`testGuiWindowIntegration`), validating 100% test pass across all 48 test suites.
 
-- [x] **Vector Graphics UI Modernization & Procedural Texture Removal** (2026-10-09)
-  - **Context/Files**: `include/eatsbits/ui/svg_path.hpp`, `src/ui/svg_path.cpp`, `src/ui/gui_window.cpp`, `src/ui/gui_panel_def.cpp`, `include/eatsbits/ui/procedural_texture_system.hpp` (deleted), `src/ui/procedural_texture_system.cpp` (deleted), `tests/test_vector_surfaces.cpp`, `tests/test_procedural_textures.cpp` (deleted), `CMakeLists.txt`, `src/ui/views/mixer_view.cpp`
-  - **Acceptance Criteria**:
-    1. **Eliminated Procedural Texture Cruft**: Completely removed `ProceduralTextureSystem` and `ChassisTextureSystem`, eliminating per-pixel CPU noise generators, redundant 256x256 GPU texture allocations, and heavy per-frame `wgpuQueueWriteTexture` uploads for chassis and buttons.
-    2. **Pure Vector SVG Triangulation**: Removed `SvgTextureCache` raster caching. Triangulated SVG paths directly to vector triangle vertex batches via `SvgPath::triangulate()` and `BatchRenderer::drawTriangle()`, producing crisp resolution-independent vector rendering with 0 GPU texture uploads.
-    3. **Modern Vector DAW Aesthetic**: Replaced tiled noise chassis plates and button backgrounds with sleek vector gradients (`drawRoundedRectGradient`), crisp 1px specular bevel highlights, and hairline divider lines (inspired by Ableton Live, FL Studio, and Bitwig Studio).
-    4. **Mixer View Hit-Test Ordering Fix**: Fixed hit-test priority in `MixerView` where pan knob hit-testing was intercepting clicks before Mute/Solo button checks.
-    5. **Automated Unit Testing**: Created `test_vector_surfaces.cpp` verifying all 14 `GuiChassisStyle` surfaces, custom color tints, wood cheeks, and minimal white vector faceplates across full headless passes.
-  - **Test/Validation**: `test_vector_surfaces.exe` (10/10 tests pass), all 48 test suites passing (`.\build.ps1 -Test -NoRun`), 0 compile warnings or errors.
-
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**
   - Vendored official `clap/clap.h` (v1.2.10) C-ABI headers into `third_party/clap/include/clap/`.
@@ -160,6 +148,7 @@ To execute items automatically, run in Antigravity:
   - Extended `Transpiler` with `emitClapPluginEntry()` and `transpileClap()`, generating standalone C++ compilation units embedding `ClapPluginShell<GeneratedPatchAdapter>`.
   - Added CLI `export --format=clap <script.eats> -o <output.clap>` to `eatscript_cli` producing micro-runtime `.clap` binaries (<200KB) with zero VM overhead.
   - Added automated test suite `tests/test_clap_export.cpp` (`ClapExportTest`), validating AST math emission, native engine wrapping, CLI tool execution, parameter reflection, and dynamic host loading with audio block processing.
-- [ ] **Phase 4: Desktop CLAP Host Node in AudioGraph**
+- [x] **Phase 4: Desktop CLAP Host Node in AudioGraph**
   - Implement `ClapAudioNode` for loading 3rd-party instruments/FX into track mixer channels.
   - Connect to `PluginSearchDialog` and support floating native OS windows and generic parameter inspector.
+  - Verified Cardinal & DPF plugin GUI lifecycle, Win32 embedded container docking, UI timer dispatch, and crash-resilient SEH wrappers.

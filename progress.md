@@ -1055,6 +1055,28 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] CLAP Desktop Hosting, Export & Cardinal GUI Lifecycle (commit `e84ef3e`)
+- **Architectural Context**:
+  - Implemented complete CLAP (CLever Audio Plugin) hosting, headless DSP rendering, and native GUI lifecycle in Eatsbits, adhering to the 4-phase CLAP blueprint.
+  - Resolved complex DPF / DISTRHO Plugin Framework requirements for plugins like Cardinal (VCV Rack in CLAP format), which create child OpenGL windows inside the host HWND.
+  - Delivered sample-accurate event translation, CLAP UI timer support, Win32 message pump integration, crash-isolated structured exception handling (SEH), and graceful fallback to generic parameter controls.
+- **Key Changes Implemented**:
+  - **CLAP GUI Lifecycle & Window Negotiation**:
+    - Resolved DPF assertion failure (`assertion failure: "gui != nullptr" in DistrhoPluginCLAP.cpp:2129`) by invoking `gui->create()` prior to size queries (`get_size`).
+    - Handled host-to-plugin resizing callbacks: provided non-null `resize_hints_changed` callback pointer in `clap_host_gui_t` to resolve access violation crashes (`0xC0000005`) when DPF initializes plugin window metrics.
+    - Implemented `CLAP_WINDOW_API_WIN32` support for both floating windows (`is_floating = true`, top-level `WS_OVERLAPPEDWINDOW`) and embedded child windows (`is_floating = false`, `WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | CS_OWNDC` with double-buffered OpenGL pixel formats).
+  - **CLAP UI Timer Support & Message Pump**:
+    - Implemented `CLAP_EXT_TIMER_SUPPORT` (`clap_host_timer_support_t`) registering plugin periodic timers (`register_timer`, `unregister_timer`).
+    - Drained Win32 message loops in `ClapAudioNode::pollAllMainThreadCallbacks()`, firing `on_timer` callbacks on the main thread so DPF/Pugl UI event loops remain responsive without deadlocks.
+  - **Safe SEH Wrappers & Fallback**:
+    - Isolated plugin GUI calls (`create`, `set_parent`, `show`, `hide`, `destroy`) in dedicated static functions protected by Windows Structured Exception Handling (`__try` / `__except`).
+    - In `GuiWindow`, if an external plugin window fails to initialize or crashes, the host process remains protected and automatically falls back to generic parameter slider controls in `TrackPropertiesPanel`.
+  - **Automated Verification**:
+    - Expanded `tests/test_clap_host.cpp` with comprehensive Cardinal GUI lifecycle testing: plugin loading, port enumeration, parameter reflection, floating GUI open/close, embedded child window creation, bounds resizing, hide/show toggles, and destruction.
+    - Verified all 47 test suites pass cleanly with 100% success rate (`ctest --test-dir build --output-on-failure -C Release`).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
