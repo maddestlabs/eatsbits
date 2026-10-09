@@ -26,15 +26,18 @@ void testScaleSnap() {
     // 61 (C#4) snapped to C Major should snap to 60 (C4) or 62 (D4)
     int snapped1 = MidiPipelineEngine::snapToScale(61, 0, false);
     assert(snapped1 == 60 || snapped1 == 62);
+    (void)snapped1;
 
     // C Natural Minor: C=60, D=62, Eb=63, F=65, G=67, Ab=68, Bb=70
     // 64 (E4) snapped to C Minor should snap to 63 (Eb4) or 65 (F4)
     int snapped2 = MidiPipelineEngine::snapToScale(64, 0, true);
     assert(snapped2 == 63 || snapped2 == 65);
+    (void)snapped2;
 
     // In-scale note remains untouched
     int snappedInScale = MidiPipelineEngine::snapToScale(60, 0, false);
     assert(snappedInScale == 60);
+    (void)snappedInScale;
     std::cout << "  Passed." << std::endl;
 }
 
@@ -137,6 +140,25 @@ void testSequencerTrackInterop() {
     std::cout << "  Passed." << std::endl;
 }
 
+class TestCaptureNode : public eatsbits::audio::GraphNode {
+public:
+    TestCaptureNode() : eatsbits::audio::GraphNode("TestCaptureNode") {
+        addInputPort(2);
+        addOutputPort(2);
+    }
+    void prepare(double, uint32_t) override {}
+    void reset() noexcept override {}
+    void processBlock(uint32_t) noexcept override {}
+    void handleEvent(const eatsbits::AudioEvent& event) noexcept override {
+        if (event.type == eatsbits::AudioEventType::NoteOn) {
+            receivedNotes.push_back(event.note);
+            receivedVelocities.push_back(event.velocity);
+        }
+    }
+    std::vector<uint8_t> receivedNotes;
+    std::vector<float> receivedVelocities;
+};
+
 void testStepSequencerLiveMidiFxPipeline() {
     std::cout << "[Test 7] StepSequencer Live MIDI FX Processing...\n";
     StepSequencer seq;
@@ -145,6 +167,13 @@ void testStepSequencerLiveMidiFxPipeline() {
 
     auto* track = seq.getTrack(0);
     assert(track != nullptr);
+
+    // Setup Capture Node in AudioGraph
+    eatsbits::audio::AudioGraph graph;
+    auto capture = std::make_shared<TestCaptureNode>();
+    eatsbits::audio::NodeId capId = graph.addNode(capture);
+    assert(capId != eatsbits::audio::INVALID_NODE_ID);
+    track->setTargetNodeId(capId);
 
     // Note 61 (C#4)
     StepData sd;
@@ -160,10 +189,82 @@ void testStepSequencerLiveMidiFxPipeline() {
     track->setMidiFxRack(rack);
     assert(track->getMidiFxRack().size() == 1);
 
-    // Execute processBlock with AudioGraph
-    eatsbits::audio::AudioGraph graph;
     seq.start();
     seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 60 || capture->receivedNotes.back() == 62);
+
+    std::cout << "  Passed." << std::endl;
+}
+
+void testInspectorMidiFxBridgeAndLivePlayback() {
+    std::cout << "[Test 8] Inspector MIDI FX Bridge & Live Playback Param Verification...\n";
+    StepSequencer seq;
+    seq.setBpm(120.0);
+    seq.addTrack("Lead", 1, 16);
+
+    auto* track = seq.getTrack(0);
+    assert(track != nullptr);
+
+    eatsbits::audio::AudioGraph graph;
+    auto capture = std::make_shared<TestCaptureNode>();
+    eatsbits::audio::NodeId capId = graph.addNode(capture);
+    track->setTargetNodeId(capId);
+
+    // Step 0 has Note 60 (C4)
+    StepData sd;
+    sd.active = true;
+    sd.note = 60;
+    sd.velocity = 0.8f;
+    track->setStep(0, sd);
+
+    // Test 8A: Transpose insert
+    std::vector<MidiFxInsert> rackTrans = {
+        {"mfx_trans", "Transpose", true, MidiFxType::Transpose, "", {{"semitones", 7.0f}}}
+    };
+    track->setMidiFxRack(rackTrans);
+    seq.start();
+    seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 67); // 60 + 7 = 67 (G4)
+
+    // Test 8B: Arpeggiator insert with octave cycling
+    capture->receivedNotes.clear();
+    std::vector<MidiFxInsert> rackArp = {
+        {"mfx_arp", "Arpeggiator", true, MidiFxType::Arpeggiator, "", {{"Octaves", 2.0f}}}
+    };
+    track->setMidiFxRack(rackArp);
+
+    // Step 0 (stepIndex 0): octOffset = 0 -> note 60
+    seq.stop();
+    seq.start();
+    seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 60);
+
+    // Now set step 1 active with note 60 and advance
+    StepData sd1;
+    sd1.active = true;
+    sd1.note = 60;
+    sd1.velocity = 0.8f;
+    track->setStep(1, sd1);
+
+    capture->receivedNotes.clear();
+    // Advance to step 1
+    const uint32_t stepDuration = static_cast<uint32_t>(seq.getTransport().getStepLength(0));
+    seq.processBlock(stepDuration, graph);
+    assert(!capture->receivedNotes.empty());
+    // In Arp with Octaves=2, step 1 has octOffset = 1 -> note 60 + 12 = 72
+    assert(capture->receivedNotes.back() == 72);
+
+    // Test 8C: Parameter Mutation via getMidiFxRack() (as done by modal/knob edits)
+    track->getMidiFxRack()[0].params["Octaves"] = 1.0f;
+    capture->receivedNotes.clear();
+    seq.stop();
+    seq.start();
+    seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 60);
 
     std::cout << "  Passed." << std::endl;
 }
@@ -177,6 +278,7 @@ int main() {
     testHumanizeAndTranspose();
     testSequencerTrackInterop();
     testStepSequencerLiveMidiFxPipeline();
+    testInspectorMidiFxBridgeAndLivePlayback();
     std::cout << "All MIDI FX Pipeline Tests Passed Successfully!" << std::endl;
     return 0;
 }

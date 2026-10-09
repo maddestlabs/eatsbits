@@ -3240,13 +3240,56 @@ void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
 
 void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
     if (!engine_ || !modularArrangerView_) return;
+
+    // Bridge Inspector and Arranger MIDI FX lists
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size() && trackIdx < modularArrangerView_->getTracks().size()) {
+        if (!modularArrangerView_->getTracks()[trackIdx].midiFx.empty()) {
+            modularTrackInspectorView_->getTracks()[trackIdx].midiFxList = modularArrangerView_->getTracks()[trackIdx].midiFx;
+        } else if (!modularTrackInspectorView_->getTracks()[trackIdx].midiFxList.empty()) {
+            modularArrangerView_->getTracks()[trackIdx].midiFx = modularTrackInspectorView_->getTracks()[trackIdx].midiFxList;
+        }
+    }
+
     const auto& tracks = modularArrangerView_->getTracks();
     if (trackIdx >= tracks.size()) return;
 
     auto* seqTrack = engine_->getSequencer().getTrack(trackIdx);
     if (!seqTrack) return;
 
-    const auto& trk = tracks[trackIdx];
+    auto& trk = modularArrangerView_->getTracks()[trackIdx];
+
+    // If the list is empty, bridge from arrangerTracks_[trackIdx].midiFx flags if present
+    if (trk.midiFx.empty() && trackIdx < arrangerTracks_.size()) {
+        const auto& legacyFx = arrangerTracks_[trackIdx].midiFx;
+        if (legacyFx.scaleSnapEnabled) {
+            TrackMidiFxItem snap("Scale Snap", "SCALE_SNAP", legacyFx.scaleRoot, legacyFx.scaleMinor ? 1 : 0, true);
+            trk.midiFx.push_back(snap);
+        }
+        if (legacyFx.arpEnabled) {
+            TrackMidiFxItem arp("Arpeggiator", "ARPEGGIATOR", true);
+            arp.knobs = {
+                {"rate", "RATE", legacyFx.arpRate, "1/16", ""},
+                {"pattern", "PATTERN", static_cast<float>(legacyFx.arpPattern) / 4.0f, "UP", ""},
+                {"octaves", "OCTAVES", static_cast<float>(legacyFx.arpOctaves - 1) / 3.0f, std::to_string(legacyFx.arpOctaves), "oct"},
+                {"gate", "GATE", legacyFx.arpGate, "75%", ""},
+                {"swing", "SWING", legacyFx.arpSwing, "0%", "%"}
+            };
+            trk.midiFx.push_back(arp);
+        }
+        if (legacyFx.humanizeEnabled) {
+            TrackMidiFxItem hum("Humanize", "HUMANIZE", true);
+            hum.knobs = {
+                {"timing", "TIMING", legacyFx.humanizeTiming, "15 ms", "ms"},
+                {"velocity", "VELOCITY", legacyFx.humanizeVelocity, "20%", "%"},
+                {"swing", "SWING", 0.50f, "50%", "%"}
+            };
+            trk.midiFx.push_back(hum);
+        }
+        if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
+            modularTrackInspectorView_->getTracks()[trackIdx].midiFxList = trk.midiFx;
+        }
+    }
+
     std::vector<eatsbits::eatscript::MidiFxInsert> rack;
     rack.reserve(trk.midiFx.size());
     for (size_t i = 0; i < trk.midiFx.size(); ++i) {
@@ -3258,6 +3301,41 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
         insert.type = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
         insert.params["rootKey"] = static_cast<float>(fx.rootKey);
         insert.params["scaleMode"] = static_cast<float>(fx.scaleMode);
+
+        // Serialize full parameter set from knobs
+        for (const auto& knob : fx.knobs) {
+            insert.params[knob.name] = knob.value;
+            std::string kLower = knob.name;
+            for (char& c : kLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            if (kLower == "octaves" || kLower == "oct") {
+                int oct = std::clamp(static_cast<int>(std::round(knob.value * 3.0f)) + 1, 1, 4);
+                insert.params["Octaves"] = static_cast<float>(oct);
+                insert.params["octaves"] = static_cast<float>(oct);
+            } else if (kLower == "semitones" || kLower == "transpose" || kLower == "trans") {
+                int semi = static_cast<int>(std::round((knob.value - 0.5f) * 24.0f));
+                insert.params["semitones"] = static_cast<float>(semi);
+                insert.params["transpose"] = static_cast<float>(semi);
+            } else if (kLower == "root" || kLower == "rootkey") {
+                int rk = std::clamp(static_cast<int>(std::round(knob.value * 11.0f)), 0, 11);
+                insert.params["rootKey"] = static_cast<float>(rk);
+            } else if (kLower == "scale" || kLower == "scalemode") {
+                int sm = std::clamp(static_cast<int>(std::round(knob.value * 6.0f)), 0, 6);
+                insert.params["scaleMode"] = static_cast<float>(sm);
+            } else if (kLower == "rate") {
+                insert.params["rate"] = knob.value;
+            } else if (kLower == "gate") {
+                insert.params["gate"] = knob.value;
+            } else if (kLower == "swing") {
+                insert.params["swing"] = knob.value;
+            } else if (kLower == "velocity") {
+                insert.params["velocity"] = knob.value;
+                insert.params["humanizeVelocity"] = knob.value;
+            } else if (kLower == "timing") {
+                insert.params["timing"] = knob.value;
+                insert.params["humanizeTiming"] = knob.value;
+            }
+        }
         rack.push_back(std::move(insert));
     }
     seqTrack->setMidiFxRack(std::move(rack));
@@ -4404,7 +4482,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
             dispatchHardwareParam(paramName, normVal);
         };
+        modularTrackInspectorView_->onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
+            syncTrackMidiFxToEngine(idx);
+            dispatchHardwareParam(paramName, normVal);
+        };
         modularTrackInspectorView_->onAddMidiFx = [this](uint32_t idx) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onAddAudioFx = [this](uint32_t idx) {
@@ -4416,6 +4508,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
             (void)fxIdx; (void)en;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
@@ -4424,6 +4521,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onReorderMidiFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
             (void)fromIdx; (void)toIdx;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onRemoveAudioFx = [this](uint32_t idx, size_t fxIdx) {
@@ -4432,12 +4534,22 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularTrackInspectorView_->onRemoveMidiFx = [this](uint32_t idx, size_t fxIdx) {
             (void)fxIdx;
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onAudioFxChanged = [this](uint32_t idx) {
             syncTrackAudioFxToEngine(idx);
         };
         modularTrackInspectorView_->onMidiFxChanged = [this](uint32_t idx) {
+            if (modularArrangerView_ && modularTrackInspectorView_) {
+                if (idx < modularTrackInspectorView_->getTracks().size() && idx < modularArrangerView_->getTracks().size()) {
+                    modularArrangerView_->getTracks()[idx].midiFx = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                }
+            }
             syncTrackMidiFxToEngine(idx);
         };
         modularTrackInspectorView_->onScrollChanged = [this](float sY) {
@@ -4686,7 +4798,56 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         dispatchHardwareParam(paramName, normVal);
     };
     fullscreenDeviceModal_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-        (void)idx;
+        if (engine_) {
+            auto* seqTrack = engine_->getSequencer().getTrack(idx);
+            int fxIdx = fullscreenDeviceModal_.getTarget().fxIndex;
+            if (seqTrack && fxIdx >= 0) {
+                auto& rack = seqTrack->getMidiFxRack();
+                if (static_cast<size_t>(fxIdx) < rack.size()) {
+                    rack[fxIdx].params[paramName] = normVal;
+                    std::string kLower = paramName;
+                    for (char& c : kLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    if (kLower == "octaves" || kLower == "oct") {
+                        int oct = std::clamp(static_cast<int>(std::round(normVal * 3.0f)) + 1, 1, 4);
+                        rack[fxIdx].params["Octaves"] = static_cast<float>(oct);
+                        rack[fxIdx].params["octaves"] = static_cast<float>(oct);
+                    } else if (kLower == "semitones" || kLower == "transpose" || kLower == "trans") {
+                        int semi = static_cast<int>(std::round((normVal - 0.5f) * 24.0f));
+                        rack[fxIdx].params["semitones"] = static_cast<float>(semi);
+                        rack[fxIdx].params["transpose"] = static_cast<float>(semi);
+                    } else if (kLower == "root" || kLower == "rootkey") {
+                        int rk = std::clamp(static_cast<int>(std::round(normVal * 11.0f)), 0, 11);
+                        rack[fxIdx].params["rootKey"] = static_cast<float>(rk);
+                    } else if (kLower == "scale" || kLower == "scalemode") {
+                        int sm = std::clamp(static_cast<int>(std::round(normVal * 6.0f)), 0, 6);
+                        rack[fxIdx].params["scaleMode"] = static_cast<float>(sm);
+                    } else if (kLower == "velocity") {
+                        rack[fxIdx].params["humanizeVelocity"] = normVal;
+                    } else if (kLower == "timing") {
+                        rack[fxIdx].params["humanizeTiming"] = normVal;
+                    }
+                }
+            }
+        }
+        int targetFxIdx = fullscreenDeviceModal_.getTarget().fxIndex;
+        if (targetFxIdx >= 0) {
+            if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
+                auto& fxList = modularTrackInspectorView_->getTracks()[idx].midiFxList;
+                if (static_cast<size_t>(targetFxIdx) < fxList.size()) {
+                    for (auto& k : fxList[targetFxIdx].knobs) {
+                        if (k.name == paramName) { k.value = normVal; break; }
+                    }
+                }
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                auto& fxList = modularArrangerView_->getTracks()[idx].midiFx;
+                if (static_cast<size_t>(targetFxIdx) < fxList.size()) {
+                    for (auto& k : fxList[targetFxIdx].knobs) {
+                        if (k.name == paramName) { k.value = normVal; break; }
+                    }
+                }
+            }
+        }
         dispatchHardwareParam(paramName, normVal);
     };
     fullscreenDeviceModal_.onOpenValueEdit = [this](const ValueEditRequest& req) {
@@ -10196,14 +10357,95 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
         case TrackInspectorHitArea::MidiFxArpToggle:
             trk.midiFx.arpEnabled = !trk.midiFx.arpEnabled;
             recordProjectHistory("Toggle Arp on Track " + std::to_string(tIdx + 1), "MIDI_FX");
+            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                auto& fxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                bool found = false;
+                for (auto& item : fxList) {
+                    std::string itemType = item.type;
+                    for (char& c : itemType) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    if (itemType.find("arp") != std::string::npos) {
+                        item.enabled = trk.midiFx.arpEnabled;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && trk.midiFx.arpEnabled) {
+                    TrackMidiFxItem arp("Arpeggiator", "ARPEGGIATOR", true);
+                    arp.knobs = {
+                        {"rate", "RATE", trk.midiFx.arpRate, "1/16", ""},
+                        {"pattern", "PATTERN", static_cast<float>(trk.midiFx.arpPattern) / 4.0f, "UP", ""},
+                        {"octaves", "OCTAVES", static_cast<float>(trk.midiFx.arpOctaves - 1) / 3.0f, std::to_string(trk.midiFx.arpOctaves), "oct"},
+                        {"gate", "GATE", trk.midiFx.arpGate, "75%", ""},
+                        {"swing", "SWING", trk.midiFx.arpSwing, "0%", "%"}
+                    };
+                    fxList.push_back(arp);
+                }
+            }
+            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+                if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                    modularTrackInspectorView_->getTracks()[tIdx].midiFxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                }
+            }
+            syncTrackMidiFxToEngine(tIdx);
             break;
         case TrackInspectorHitArea::MidiFxScaleToggle:
             trk.midiFx.scaleSnapEnabled = !trk.midiFx.scaleSnapEnabled;
             recordProjectHistory("Toggle Scale Snap on Track " + std::to_string(tIdx + 1), "MIDI_FX");
+            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                auto& fxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                bool found = false;
+                for (auto& item : fxList) {
+                    std::string itemType = item.type;
+                    for (char& c : itemType) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    if (itemType.find("scale") != std::string::npos) {
+                        item.enabled = trk.midiFx.scaleSnapEnabled;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && trk.midiFx.scaleSnapEnabled) {
+                    TrackMidiFxItem snap("Scale Snap", "SCALE_SNAP", trk.midiFx.scaleRoot, trk.midiFx.scaleMinor ? 1 : 0, true);
+                    fxList.push_back(snap);
+                }
+            }
+            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+                if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                    modularTrackInspectorView_->getTracks()[tIdx].midiFxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                }
+            }
+            syncTrackMidiFxToEngine(tIdx);
             break;
         case TrackInspectorHitArea::MidiFxHumanizeToggle:
             trk.midiFx.humanizeEnabled = !trk.midiFx.humanizeEnabled;
             recordProjectHistory("Toggle Humanize on Track " + std::to_string(tIdx + 1), "MIDI_FX");
+            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                auto& fxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                bool found = false;
+                for (auto& item : fxList) {
+                    std::string itemType = item.type;
+                    for (char& c : itemType) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    if (itemType.find("humanize") != std::string::npos) {
+                        item.enabled = trk.midiFx.humanizeEnabled;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && trk.midiFx.humanizeEnabled) {
+                    TrackMidiFxItem hum("Humanize", "HUMANIZE", true);
+                    hum.knobs = {
+                        {"timing", "TIMING", trk.midiFx.humanizeTiming, "15 ms", "ms"},
+                        {"velocity", "VELOCITY", trk.midiFx.humanizeVelocity, "20%", "%"},
+                        {"swing", "SWING", 0.50f, "50%", "%"}
+                    };
+                    fxList.push_back(hum);
+                }
+            }
+            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+                if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                    modularTrackInspectorView_->getTracks()[tIdx].midiFxList = modularArrangerView_->getTracks()[tIdx].midiFx;
+                }
+            }
+            syncTrackMidiFxToEngine(tIdx);
             break;
         case TrackInspectorHitArea::AudioFxDelayToggle:
             trk.audioFx.delayEnabled = !trk.audioFx.delayEnabled;
@@ -10266,9 +10508,41 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
                     else if (param == "arpOctaves") tr.midiFx.arpOctaves = static_cast<int>(std::round(newVal));
                     else if (param == "arpGate") tr.midiFx.arpGate = newVal;
                     else if (param == "arpSwing") tr.midiFx.arpSwing = newVal;
+                    else if (param == "scaleRoot") tr.midiFx.scaleRoot = static_cast<int>(std::round(newVal * 11.0f));
                     else if (param == "scaleMinor") tr.midiFx.scaleMinor = (newVal >= 0.5f);
                     else if (param == "humanizeTiming") tr.midiFx.humanizeTiming = newVal;
                     else if (param == "humanizeVelocity") tr.midiFx.humanizeVelocity = newVal;
+
+                    if (param.rfind("arp", 0) == 0 || param.rfind("scale", 0) == 0 || param.rfind("humanize", 0) == 0) {
+                        if (modularArrangerView_ && t < modularArrangerView_->getTracks().size()) {
+                            auto& mFx = modularArrangerView_->getTracks()[t].midiFx;
+                            for (auto& item : mFx) {
+                                std::string itemType = item.type;
+                                for (char& c : itemType) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                                if (itemType.find("arp") != std::string::npos) {
+                                    for (auto& k : item.knobs) {
+                                        if (k.name == "rate" && param == "arpRate") k.value = newVal;
+                                        else if (k.name == "pattern" && param == "arpPattern") k.value = newVal;
+                                        else if (k.name == "octaves" && param == "arpOctaves") k.value = (newVal - 1.0f) / 3.0f;
+                                        else if (k.name == "gate" && param == "arpGate") k.value = newVal;
+                                        else if (k.name == "swing" && param == "arpSwing") k.value = newVal;
+                                    }
+                                } else if (itemType.find("scale") != std::string::npos) {
+                                    if (param == "scaleRoot") item.rootKey = tr.midiFx.scaleRoot;
+                                    if (param == "scaleMinor") item.scaleMode = tr.midiFx.scaleMinor ? 1 : 0;
+                                } else if (itemType.find("humanize") != std::string::npos) {
+                                    for (auto& k : item.knobs) {
+                                        if (k.name == "timing" && param == "humanizeTiming") k.value = newVal;
+                                        else if (k.name == "velocity" && param == "humanizeVelocity") k.value = newVal;
+                                    }
+                                }
+                            }
+                            if (modularTrackInspectorView_ && t < modularTrackInspectorView_->getTracks().size()) {
+                                modularTrackInspectorView_->getTracks()[t].midiFxList = mFx;
+                            }
+                        }
+                        syncTrackMidiFxToEngine(t);
+                    }
                 });
             activeDragHandler_ = &scalarDragPresenter_;
             break;

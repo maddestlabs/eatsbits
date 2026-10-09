@@ -189,15 +189,15 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                 for (const auto& fx : midiFx) {
                     if (!fx.enabled) continue;
                     if (fx.type == eatscript::MidiFxType::ScaleSnap) {
-                        int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : timeContext_.songKeyRoot;
-                        bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : timeContext_.isSongKeyMinor;
+                        int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : (fx.params.count("root") ? static_cast<int>(fx.params.at("root")) : timeContext_.songKeyRoot);
+                        bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : timeContext_.isSongKeyMinor);
                         noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
                         for (auto& en : exNotes) {
                             int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
                             en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(enTrans, root, minor));
                         }
                     } else if (fx.type == eatscript::MidiFxType::Arpeggiator) {
-                        int octaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : 2;
+                        int octaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : (fx.params.count("octaves") ? std::max(1, static_cast<int>(fx.params.at("octaves"))) : 2);
                         int stepCycle = static_cast<int>(tick.stepIndex) % (octaves * 2);
                         int octOffset = (stepCycle < octaves) ? stepCycle : ((octaves * 2 - 1) - stepCycle);
                         noteNum = std::clamp(noteNum + octOffset * 12, 0, 127);
@@ -234,13 +234,14 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
                             }
                         }
                     } else if (fx.type == eatscript::MidiFxType::Transpose) {
-                        int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : 0;
+                        int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
                         noteNum = std::clamp(noteNum + semi, 0, 127);
                         for (auto& en : exNotes) {
                             en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
                         }
                     } else if (fx.type == eatscript::MidiFxType::Humanize) {
-                        float velJitter = (nextRandomFloat() - 0.5f) * 0.20f;
+                        float velAmt = fx.params.count("humanizeVelocity") ? fx.params.at("humanizeVelocity") : (fx.params.count("velocity") ? fx.params.at("velocity") : 0.20f);
+                        float velJitter = (nextRandomFloat() - 0.5f) * velAmt;
                         vel = std::clamp(vel + velJitter, 0.05f, 1.0f);
                     } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
                         if (activeChord != nullptr) {
@@ -272,12 +273,10 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
 
             if (track.getTargetNodeId() != 0) {
                 graph.sendNodeEvent(track.getTargetNodeId(), noteEvent);
-            } else {
-                graph.broadcastEvent(noteEvent);
             }
 
             // Schedule NoteOff
-            if (!step.slide || step.gateLength < 1.0f) {
+            if (track.getTargetNodeId() != 0 && (!step.slide || step.gateLength < 1.0f)) {
                 double duration = std::clamp(step.gateLength, 0.05f, 1.0f) * tick.stepDurationSamples;
                 uint32_t framesUntilOff = tick.frameOffset + static_cast<uint32_t>(duration);
                 scheduleNoteOff(track.getTargetNodeId(), noteEvent.note, framesUntilOff);
@@ -287,13 +286,11 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
             }
 
             // Dispatch extra chord notes
-            for (uint8_t exNote : exNotes) {
-                AudioEvent exEvent = noteEvent;
-                exEvent.note = exNote;
-                if (track.getTargetNodeId() != 0) {
+            if (track.getTargetNodeId() != 0) {
+                for (uint8_t exNote : exNotes) {
+                    AudioEvent exEvent = noteEvent;
+                    exEvent.note = exNote;
                     graph.sendNodeEvent(track.getTargetNodeId(), exEvent);
-                } else {
-                    graph.broadcastEvent(exEvent);
                 }
             }
         }
@@ -326,8 +323,6 @@ void StepSequencer::dispatchNoteOff(audio::AudioGraph& graph, const ActiveVoice&
 
     if (voice.targetNodeId != 0) {
         graph.sendNodeEvent(voice.targetNodeId, offEvent);
-    } else {
-        graph.broadcastEvent(offEvent);
     }
 }
 
