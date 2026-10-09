@@ -1,0 +1,38 @@
+# @id: modular_drumpad_kit
+# @name: Modular Drum Machine (16-Pad MPC Matrix)
+# @category: instrument
+# @tags: drum, drumpad, mpc, kit, modular, percussion
+# @description: Dedicated 16/32-pad modular drum workstation with touch-sensitive rubber pads, dual core/percussion banks, and kit macro controls.
+
+def init():
+    return {
+        "MasterTune": eat.param("MasterTune", -12.0, 12.0, 0.0, step=0.0),
+        "RoomLevel": eat.param("RoomLevel", 0.0, 1.0, 0.25, step=0.0),
+        "KitDrive": eat.param("KitDrive", 0.0, 1.0, 0.15, step=0.0),
+        "Humanize": eat.param("Humanize", 0.0, 1.0, 0.20, step=0.0),
+        "StrikeDrift": eat.param("StrikeDrift", 0.0, 1.0, 0.15, step=0.0),
+        "Dynamics": eat.param("Dynamics", 0.0, 1.0, 0.80, step=0.0),
+    }
+
+def gui():
+    return {
+        "panel": {
+            "title": "MODULAR DRUM MACHINE",
+            "subtitle": "16-Pad MPC Performance Matrix & Drum Workstation",
+            "background": "dark",
+            "accent": "#FF8C00",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "MasterTune", "label": "PITCH", "size": 52},
+                        {"type": "knob", "param": "KitDrive", "label": "DRIVE", "size": 52},
+                        {"type": "knob", "param": "RoomLevel", "label": "ROOM", "size": 52},
+                        {"type": "knob", "param": "Humanize", "label": "HUMANIZE", "size": 52},
+                        {"type": "knob", "param": "StrikeDrift", "label": "DRIFT", "size": 52},
+                        {"type": "knob", "param": "Dynamics", "label": "DYNAMICS", "size": 52}
+                    ]
+                }
+            ]
+        }
+    }

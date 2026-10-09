@@ -16,6 +16,56 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [ ] **Fix Desktop CLAP Host GUI Lifecycle & Window Compatibility (Cardinal & DPF Plugins)**
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/clap_audio_node.hpp`, `src/audio/graph/nodes/clap_audio_node.cpp`, `src/ui/gui_window.cpp`, `src/gui_main.cpp`, `tests/test_clap_host.cpp`
+  - **Problem Statement**:
+    While headless instantiation and audio rendering work for CLAP plugins (including Cardinal), opening the GUI for Cardinal triggers an immediate crash. Cardinal is built on DPF (DISTRHO Plugin Framework) and creates its own OpenGL context bound to the host Win32 `HWND`. Incompatibilities in window styles, parent-vs-floating mode negotiation, thread affinity, or the message pump cause `wglCreateContext` or DPF's event loop to segfault.
+  - **Acceptance Criteria**:
+    1. **Strict Window API & Mode Negotiation**:
+       - Query `clap_plugin_gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, false)` (embedded) and `true` (floating).
+       - If embedded is supported, create a dedicated Win32 host window configured with `WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS` and valid pixel format attributes suitable for OpenGL/DirectX rendering.
+       - If only floating is supported, create a top-level `WS_OVERLAPPEDWINDOW` shell or invoke `clap_plugin_gui->set_parent(NULL)` / `clap_plugin_gui->show()`.
+    2. **Main-Thread Affection & Message Pump Isolation**:
+       - Guarantee all `gui->create()`, `gui->set_parent()`, `gui->show()`, `gui->hide()`, and `gui->destroy()` calls happen strictly on the designated main thread (`ClapAudioNode::getMainThreadId()`).
+       - Ensure `pollAllMainThreadCallbacks()` processes plugin UI timer requests and host resize callbacks (`request_resize`, `request_show`) without deadlocking GLFW or the WebGPU render loop.
+    3. **Dimension Negotiation & HiDPI Scaling**:
+       - Call `gui->get_size(&w, &h)` and `gui->set_size(w, h)` to properly size the container before invoking `gui->show()`.
+       - Handle plugin dynamic resizing via `clap_host_gui::request_resize`.
+    4. **Safety Wrappers & Generic Parameter Inspector Fallback**:
+       - Add structured exception / guard checks around `gui->show()` and window creation.
+       - If a plugin's GUI fails to load, gracefully catch the error and fall back to Eatsbits' generic parameter slider UI in `TrackPropertiesPanel` instead of terminating the host process.
+    5. **Automated Verification**:
+       - Update `tests/test_clap_host.cpp` to test Cardinal GUI lifecycle (`create` -> `show` -> `hide` -> `destroy`) headlessly and in windowed mode.
+
+- [ ] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite**
+  - **Context/Files**: `third_party/daisysp/` (new), `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp` (new)
+  - **Rationale**:
+    Eatsbits requires a rich collection of modular synthesis and audio effects that run with desktop/web/mobile parity. External plugins (CLAP) do not function in WebAssembly, and Surge XT/VCV Rack code is copyleft GPLv3. DaisySP (by Electro-Smith) is a battle-tested, high-performance C++ DSP library used in Eurorack hardware, licensed under **100% MIT**, with zero runtime memory allocations and zero OS dependencies.
+  - **Acceptance Criteria**:
+    1. **Vendor DaisySP into Codebase**:
+       - Vendor official MIT-licensed `DaisySP` source/headers into `third_party/daisysp/`.
+       - Configure `CMakeLists.txt` to compile DaisySP as an internal static library linked into `eats_audio`, ensuring compatibility with MSVC, Clang, GCC, and Emscripten (WebAssembly).
+    2. **Implement Core Modular `GraphNode` Wrappers**:
+       - **Oscillators (`DaisyOscillatorNode`)**:
+         - Wrap `daisysp::Oscillator` (band-limited blip saw, square, triangle, sine, variable saw) and `daisysp::Wavetable` with sample-rate aware initialization and 1V/Oct CV / pitch modulation.
+       - **Filters (`DaisyFilterNode`)**:
+         - Wrap `daisysp::MoogLadder` (analog-modeled 24dB 4-pole lowpass) and `daisysp::Svf` (State Variable Filter: LP, HP, BP, Notch) with smooth cutoff, resonance, and drive controls.
+       - **Reverb & Delay (`DaisyReverbNode`, `DaisyDelayNode`)**:
+         - Wrap `daisysp::ReverbSc` (lush stereo algorithmic plate/hall reverb) and `daisysp::DelayLine` with damping, feedback, and stereo width.
+       - **Modulation & Dynamics (`DaisyModulationNode`, `DaisyCompressorNode`)**:
+         - Wrap `daisysp::Chorus`, `daisysp::Flanger`, `daisysp::Overdrive`, and `daisysp::Compressor`.
+    3. **AudioEngine & Track FX Rack Integration**:
+       - Wire new DaisySP nodes into `AudioEngine::rebuildTrackAudioFx` to populate empty effect categories (`REVERB`, `DELAY`, `CHORUS`, `FLANGER`, `MOOG_FILTER`, `COMPRESSOR`), mapping UI knob values to normalized parameters.
+    4. **Eatscript & AOT Transpiler Manifest Binding**:
+       - Register the new nodes in `include/eatsbits/eatscript/api_manifest.hpp` under `eats.dsp.*` and `eats.fx.*`.
+       - Enable programmatic live scripting in Eatscript (e.g. `track.add_fx(eats.fx.reverb_sc(decay=0.85, damp=0.5))`).
+    5. **Automated Unit Testing & Web Build Validation**:
+       - Create `tests/test_daisysp_nodes.cpp` verifying:
+         - Zero runtime allocations in `processBlock()`.
+         - Valid float output ranges (no NaNs, no infinities) across extreme parameter sweeps.
+         - Impulse responses for reverb and filter cutoff sweeps.
+       - Verify compilation with `.\build.ps1 -Test -NoRun` and validate WebAssembly build target compatibility.
+
 ---
 
 ## 🕒 Recent Completions (Reference Context)

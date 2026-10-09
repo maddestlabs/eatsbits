@@ -102,17 +102,10 @@ void testEatsbitsLogoLayers() {
               << " to " << eye.getBounds().maxX << ", " << eye.getBounds().maxY << "], contours="
               << eye.getContours().size() << ", triangles=" << eyeTris.size() / 3 << "\n";
 
-    // Multi-layer rasterization
-    auto logoRgba = SvgTextureCache::rasterizeLayersToRgba(layers, 48, 48);
-    std::cout << "Rasterized logoRgba size=" << logoRgba.size() << "\n";
-
-    // Check that non-zero colored pixels were rendered
-    int solidCount = 0;
-    for (size_t i = 3; i < logoRgba.size(); i += 4) {
-        if (logoRgba[i] > 50) solidCount++;
-    }
-
-    std::cout << " -> Eatsbits logo verified: 3 layers, " << solidCount << " solid pixels in 48x48 render.\n";
+    // Vector triangulation verification for all layers
+    size_t totalTris = chassisTris.size() + monsterTris.size() + eyeTris.size();
+    assert(totalTris > 0);
+    std::cout << " -> Eatsbits logo verified: 3 layers, " << totalTris / 3 << " total vector triangles.\n";
 }
 
 void testPlainLogoLayers() {
@@ -126,13 +119,10 @@ void testPlainLogoLayers() {
               << plainLogo.getContours().size() << "\n";
     assert(plainLogo.getContours().size() == 4); // Head, Eye cutout, Bit 1, Bit 2
 
-    auto plainRgba = SvgTextureCache::rasterizeLayersToRgba(plainLayers, 48, 48);
-    int solidCount = 0;
-    for (size_t i = 3; i < plainRgba.size(); i += 4) {
-        if (plainRgba[i] > 50) solidCount++;
-    }
-    std::cout << " -> Plain logo verified: " << solidCount << " solid pixels in 48x48 render.\n";
-    assert(solidCount > 100);
+    auto plainTris = plainLogo.triangulate();
+    assert(!plainTris.empty());
+    std::cout << " -> Plain logo verified: " << plainTris.size() / 3 << " vector triangles generated.\n";
+    assert(plainTris.size() / 3 > 30);
 }
 
 int main() {

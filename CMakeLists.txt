@@ -22,6 +22,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
 )
 
 if(NOT EMSCRIPTEN)
@@ -36,7 +37,7 @@ endif()
 add_library(eats_core INTERFACE)
 target_include_directories(eats_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# 2. Standalone Eatscript Scripting & Host ABI Library (Lexer, Parser, VM, Transpiler, Evaluator, Host ABI, Stdlib, REPL)
+# 2. Standalone Eatscript Scripting & Host ABI Library (Lexer, Parser, VM, Transpiler, Evaluator, Host ABI, Stdlib, REPL, DependencyScanner)
 add_library(eats_script STATIC
     src/eatscript/lexer.cpp
     src/eatscript/parser.cpp
@@ -46,6 +47,7 @@ add_library(eats_script STATIC
     src/eatscript/host_abi.cpp
     src/eatscript/stdlib.cpp
     src/eatscript/repl.cpp
+    src/eatscript/dispatch_scanner.cpp
 )
 target_link_libraries(eats_script PUBLIC eats_core)
 
@@ -61,7 +63,6 @@ add_library(eats_audio STATIC
     src/project/project_file.cpp
     src/project/preset_loader.cpp
     src/eatscript/note_script.cpp
-    src/eatscript/dispatch_scanner.cpp
     src/eatscript/midi_fx_pipeline.cpp
     src/eatscript/macro_runtime.cpp
     src/project/eats_serializer.cpp
@@ -87,6 +88,8 @@ add_library(eats_audio STATIC
     src/audio/graph/nodes/tts_synth_node.cpp
     src/project/eats_builtin_presets.cpp
     src/project/preset_manager.cpp
+    src/audio/clap/clap_plugin_loader.cpp
+    src/audio/graph/nodes/clap_audio_node.cpp
 )
 target_link_libraries(eats_audio PUBLIC eats_core eats_script)
 
@@ -149,7 +152,6 @@ add_library(eats_render_wgpu STATIC
     src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
-    src/ui/procedural_texture_system.cpp
     third_party/nanovg/nanovg.c
 )
 target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter)
@@ -327,6 +329,21 @@ else()
     endif()
 endif()
 
+# 7. CLAP Dynamic Plugins & Micro-Exports
+if(NOT EMSCRIPTEN)
+    add_library(eatsbits_tb303 MODULE
+        src/export/clap/tb303_clap_plugin.cpp
+    )
+    target_include_directories(eatsbits_tb303 PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+    )
+    set_target_properties(eatsbits_tb303 PROPERTIES
+        PREFIX ""
+        SUFFIX ".clap"
+    )
+endif()
+
 # Tests
 option(BUILD_TESTING "Build automated test suite" ON)
 
@@ -423,7 +440,7 @@ target_link_libraries(test_note_script PRIVATE eatsbits_core)
 add_test(NAME NoteScriptTest COMMAND test_note_script)
 
 add_executable(test_dispatch_scanner tests/test_dispatch_scanner.cpp)
-target_link_libraries(test_dispatch_scanner PRIVATE eatsbits_core)
+target_link_libraries(test_dispatch_scanner PRIVATE eats_script)
 add_test(NAME DispatchScannerTest COMMAND test_dispatch_scanner)
 
 add_executable(test_midi_fx tests/test_midi_fx.cpp)
@@ -514,8 +531,32 @@ add_executable(test_text_engine tests/test_text_engine.cpp)
 target_link_libraries(test_text_engine PRIVATE eats_core)
 add_test(NAME TextEngineTest COMMAND test_text_engine)
 
-add_executable(test_procedural_textures tests/test_procedural_textures.cpp)
-target_link_libraries(test_procedural_textures PRIVATE eatsbits_gui_core)
-add_test(NAME ProceduralTexturesTest COMMAND test_procedural_textures)
+add_executable(test_vector_surfaces tests/test_vector_surfaces.cpp)
+target_link_libraries(test_vector_surfaces PRIVATE eatsbits_gui_core)
+add_test(NAME VectorSurfacesTest COMMAND test_vector_surfaces)
+
+add_executable(test_clap_shell tests/test_clap_shell.cpp)
+target_include_directories(test_clap_shell PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+)
+target_link_libraries(test_clap_shell PRIVATE eats_core)
+add_test(NAME ClapShellTest COMMAND test_clap_shell)
+
+add_executable(test_clap_export tests/test_clap_export.cpp)
+target_include_directories(test_clap_export PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+)
+target_link_libraries(test_clap_export PRIVATE eats_script eats_core)
+add_test(NAME ClapExportTest COMMAND test_clap_export)
+
+add_executable(test_clap_host tests/test_clap_host.cpp)
+target_include_directories(test_clap_host PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
+)
+target_link_libraries(test_clap_host PRIVATE eatsbits_gui_core eats_audio eats_core)
+add_test(NAME ClapHostTest COMMAND test_clap_host)
 
 endif() # BUILD_TESTING

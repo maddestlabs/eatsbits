@@ -249,6 +249,61 @@ void testAudioCallbackArbitraryChunking() {
     std::cout << "  [PASS] Arbitrary audio callback frame count chunking verified successfully." << std::endl;
 }
 
+void testTrackAddingAndInstrumentWiring() {
+    std::cout << "[Test] Track Adding and Instrument Wiring Diagnostics..." << std::endl;
+    AudioEngine engine;
+    engine.initialize();
+    engine.setupDefaultAcidBeatGraph();
+
+    auto& seq = engine.getSequencer();
+    // Simulate gui_main setup
+    seq.addTrack("303 Acid", 1, 64);
+    seq.addTrack("808 Kit", 4, 64);
+    seq.addTrack("909 Drive", 6, 64);
+    seq.addTrack("DX7 Rhodes", 8, 64);
+    seq.addTrack("Concert Grand", 10, 64);
+
+    std::cout << "Initial sequencer tracks: " << seq.getNumTracks() << std::endl;
+
+    // Simulate adding Track 6 (trackIndex 5)
+    uint32_t tIdx = engine.addTrack("Track 6", 0, 16);
+    std::cout << "Added track index: " << tIdx << ", seq tracks: " << seq.getNumTracks() << std::endl;
+    NodeId srcId = engine.getTrackSourceNodeId(tIdx);
+    std::cout << "Track 6 source NodeId: " << srcId << std::endl;
+
+    // Check assignTrackInstrument with "Yamaha DX7"
+    NodeId dx7Src = engine.assignTrackInstrument(tIdx, "Yamaha DX7");
+    std::cout << "Assigned DX7 NodeId: " << dx7Src << ", getTrackSourceNodeId: " << engine.getTrackSourceNodeId(tIdx) << std::endl;
+
+    // Post NoteOn to track 5
+    bool posted = engine.postNoteOn(60, 0.85f, false, false, static_cast<int>(tIdx));
+    std::cout << "Posted NoteOn to track 5: " << (posted ? "true" : "false") << std::endl;
+
+    float outL[256], outR[256];
+    std::fill_n(outL, 256, 0.0f);
+    std::fill_n(outR, 256, 0.0f);
+    engine.renderOfflineBlock(outL, outR, 256);
+
+    float peak = 0.0f;
+    for (int i = 0; i < 256; ++i) {
+        peak = std::max(peak, std::max(std::abs(outL[i]), std::abs(outR[i])));
+    }
+    std::cout << "Rendered block peak for DX7 on track 5: " << peak << std::endl;
+
+    // Test Physical Instrument (Concert Grand)
+    NodeId grandSrc = engine.assignTrackInstrument(tIdx, "Concert Grand");
+    std::cout << "Assigned Grand NodeId: " << grandSrc << std::endl;
+    engine.postNoteOn(60, 0.85f, false, false, static_cast<int>(tIdx));
+    std::fill_n(outL, 256, 0.0f);
+    std::fill_n(outR, 256, 0.0f);
+    engine.renderOfflineBlock(outL, outR, 256);
+    float grandPeak = 0.0f;
+    for (int i = 0; i < 256; ++i) {
+        grandPeak = std::max(grandPeak, std::max(std::abs(outL[i]), std::abs(outR[i])));
+    }
+    std::cout << "Rendered block peak for Grand Piano on track 5: " << grandPeak << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits Audio & Real-Time DSP Test Suite ===" << std::endl;
     testRingBufferConcurrency();
@@ -260,6 +315,8 @@ int main() {
     testTb303CutoffSweepStability();
     testAudioEnginePanic();
     testAudioCallbackArbitraryChunking();
+    testTrackAddingAndInstrumentWiring();
     std::cout << "=== ALL AUDIO TESTS PASSED SUCCESSFULLY! ===" << std::endl;
     return 0;
 }
+

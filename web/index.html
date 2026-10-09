@@ -61,6 +61,7 @@
             height: 100%;
             outline: none;
             cursor: default;
+            touch-action: none;
         }
 
         /* Startup & WebGPU Loader Overlay from Eatsbeats */
@@ -282,9 +283,18 @@
         }
 
         // Silent unlock listeners for first user gesture (touch, click, keydown)
+        window.eatsbitsLastPointerIsTouch = false;
         ['click', 'pointerdown', 'keydown', 'touchstart'].forEach(function(evt) {
             window.addEventListener(evt, unlockAudio, { passive: true, capture: true });
         });
+        ['touchstart', 'touchend', 'touchcancel'].forEach(function(evt) {
+            window.addEventListener(evt, function() {
+                window.eatsbitsLastPointerIsTouch = true;
+            }, { passive: true, capture: true });
+        });
+        window.addEventListener('mousedown', function() {
+            window.eatsbitsLastPointerIsTouch = false;
+        }, { passive: true, capture: true });
 
         // Verify WebGPU support and initiate device acquisition immediately
         let webgpuDevicePromise = null;
@@ -392,11 +402,15 @@
             var proxy = document.getElementById('mobile-text-proxy');
             if (!proxy) return;
 
+            var lastBackspaceTime = 0;
+
             window.eatsbitsShowSoftKeyboard = function() {
+                window.eatsbitsSoftKeyboardActive = true;
                 proxy.value = '';
                 proxy.focus({ preventScroll: true });
             };
             window.eatsbitsHideSoftKeyboard = function() {
+                window.eatsbitsSoftKeyboardActive = false;
                 proxy.blur();
                 proxy.value = '';
             };
@@ -422,11 +436,21 @@
                 }
             }
 
+            // Stop bubbling to prevent Emscripten/GLFW document listeners from duplicating events
+            ['keydown', 'keyup', 'keypress'].forEach(function(evtName) {
+                proxy.addEventListener(evtName, function(e) {
+                    e.stopPropagation();
+                    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                });
+            });
+
             proxy.addEventListener('keydown', function(e) {
+                e.stopPropagation();
                 if (e.key === 'Backspace') {
                     sendKey(259, 0); // GLFW_KEY_BACKSPACE
                     e.preventDefault();
                     proxy.value = '';
+                    lastBackspaceTime = Date.now();
                 } else if (e.key === 'Enter') {
                     sendKey(257, 0); // GLFW_KEY_ENTER
                     e.preventDefault();
@@ -436,21 +460,30 @@
                     e.preventDefault();
                 } else if (e.key === 'Escape') {
                     sendKey(256, 0); // GLFW_KEY_ESCAPE
+                    window.eatsbitsSoftKeyboardActive = false;
                     proxy.blur();
                 } else if (e.key === 'ArrowLeft') {
                     sendKey(263, 0);
+                    e.preventDefault();
                 } else if (e.key === 'ArrowRight') {
                     sendKey(262, 0);
+                    e.preventDefault();
                 } else if (e.key === 'ArrowUp') {
                     sendKey(265, 0);
+                    e.preventDefault();
                 } else if (e.key === 'ArrowDown') {
                     sendKey(264, 0);
+                    e.preventDefault();
                 }
             });
 
             proxy.addEventListener('input', function(e) {
+                e.stopPropagation();
                 if (e.inputType === 'deleteContentBackward') {
-                    sendKey(259, 0); // GLFW_KEY_BACKSPACE
+                    // Prevent duplicate Backspace if keydown already processed it within 150ms
+                    if (Date.now() - lastBackspaceTime > 150) {
+                        sendKey(259, 0); // GLFW_KEY_BACKSPACE
+                    }
                     proxy.value = '';
                     return;
                 }

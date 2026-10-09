@@ -85,12 +85,13 @@ enum class AudioEventType : uint8_t {
 };
 
 struct AudioEvent {
-    AudioEventType type;
-    uint8_t channel;
-    uint8_t note;
-    float velocity;
-    uint32_t paramId;
-    float paramValue;
+    AudioEventType type{AudioEventType::NoteOn};
+    uint8_t channel{0};
+    uint8_t note{0};
+    float velocity{0.0f};
+    uint32_t paramId{0};
+    float paramValue{0.0f};
+    uint32_t targetNodeId{0};
 };
 
 struct MeterFeedback {

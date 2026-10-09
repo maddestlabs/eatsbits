@@ -88,21 +88,6 @@ void DesignView::initDefaultTargetsAndCode() {
     allTargets_.push_back({"mfx_arpeggiator", "Arpeggiator (16th UpDown)", "Algorithmic Pattern Generator", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.13f, 0.96f, 0.91f}, 1, -1, 0});
     allTargets_.push_back({"mfx_chord_follow", "Chord Follower (Triad Lock)", "Harmonic Progression Tracking", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.2f, 1.0f, 0.45f}, 3, -1, 0});
 
-    // 3. Generative Clip Scripts (4 tracks)
-    allTargets_.push_back({"clip_kick", "Kick Rest A (Eats Kick)", "Dynamic Four-on-the-Floor", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.55f, 0.0f}, 0, 0, -1});
-    allTargets_.push_back({"clip_snare", "Snare Pattern (Eats Snare)", "Backbeat 2 & 4 with Ghosts", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {1.0f, 0.85f, 0.0f}, 1, 0, -1});
-    allTargets_.push_back({"clip_hats", "Hi-Hat Groove (Eats Hats)", "16th-Note Swing Groove", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.13f, 0.96f, 0.91f}, 2, 0, -1});
-    allTargets_.push_back({"clip_303", "Acid 303 Riff (Eats-303)", "16-Step Hypnotic Ostinato", ScriptTargetType::ClipScript, "CLIP SCRIPT", {0.0f, 1.0f, 0.62f}, {0.2f, 1.0f, 0.45f}, 3, 0, -1});
-
-    // 4. Built-in Preset Library Reference
-    auto builtins = project::PresetLoader::getBuiltinPresets();
-    for (const auto& bp : builtins) {
-        allTargets_.push_back({bp.metadata.id, bp.metadata.name, bp.metadata.category, ScriptTargetType::BuiltinPreset,
-                              bp.metadata.category == "instrument" ? "INSTRUMENT" : "AUDIO FX",
-                              bp.metadata.category == "instrument" ? Color{0.0f, 0.95f, 1.0f} : Color{1.0f, 0.16f, 0.55f},
-                              Color{0.7f, 0.75f, 0.85f}, -1, -1, -1});
-    }
-
     activeTargetIndex_ = 0;
     updateActiveTargetCodeAndParams();
 }
@@ -160,28 +145,6 @@ void DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& track
             allTargets_.push_back({id, mfx.name + " (" + trk.name + ")", sub, ScriptTargetType::MidiFx,
                                    "MIDI FX", Color{1.0f, 0.85f, 0.0f}, trkCol, static_cast<int>(t), -1, static_cast<int>(m)});
         }
-    }
-
-    // 4. Clip Scripts
-    for (size_t t = 0; t < cachedTracks_.size(); ++t) {
-        const auto& trk = cachedTracks_[t];
-        Color trkCol{trk.r, trk.g, trk.b};
-        for (size_t c = 0; c < trk.clips.size(); ++c) {
-            const auto& clp = trk.clips[c];
-            std::string id = "track_" + std::to_string(t) + "_clip_" + std::to_string(c);
-            std::string sub = "Bar " + std::to_string(clp.startBar) + " (" + std::to_string(clp.lengthBars) + " bars)";
-            allTargets_.push_back({id, clp.name + " (" + trk.name + ")", sub, ScriptTargetType::ClipScript,
-                                   "CLIP SCRIPT", Color{0.0f, 1.0f, 0.62f}, trkCol, static_cast<int>(t), static_cast<int>(c), -1});
-        }
-    }
-
-    // 5. Built-in Preset Library Reference
-    auto builtins = project::PresetLoader::getBuiltinPresets();
-    for (const auto& bp : builtins) {
-        allTargets_.push_back({bp.metadata.id, bp.metadata.name, bp.metadata.category, ScriptTargetType::BuiltinPreset,
-                              bp.metadata.category == "instrument" ? "INSTRUMENT" : "AUDIO FX",
-                              bp.metadata.category == "instrument" ? Color{0.0f, 0.95f, 1.0f} : Color{1.0f, 0.16f, 0.55f},
-                              Color{0.7f, 0.75f, 0.85f}, -1, -1, -1});
     }
 
     // Restore selection or select best matching target
@@ -1284,94 +1247,225 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
+    // Sidebar background & separator
     drawRect(r, explorerBounds_.x, explorerBounds_.y, explorerBounds_.w, explorerBounds_.h,
-             0.10f, 0.11f, 0.14f, 1.0f);
+             0.09f, 0.10f, 0.13f, 1.0f);
     drawLine(r, explorerBounds_.x + explorerBounds_.w, explorerBounds_.y,
              explorerBounds_.x + explorerBounds_.w, explorerBounds_.y + explorerBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.2f);
+             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
 
+    // 1. Sidebar Header with active project indicator
     float ey = explorerBounds_.y + 8.0f;
-    drawText(r, "PROJECT SCRIPTS", explorerBounds_.x + 10.0f, ey, 10.5f,
+    drawText(r, "PROJECT SCRIPTS", explorerBounds_.x + 10.0f, ey + 1.0f, 10.5f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
-    drawText(r, std::to_string(allTargets_.size()), explorerBounds_.x + explorerBounds_.w - 24.0f, ey, 10.0f,
-             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
-    ey += 20.0f;
-    drawRoundedRect(r, explorerBounds_.x + 8.0f, ey, explorerBounds_.w - 16.0f, 22.0f, 3.0f,
-                    0.05f, 0.06f, 0.08f, 0.9f);
-    drawMonoText(r, scriptFilterQuery_.empty() ? "Filter scripts..." : scriptFilterQuery_,
-                 explorerBounds_.x + 14.0f, ey + 5.0f, 9.5f,
+    // Active project pulse dot + count badge
+    float badgeW = 62.0f;
+    float badgeH = 16.0f;
+    float badgeX = explorerBounds_.x + explorerBounds_.w - badgeW - 8.0f;
+    drawRoundedRect(r, badgeX, ey - 1.0f, badgeW, badgeH, 3.0f,
+                    0.05f, 0.20f, 0.12f, 0.85f);
+    drawRoundedRectOutline(r, badgeX, ey - 1.0f, badgeW, badgeH, 3.0f,
+                           0.0f, 0.95f, 0.45f, 0.70f, 1.0f);
+    drawCircle(r, badgeX + 7.0f, ey + 7.0f, 2.5f, 0.0f, 1.0f, 0.55f, 1.0f);
+    std::string badgeLabel = std::to_string(allTargets_.size()) + " LOADED";
+    drawText(r, badgeLabel, badgeX + 13.0f, ey + 2.0f, 8.0f, 0.0f, 1.0f, 0.55f, 1.0f);
+
+    ey += 22.0f;
+
+    // 2. Filter Pills: [ALL] [INST] [FX] [MIDI]
+    float pillGap = 3.0f;
+    float pillAreaW = explorerBounds_.w - 16.0f;
+    float pillW = std::floor((pillAreaW - (pillGap * 3.0f)) / 4.0f);
+    float pillH = 20.0f;
+    float px = explorerBounds_.x + 8.0f;
+
+    btnFilterAll_ = Rect2D(px, ey, pillW, pillH);
+    btnFilterInst_ = Rect2D(px + pillW + pillGap, ey, pillW, pillH);
+    btnFilterFx_ = Rect2D(px + (pillW + pillGap) * 2.0f, ey, pillW, pillH);
+    btnFilterMidi_ = Rect2D(px + (pillW + pillGap) * 3.0f, ey, pillW, pillH);
+
+    auto drawPill = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {
+        if (active) {
+            drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, accent.r * 0.25f, accent.g * 0.25f, accent.b * 0.25f, 0.95f);
+            drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, accent.r, accent.g, accent.b, 0.90f, 1.0f);
+            drawText(r, label, b.x + (b.w - label.length() * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, accent.r, accent.g, accent.b, 1.0f);
+        } else {
+            drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, 0.12f, 0.13f, 0.17f, 0.85f);
+            drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, 0.20f, 0.22f, 0.28f, 0.60f, 1.0f);
+            drawText(r, label, b.x + (b.w - label.length() * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+        }
+    };
+
+    drawPill(btnFilterAll_, "ALL", explorerFilter_ == ExplorerFilterMode::All, theme.primaryAccent);
+    drawPill(btnFilterInst_, "INST", explorerFilter_ == ExplorerFilterMode::Instruments, Color{0.0f, 0.95f, 1.0f});
+    drawPill(btnFilterFx_, "FX", explorerFilter_ == ExplorerFilterMode::AudioFx, Color{1.0f, 0.16f, 0.55f});
+    drawPill(btnFilterMidi_, "MIDI", explorerFilter_ == ExplorerFilterMode::MidiFx, Color{1.0f, 0.85f, 0.0f});
+
+    ey += pillH + 6.0f;
+
+    // 3. Search / Filter box
+    explorerSearchBoxBounds_ = Rect2D(explorerBounds_.x + 8.0f, ey, explorerBounds_.w - 16.0f, 22.0f);
+    drawRoundedRect(r, explorerSearchBoxBounds_.x, explorerSearchBoxBounds_.y,
+                    explorerSearchBoxBounds_.w, explorerSearchBoxBounds_.h, 3.0f,
+                    0.05f, 0.06f, 0.08f, 0.95f);
+    drawRoundedRectOutline(r, explorerSearchBoxBounds_.x, explorerSearchBoxBounds_.y,
+                           explorerSearchBoxBounds_.w, explorerSearchBoxBounds_.h, 3.0f,
+                           0.18f, 0.20f, 0.25f, 0.60f, 1.0f);
+    drawMonoText(r, scriptFilterQuery_.empty() ? "Filter loaded scripts..." : scriptFilterQuery_,
+                 explorerSearchBoxBounds_.x + 8.0f, explorerSearchBoxBounds_.y + 5.0f, 9.0f,
                  scriptFilterQuery_.empty() ? theme.textMuted.r : 0.95f,
                  scriptFilterQuery_.empty() ? theme.textMuted.g : 0.95f,
                  scriptFilterQuery_.empty() ? theme.textMuted.b : 0.95f,
-                 scriptFilterQuery_.empty() ? 0.6f : 1.0f);
+                 scriptFilterQuery_.empty() ? 0.55f : 1.0f);
+
+    ey += 28.0f;
+
+    // 4. Scrollable List of Loaded Project Scripts
+    float listTopY = ey;
+    float listBottomY = explorerBounds_.y + explorerBounds_.h - 6.0f;
+    float listH = std::max(40.0f, listBottomY - listTopY);
 
     explorerItemBounds_.clear();
-    ey += 30.0f;
 
-    auto renderGroup = [&](const std::string& title, const Color& col, ScriptTargetType type) {
-        drawText(r, title, explorerBounds_.x + 10.0f, ey, 9.0f, col.r, col.g, col.b, 1.0f);
-        ey += 15.0f;
+    // Group counts
+    size_t countDsp = 0, countAfx = 0, countMfx = 0;
+    for (const auto& t : allTargets_) {
+        if (t.type == ScriptTargetType::TrackDsp) countDsp++;
+        else if (t.type == ScriptTargetType::AudioFx) countAfx++;
+        else if (t.type == ScriptTargetType::MidiFx) countMfx++;
+    }
 
-        int count = 0;
+    struct GroupInfo {
+        std::string title;
+        std::string shortTag;
+        Color accent;
+        ScriptTargetType type;
+        size_t count;
+        bool visible;
+    };
+
+    std::vector<GroupInfo> groups = {
+        {"INSTRUMENTS & DSP", "SYNTH", Color{0.0f, 0.95f, 1.0f}, ScriptTargetType::TrackDsp, countDsp,
+         (explorerFilter_ == ExplorerFilterMode::All || explorerFilter_ == ExplorerFilterMode::Instruments)},
+        {"AUDIO FX INSERTS", "FX", Color{1.0f, 0.16f, 0.55f}, ScriptTargetType::AudioFx, countAfx,
+         (explorerFilter_ == ExplorerFilterMode::All || explorerFilter_ == ExplorerFilterMode::AudioFx)},
+        {"MIDI FX PROCESSORS", "MIDI", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::MidiFx, countMfx,
+         (explorerFilter_ == ExplorerFilterMode::All || explorerFilter_ == ExplorerFilterMode::MidiFx)}
+    };
+
+    float currentContentY = listTopY;
+
+    for (size_t g = 0; g < groups.size(); ++g) {
+        const auto& grp = groups[g];
+        if (!grp.visible) continue;
+
+        // Group header
+        float headerY = currentContentY - explorerScrollY_;
+        if (headerY + 16.0f >= listTopY && headerY <= listBottomY) {
+            std::string grpHeader = grp.title + " (" + std::to_string(grp.count) + ")";
+            drawText(r, grpHeader, explorerBounds_.x + 10.0f, headerY, 9.0f,
+                     grp.accent.r, grp.accent.g, grp.accent.b, 1.0f);
+        }
+        currentContentY += 16.0f;
+
+        int itemsRendered = 0;
         for (size_t i = 0; i < allTargets_.size(); ++i) {
-            if (allTargets_[i].type != type) continue;
+            if (allTargets_[i].type != grp.type) continue;
+
+            // Search filter query
             if (!scriptFilterQuery_.empty()) {
                 std::string q = scriptFilterQuery_;
                 for (char& c : q) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                std::string tit = allTargets_[i].title + " " + allTargets_[i].subtitle + " " + allTargets_[i].id;
-                for (char& c : tit) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (tit.find(q) == std::string::npos) continue;
+                std::string matchStr = allTargets_[i].title + " " + allTargets_[i].subtitle + " " + allTargets_[i].id;
+                for (char& c : matchStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (matchStr.find(q) == std::string::npos) continue;
             }
-            count++;
 
-            Rect2D itemR(explorerBounds_.x + 6.0f, ey, explorerBounds_.w - 12.0f, 20.0f);
+            itemsRendered++;
+            float cardH = 32.0f;
+            float itemY = currentContentY - explorerScrollY_;
+            Rect2D itemR(explorerBounds_.x + 6.0f, itemY, explorerBounds_.w - 12.0f, cardH);
             explorerItemBounds_.push_back({static_cast<int>(i), itemR});
 
-            bool isSel = (static_cast<int>(i) == activeTargetIndex_);
-            if (isSel) {
-                drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 3.0f,
-                                col.r * 0.22f, col.g * 0.22f, col.b * 0.22f, 0.85f);
-                drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 3.0f,
-                                       col.r, col.g, col.b, 0.8f, 1.0f);
+            if (itemY + cardH >= listTopY && itemY <= listBottomY) {
+                bool isSel = (static_cast<int>(i) == activeTargetIndex_);
+                if (isSel) {
+                    drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                                    grp.accent.r * 0.20f, grp.accent.g * 0.20f, grp.accent.b * 0.20f, 0.90f);
+                    drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                                           grp.accent.r, grp.accent.g, grp.accent.b, 0.85f, 1.0f);
+                    // Left vertical accent bar
+                    drawRoundedRect(r, itemR.x + 1.0f, itemR.y + 2.0f, 3.0f, itemR.h - 4.0f, 1.5f,
+                                    grp.accent.r, grp.accent.g, grp.accent.b, 1.0f);
+                } else {
+                    drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                                    0.11f, 0.12f, 0.16f, 0.70f);
+                    drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                                           0.18f, 0.20f, 0.25f, 0.50f, 1.0f);
+                }
+
+                // Track color indicator
+                drawCircle(r, itemR.x + 12.0f, itemR.y + 11.0f, 3.5f,
+                           allTargets_[i].trackColor.r, allTargets_[i].trackColor.g, allTargets_[i].trackColor.b, 1.0f);
+
+                // Type badge on right
+                float badgeW_ = 32.0f;
+                float badgeH_ = 13.0f;
+                float bx = itemR.x + itemR.w - badgeW_ - 4.0f;
+                float by = itemR.y + 4.0f;
+                drawRoundedRect(r, bx, by, badgeW_, badgeH_, 2.0f,
+                                grp.accent.r * 0.25f, grp.accent.g * 0.25f, grp.accent.b * 0.25f, 0.80f);
+                drawText(r, grp.shortTag, bx + (badgeW_ - grp.shortTag.length() * 4.8f) * 0.5f, by + 2.5f, 7.5f,
+                         grp.accent.r, grp.accent.g, grp.accent.b, 1.0f);
+
+                // Title
+                drawText(r, allTargets_[i].title, itemR.x + 20.0f, itemR.y + 4.0f, 9.5f,
+                         isSel ? 1.0f : 0.88f, isSel ? 1.0f : 0.88f, isSel ? 1.0f : 0.88f, 1.0f);
+
+                // Subtitle
+                drawText(r, allTargets_[i].subtitle, itemR.x + 20.0f, itemR.y + 17.0f, 8.0f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
             }
 
-            drawCircle(r, itemR.x + 8.0f, itemR.y + 10.0f, 3.0f,
-                       allTargets_[i].trackColor.r, allTargets_[i].trackColor.g, allTargets_[i].trackColor.b, 1.0f);
-            drawText(r, allTargets_[i].title, itemR.x + 18.0f, itemR.y + 4.0f, 9.5f,
-                     isSel ? 1.0f : 0.82f, isSel ? 1.0f : 0.82f, isSel ? 1.0f : 0.82f, 1.0f);
-
-            ey += 22.0f;
+            currentContentY += cardH + 3.0f;
         }
 
-        if (count == 0) {
-            drawText(r, "No modules in tracks", explorerBounds_.x + 16.0f, ey, 9.0f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f);
-            ey += 18.0f;
+        if (itemsRendered == 0) {
+            float emptyY = currentContentY - explorerScrollY_;
+            if (emptyY + 16.0f >= listTopY && emptyY <= listBottomY) {
+                drawText(r, "No " + grp.title + " in project", explorerBounds_.x + 16.0f, emptyY, 8.5f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.55f);
+            }
+            currentContentY += 16.0f;
         }
 
-        drawLine(r, explorerBounds_.x + 10.0f, ey, explorerBounds_.x + explorerBounds_.w - 10.0f, ey,
-                 0.18f, 0.20f, 0.26f, 0.7f, 1.0f);
-        ey += 8.0f;
-    };
-
-    size_t countDsp = 0, countAfx = 0, countMfx = 0, countClips = 0, countPresets = 0;
-    for (const auto& t : allTargets_) {
-        switch (t.type) {
-            case ScriptTargetType::TrackDsp: countDsp++; break;
-            case ScriptTargetType::AudioFx: countAfx++; break;
-            case ScriptTargetType::MidiFx: countMfx++; break;
-            case ScriptTargetType::ClipScript: countClips++; break;
-            case ScriptTargetType::BuiltinPreset: countPresets++; break;
-            default: break;
+        // Section divider line
+        float divY = currentContentY - explorerScrollY_;
+        if (divY >= listTopY && divY <= listBottomY) {
+            drawLine(r, explorerBounds_.x + 8.0f, divY, explorerBounds_.x + explorerBounds_.w - 8.0f, divY,
+                     0.16f, 0.18f, 0.24f, 0.70f, 1.0f);
         }
+        currentContentY += 6.0f;
     }
 
-    renderGroup("SYNTHS & DSP (" + std::to_string(countDsp) + ")", theme.primaryAccent, ScriptTargetType::TrackDsp);
-    renderGroup("AUDIO FX INSERTS (" + std::to_string(countAfx) + ")", Color{1.0f, 0.16f, 0.55f}, ScriptTargetType::AudioFx);
-    renderGroup("TRACK MIDI FX (" + std::to_string(countMfx) + ")", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::MidiFx);
-    renderGroup("CLIP SCRIPTS (" + std::to_string(countClips) + ")", Color{0.0f, 1.0f, 0.62f}, ScriptTargetType::ClipScript);
-    renderGroup("BUILT-IN PRESETS (" + std::to_string(countPresets) + ")", Color{1.0f, 0.85f, 0.0f}, ScriptTargetType::BuiltinPreset);
+    // Calculate max scroll
+    float totalListH = currentContentY - listTopY;
+    explorerMaxScrollY_ = std::max(0.0f, totalListH - listH);
+
+    // Scrollbar if needed
+    if (explorerMaxScrollY_ > 0.0f) {
+        float scrollTrackW = 3.0f;
+        float trackX = explorerBounds_.x + explorerBounds_.w - scrollTrackW - 2.0f;
+        float trackH = listH;
+        float thumbH = std::max(18.0f, trackH * (listH / totalListH));
+        float thumbY = listTopY + (explorerScrollY_ / explorerMaxScrollY_) * (trackH - thumbH);
+
+        drawRoundedRect(r, trackX, listTopY, scrollTrackW, trackH, 1.5f,
+                        0.07f, 0.08f, 0.10f, 0.50f);
+        drawRoundedRect(r, trackX, thumbY, scrollTrackW, thumbH, 1.5f,
+                        0.30f, 0.35f, 0.45f, 0.80f);
+    }
 }
 
 void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
@@ -2136,8 +2230,29 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
 
-        // Explorer Item selection
+        // Explorer Sidebar interactions
         if (isExplorerOpen_) {
+            if (btnFilterAll_.contains(ev.x, ev.y)) {
+                explorerFilter_ = ExplorerFilterMode::All;
+                explorerScrollY_ = 0.0f;
+                return true;
+            }
+            if (btnFilterInst_.contains(ev.x, ev.y)) {
+                explorerFilter_ = ExplorerFilterMode::Instruments;
+                explorerScrollY_ = 0.0f;
+                return true;
+            }
+            if (btnFilterFx_.contains(ev.x, ev.y)) {
+                explorerFilter_ = ExplorerFilterMode::AudioFx;
+                explorerScrollY_ = 0.0f;
+                return true;
+            }
+            if (btnFilterMidi_.contains(ev.x, ev.y)) {
+                explorerFilter_ = ExplorerFilterMode::MidiFx;
+                explorerScrollY_ = 0.0f;
+                return true;
+            }
+
             for (const auto& item : explorerItemBounds_) {
                 if (item.second.contains(ev.x, ev.y)) {
                     selectTargetByIndex(item.first);
@@ -2630,6 +2745,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Scroll) {
+        if (isExplorerOpen_ && explorerBounds_.contains(ev.x, ev.y)) {
+            explorerScrollY_ = std::clamp(explorerScrollY_ - ev.scrollY * 24.0f, 0.0f, explorerMaxScrollY_);
+            return true;
+        }
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
             if (textEditor_.handlePointer(ev, ctx)) return true;
         }

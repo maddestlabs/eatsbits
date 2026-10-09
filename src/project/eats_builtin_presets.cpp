@@ -52,7 +52,12 @@ static const std::vector<PresetInfo> s_catalog = {
     {"c64_sid_synth", "C64 MOS 6581 SID Synth", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Commodore 64 chiptune synthesizer with wave combining, ring mod, and analog multi-mode filter.", "Eatsbits DSP", "preset:inst_synth"},
     {"dx7_epiano", "Yamaha DX7 FM E-Piano", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "6-Operator classic 1983 frequency modulation electric piano.", "Eatsbits DSP", "preset:inst_epiano"},
     {"snes_console_synth", "SNES Sony SPC700 Console", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "16-bit Super Nintendo 32kHz BRR sample synth with 8-tap FIR gaussian echo.", "Eatsbits DSP", "preset:inst_snes"},
-    {"ym2612_synth", "Sega Genesis YM2612 FM", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Sega Genesis 4-Operator OPN2 FM synthesis with 8 routing algorithms.", "Eatsbits DSP", "preset:inst_genesis"}
+    {"ym2612_synth", "Sega Genesis YM2612 FM", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Sega Genesis 4-Operator OPN2 FM synthesis with 8 routing algorithms.", "Eatsbits DSP", "preset:inst_genesis"},
+
+    // Drum Machines & MPC Workstations
+    {"modular_drumpad_kit", "Modular Drum Machine (16-Pad MPC Matrix)", PresetCategory::Drums, PhysicalModelFamily::ElectronicSynth, "Dedicated 16/32-pad modular drum workstation with touch-sensitive rubber pads, dual core/percussion banks, and kit macro controls.", "Eatsbits DSP", "preset:inst_drums"},
+    {"eats_808_drumpad", "Eats-808 Drum Machine & Pad Workstation", PresetCategory::Drums, PhysicalModelFamily::ElectronicSynth, "Dedicated 16/32-pad rhythm composer workstation loaded with authentic Roland TR-808 analog bridged-T kick, snare, toms, congas, cowbell, hats, cymbal, and clap.", "Eatsbits DSP", "preset:inst_drums"},
+    {"eats_909_drumpad", "Eats-909 Drum Machine & Pad Workstation", PresetCategory::Drums, PhysicalModelFamily::ElectronicSynth, "Dedicated 16/32-pad rhythm composer workstation with authentic 909 physical kick, dual body snare, 6-bit hats, clap, rimshot, crash, and ride.", "Eatsbits DSP", "preset:inst_drums"}
 };
 
 const std::vector<PresetInfo>& BuiltinPresetRegistry::getCatalogInfo() {

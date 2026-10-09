@@ -2024,13 +2024,19 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
         if (ok) {
             fullscreenDeviceModal_.setIsGuiEmbedded(true);
         } else {
-            clapNode->openGuiWindow();
+            bool floatOk = clapNode->openGuiWindow();
             fullscreenDeviceModal_.setIsGuiEmbedded(false);
+            if (!floatOk) {
+                setStatusMessage("Custom GUI unavailable: loaded generic parameter controls for " + clapNode->getPluginName());
+            }
         }
     }
 #else
     if (clapNode && clapNode->hasGui()) {
-        clapNode->openGuiWindow();
+        bool floatOk = clapNode->openGuiWindow();
+        if (!floatOk) {
+            setStatusMessage("Custom GUI unavailable: loaded generic parameter controls for " + clapNode->getPluginName());
+        }
     }
 #endif
 
@@ -2126,13 +2132,19 @@ void GuiWindow::openFullscreenFx(uint32_t trackIndex, int fxIndex) {
         if (ok) {
             fullscreenDeviceModal_.setIsGuiEmbedded(true);
         } else {
-            clapFxNode->openGuiWindow();
+            bool floatOk = clapFxNode->openGuiWindow();
             fullscreenDeviceModal_.setIsGuiEmbedded(false);
+            if (!floatOk) {
+                setStatusMessage("Custom GUI unavailable: loaded generic parameter controls for " + clapFxNode->getPluginName());
+            }
         }
     }
 #else
     if (clapFxNode && clapFxNode->hasGui()) {
-        clapFxNode->openGuiWindow();
+        bool floatOk = clapFxNode->openGuiWindow();
+        if (!floatOk) {
+            setStatusMessage("Custom GUI unavailable: loaded generic parameter controls for " + clapFxNode->getPluginName());
+        }
     }
 #endif
 
@@ -4747,21 +4759,30 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (fullscreenDeviceModal_.isGuiEmbedded()) {
             // User clicked DETACH -> Hide embedded child, open floating window
             clapNode->hideEmbeddedGui();
-            clapNode->openGuiWindow();
+            bool floatOk = clapNode->openGuiWindow();
             fullscreenDeviceModal_.setIsGuiEmbedded(false);
-            setStatusMessage("Popped out plugin window: " + clapNode->getPluginName());
+            if (floatOk) {
+                setStatusMessage("Popped out plugin window: " + clapNode->getPluginName());
+            } else {
+                setStatusMessage("Could not float plugin window; keeping generic parameter inspector for " + clapNode->getPluginName());
+            }
         } else {
             // User clicked EMBED -> Close floating window, dock into fullscreen view
             clapNode->closeGuiWindow();
 #if defined(_WIN32)
             HWND mainHwnd = glfwGetWin32Window(window_);
             const auto& b = fullscreenDeviceModal_.getBodyBounds();
-            clapNode->openEmbeddedGui(mainHwnd,
+            bool embedOk = clapNode->openEmbeddedGui(mainHwnd,
                 static_cast<int>(b.x), static_cast<int>(b.y),
                 static_cast<int>(b.w), static_cast<int>(b.h));
+            if (embedOk) {
+                fullscreenDeviceModal_.setIsGuiEmbedded(true);
+                setStatusMessage("Docked plugin into view: " + clapNode->getPluginName());
+            } else {
+                fullscreenDeviceModal_.setIsGuiEmbedded(false);
+                setStatusMessage("Could not dock plugin GUI; falling back to generic parameter controls for " + clapNode->getPluginName());
+            }
 #endif
-            fullscreenDeviceModal_.setIsGuiEmbedded(true);
-            setStatusMessage("Docked plugin into view: " + clapNode->getPluginName());
         }
     };
     fullscreenDeviceModal_.onPrevPreset = [this]() {

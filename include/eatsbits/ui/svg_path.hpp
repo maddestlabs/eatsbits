@@ -120,48 +120,6 @@ private:
     void computeBounds();
 };
 
-/**
- * Texture cache for GPU-accelerated rasterized SVG paths and multi-layer watermarks.
- * Caches texture IDs across frames for high-performance zero-allocation UI rendering.
- */
-class SvgTextureCache {
-public:
-    static SvgTextureCache& instance();
-
-    ~SvgTextureCache();
-
-    /**
-     * Retrieves or rasterizes a multi-layer SVG definition into a GPU texture ID.
-     * Returns 0 if rasterization fails or OpenGL is not initialized.
-     */
-    uint32_t getOrCreateTexture(const std::string& cacheKey,
-                                const std::vector<SvgLayerDef>& layers,
-                                int width, int height,
-                                float scale = 1.0f);
-
-    /**
-     * Rasterizes an SVG layer into an RGBA pixel buffer.
-     */
-    static std::vector<uint8_t> rasterizeLayersToRgba(const std::vector<SvgLayerDef>& layers,
-                                                      int width, int height,
-                                                      float scale = 1.0f);
-
-    /**
-     * Frees all GPU textures and clears cache.
-     */
-    void shutdown();
-
-private:
-    SvgTextureCache() = default;
-
-    struct CachedTexture {
-        uint32_t textureId{0};
-        int width{0};
-        int height{0};
-    };
-
-    std::unordered_map<std::string, CachedTexture> cache_;
-};
 
 /**
  * Canonical Eatsbits Logo geometry represented in 100% pure SVG paths.

@@ -181,6 +181,7 @@ public:
     std::function<void(bool expanded, float width)> onPropertiesDrawerStateChanged;
     std::function<void(uint32_t channelIdx)> onTrackSelected;
     std::function<void(uint32_t channelIdx, const std::string& newName)> onTrackRename;
+    std::function<void(uint32_t channelIdx, const std::string& instrumentId, const std::string& instrumentName)> onInstrumentChanged;
     std::function<void(uint32_t channelIdx)> onChooseTrackIcon;
     std::function<void(uint32_t channelIdx)> onAudioFxChanged;
     std::function<void(uint32_t channelIdx)> onMidiFxChanged;

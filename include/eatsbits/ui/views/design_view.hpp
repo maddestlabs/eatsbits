@@ -20,6 +20,13 @@ enum class DesignSubMode {
     GuiPreview = 3 // Backward compatibility with unit tests
 };
 
+enum class ExplorerFilterMode {
+    All = 0,
+    Instruments = 1,
+    AudioFx = 2,
+    MidiFx = 3
+};
+
 enum class ScriptTargetType {
     TrackDsp,
     AudioFx,
@@ -118,6 +125,8 @@ public:
     [[nodiscard]] const std::string& getScriptCode() const noexcept { return currentScriptCode_; }
     void setScriptCode(const std::string& code);
     void compileCurrentScript(const ViewContext& ctx);
+    void setExplorerFilter(ExplorerFilterMode filter) noexcept { explorerFilter_ = filter; }
+    [[nodiscard]] ExplorerFilterMode getExplorerFilter() const noexcept { return explorerFilter_; }
 
     // GUI Designer methods
     [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
@@ -286,8 +295,16 @@ private:
 
     // Target Dropdown Item Rects
     std::vector<Rect2D> targetDropdownItemBounds_;
-    // Explorer Item Rects
+    // Explorer Item Rects & Filter Controls
     std::vector<std::pair<int, Rect2D>> explorerItemBounds_;
+    ExplorerFilterMode explorerFilter_{ExplorerFilterMode::All};
+    float explorerScrollY_{0.0f};
+    float explorerMaxScrollY_{0.0f};
+    Rect2D btnFilterAll_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnFilterInst_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnFilterFx_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnFilterMidi_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D explorerSearchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 } // namespace eatsbits::ui

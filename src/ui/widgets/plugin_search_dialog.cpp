@@ -1,5 +1,6 @@
 #include "eatsbits/ui/widgets/plugin_search_dialog.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -70,10 +71,40 @@ void PluginSearchDialog::initLibrary() {
         }
     }
 
+    // 2. Discover and populate installed external CLAP plugins
+    auto clapPlugins = audio::ClapPluginLoader::instance().scanDirectories();
+
+    for (const auto& cp : clapPlugins) {
+        PluginEntry entry;
+        entry.id = "clap:" + cp.id;
+        entry.name = cp.name;
+        entry.category = cp.isInstrument ? "INSTRUMENTS" : "AUDIO FX";
+        entry.engineTag = "CLAP";
+        entry.description = cp.description.empty()
+            ? (cp.vendor + (cp.vendor.empty() ? "" : " - ") + cp.name + " (Native CLAP)")
+            : cp.description;
+        entry.r = 0.85f;
+        entry.g = 0.25f;
+        entry.b = 0.95f; // Sleek cyber magenta for CLAP plugins
+        entry.author = cp.vendor;
+        entry.filePath = cp.libraryPath;
+
+        allPresetLibrary_.push_back(entry);
+        if (cp.isInstrument || (!cp.isInstrument && !cp.isAudioEffect)) {
+            instrumentLibrary_.push_back(entry);
+        }
+        if (cp.isAudioEffect || (!cp.isInstrument && !cp.isAudioEffect)) {
+            audioFxLibrary_.push_back(entry);
+        }
+    }
+
     // Safety fallback: if preset folder was unavailable, ensure baseline devices exist
     if (instrumentLibrary_.empty()) {
         instrumentLibrary_ = {
             {"eats_303", "Roland TB-303 Acid Bass", "INSTRUMENTS", "Diode Ladder", "Classic 303 acid bassline synth with screaming resonance.", 0.13f, 0.96f, 0.91f},
+            {"modular_drumpad_kit", "Modular Drum Machine (16-Pad MPC Matrix)", "DRUMS", "MPC Rubber Pads", "Dedicated 16/32-pad modular drum workstation with touch-sensitive rubber pads, dual core/percussion banks, and kit macro controls.", 1.0f, 0.55f, 0.0f},
+            {"eats_808_drumpad", "Eats-808 Drum Machine & Pad Workstation", "DRUMS", "Analog 808", "Dedicated 16/32-pad rhythm composer workstation loaded with authentic Roland TR-808 analog bridged-T kick, snare, toms, congas, cowbell, hats, cymbal, and clap.", 1.0f, 0.0f, 0.48f},
+            {"eats_909_drumpad", "Eats-909 Drum Machine & Pad Workstation", "DRUMS", "Hybrid 909", "Dedicated 16/32-pad rhythm composer workstation with authentic 909 physical kick, dual body snare, 6-bit hats, clap, rimshot, crash, and ride.", 1.0f, 0.16f, 0.43f},
             {"808_drums", "TR-808 Rhythm Kit", "DRUMS", "Analog Voice", "Deep booming sub bass kicks, punchy snares, and crisp metallic cymbals.", 1.0f, 0.0f, 0.48f},
             {"909_drums", "TR-909 Groove Kit", "DRUMS", "Hybrid PCM", "Thumping 909 kick, punchy claps, and open/closed hi-hat groove.", 1.0f, 0.16f, 0.43f},
             {"dx7_epiano", "Yamaha DX7 FM E-Piano", "INSTRUMENTS", "6-Operator FM", "Lush crystalline 1980s FM electric piano with velocity timbre dynamics.", 0.62f, 0.31f, 0.87f},

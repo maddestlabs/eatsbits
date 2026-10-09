@@ -6,17 +6,26 @@
 
 namespace eatsbits::audio {
 
+enum class DrumKitType : uint8_t {
+    TR808 = 0,
+    TR909 = 1,
+    Combined = 2
+};
+
 /**
  * Modular TR-808 & TR-909 Drum Machine Kit Node.
  * Maps standard General MIDI percussion note numbers to authentic analog synthesis models.
  */
 class DrumKitNode : public GraphNode {
 public:
-    explicit DrumKitNode(std::string name = "DrumKit")
-        : GraphNode(std::move(name)) {
+    explicit DrumKitNode(std::string name = "DrumKit", DrumKitType kitType = DrumKitType::Combined)
+        : GraphNode(std::move(name)), kitType_(kitType) {
         // Source node: 0 input ports, 1 stereo output port
         addOutputPort(2);
     }
+
+    void setKitType(DrumKitType kit) noexcept { kitType_ = kit; }
+    [[nodiscard]] DrumKitType getKitType() const noexcept { return kitType_; }
 
     void prepare(double sampleRate, uint32_t maxBlockSize) override {
         sampleRate_ = sampleRate;
@@ -47,10 +56,18 @@ public:
 
         switch (note) {
             case 35: // Acoustic / 808 Bass Drum
-                kick808_.trigger(velocity, kickTune, kickDecay, 1.0f, overdrive_);
+                if (kitType_ == DrumKitType::TR909) {
+                    kick909_.trigger(velocity, kickTune, 1.0f, kickDecay, overdrive_);
+                } else {
+                    kick808_.trigger(velocity, kickTune, kickDecay, 1.0f, overdrive_);
+                }
                 break;
             case 36: // Bass Drum 1 / 909 Kick
-                kick909_.trigger(velocity, kickTune, 1.0f, kickDecay, overdrive_);
+                if (kitType_ == DrumKitType::TR808) {
+                    kick808_.trigger(velocity, kickTune, kickDecay, 1.0f, overdrive_);
+                } else {
+                    kick909_.trigger(velocity, kickTune, 1.0f, kickDecay, overdrive_);
+                }
                 break;
             case 38: // Acoustic / 808 Snare
             case 40: // Electric Snare
@@ -71,9 +88,16 @@ public:
                 cowbell808_.trigger(velocity);
                 break;
             default:
-                if (note < 37) kick808_.trigger(velocity, kickTune, kickDecay, 1.0f, overdrive_);
-                else if (note < 42) snare808_.trigger(velocity, 0.65f, 150.0f + tune_ * 100.0f, snareDecay);
-                else hihat808_.trigger(velocity, false);
+                // Only trigger default drums within GM percussion range (35..56)
+                if (note >= 35 && note <= 37) {
+                    if (kitType_ == DrumKitType::TR909) {
+                        kick909_.trigger(velocity, kickTune, 1.0f, kickDecay, overdrive_);
+                    } else {
+                        kick808_.trigger(velocity, kickTune, kickDecay, 1.0f, overdrive_);
+                    }
+                } else if (note >= 38 && note <= 41) {
+                    snare808_.trigger(velocity, 0.65f, 150.0f + tune_ * 100.0f, snareDecay);
+                }
                 break;
         }
     }
@@ -148,6 +172,7 @@ private:
     float tune_{0.5f};
     float decay_{0.5f};
     float overdrive_{0.2f};
+    DrumKitType kitType_{DrumKitType::Combined};
 };
 
 } // namespace eatsbits::audio

@@ -137,6 +137,25 @@ public:
         }
     }
 
+    void handleEvent(const AudioEvent& event) noexcept override {
+        switch (event.type) {
+            case AudioEventType::NoteOn:
+                noteOn(event.note, event.velocity);
+                break;
+            case AudioEventType::NoteOff:
+                noteOff(event.note);
+                break;
+            case AudioEventType::AllNotesOff:
+                allNotesOff();
+                break;
+            case AudioEventType::SetParameter:
+                setParameter(event.paramId, event.paramValue);
+                break;
+            default:
+                break;
+        }
+    }
+
     // Macro parameters
     void setBrightness(float b) noexcept { brightness_ = std::clamp(b, 0.0f, 1.0f); }
     void setSustain(float s) noexcept { sustain_ = std::clamp(s, 0.5f, 1.2f); }

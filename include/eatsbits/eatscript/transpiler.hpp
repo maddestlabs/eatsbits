@@ -4,6 +4,7 @@
 #include <string>
 #include <memory>
 #include "ast.hpp"
+#include "dispatch_scanner.hpp"
 
 namespace eatsbits::eatscript {
 
@@ -20,6 +21,13 @@ public:
 
     std::string transpileSource(const std::string& source, const std::string& pluginId = "my_synth",
                                 const std::string& pluginName = "My Synth");
+
+    /// Emits a self-contained C++ translation unit wrapping ClapPluginShell<T>
+    /// with the AST DSP math or native dispatch adapter.
+    std::string emitClapPluginEntry(const Program& program, const DependencyScanResult& scanResult);
+
+    /// High-level convenience method: scans script with DependencyScanner and emits CLAP plugin bundle C++ code.
+    std::string transpileClap(const std::string& source);
 
     void transpileStmt(const Stmt* stmt);
     void transpileExpr(const Expr* expr);
@@ -47,6 +55,8 @@ private:
     std::string processBodyCode_;
     int indentLevel_{0};
     bool inProcessFunction_{false};
+    bool inClapMode_{false};
+    const DependencyScanResult* currentScanResult_{nullptr};
 };
 
 } // namespace eatsbits::eatscript

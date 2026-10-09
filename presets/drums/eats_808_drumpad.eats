@@ -1,0 +1,42 @@
+# @id: eats_808_drumpad
+# @name: Eats-808 Drum Machine & Pad Workstation
+# @category: instrument
+# @tags: drum, 808, analog, vintage, drumpad, kit, mpc
+# @description: Dedicated 16/32-pad rhythm composer workstation loaded with authentic Roland TR-808 analog bridged-T kick, snare, toms, congas, cowbell, hats, cymbal, and clap.
+
+def init():
+    return {
+        "MasterTune": eat.param("MasterTune", -12.0, 12.0, 0.0, step=0.0),
+        "KitDrive": eat.param("KitDrive", 0.0, 1.0, 0.20, step=0.0),
+        "RoomLevel": eat.param("RoomLevel", 0.0, 1.0, 0.20, step=0.0),
+        "Tone": eat.param("Tone", 0.0, 1.0, 0.50, step=0.0),
+        "Decay": eat.param("Decay", 0.0, 1.0, 0.65, step=0.0),
+        "Snappy": eat.param("Snappy", 0.0, 1.0, 0.70, step=0.0),
+        "Humanize": eat.param("Humanize", 0.0, 1.0, 0.15, step=0.0),
+        "Dynamics": eat.param("Dynamics", 0.0, 1.0, 0.85, step=0.0),
+    }
+
+def gui():
+    return {
+        "panel": {
+            "title": "EATS-808 RHYTHM COMPOSER",
+            "subtitle": "16-Pad Analog Bridged-T Studio & Workstation",
+            "background": "dark",
+            "accent": "#E65100",
+            "layout": [
+                {
+                    "type": "row",
+                    "children": [
+                        {"type": "knob", "param": "MasterTune", "label": "TUNE", "size": 52},
+                        {"type": "knob", "param": "KitDrive", "label": "DRIVE", "size": 52},
+                        {"type": "knob", "param": "RoomLevel", "label": "ROOM", "size": 52},
+                        {"type": "knob", "param": "Tone", "label": "TONE", "size": 52},
+                        {"type": "knob", "param": "Decay", "label": "DECAY", "size": 52},
+                        {"type": "knob", "param": "Snappy", "label": "SNAPPY", "size": 52},
+                        {"type": "knob", "param": "Humanize", "label": "HUMANIZE", "size": 52},
+                        {"type": "knob", "param": "Dynamics", "label": "DYNAMICS", "size": 52}
+                    ]
+                }
+            ]
+        }
+    }

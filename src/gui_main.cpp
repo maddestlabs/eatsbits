@@ -3,6 +3,7 @@
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
+#include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/ui/gui_window.hpp"
 
 #if defined(_WIN32)
@@ -34,6 +35,7 @@ int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, LPSTR /
 #endif
 
 int main(int /*argc*/, char** /*argv*/) {
+    ClapAudioNode::setMainThreadId(std::this_thread::get_id());
 #if defined(_WIN32)
     // If launched from an existing terminal/PowerShell/cmd prompt, attach to it so stdout/stderr is visible.
     // If launched by double-clicking in Explorer or from a desktop shortcut, no terminal window is spawned.

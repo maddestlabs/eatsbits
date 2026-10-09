@@ -1,6 +1,5 @@
 #include "eatsbits/ui/gui_panel_def.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
-#include "eatsbits/ui/procedural_texture_system.hpp"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
@@ -48,13 +47,27 @@ void drawGuiFaceplate(BatchRenderer2D& r,
     }
 
     bool isLightChassis = (panel.chassisStyle == GuiChassisStyle::MinimalWhite);
-    if (!isLightChassis) {
-        ProceduralTextureSystem::instance().drawFaceplateBackground(&r, rect, panel.chassisStyle, theme,
-                                                                   panel.chassisTint, panel.textureWear,
-                                                                   panel.cornerRadius, panel.chassisRotation);
+    Color baseCol(cr, cg, cb);
+    Color gradTop = isLightChassis ? baseCol : baseCol.lighten(0.06f);
+    Color gradBot = isLightChassis ? baseCol.darken(0.04f) : baseCol.darken(0.08f);
+
+    if (panel.cornerRadius > 0.0f) {
+        r.drawRoundedRectGradient(fpX, fpY, fpW, fpH, panel.cornerRadius,
+                                  gradTop.r, gradTop.g, gradTop.b,
+                                  gradBot.r, gradBot.g, gradBot.b, 1.0f);
+        Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
+        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius,
+                               rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
+        drawRoundedRectOutline(r, fpX + 1.0f, fpY + 1.0f, fpW - 2.0f, fpH - 2.0f,
+                               std::max(0.0f, panel.cornerRadius - 1.0f),
+                               0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
     } else {
-        drawRoundedRect(r, fpX, fpY, fpW, fpH, panel.cornerRadius, cr, cg, cb, 1.0f);
-        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius, 0.68f, 0.71f, 0.76f, 0.9f, 1.2f);
+        r.drawRectGradient(fpX, fpY, fpW, fpH,
+                           gradTop.r, gradTop.g, gradTop.b,
+                           gradBot.r, gradBot.g, gradBot.b, 1.0f);
+        Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
+        r.drawRectOutline(fpX, fpY, fpW, fpH,
+                          rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
     }
 
     // 2. Vintage Wood Cheeks on sides (skipped for clean minimal white or when disabled)

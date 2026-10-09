@@ -140,6 +140,7 @@ graph TD
      * Static AST analyzer that records all engine APIs and subsystems referenced in the script.
      * Code emitter producing clean C++ calling native `eats::gui`, `eats::render`, or `eats::audio` functions.
      * CMake generator configuring only the necessary subsystem targets (e.g., producing a pure GUI/graphics executable of <2MB by stripping audio and video export dependencies).
+      * **CLAP Plugin & Micro-Runtime Target:** Dedicated export target compiling scripted instruments to standalone, zero-VM .clap binaries (see [clap-blueprint.md](file:///c:/git/eatsbits/clap-blueprint.md)).
 
 ---
 

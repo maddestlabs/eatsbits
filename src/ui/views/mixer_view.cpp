@@ -112,10 +112,13 @@ MixerView::MixerView() {
                     channels_[targetIdx].b = entry.b;
                 }
                 drawerData_.instrument = entry.name;
-                drawerData_.instrumentEngine = entry.engineTag;
+                drawerData_.instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
                 drawerData_.r = entry.r;
                 drawerData_.g = entry.g;
                 drawerData_.b = entry.b;
+                if (onInstrumentChanged) {
+                    onInstrumentChanged(targetIdx, drawerData_.instrumentEngine, entry.name);
+                }
             } else if (mode == PluginDialogMode::AddMidiFx) {
                 if (targetIdx < channels_.size()) {
                     TrackMidiFxItem mfx;
@@ -1196,19 +1199,19 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if (onMasterPanChanged) onMasterPanChanged(0.0f);
                 return true;
             }
+            // Mute button (legacy test support)
+            if (ev.x >= 54.0f && ev.x <= 104.0f && ev.y >= 152.0f && ev.y <= 176.0f) {
+                masterChannel_.mute = !masterChannel_.mute;
+                if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(masterChannel_.mute ? 0.0f : masterChannel_.fader);
+                if (onMasterMuteToggled) onMasterMuteToggled(masterChannel_.mute);
+                return true;
+            }
             // Pan knob tap
             if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - 107.0f, ev.y - 215.0f) <= 18.0f) {
                 activePanIndex_ = -1;
                 dragStartX_ = ev.x;
                 dragStartY_ = ev.y;
                 initialPanVal_ = masterChannel_.pan;
-                return true;
-            }
-            // Mute button (legacy test support)
-            if (ev.x >= 54.0f && ev.x <= 104.0f && ev.y >= 152.0f && ev.y <= 176.0f) {
-                masterChannel_.mute = !masterChannel_.mute;
-                if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(masterChannel_.mute ? 0.0f : masterChannel_.fader);
-                if (onMasterMuteToggled) onMasterMuteToggled(masterChannel_.mute);
                 return true;
             }
             // Master Fader tap
@@ -1406,14 +1409,6 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), 0.0f);
                     return true;
                 }
-                // Pan knob tap
-                if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - (cx + 65.0f), ev.y - 215.0f) <= 18.0f) {
-                    activePanIndex_ = static_cast<int>(i);
-                    dragStartX_ = ev.x;
-                    dragStartY_ = ev.y;
-                    initialPanVal_ = channels_[i].pan;
-                    return true;
-                }
                 // Mute button: Micro [cx+4, wellTopY-16, 18, 14], Compact [cx+58, wellTopY+2, 16, 20], Comfortable [bx, by, 26, 24] or legacy [cx + 12, 152, 50, 24]
                 bool hitMute = false;
                 if (densityMode_ == MixerDensityMode::Micro) {
@@ -1450,6 +1445,14 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     channels_[i].solo = !channels_[i].solo;
                     if (onSoloToggled) onSoloToggled(static_cast<uint32_t>(i), channels_[i].solo);
                     if (ctx.audioEngine) ctx.audioEngine->setTrackSolo(static_cast<uint32_t>(i), channels_[i].solo);
+                    return true;
+                }
+                // Pan knob tap
+                if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - (cx + 65.0f), ev.y - 215.0f) <= 18.0f) {
+                    activePanIndex_ = static_cast<int>(i);
+                    dragStartX_ = ev.x;
+                    dragStartY_ = ev.y;
+                    initialPanVal_ = channels_[i].pan;
                     return true;
                 }
                 // Freeze button: [bx, by + 52, 26, 24] or [cx + 80, 321, 26, 20]
