@@ -2054,7 +2054,7 @@ void testProjectHubAndTopLeftMenu() {
     window.toggleHiDpi();
     REQUIRE(window.isHiDpiEnabled() == prevHiDpi);
 
-    // 8. Test Section 3: Chassis & Panel Textures
+    // 8. Test Section 3: Chassis Color Accents & Tints
     window.setProjectHubSection(3);
     window.renderFrame();
     {
@@ -2064,18 +2064,20 @@ void testProjectHubAndTopLeftMenu() {
         float drawerW = hubW - 32.0f;
         float drawerY = topContentY + 4 * headerStep;
 
-        // Click texture chip (Brushed Aluminum, index 1)
-        float chipGap = 4.0f;
-        float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
-        float chip1X = drawerX + 12.0f + 1 * (chipW + chipGap) + 5.0f;
-        float chip1Y = drawerY + 22.0f + 5.0f;
-        auto texHit = window.hitTestProjectHub(chip1X, chip1Y);
-        REQUIRE(texHit.hit);
-        REQUIRE(texHit.action == ProjectHubAction::SetPanelTexture);
-        REQUIRE(texHit.panelStyle == GuiChassisStyle::BrushedAluminum);
-        window.onMouseDown(0, chip1X, chip1Y);
-        window.onMouseUp(0, chip1X, chip1Y);
-        REQUIRE(window.getPanelChassisTexture() == GuiChassisStyle::BrushedAluminum);
+        // Click tint swatch (Blue, index 3)
+        const float tintGap = 4.0f;
+        const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
+        const float swatch3X = drawerX + 12.0f + 3 * (tintW + tintGap) + 5.0f;
+        const float swatch3Y = drawerY + 22.0f + 5.0f;
+        auto tintHit = window.hitTestProjectHub(swatch3X, swatch3Y);
+        REQUIRE(tintHit.hit);
+        REQUIRE(tintHit.action == ProjectHubAction::SetPanelTint);
+        REQUIRE(tintHit.panelTint.has_value());
+        REQUIRE(std::abs(tintHit.panelTint->b - 0.95f) < 0.01f);
+        window.onMouseDown(0, swatch3X, swatch3Y);
+        window.onMouseUp(0, swatch3X, swatch3Y);
+        REQUIRE(window.getPanelChassisTint().has_value());
+        REQUIRE(std::abs(window.getPanelChassisTint()->b - 0.95f) < 0.01f);
     }
 
     // 8b. Test Section 4: CRT Shader Drawer Constraints & Scrollbar Area

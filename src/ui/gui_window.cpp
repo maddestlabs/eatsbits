@@ -549,10 +549,7 @@ void drawSvgLayers(const std::vector<SvgLayerDef>& layers, float x, float y, flo
 namespace {
 
 inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
-                             GuiChassisStyle /*style*/ = GuiChassisStyle::DarkChassis,
-                             const std::optional<Color>& tint = std::nullopt,
-                             float /*wear*/ = 0.20f,
-                             float /*rotation*/ = 0.0f) {
+                             const std::optional<Color>& tint = std::nullopt) {
     if (!g_activeBatchRenderer || w <= 0.0f || h <= 0.0f) return;
 
     Color gradTop, gradBot;
@@ -5653,7 +5650,7 @@ void GuiWindow::drawTopTransportBar() {
     // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
     // =========================================================================
     // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
-    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_, panelChassisRotation_);
+    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTint_);
 
     // Top specular rim highlight & uniform bottom machined bevel
     drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -6254,7 +6251,7 @@ void GuiWindow::renderFrame() {
         const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
         const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
         // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
-        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTexture_, panelChassisTint_, panelChassisWear_, panelChassisRotation_);
+        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTint_);
 
         // Top lip specular highlight line & crevice
         drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -6447,7 +6444,7 @@ void GuiWindow::renderFrame() {
                 if (projectHubSection_ == 0) curDrawerH = 190.0f;
                 else if (projectHubSection_ == 1) curDrawerH = 114.0f;
                 else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-                else if (projectHubSection_ == 3) curDrawerH = 268.0f;
+                else if (projectHubSection_ == 3) curDrawerH = 100.0f;
                 else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
                 else if (projectHubSection_ == 5) curDrawerH = 100.0f;
                 else if (projectHubSection_ == 6) curDrawerH = 100.0f;
@@ -6475,7 +6472,7 @@ void GuiWindow::renderFrame() {
                 "PROJECT HUB",
                 "SESSION PERSISTENCE & AUTO-RESTORE",
                 "DISPLAY & WORKSPACE",
-                "CHASSIS & PANEL SURFACES",
+                "CHASSIS COLOR ACCENTS & TINTS",
                 "CRT SHADER",
                 "AUDIO ENGINE CONFIG",
                 "CREDITS & ACKNOWLEDGMENTS"
@@ -6524,10 +6521,9 @@ void GuiWindow::renderFrame() {
                 } else if (s == 2) {
                     drawIconEdit(hubX + 22.0f, curY + 10.0f, 10.0f, isExp ? theme.primaryAccent : theme.textSecondary);
                 } else if (s == 3) {
-                    // Section 3: Chassis & Panel Textures icon (grid / material texture swatch)
-                    drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 10.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                    drawLine(hubX + 22.0f, curY + 15.0f, hubX + 34.0f, curY + 15.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.0f);
-                    drawLine(hubX + 28.0f, curY + 10.0f, hubX + 28.0f, curY + 20.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.0f);
+                    // Section 3: Chassis Color Accents & Tints icon (color swatch palette / circle)
+                    drawCircleOutline(hubX + 28.0f, curY + 15.0f, 5.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
+                    drawCircle(hubX + 28.0f, curY + 15.0f, 2.5f, isExp ? theme.primaryAccent : theme.textSecondary);
                 } else if (s == 4) {
                     drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 9.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 19.0f, hubX + 31.0f, curY + 19.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
@@ -6818,85 +6814,8 @@ void GuiWindow::renderFrame() {
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
-                        // SECTION 3: CHASSIS & PANEL SURFACES
-                        // 1. Material Surface Chips Header & Grid (2 rows of 5)
-                        drawVectorString("PANEL MATERIAL & SURFACE (TOP & BOTTOM CHASSIS)", hubX + 28.0f, contentY + 8.0f, 0.65f, theme.textMuted);
-
-                        struct MatChip {
-                            const char* label;
-                            GuiChassisStyle style;
-                        };
-                        const MatChip matChips[9] = {
-                            {"DARK CHASSIS",  GuiChassisStyle::DarkChassis},
-                            {"BRUSHED METAL", GuiChassisStyle::BrushedMetal},
-                            {"POWDER COAT",   GuiChassisStyle::MattePowderCoat},
-                            {"CRINKLE",       GuiChassisStyle::CrinklePaint},
-                            {"BAKELITE",      GuiChassisStyle::Bakelite},
-                            {"WALNUT",        GuiChassisStyle::Walnut},
-                            {"ROSEWOOD",      GuiChassisStyle::Rosewood},
-                            {"PCB GREEN",     GuiChassisStyle::PcbGreen},
-                            {"CARBON",        GuiChassisStyle::Carbon}
-                        };
-
-                        const float chipGap = 5.0f;
-                        const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
-                        const float chipH = 22.0f;
-
-                        for (int i = 0; i < 9; ++i) {
-                            int col = i % 5;
-                            int row = i / 5;
-                            float cx = drawerX + 12.0f + col * (chipW + chipGap);
-                            float cy = contentY + 22.0f + row * (chipH + 4.0f);
-                            bool isAct = (panelChassisTexture_ == matChips[i].style ||
-                                          (matChips[i].style == GuiChassisStyle::BrushedMetal &&
-                                           (panelChassisTexture_ == GuiChassisStyle::BrushedAluminum ||
-                                            panelChassisTexture_ == GuiChassisStyle::BrushedSteel)));
-
-                            drawRoundedRect(cx, cy, chipW, chipH, 3.0f,
-                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
-                            drawRoundedRectOutline(cx, cy, chipW, chipH, 3.0f,
-                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
-                            if (isAct) {
-                                drawCircle(cx + 8.0f, cy + chipH * 0.5f, 3.0f, theme.primaryAccent);
-                            }
-                            drawVectorString(matChips[i].label, cx + (isAct ? 15.0f : 8.0f), cy + 4.0f, 0.60f,
-                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-                        }
-
-                        // 2. Chassis Rotation / Orientation (2 buttons: Normal 0 deg and 90 deg Vertical)
-                        const float rotRowY = contentY + 76.0f;
-                        drawLine(drawerX + 12.0f, rotRowY, drawerX + drawerW - 12.0f, rotRowY, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("CHASSIS ROTATION / ORIENTATION", hubX + 28.0f, rotRowY + 6.0f, 0.65f, theme.textMuted);
-
-                        struct RotOption {
-                            const char* label;
-                            float value;
-                        };
-                        const RotOption rotOpts[2] = {
-                            {"NORMAL (0 DEG)",   0.0f},
-                            {"90 DEG (VERTICAL)", 90.0f}
-                        };
-                        const float rotGap = 8.0f;
-                        const float rotW = (drawerW - 24.0f - rotGap) / 2.0f;
-                        const float rotH = 20.0f;
-                        const float rotBtnsY = rotRowY + 18.0f;
-
-                        for (int r = 0; r < 2; ++r) {
-                            float rx = drawerX + 12.0f + r * (rotW + rotGap);
-                            bool isAct = (std::abs(panelChassisRotation_ - rotOpts[r].value) < 1.0f);
-
-                            drawRoundedRect(rx, rotBtnsY, rotW, rotH, 3.0f,
-                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
-                            drawRoundedRectOutline(rx, rotBtnsY, rotW, rotH, 3.0f,
-                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
-                            drawVectorString(rotOpts[r].label, rx + 14.0f, rotBtnsY + 4.0f, 0.65f,
-                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-                        }
-
-                        // 3. Anodized / Harmonic Color Tint Header & Swatches (8 swatches)
-                        const float tintRowY = rotBtnsY + 24.0f;
-                        drawLine(drawerX + 12.0f, tintRowY, drawerX + drawerW - 12.0f, tintRowY, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("ANODIZED / HARMONIC COLOR TINT", hubX + 28.0f, tintRowY + 6.0f, 0.65f, theme.textMuted);
+                        // SECTION 3: CHASSIS COLOR ACCENTS & TINTS
+                        drawVectorString("ANODIZED / HARMONIC COLOR TINT", drawerX + 12.0f, contentY + 8.0f, 0.65f, theme.textMuted);
 
                         struct TintPreset {
                             const char* label;
@@ -6916,8 +6835,8 @@ void GuiWindow::renderFrame() {
 
                         const float tintGap = 4.0f;
                         const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
-                        const float tintH = 20.0f;
-                        const float swatchesY = tintRowY + 18.0f;
+                        const float tintH = 22.0f;
+                        const float swatchesY = contentY + 22.0f;
 
                         for (int t = 0; t < 8; ++t) {
                             float tx = drawerX + 12.0f + t * (tintW + tintGap);
@@ -6935,59 +6854,24 @@ void GuiWindow::renderFrame() {
                             drawRoundedRectOutline(tx, swatchesY, tintW, tintH, 3.0f,
                                                    isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
                             drawCircle(tx + 8.0f, swatchesY + tintH * 0.5f, 3.5f, tints[t].displayColor);
-                            drawVectorString(tints[t].label, tx + 14.0f, swatchesY + 4.0f, 0.55f,
+                            drawVectorString(tints[t].label, tx + 14.0f, swatchesY + 5.0f, 0.55f,
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // 4. Surface Wear & Patina (4 levels)
-                        const float wearRowY = swatchesY + 24.0f;
-                        drawLine(drawerX + 12.0f, wearRowY, drawerX + drawerW - 12.0f, wearRowY, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("SURFACE WEAR & PATINA", hubX + 28.0f, wearRowY + 6.0f, 0.65f, theme.textMuted);
-
-                        struct WearOption {
-                            const char* label;
-                            float value;
-                        };
-                        const WearOption wearOpts[4] = {
-                            {"PRISTINE (0%)", 0.0f},
-                            {"MINT (20%)",     0.20f},
-                            {"PATINA (50%)",   0.50f},
-                            {"VINTAGE (80%)",  0.80f}
-                        };
-
-                        const float wearGap = 6.0f;
-                        const float wearW = (drawerW - 24.0f - (3.0f * wearGap)) / 4.0f;
-                        const float wearH = 20.0f;
-                        const float wearBtnsY = wearRowY + 18.0f;
-
-                        for (int w = 0; w < 4; ++w) {
-                            float wx = drawerX + 12.0f + w * (wearW + wearGap);
-                            bool isAct = (std::abs(panelChassisWear_ - wearOpts[w].value) < 0.05f);
-
-                            drawRoundedRect(wx, wearBtnsY, wearW, wearH, 3.0f,
-                                            isAct ? theme.primaryAccent.darken(0.40f) : theme.controlBackground);
-                            drawRoundedRectOutline(wx, wearBtnsY, wearW, wearH, 3.0f,
-                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
-                            drawVectorString(wearOpts[w].label, wx + 12.0f, wearBtnsY + 4.0f, 0.62f,
-                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-                        }
-
-                        // 5. Live Hardware Preview Plate
-                        const float prevLineY = wearBtnsY + 24.0f;
+                        // Live Hardware Preview Plate
+                        const float prevLineY = swatchesY + tintH + 8.0f;
                         drawLine(drawerX + 12.0f, prevLineY, drawerX + drawerW - 12.0f, prevLineY, theme.borderSubtle.darken(0.15f), 1.0f);
 
                         const float prevX = drawerX + 12.0f;
                         const float prevY = prevLineY + 6.0f;
                         const float prevW = drawerW - 24.0f;
-                        const float prevH = 28.0f;
+                        const float prevH = 30.0f;
 
                         if (batchRenderer_) {
-                            drawChassisPlate(prevX, prevY, prevW, prevH, true, theme,
-                                             panelChassisTexture_, panelChassisTint_, panelChassisWear_,
-                                             panelChassisRotation_);
+                            drawChassisPlate(prevX, prevY, prevW, prevH, true, theme, panelChassisTint_);
                         }
                         drawRoundedRectOutline(prevX, prevY, prevW, prevH, 4.0f, theme.borderSubtle.lighten(0.15f), 1.0f);
-                        drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 8.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
+                        drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 9.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
                     } else if (s == 4) {
                         // SECTION 4: CRT SHADER (Scrollable within constrained drawer space)
                         const float contentBaseY = drawerY - projectHubScrollY_;
@@ -9388,55 +9272,11 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
             }
         } else if (projectHubSection_ == 3) {
             float contentStartY = drawerY;
-            // 1. Material chips (2 rows of 5)
-            const float chipGap = 5.0f;
-            const float chipW = (drawerW - 24.0f - (4.0f * chipGap)) / 5.0f;
-            const float chipH = 22.0f;
-            const GuiChassisStyle matStyles[9] = {
-                GuiChassisStyle::DarkChassis,
-                GuiChassisStyle::BrushedMetal,
-                GuiChassisStyle::MattePowderCoat,
-                GuiChassisStyle::CrinklePaint,
-                GuiChassisStyle::Bakelite,
-                GuiChassisStyle::Walnut,
-                GuiChassisStyle::Rosewood,
-                GuiChassisStyle::PcbGreen,
-                GuiChassisStyle::Carbon
-            };
-            for (int i = 0; i < 9; ++i) {
-                int col = i % 5;
-                int row = i / 5;
-                float cx = drawerX + 12.0f + col * (chipW + chipGap);
-                float cy = contentStartY + 22.0f + row * (chipH + 4.0f);
-                if (x >= cx && x <= cx + chipW && y >= cy && y <= cy + chipH) {
-                    res.action = ProjectHubAction::SetPanelTexture;
-                    res.panelStyle = matStyles[i];
-                    return res;
-                }
-            }
-
-            // 2. Chassis Rotation / Orientation (2 buttons)
-            const float rotRowY = contentStartY + 76.0f;
-            const float rotGap = 8.0f;
-            const float rotW = (drawerW - 24.0f - rotGap) / 2.0f;
-            const float rotH = 20.0f;
-            const float rotBtnsY = rotRowY + 18.0f;
-            const float rotVals[2] = {0.0f, 90.0f};
-            for (int r = 0; r < 2; ++r) {
-                float rx = drawerX + 12.0f + r * (rotW + rotGap);
-                if (x >= rx && x <= rx + rotW && y >= rotBtnsY && y <= rotBtnsY + rotH) {
-                    res.action = ProjectHubAction::SetPanelRotation;
-                    res.panelRotation = rotVals[r];
-                    return res;
-                }
-            }
-
-            // 3. Tint swatches (8 swatches)
-            const float tintRowY = rotBtnsY + 24.0f;
+            // Tint swatches (8 swatches)
             const float tintGap = 4.0f;
             const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
-            const float tintH = 20.0f;
-            const float swatchesY = tintRowY + 18.0f;
+            const float tintH = 22.0f;
+            const float swatchesY = contentStartY + 22.0f;
             const std::optional<Color> tintVals[8] = {
                 std::nullopt,
                 Color(0.78f, 0.80f, 0.84f),
@@ -9452,22 +9292,6 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 if (x >= tx && x <= tx + tintW && y >= swatchesY && y <= swatchesY + tintH) {
                     res.action = ProjectHubAction::SetPanelTint;
                     res.panelTint = tintVals[t];
-                    return res;
-                }
-            }
-
-            // 4. Wear buttons (4 buttons)
-            const float wearRowY = swatchesY + 24.0f;
-            const float wearGap = 6.0f;
-            const float wearW = (drawerW - 24.0f - (3.0f * wearGap)) / 4.0f;
-            const float wearH = 20.0f;
-            const float wearBtnsY = wearRowY + 18.0f;
-            const float wearVals[4] = {0.0f, 0.20f, 0.50f, 0.80f};
-            for (int w = 0; w < 4; ++w) {
-                float wx = drawerX + 12.0f + w * (wearW + wearGap);
-                if (x >= wx && x <= wx + wearW && y >= wearBtnsY && y <= wearBtnsY + wearH) {
-                    res.action = ProjectHubAction::SetPanelWear;
-                    res.panelWear = wearVals[w];
                     return res;
                 }
             }
@@ -13431,17 +13255,8 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::ToggleHiDpi:
                         toggleHiDpi();
                         break;
-                    case ProjectHubAction::SetPanelTexture:
-                        setPanelChassisTexture(hubHit.panelStyle);
-                        break;
                     case ProjectHubAction::SetPanelTint:
                         setPanelChassisTint(hubHit.panelTint);
-                        break;
-                    case ProjectHubAction::SetPanelWear:
-                        setPanelChassisWear(hubHit.panelWear);
-                        break;
-                    case ProjectHubAction::SetPanelRotation:
-                        setPanelChassisRotation(hubHit.panelRotation);
                         break;
                     case ProjectHubAction::CrtPresetStudioRef: {
                         auto cfg = dawnBridge_.getMaterialConfig();

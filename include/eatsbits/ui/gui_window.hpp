@@ -216,10 +216,7 @@ enum class ProjectHubAction {
     ToggleAnimations,
     SetAntiAliasing,
     ToggleHiDpi,
-    SetPanelTexture,
     SetPanelTint,
-    SetPanelWear,
-    SetPanelRotation,
     Scrollbar,
     ContentDrag,
     OpenCrtTweaker,
@@ -269,10 +266,7 @@ struct HitTestProjectHubResult {
     int themeBank{0};
     int aaMode{2};
     int crtSliderIndex{-1};
-    GuiChassisStyle panelStyle{GuiChassisStyle::DarkChassis};
     std::optional<Color> panelTint{std::nullopt};
-    float panelWear{0.20f};
-    float panelRotation{0.0f};
 };
 
 struct HitTestJackResult {
@@ -613,17 +607,8 @@ public:
     void setHiDpiEnabled(bool enable) noexcept;
     void toggleHiDpi() noexcept;
 
-    [[nodiscard]] GuiChassisStyle getPanelChassisTexture() const noexcept { return panelChassisTexture_; }
-    void setPanelChassisTexture(GuiChassisStyle style) noexcept { panelChassisTexture_ = style; markNeedsRedraw(); }
-
     [[nodiscard]] const std::optional<Color>& getPanelChassisTint() const noexcept { return panelChassisTint_; }
     void setPanelChassisTint(const std::optional<Color>& tint) noexcept { panelChassisTint_ = tint; markNeedsRedraw(); }
-
-    [[nodiscard]] float getPanelChassisWear() const noexcept { return panelChassisWear_; }
-    void setPanelChassisWear(float wear) noexcept { panelChassisWear_ = wear; markNeedsRedraw(); }
-
-    [[nodiscard]] float getPanelChassisRotation() const noexcept { return panelChassisRotation_; }
-    void setPanelChassisRotation(float rot) noexcept { panelChassisRotation_ = rot; markNeedsRedraw(); }
 
     [[nodiscard]] GLFWwindow* getWindowHandle() const noexcept { return window_; }
     [[nodiscard]] BatchRenderer2D* getBatchRenderer() noexcept { return batchRenderer_.get(); }
@@ -840,11 +825,17 @@ public:
         if (!guiAnimationsEnabled_) {
             virtualKeyboardAnimProgress_ = open ? 1.0f : 0.0f;
         }
+        if (virtualKeyboardDrawerWidget_) {
+            virtualKeyboardDrawerWidget_->setExpanded(open);
+        }
     }
     void toggleVirtualKeyboardDrawer() noexcept {
         virtualKeyboardDrawerOpen_ = !virtualKeyboardDrawerOpen_;
         if (!guiAnimationsEnabled_) {
             virtualKeyboardAnimProgress_ = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
+        }
+        if (virtualKeyboardDrawerWidget_) {
+            virtualKeyboardDrawerWidget_->setExpanded(virtualKeyboardDrawerOpen_);
         }
     }
     [[nodiscard]] float getVirtualKeyboardAnimProgress() const noexcept { return virtualKeyboardAnimProgress_; }
@@ -1189,10 +1180,7 @@ private:
     bool autoSaveEnabled_{true};
     int activeThemePreset_{0};
     int userThemeBankOverride_{-1};
-    GuiChassisStyle panelChassisTexture_{GuiChassisStyle::DarkChassis};
     std::optional<Color> panelChassisTint_{std::nullopt};
-    float panelChassisWear_{0.20f};
-    float panelChassisRotation_{0.0f};
     bool crtShaderEnabled_{false};
     bool crtTweakerOpen_{false};
     int crtTweakerSliderIndex_{-1};
