@@ -984,6 +984,28 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] Fix Live MIDI FX Pipeline Synchronization, Parameter Binding & Inspection (commit `2c1824f`)
+- **Architectural Context**:
+  - Resolved disconnect between `TrackInspectorView::tracks_[trackIndex].midiFxList` and `ArrangerView::tracks_[trackIndex].midiFx`, ensuring inspector insertions, removals, reorderings, toggles, and knob adjustments reliably populate and update the engine's real-time MIDI FX rack.
+  - Serialized the full dictionary of knob parameters into `insert.params` (`Octaves`, `octaves`, `semitones`, `transpose`, `rate`, `gate`, `swing`, `humanizeVelocity`, `humanizeTiming`, `rootKey`, `scaleMode`), allowing `StepSequencer` to consume parameters during playback.
+  - Connected `FullscreenDeviceModal` parameter changes to dynamically mutate active `SequencerTrack::getMidiFxRack()` parameters and mirror changes across both `TrackInspectorView` and `ArrangerView`.
+- **Key Changes Implemented**:
+  - **Inspector & Arranger MIDI FX Model Synchronization**:
+    - In `GuiWindow::syncTrackMidiFxToEngine(trackIdx)`, bridged `modularTrackInspectorView_` and `modularArrangerView_` MIDI FX lists bidirectionally, prioritizing non-empty project track configurations.
+    - Updated `onAddMidiFx`, `onToggleMidiFx`, `onReorderMidiFx`, `onRemoveMidiFx`, and `onMidiFxChanged` in `modularTrackInspectorView_` to mirror to `modularArrangerView_` before calling `syncTrackMidiFxToEngine(idx)`.
+    - Wired `modularTrackInspectorView_->onMidiFxParamChanged` in `initModularViews()` to mirror parameter changes and sync to engine.
+  - **Comprehensive Parameter Serialization**:
+    - In `syncTrackMidiFxToEngine`, mapped all knob parameters from `TrackMidiFxItem::knobs` into `insert.params` with normalized and standardized aliases (`Octaves`, `octaves`, `semitones`, `transpose`, `rate`, `gate`, `swing`, `velocity`, `timing`).
+    - Enhanced `StepSequencer::processBlock` parameter parsing for `ScaleSnap` (`rootKey` / `root`, `scaleMode` / `scale`), `Arpeggiator` (`Octaves` / `octaves`), `Transpose` (`semitones` / `transpose`), and `Humanize` (`humanizeVelocity` / `velocity`).
+  - **Device Modal & Track Inspector Interaction Dispatch**:
+    - Connected `fullscreenDeviceModal_.onMidiFxParamChanged` to mutate parameters directly in `seqTrack->getMidiFxRack()` and mirror values to UI views.
+    - Updated `GuiWindow::handleTrackInspectorInteraction` toggles (`MidiFxArpToggle`, `MidiFxScaleToggle`, `MidiFxHumanizeToggle`) and drag lambda (`MidiFxArpKnob`, `MidiFxScaleKnob`, `MidiFxHumanizeKnob`) to update items, mirror models, and trigger `syncTrackMidiFxToEngine`.
+- **Validation**:
+  - `tests/test_midi_fx.cpp`: Added `TestCaptureNode` and `testInspectorMidiFxBridgeAndLivePlayback()` verifying that Transpose, Arpeggiator octave cycling, and dynamic parameter mutations alter output notes in `StepSequencer::processBlock`.
+  - `.\build.ps1 -Test -NoRun`: All 48 test suites passing (100% pass rate, 0 errors, 0 warnings).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
