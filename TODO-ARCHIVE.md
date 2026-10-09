@@ -7,6 +7,14 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Fix Chord Follow & Project Harmony Playback Pipeline Desynchronization** (commit `33a8fb6`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Unify Multi-View Chord Follow State**: Wired `modularTrackInspectorView_->onChordFollowChanged` in `GuiWindow::initModularViews()` to sync `arrangerTracks_`, `modularArrangerView_`, and `engine_->getSequencer().getTrack(idx)->setChordFollowMode(mode)`. Propagated changes across views and synced on window state restore.
+    2. **Synchronize Arranger Chord Track Lane to StepSequencer**: Added `onChordTrackChanged` callback to `ArrangerView` and wired it in `GuiWindow` to push `modularArrangerView_->getChordTrack()` to `StepSequencer`, ensuring progressions are immediately evaluated during playback.
+    3. **Auditioning & Note Preview Harmony Support**: In `AudioEngine::postNoteOn` and `postNoteOff`, remapped preview pitches through `theory::ChordTheory::remapPitchForChord` so auditioning in Piano Roll, Virtual Keyboard, and Tracker reflects chord harmonization.
+    4. **Automated Verification**: Added unit test coverage in `tests/test_chord_track.cpp` (`testChordFollowPipelineSyncAndAuditioning`) and `tests/test_modular_ui.cpp` (`testGuiWindowIntegration`), validating 100% test pass across all 48 test suites.
+
 - [x] **Vector Graphics UI Modernization & Procedural Texture Removal** (commit `187fedc`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/ui/svg_path.hpp`, `src/ui/svg_path.cpp`, `src/ui/gui_window.cpp`, `src/ui/gui_panel_def.cpp`, `include/eatsbits/ui/procedural_texture_system.hpp` (deleted), `src/ui/procedural_texture_system.cpp` (deleted), `tests/test_vector_surfaces.cpp`, `tests/test_procedural_textures.cpp` (deleted), `CMakeLists.txt`, `src/ui/views/mixer_view.cpp`
   - **Acceptance Criteria**:

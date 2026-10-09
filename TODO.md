@@ -16,40 +16,32 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite**
-  - **Context/Files**: `third_party/daisysp/` (new), `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp` (new)
-  - **Rationale**:
-    Eatsbits requires a rich collection of modular synthesis and audio effects that run with desktop/web/mobile parity. External plugins (CLAP) do not function in WebAssembly, and Surge XT/VCV Rack code is copyleft GPLv3. DaisySP (by Electro-Smith) is a battle-tested, high-performance C++ DSP library used in Eurorack hardware, licensed under **100% MIT**, with zero runtime memory allocations and zero OS dependencies.
-  - **Acceptance Criteria**:
-    1. **Vendor DaisySP into Codebase**:
-       - Vendor official MIT-licensed `DaisySP` source/headers into `third_party/daisysp/`.
-       - Configure `CMakeLists.txt` to compile DaisySP as an internal static library linked into `eats_audio`, ensuring compatibility with MSVC, Clang, GCC, and Emscripten (WebAssembly).
-    2. **Implement Core Modular `GraphNode` Wrappers**:
-       - **Oscillators (`DaisyOscillatorNode`)**:
-         - Wrap `daisysp::Oscillator` (band-limited blip saw, square, triangle, sine, variable saw) and `daisysp::Wavetable` with sample-rate aware initialization and 1V/Oct CV / pitch modulation.
-       - **Filters (`DaisyFilterNode`)**:
-         - Wrap `daisysp::MoogLadder` (analog-modeled 24dB 4-pole lowpass) and `daisysp::Svf` (State Variable Filter: LP, HP, BP, Notch) with smooth cutoff, resonance, and drive controls.
-       - **Reverb & Delay (`DaisyReverbNode`, `DaisyDelayNode`)**:
-         - Wrap `daisysp::ReverbSc` (lush stereo algorithmic plate/hall reverb) and `daisysp::DelayLine` with damping, feedback, and stereo width.
-       - **Modulation & Dynamics (`DaisyModulationNode`, `DaisyCompressorNode`)**:
-         - Wrap `daisysp::Chorus`, `daisysp::Flanger`, `daisysp::Overdrive`, and `daisysp::Compressor`.
-    3. **AudioEngine & Track FX Rack Integration**:
-       - Wire new DaisySP nodes into `AudioEngine::rebuildTrackAudioFx` to populate empty effect categories (`REVERB`, `DELAY`, `CHORUS`, `FLANGER`, `MOOG_FILTER`, `COMPRESSOR`), mapping UI knob values to normalized parameters.
-    4. **Eatscript & AOT Transpiler Manifest Binding**:
-       - Register the new nodes in `include/eatsbits/eatscript/api_manifest.hpp` under `eats.dsp.*` and `eats.fx.*`.
-       - Enable programmatic live scripting in Eatscript (e.g. `track.add_fx(eats.fx.reverb_sc(decay=0.85, damp=0.5))`).
-    5. **Automated Unit Testing & Web Build Validation**:
-       - Create `tests/test_daisysp_nodes.cpp` verifying:
-         - Zero runtime allocations in `processBlock()`.
-         - Valid float output ranges (no NaNs, no infinities) across extreme parameter sweeps.
-         - Impulse responses for reverb and filter cutoff sweeps.
-       - Verify compilation with `.\build.ps1 -Test -NoRun` and validate WebAssembly build target compatibility.
-
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite** (commit `14329da`, 2026-10-09)
+  - **Context/Files**: `third_party/daisysp/`, `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
+  - **Acceptance Criteria**:
+    1. **Vendored DaisySP Suite**:
+       - Vendored official `DaisySP` core (MIT) and `DaisySP-LGPL` into `third_party/daisysp/`.
+       - Configured `eats_daisysp` static library in `CMakeLists.txt` linked into `eats_audio`, passing MSVC, Clang, GCC, and Emscripten (WebAssembly) with zero warnings or undefined symbols.
+    2. **Implemented 6 Modular GraphNode Wrappers**:
+       - `DaisyOscillatorNode`: `daisysp::Oscillator` (Saw, Square, Triangle, Sine, Variable Saw) with 1V/Oct CV and phase modulation.
+       - `DaisyFilterNode`: Dual stereo `daisysp::MoogLadder` (24dB/oct resonant ladder) and `daisysp::Svf` (State Variable Filter).
+       - `DaisyReverbNode`: Stereo `daisysp::ReverbSc` algorithmic plate/hall reverb with feedback/decay and LP damping.
+       - `DaisyDelayNode`: Stereo `daisysp::DelayLine` with high-frequency damping tone filter and feedback.
+       - `DaisyModulationNode`: Multi-FX processor wrapping `daisysp::Chorus`, `daisysp::Flanger`, and `daisysp::Overdrive`.
+       - `DaisyCompressorNode`: Dual stereo dynamic range compressor wrapping `daisysp::Compressor` with attack, release, ratio, threshold, and makeup gain.
+    3. **AudioEngine & Track FX Rack Integration**:
+       - Fully integrated in `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam`, mapping UI knob values to normalized parameters across Reverb, Delay, Chorus, Flanger, Moog Filter, and Compressor effect inserts.
+    4. **Eatscript & API Manifest Binding**:
+       - Bound all 6 nodes into `include/eatsbits/eatscript/api_manifest.hpp` under `eats.dsp.*` and `eats.fx.*` for AST dependency scanning and AOT export.
+    5. **Automated Verification**:
+       - Added `tests/test_daisysp_nodes.cpp` validating parameter sweeps, impulse responses, and zero runtime heap allocations.
+       - 100% test pass on native desktop (49/49 test suites) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
 
 - [x] **Fix Desktop CLAP Host GUI Lifecycle & Window Compatibility (Cardinal & DPF Plugins)** (commit `e84ef3e`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/audio/graph/nodes/clap_audio_node.hpp`, `src/audio/graph/nodes/clap_audio_node.cpp`, `src/ui/gui_window.cpp`, `src/gui_main.cpp`, `tests/test_clap_host.cpp`
@@ -117,21 +109,6 @@ To execute items automatically, run in Antigravity:
        - Connected `fullscreenDeviceModal_.onMidiFxParamChanged` to dispatch parameter values directly to the active `SequencerTrack::getMidiFxRack()`, supporting normalized and case-insensitive keys, and mirroring values to UI views.
     4. **Automated Verification**:
        - Added regression tests in `tests/test_midi_fx.cpp` (`TestCaptureNode`, `testInspectorMidiFxBridgeAndLivePlayback`) verifying that adding an Arpeggiator, Transpose, or Scale Snap effect audibly alters playback notes in `StepSequencer::processBlock`. Verified all 48 test suites passing.
-
-- [x] **Fix Chord Follow & Project Harmony Playback Pipeline Desynchronization** (commit `33a8fb6`, 2026-10-09)
-  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. **Unify Multi-View Chord Follow State**:
-       - Wired `modularTrackInspectorView_->onChordFollowChanged` in `GuiWindow::initModularViews()`: mode changes update both `arrangerTracks_[idx].chordFollowMode` and `modularArrangerView_->getTracks()[idx].chordFollowMode`, and invoke `engine_->getSequencer().getTrack(idx)->setChordFollowMode(mode)`.
-       - Updated `GuiWindow::handleTrackInspectorInteraction(TrackInspectorHitArea::ChordFollowChip)` to propagate mode changes to `modularArrangerView_`, `modularTrackInspectorView_`, and `SequencerTrack`.
-       - Added `trackChordFollowModes` synchronization to `TrackInspectorView::syncFromWindow`.
-    2. **Synchronize Arranger Chord Track Lane to StepSequencer**:
-       - Added `onChordTrackChanged` callback to `ArrangerView`, invoked on chord adding, editing, deleting, progression preset application, and chord dragging.
-       - Wired `modularArrangerView_->onChordTrackChanged` in `GuiWindow` to immediately push `modularArrangerView_->getChordTrack()` to `engine_->getSequencer().setChordTrack(...)`, ensuring `StepSequencer::getActiveChordAtBar()` always has the latest progression.
-    3. **Auditioning & Note Preview Harmony Support**:
-       - In `AudioEngine::postNoteOn` and `postNoteOff`, check if the destination track has `chordFollowMode != ChordFollowMode::Off`. If an active chord is present on the chord track, remap preview pitch through `theory::ChordTheory::remapPitchForChord` so Piano Roll, Virtual Keyboard, and Tracker auditioning audibly reflect the configured mode.
-    4. **Automated Verification**:
-       - Added unit test coverage in `tests/test_chord_track.cpp` (`testChordFollowPipelineSyncAndAuditioning`) and `tests/test_modular_ui.cpp` (`testGuiWindowIntegration`), validating 100% test pass across all 48 test suites.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

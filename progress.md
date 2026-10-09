@@ -1077,6 +1077,33 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite (commit `14329da`)
+- **Architectural Context**:
+  - Integrated the official, battle-tested `DaisySP` DSP suite (used across Eurorack hardware modules) into Eatsbits to provide a comprehensive, 100% MIT-licensed modular synthesis and FX engine with zero dynamic memory allocations in audio render blocks.
+  - Achieved full cross-platform compatibility across Windows (MSVC), Clang, GCC, and WebAssembly / Emscripten with WebGPU and AudioWorklets.
+- **Key Changes Implemented**:
+  - **Vendored Core & LGPL Extensions**:
+    - Vendored `DaisySP` (core MIT) and `DaisySP-LGPL` into `third_party/daisysp/`.
+    - Added target `eats_daisysp` in `CMakeLists.txt` linked directly into `eats_audio`, with `-DUSE_DAISYSP_LGPL=1` and `-D_USE_MATH_DEFINES`.
+  - **Modular GraphNode Wrappers**:
+    - `DaisyOscillatorNode`: Wraps `daisysp::Oscillator` (Bandlimited Blip Saw, Square, Triangle, Sine, Variable Saw) and `daisysp::Wavetable` with 1V/Oct CV and phase modulation.
+    - `DaisyFilterNode`: Dual stereo `daisysp::MoogLadder` (24dB/oct resonant ladder) and `daisysp::Svf` (State Variable Filter: LP, HP, BP, Notch) with dual-channel L/R processing.
+    - `DaisyReverbNode`: Stereo `daisysp::ReverbSc` algorithmic plate/hall reverb with feedback/decay and LP damping.
+    - `DaisyDelayNode`: Stereo `daisysp::DelayLine` with high-frequency damping tone filter and feedback.
+    - `DaisyModulationNode`: Multi-FX processor wrapping `daisysp::Chorus`, `daisysp::Flanger`, and `daisysp::Overdrive`.
+    - `DaisyCompressorNode`: Dual stereo dynamic range compressor wrapping `daisysp::Compressor` with attack, release, ratio, threshold, and makeup gain.
+  - **AudioEngine & Track FX Rack Integration**:
+    - Wired all 6 nodes into `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam`, populating previously empty or placeholder FX categories (`REVERB`, `DELAY`, `CHORUS`, `FLANGER`, `MOOG_FILTER`, `COMPRESSOR`).
+  - **Eatscript & API Manifest Binding**:
+    - Registered modules in `include/eatsbits/eatscript/api_manifest.hpp` under `eats.dsp.*` and `eats.fx.*` for AST dependency scanning, AOT transpilation, and live scripting.
+  - **Emscripten / WebAssembly Portability**:
+    - Resolved WebAssembly threading and dynamic loading guards in `clap_audio_node.cpp` and `clap_plugin_loader.cpp`, allowing `libeats_daisysp.a` and the entire audio graph to compile cleanly under Emscripten `-sWASM_WORKERS=1`.
+  - **Automated Verification**:
+    - Created `tests/test_daisysp_nodes.cpp` verifying zero runtime allocations, NaN/Inf bounds stability across parameter sweeps, impulse responses, and 6-voice modular routing.
+    - Verified 100% test pass on native desktop (49/49 test suites) and full WebAssembly build validation via `.\build-web.ps1 -NoServe`.
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
