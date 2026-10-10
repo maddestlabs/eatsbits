@@ -16,36 +16,32 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog**
-  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `tests/test_modular_ui.cpp`
-  - **Rationale**:
-    The current Design > Modular view places modules in a rigid, single horizontal line with no dragging, zooming, or panning. In contrast, VCV Rack and Cardinal provide an intuitive, infinite Eurorack rack canvas where musicians can pan/zoom anywhere, drag and drop modules freely onto standard 3U horizontal mounting rails, and interconnect modules with organic catenary cables. Additionally, replacing prototype hardcoded module presets with our existing filterable/searchable `PluginSearchDialog` gives users a fast, keyboard-friendly way to discover and insert instruments, filters, effects, and utilities.
-  - **Acceptance Criteria**:
-    1. **Infinite 2D Zoom & Pan Engine**:
-       - Wire `ZoomPanPresenter` into `DesignView::renderModularRack` and input event handlers (`handlePointer`, `handleWheel`, `handleKey`).
-       - Support middle-mouse drag and right-mouse drag for smooth 2D canvas panning.
-       - Support mouse wheel and trackpad pinch-to-zoom (anchored to cursor position) with smooth bounds (e.g. 0.4x to 2.0x zoom).
-    2. **Eurorack Multi-Row Mounting Rails & Visual Structure**:
-       - Render infinite/tiled horizontal Eurorack rows with standard 3U height (380px) and metal threaded mounting strips with evenly-spaced screw holes top and bottom.
-       - Render empty rail slots with visible dark backplane/power distribution bus bar channels (matching VCV Rack / Cardinal aesthetic).
-       - Snap modules to horizontal HP increments (1 HP = ~15px) or allow free-floating rail positioning, rendering top and bottom mounting thumbscrews.
-    3. **Freeform Module Drag-and-Drop & Reordering**:
-       - Enable dragging modules by their top title banner or faceplate margin across rails and positions.
-       - Support live reordering and collision avoidance or free rail docking.
-       - Ensure patch cables dynamically track dragged modules in real-time with catenary physics droop and jack highlight halos.
-    4. **Module Search & Add Dialog Integration**:
-       - Connect the `+ ADD MODULE` button (and canvas right-click context menu or hotkey `Enter`/`Space`) to open `PluginSearchDialog` configured with `PluginDialogMode::AddModule`.
-       - Populate search categories: `All`, `VCO / Synths`, `Filters`, `Effects (Reverb/Delay)`, `Modulation & Dynamics`, `Utilities (Mixer/VCA/Scope)`.
-       - Instantiating a module places it directly under the cursor or into the nearest open rail slot on the canvas.
-    5. **Automated Unit Testing & Interactive Verification**:
-       - Add regression tests in `tests/test_modular_ui.cpp` verifying canvas coordinate transforms (`screenToWorld`, `worldToScreen`), module drag hit-testing, zoom bounds, and dialog module insertion.
-       - Verify 100% test pass on native desktop (`.\build.ps1 -Test -NoRun`) and WebAssembly compatibility (`.\build-web.ps1 -NoServe`).
-
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog** (commit `560db9d`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Infinite 2D Zoom & Pan Engine**:
+       - Integrated `ZoomPanPresenter` (`modularZoomPan_`) into `DesignView::renderModularRack` and input event handlers (`handlePointer`, `handleWheel`, `handleKey`).
+       - Supported middle-mouse drag and right-mouse drag for smooth 2D canvas panning across the modular workspace.
+       - Supported mouse wheel and trackpad pinch-to-zoom (anchored to cursor position) with smooth bounds (0.40x to 2.0x zoom) and keyboard zoom shortcuts (`+`, `-`, `0`).
+    2. **Eurorack Multi-Row Mounting Rails & Visual Structure**:
+       - Rendered multi-row horizontal Eurorack rows with standard 3U height (380px), power distribution bus bar channel with red stripe & 16-pin gold headers, brushed metal mounting strips with 15px HP screw holes, and corner thumbscrews on module faceplates.
+       - Implemented viewport culling and scissor clipping (`pushScissor`/`popScissor`) to ensure infinite canvas elements remain neatly framed within the rack body.
+    3. **Freeform Module Drag-and-Drop & Reordering**:
+       - Enabled dragging modules by their title banners across rows and horizontal positions with live 15px HP snap-to-grid on release.
+       - Dynamically transformed patch cable endpoints to follow dragged modules in real-time with catenary physics droop and jack halo highlights.
+    4. **Module Search & Add Dialog Integration**:
+       - Connected `+ ADD MODULE` button, hotkeys (`Space`, `Enter`), and cursor click positions to open `PluginSearchDialog` in `PluginDialogMode::AddModule` mode.
+       - Populated 22 Eurorack modules across 5 categories (`VCO / Synths`, `Filters`, `Effects`, `Modulation & Dynamics`, `Utilities`).
+       - Instant module instantiation with matching knobs, inputs, and outputs placed under the cursor or in open rail slots.
+    5. **Automated Verification**:
+       - Added regression tests in `tests/test_modular_ui.cpp` (`testDesignView`) verifying coordinate transforms, middle-drag panning, zoom bounds, freeform module dragging, HP snapping, and search dialog module insertion.
+       - Verified 100% test pass on native desktop (49/49 test suites via `.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation (`.\build-web.ps1 -NoServe`).
 
 - [x] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API** (commit `7f81637`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
@@ -131,24 +127,6 @@ To execute items automatically, run in Antigravity:
        - Excised all material chip, rotation toggle, and patina level hit-testing loops and click-action handling in `hitTestProjectHub()` and `onMouseDown()`.
     5. **Test Suite Verification**:
        - Updated `tests/test_gui_interaction.cpp` to verify the streamlined Chassis Color Accents & Tints swatch selection. Verified 100% pass across all 48 test suites with `.\build.ps1 -Test -NoRun`.
-
-- [x] **Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration** (commit `7648c86`, 2026-10-09)
-  - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/widgets/fullscreen_device_modal.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `tests/test_studio_fx.cpp`
-  - **Acceptance Criteria**:
-    1. **Bridge Inspector Audio FX to Engine & Support Multi-Insert Param Dispatch**:
-       - Bridged `TrackInspectorView::tracks_[trackIndex].audioFxList` and `ArrangerView::tracks_[trackIndex].audioFx` in `GuiWindow::syncTrackAudioFxToEngine` and across all inspector audio FX callbacks (`onAddAudioFx`, `onToggleAudioFx`, `onReorderAudioFx`, `onRemoveAudioFx`, `onAudioFxChanged`), ensuring engine builds the actual audio FX chain rather than an empty list.
-       - Replaced hardcoded `fxIndex = 0` with actual `fxIdx` in `TrackPropertiesPanel`, `TrackPropertiesDrawer`, `TrackInspectorView`, `ArrangerView`, and `FullscreenDeviceModal` callbacks, dispatching parameters directly to specific insert indices via `engine_->setTrackAudioFxParam(trackIndex, fxIndex, paramName, normVal)`.
-    2. **Fix Track 1 Dual Audio Path & Initial Delay Disconnect**:
-       - In `AudioEngine::rebuildTrackAudioFx`, disconnected all intermediate nodes feeding into `gainId` port 0 and cleanly removed default `AcidEcho` node on Track 1. Guaranteed `gainId` receives only a single clean input path, eliminating parallel summing, phase cancellation, volume boost, and clipping distortion on Track 1.
-    3. **Stop Defaulting Unrecognized Effects to Tube Distortion**:
-       - Instantiated `BiquadNode` in `rebuildTrackAudioFx` for all `FILTER`, `MULTIMODE_FILTER`, `SVF`, `LOWPASS`, `HIGHPASS`, `BANDPASS`, and `VCF` effects, mapping `cutoff`, `resonance`, `type`, and `gain` in `setTrackAudioFxParam`.
-       - Instantiated `EatscriptNode` for script-based effects (`.eats` FX), loading and compiling DSP scripts.
-       - Restricted `WaveShaperNode` instantiation strictly to explicit distortion, overdrive, saturation, or bitcrusher types.
-    4. **Calibrate `WaveShaperNode` Transfer Curve & Gain Staging**:
-       - Replaced foldback curve `d / (1.0f + d * d)` with monotonic dual tanh saturation curve `(d > 0.0f) ? std::tanh(d) : (0.85f * std::tanh(d * 0.90f))` to eliminate unmusical wavefolding distortion when driven with hot signals.
-       - Calibrated pre-gain/drive in `rebuildTrackAudioFx` to `std::clamp(fx.drive * 2.0f, 0.5f, 4.0f)` for subtle harmonic warmth and color.
-    5. **Automated Verification**:
-       - Expanded `tests/test_studio_fx.cpp` with `testAudioEngineFilterNodeAndMultiInsertRouting` validating `BiquadNode` filter creation, multi-insert parameter dispatch (insert index > 0), and clean single-path routing on Track 1. All 48 test suites passing.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

@@ -1128,6 +1128,33 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog (commit `560db9d`)
+- **Architectural Context**:
+  - Transformed the Design > Modular view from a rigid, static horizontal strip into an open, infinite 2D Eurorack rack canvas aligned with VCV Rack and Cardinal standards.
+  - Wired `ZoomPanPresenter` (`modularZoomPan_`) into `DesignView` to deliver 0.40x to 2.0x anchored zoom, middle-mouse and right-mouse drag canvas panning, and zoom hotkeys (`+`, `-`, `0`).
+  - Added multi-row standard 3U (380px) mounting rails with brushed metal finish, 1 HP (15px) screw hole patterns, power distribution bus bar channel with red stripe & 16-pin gold headers, and corner knurled thumbscrews.
+  - Implemented freeform module dragging across rows and horizontal positions with live 15px HP snap-to-grid on release and real-time catenary physics patch cable tracking.
+  - Upgraded `PluginSearchDialog` to support `PluginDialogMode::AddModule` with 22 Eurorack modules categorized across 5 categories (`VCO / Synths`, `Filters`, `Effects`, `Modulation & Dynamics`, `Utilities`), instantly instantiating modules under the cursor or in open rail slots.
+- **Key Changes Implemented**:
+  - **`PluginSearchDialog` AddModule Mode**:
+    - Expanded `PluginDialogMode` enum to include `AddModule`.
+    - Populated 22 Eurorack module library items with category tags, descriptions, and color styling.
+    - Implemented category tab filtering and instant module selection handling.
+  - **`DesignView` 2D Zoom, Pan, Drag & Rail Mechanics**:
+    - Embedded `ZoomPanPresenter modularZoomPan_` with uniform zoom limits (0.4x to 2.0x).
+    - Added freeform module dragging by banner/faceplate with drag offsets and 15px snap on release.
+    - Implemented multi-row 3U rail rendering, power bus ribbon cables, 16-pin gold headers, and corner thumbscrews.
+    - Added viewport scissor clipping (`pushScissor`/`popScissor`) to ensure infinite canvas elements remain neatly framed within the rack body.
+    - Dynamically transformed patch cable endpoints to follow dragged modules with organic catenary droop.
+    - Embedded `PluginSearchDialog moduleSearchDialog_` for adding modules via button, `Space`/`Enter` hotkeys, or canvas positions.
+  - **`GuiWindow` Integration**:
+    - Routed active plugin dialog checks to `modularDesignView_->getModuleSearchDialog()` when in Design view.
+  - **Automated Verification**:
+    - Expanded `tests/test_modular_ui.cpp` (`testDesignView`) verifying coordinate transforms, middle-drag panning, zoom bounds, freeform module dragging, HP snapping, and search dialog module insertion.
+    - Verified 100% test pass on native desktop (49/49 test suites via `.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation (`.\build-web.ps1 -NoServe`).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
