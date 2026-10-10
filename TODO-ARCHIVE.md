@@ -7,6 +7,20 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Fix Live MIDI FX Pipeline Synchronization, Parameter Binding & Inspection** (commit `2c1824f`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `src/sequencer/step_sequencer.cpp`, `tests/test_midi_fx.cpp`
+  - **Acceptance Criteria**:
+    1. **Bridge Inspector and Arranger MIDI FX Model Lists**:
+       - Resolved the disconnect between `TrackInspectorView::tracks_[trackIndex].midiFxList` and `ArrangerView::tracks_[trackIndex].midiFx`. When a MIDI FX is added, removed, reordered, or toggled in Track Inspector, mirror changes to `modularArrangerView_->getTracks()[trackIndex].midiFx` before calling `syncTrackMidiFxToEngine(trackIndex)`, preventing the engine from receiving an empty rack while preserving existing project insert items.
+    2. **Populate Complete MIDI FX Parameters in `syncTrackMidiFxToEngine`**:
+       - Updated `GuiWindow::syncTrackMidiFxToEngine` to serialize the full set of parameters from `TrackMidiFxItem::knobs` into `insert.params` (`Octaves`, `octaves`, `semitones`, `transpose`, `rate`, `gate`, `swing`, `humanizeVelocity`, `humanizeTiming`, `rootKey`, `scaleMode`), enabling `StepSequencer` to read them during playback.
+    3. **Wire Parameter Updates in GuiWindow**:
+       - Wired `modularTrackInspectorView_->onMidiFxParamChanged` in `GuiWindow::initModularViews()` to update the active rack on `engine_->getSequencer().getTrack(idx)`.
+       - Updated `GuiWindow::handleTrackInspectorInteraction` (toggles and knobs for Arp, Scale, Humanize) to update insert items, mirror between Arranger and Track Inspector, and call `syncTrackMidiFxToEngine(tIdx)`.
+       - Connected `fullscreenDeviceModal_.onMidiFxParamChanged` to dispatch parameter values directly to the active `SequencerTrack::getMidiFxRack()`, supporting normalized and case-insensitive keys, and mirroring values to UI views.
+    4. **Automated Verification**:
+       - Added regression tests in `tests/test_midi_fx.cpp` (`TestCaptureNode`, `testInspectorMidiFxBridgeAndLivePlayback`) verifying that adding an Arpeggiator, Transpose, or Scale Snap effect audibly alters playback notes in `StepSequencer::processBlock`. Verified all 48 test suites passing.
+
 - [x] **Fix Chord Follow & Project Harmony Playback Pipeline Desynchronization** (commit `33a8fb6`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/sequencer/step_sequencer.hpp`, `src/sequencer/step_sequencer.cpp`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `tests/test_chord_track.cpp`, `tests/test_modular_ui.cpp`
   - **Acceptance Criteria**:

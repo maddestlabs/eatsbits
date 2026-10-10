@@ -1104,6 +1104,30 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-09] Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API (commit `7f81637`)
+- **Architectural Context**:
+  - Dropped third-party vendor prefixes (`daisysp::`, `Daisy*`) across C++ graph nodes and the Eatscript API manifest, exposing canonical musical concepts (`OscillatorNode`, `MoogFilterNode`, `ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`).
+  - Upgraded core audio nodes to internally encapsulate high-performance DaisySP DSP engines (`daisysp::Oscillator`, `daisysp::MoogLadder`/`daisysp::Svf`, `daisysp::ReverbSc`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Chorus`/`daisysp::Flanger`/`daisysp::Overdrive`, `daisysp::Compressor`) with pre-allocated static buffers and zero runtime memory allocations.
+  - Consolidated duplicate branches in `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` while preserving legacy `Daisy*` aliases for backwards compatibility.
+- **Key Changes Implemented**:
+  - **Canonical C++ GraphNode Classes & Forwarding Aliases**:
+    - Created `include/eatsbits/audio/graph/nodes/oscillator_node.hpp` and `src/audio/graph/nodes/oscillator_node.cpp` with `OscillatorNode` (PolyBLEP anti-aliased oscillator, 1V/Oct CV modulation).
+    - Created `include/eatsbits/audio/graph/nodes/moog_filter_node.hpp` and `src/audio/graph/nodes/moog_filter_node.cpp` with `MoogFilterNode` (24dB resonant Moog ladder and SVF filters).
+    - Created `include/eatsbits/audio/graph/nodes/reverb_node.hpp` and `src/audio/graph/nodes/reverb_node.cpp` with `ReverbNode` (stereo algorithmic plate/hall reverb).
+    - Upgraded `ChorusNode` (`include/eatsbits/audio/graph/nodes/chorus_node.hpp`, `src/audio/graph/nodes/chorus_node.cpp`) powered by DaisySP Chorus, Flanger, and Overdrive.
+    - Upgraded `DelayNode` (`include/eatsbits/audio/graph/nodes/delay_node.hpp`, `src/audio/graph/nodes/delay_node.cpp`) powered by DaisySP DelayLine and Tone filter.
+    - Upgraded `CompressorNode` (`include/eatsbits/audio/graph/nodes/compressor_node.hpp`, `src/audio/graph/nodes/compressor_node.cpp`) powered by dual DaisySP Compressor engines with sidechain input support.
+    - Created `include/eatsbits/audio/graph/nodes/modular_nodes.hpp` aggregating all canonical nodes, while keeping forwarding headers in `nodes/daisy/` to guarantee zero compilation breakages.
+  - **Clean Prefix-Free Eatscript API Manifest**:
+    - Updated `include/eatsbits/eatscript/api_manifest.hpp` with canonical names: `eats.dsp.Oscillator`, `eats.dsp.MoogFilter`, `eats.fx.Reverb`, `eats.fx.Delay`, `eats.fx.Chorus`, `eats.fx.Compressor`, retaining legacy aliases (`Daisy*`).
+  - **AudioEngine Dispatch Consolidation**:
+    - Unified `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate and parameterize canonical nodes without redundant duplicate branches.
+  - **Automated Verification**:
+    - Updated `tests/test_daisysp_nodes.cpp` verifying canonical nodes, parameter sweeps, and legacy aliases.
+    - 100% test pass on native desktop (49/49 test suites) and verified clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.

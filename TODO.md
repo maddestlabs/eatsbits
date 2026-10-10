@@ -16,37 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API**
-  - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
-  - **Rationale**:
-    Developers and Eatscript authors should work with canonical, prefix-free musical concepts (`eats.dsp.Oscillator`, `eats.fx.Reverb`, `eats.fx.Chorus`) rather than leaking third-party vendor brand names (`daisysp::`, `DaisyReverb`, `DaisyOscillator`). Additionally, maintaining duplicate bespoke versions of `ChorusNode`, `DelayNode`, and `CompressorNode` alongside their superior DaisySP equivalents creates cognitive confusion, inconsistent parameter conventions, and double maintenance overhead.
-  - **Acceptance Criteria**:
-    1. **Unify C++ GraphNode Classes & Drop Vendor Prefix**:
-       - Rename and consolidate `DaisyOscillatorNode` $\to$ `OscillatorNode` (`include/eatsbits/audio/graph/nodes/oscillator_node.hpp`), providing the canonical PolyBLEP bandlimited oscillator with 1V/Oct CV modulation.
-       - Rename `DaisyFilterNode` $\to$ `MoogFilterNode` (or `FilterNode`) wrapping analog-modeled 24dB Moog ladder and SVF filters.
-       - Rename `DaisyReverbNode` $\to$ `ReverbNode` as the standard algorithmic stereo plate/hall reverb.
-       - Upgrade existing `ChorusNode`, `DelayNode`, and `CompressorNode` to internally encapsulate their respective DaisySP engines (`daisysp::Chorus`/`daisysp::Flanger`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Compressor`) while preserving standard parameter setters/getters.
-       - Eliminate redundant bespoke DSP files in `src/audio/dsp/` and `include/eatsbits/audio/dsp/` superseded by DaisySP.
-    2. **Clean, Prefix-Free Eatscript API Manifest**:
-       - Update `include/eatsbits/eatscript/api_manifest.hpp` with canonical names:
-         - `eats.dsp.Oscillator` (aliases: `"osc"`, `"Oscillator"`)
-         - `eats.dsp.MoogFilter` (aliases: `"moog"`, `"moog_ladder"`, `"Filter"`)
-         - `eats.fx.Reverb` (aliases: `"reverb"`, `"reverb_sc"`, `"Reverb"`)
-         - `eats.fx.Delay` (aliases: `"delay"`, `"Delay"`)
-         - `eats.fx.Chorus` (aliases: `"chorus"`, `"flanger"`, `"Chorus"`)
-         - `eats.fx.Compressor` (aliases: `"compressor"`, `"Compressor"`)
-       - Maintain legacy `Daisy*` aliases so older scripts continue running seamlessly without breakage.
-    3. **AudioEngine & FX Rack Consolidation**:
-       - Update `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate the unified canonical nodes (`ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`, `MoogFilterNode`).
-    4. **Preserve Distinct Specialized & Retro Engines**:
-       - Retain `BiquadNode` and `ParametricEqNode` for surgical parametric EQ (peaking/shelving/notch filters).
-       - Retain `ConvolverNode` for FFT partitioned impulse responses (speaker cabinets, acoustic spaces).
-       - Retain `WaveShaperNode` for custom tanh overdrive/distortion curves.
-       - Retain vintage sound chip emulators (`Ym2612Node`, `Tb303Node`, `SidNode`, `SnesNode`, `Dx7Node`).
-    5. **Automated Verification & Web Build Validation**:
-       - Update tests in `tests/test_daisysp_nodes.cpp` (or `test_modular_nodes.cpp`) to verify the unified nodes for zero runtime allocations, parameter sweeps, and audio stability.
-       - Confirm 100% test pass on native desktop (`.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
-
 - [ ] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog**
   - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `tests/test_modular_ui.cpp`
   - **Rationale**:
@@ -77,6 +46,35 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API** (commit `7f81637`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
+  - **Acceptance Criteria**:
+    1. **Unify C++ GraphNode Classes & Drop Vendor Prefix**:
+       - Consolidated `DaisyOscillatorNode` $\to$ canonical `OscillatorNode` (`include/eatsbits/audio/graph/nodes/oscillator_node.hpp`), providing PolyBLEP bandlimited oscillator with 1V/Oct CV modulation.
+       - Consolidated `DaisyFilterNode` $\to$ canonical `MoogFilterNode` (`include/eatsbits/audio/graph/nodes/moog_filter_node.hpp`) wrapping analog-modeled 24dB Moog ladder and SVF filters (LP/HP/BP/Notch).
+       - Consolidated `DaisyReverbNode` $\to$ canonical `ReverbNode` (`include/eatsbits/audio/graph/nodes/reverb_node.hpp`) as algorithmic stereo plate/hall reverb (`daisysp::ReverbSc`).
+       - Upgraded `ChorusNode`, `DelayNode`, and `CompressorNode` to internally encapsulate DaisySP engines (`daisysp::Chorus`/`daisysp::Flanger`/`daisysp::Overdrive`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Compressor`) with zero heap allocations and backwards-compatible parameter interfaces.
+       - Created aggregation header `modular_nodes.hpp` and retained forwarders for all legacy `Daisy*` headers.
+    2. **Clean, Prefix-Free Eatscript API Manifest**:
+       - Updated `include/eatsbits/eatscript/api_manifest.hpp` with canonical names:
+         - `eats.dsp.Oscillator` (aliases: `"osc"`, `"Oscillator"`)
+         - `eats.dsp.MoogFilter` (aliases: `"moog"`, `"moog_ladder"`, `"Filter"`)
+         - `eats.fx.Reverb` (aliases: `"reverb"`, `"reverb_sc"`, `"Reverb"`)
+         - `eats.fx.Delay` (aliases: `"delay"`, `"Delay"`)
+         - `eats.fx.Chorus` (aliases: `"chorus"`, `"flanger"`, `"Chorus"`)
+         - `eats.fx.Compressor` (aliases: `"compressor"`, `"Compressor"`)
+       - Maintained legacy `Daisy*` aliases so older scripts and reflection queries continue running without breakage.
+    3. **AudioEngine & FX Rack Consolidation**:
+       - Streamlined `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate and parameterize the unified canonical nodes (`ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`, `MoogFilterNode`).
+    4. **Preserved Distinct Specialized & Retro Engines**:
+       - Retained `BiquadNode` and `ParametricEqNode` for surgical parametric EQ (peaking/shelving/notch filters).
+       - Retained `ConvolverNode` for FFT partitioned impulse responses (speaker cabinets, acoustic spaces).
+       - Retained `WaveShaperNode` for custom tanh overdrive/distortion curves.
+       - Retained vintage sound chip emulators (`Ym2612Node`, `Tb303Node`, `SidNode`, `SnesNode`, `Dx7Node`).
+    5. **Automated Verification & Web Build Validation**:
+       - Updated `tests/test_daisysp_nodes.cpp` verifying canonical nodes, parameter sweeps, and audio stability.
+       - 100% test pass on native desktop (49/49 test suites) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
 
 - [x] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite** (commit `14329da`, 2026-10-09)
   - **Context/Files**: `third_party/daisysp/`, `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
@@ -151,20 +149,6 @@ To execute items automatically, run in Antigravity:
        - Calibrated pre-gain/drive in `rebuildTrackAudioFx` to `std::clamp(fx.drive * 2.0f, 0.5f, 4.0f)` for subtle harmonic warmth and color.
     5. **Automated Verification**:
        - Expanded `tests/test_studio_fx.cpp` with `testAudioEngineFilterNodeAndMultiInsertRouting` validating `BiquadNode` filter creation, multi-insert parameter dispatch (insert index > 0), and clean single-path routing on Track 1. All 48 test suites passing.
-
-- [x] **Fix Live MIDI FX Pipeline Synchronization, Parameter Binding & Inspection** (commit `2c1824f`, 2026-10-09)
-  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/eatscript/midi_fx_pipeline.hpp`, `src/sequencer/step_sequencer.cpp`, `tests/test_midi_fx.cpp`
-  - **Acceptance Criteria**:
-    1. **Bridge Inspector and Arranger MIDI FX Model Lists**:
-       - Resolved the disconnect between `TrackInspectorView::tracks_[trackIndex].midiFxList` and `ArrangerView::tracks_[trackIndex].midiFx`. When a MIDI FX is added, removed, reordered, or toggled in Track Inspector, mirror changes to `modularArrangerView_->getTracks()[trackIndex].midiFx` before calling `syncTrackMidiFxToEngine(trackIndex)`, preventing the engine from receiving an empty rack while preserving existing project insert items.
-    2. **Populate Complete MIDI FX Parameters in `syncTrackMidiFxToEngine`**:
-       - Updated `GuiWindow::syncTrackMidiFxToEngine` to serialize the full set of parameters from `TrackMidiFxItem::knobs` into `insert.params` (`Octaves`, `octaves`, `semitones`, `transpose`, `rate`, `gate`, `swing`, `humanizeVelocity`, `humanizeTiming`, `rootKey`, `scaleMode`), enabling `StepSequencer` to read them during playback.
-    3. **Wire Parameter Updates in GuiWindow**:
-       - Wired `modularTrackInspectorView_->onMidiFxParamChanged` in `GuiWindow::initModularViews()` to update the active rack on `engine_->getSequencer().getTrack(idx)`.
-       - Updated `GuiWindow::handleTrackInspectorInteraction` (toggles and knobs for Arp, Scale, Humanize) to update insert items, mirror between Arranger and Track Inspector, and call `syncTrackMidiFxToEngine(tIdx)`.
-       - Connected `fullscreenDeviceModal_.onMidiFxParamChanged` to dispatch parameter values directly to the active `SequencerTrack::getMidiFxRack()`, supporting normalized and case-insensitive keys, and mirroring values to UI views.
-    4. **Automated Verification**:
-       - Added regression tests in `tests/test_midi_fx.cpp` (`TestCaptureNode`, `testInspectorMidiFxBridgeAndLivePlayback`) verifying that adding an Arpeggiator, Transpose, or Scale Snap effect audibly alters playback notes in `StepSequencer::processBlock`. Verified all 48 test suites passing.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**
