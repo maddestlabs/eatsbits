@@ -1155,6 +1155,27 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-10] VCV Rack & Cardinal Rivet Snapping, Reversible Module Bumping & Native Pan/Zoom Controls (commit `a2884de`)
+- **Architectural Context**:
+  - Aligned modular canvas dragging behavior with physical hardware racks and VCV Rack / Cardinal paradigms.
+  - Movement strictly locks to discrete rivet hole increments ($1\,\text{HP} = 15\,\text{px}$) instead of continuous pixels, giving a tactile hardware rack feel and ignoring sub-HP jitter.
+  - Implemented reversible $O(N)$ module bumping: taking a snapshot of all module positions at drag start, automatically shifting overlapping modules left or right based on approach trajectory and non-overlapping intervals, and cleanly restoring initial positions if the dragged module is returned to its starting location.
+  - Enabled desktop native middle-mouse button dragging (`PointerButton::Middle`) for 2D canvas panning and `Ctrl+mousewheel` for cursor-anchored zoom in/out with smooth clamping ($0.40\times$ to $2.0\times$), while preserving bare mousewheel for canvas navigation.
+- **Key Changes Implemented**:
+  - **`GuiWindow` Middle Click Routing**:
+    - Added `button == 2` dispatch in `GuiWindow::onMouseDown` to route `PointerAction::Down` with `PointerButton::Middle` into `modularDesignView_` and `modularArrangerView_`.
+  - **`DesignView` Rivet Snapping & Reversible Bumping**:
+    - Defined Eurorack constants: `kHpWidth = 15.0f`, `kRowHeight = 380.0f`, `kModuleTopRailOffset = 26.0f`.
+    - Captured `initialModuleStates_` snapshot on drag start.
+    - Added `applyModuleBumping(draggedIdx, targetRow, targetHp)` resolving left and right non-overlapping packing partitions.
+    - Updated `renderModularRack()` to draw threaded rivet holes on rails every 1 HP ($15\,\text{px}$) and aligned corner thumbscrews to rivet pitch ($7.5\,\text{px}$ offset).
+    - Updated `PointerAction::Scroll` to check `ev.mods.ctrl`: `Ctrl+wheel` zooms in/out anchored at cursor, bare wheel smoothly pans canvas.
+  - **Automated Verification**:
+    - Expanded `tests/test_modular_ui.cpp` (`testDesignView`) with tests for bare wheel panning, Ctrl+wheel zooming, sub-HP deadband, 1 HP discrete step dragging, neighbor bumping on collision, and complete initial position restoration upon return.
+    - 100% test pass on native desktop (49/49 test suites via `build.ps1 -Test -NoRun`) and verified clean WebAssembly compilation (`build-web.ps1 -NoServe`).
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
