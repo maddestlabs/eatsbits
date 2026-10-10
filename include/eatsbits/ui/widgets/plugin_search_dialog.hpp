@@ -19,7 +19,8 @@ enum class PluginDialogMode {
     SelectPreset,
     AddDrums,
     AddMidiSeq,
-    AddUtility
+    AddUtility,
+    AddModule
 };
 
 using PresetDialogMode = PluginDialogMode;
@@ -118,6 +119,7 @@ private:
     std::vector<PluginEntry> drumsLibrary_;
     std::vector<PluginEntry> midiSeqLibrary_;
     std::vector<PluginEntry> utilityLibrary_;
+    std::vector<PluginEntry> moduleLibrary_;
 
     std::vector<std::string> selectPresetCategories_{"ALL", "INSTRUMENTS", "DRUMS", "AUDIO FX", "MIDI FX", "MIDI SEQ", "UTILITY"};
     std::vector<std::string> instrumentCategories_{"ALL", "SYNTHS", "DRUMS", "PHYSICAL MODELING", "KEYS", "GUITAR & BASS", "RETRO CHIP"};
@@ -126,6 +128,10 @@ private:
     std::vector<std::string> drumsCategories_{"ALL", "808", "909", "ACOUSTIC", "ELECTRONIC", "PERCUSSION"};
     std::vector<std::string> midiSeqCategories_{"ALL", "ACID", "TECHNO", "HOUSE", "CHORDS", "GROOVES"};
     std::vector<std::string> utilityCategories_{"ALL", "SPLITTER", "MACRO", "ACTION"};
+    std::vector<std::string> moduleCategories_{"ALL", "VCO / SYNTHS", "FILTERS", "EFFECTS", "MODULATION & DYNAMICS", "UTILITIES"};
+public:
+    [[nodiscard]] const std::vector<PluginEntry>& getModuleLibrary() const noexcept { return moduleLibrary_; }
+private:
 };
 
 using PresetSearchDialog = PluginSearchDialog;

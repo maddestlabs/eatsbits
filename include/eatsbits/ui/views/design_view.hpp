@@ -4,6 +4,8 @@
 #include "arranger_view.hpp"
 #include "../gui_panel_def.hpp"
 #include "../widgets/text_editor_widget.hpp"
+#include "../widgets/plugin_search_dialog.hpp"
+#include "eatsbits/presenter/zoom_pan_presenter.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -112,8 +114,18 @@ public:
     [[nodiscard]] DesignSubMode getSubMode() const noexcept { return mode_; }
     [[nodiscard]] const std::vector<PatchCord>& getPatchCords() const noexcept { return patchCords_; }
     [[nodiscard]] const std::vector<ModularModuleDef>& getModules() const noexcept { return modules_; }
+    [[nodiscard]] std::vector<ModularModuleDef>& getModules() noexcept { return modules_; }
     void addModule(const ModularModuleDef& mod);
     void resetPatch();
+
+    // Modular 2D Canvas & Search Dialog API
+    [[nodiscard]] presenter::ZoomPanPresenter& getModularZoomPan() noexcept { return modularZoomPan_; }
+    [[nodiscard]] const presenter::ZoomPanPresenter& getModularZoomPan() const noexcept { return modularZoomPan_; }
+    [[nodiscard]] PluginSearchDialog& getModuleSearchDialog() noexcept { return moduleSearchDialog_; }
+    [[nodiscard]] const PluginSearchDialog& getModuleSearchDialog() const noexcept { return moduleSearchDialog_; }
+    void openModuleSearchDialog(float worldSpawnX = 0.0f, float worldSpawnY = 0.0f);
+    [[nodiscard]] int getDraggingModuleIndex() const noexcept { return draggingModuleIdx_; }
+    [[nodiscard]] bool isPanningCanvas() const noexcept { return isPanningCanvas_; }
 
     // Target Selection & Script Management
     void selectTargetByIndex(int index);
@@ -244,6 +256,31 @@ private:
     Rect2D modularToolbarBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnModularResetPatch_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnModularAddModule_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnModularZoomIn_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnModularZoomOut_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnModularZoomReset_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    // Infinite 2D Zoom & Pan Engine
+    presenter::ZoomPanPresenter modularZoomPan_;
+    bool modularPanInitialized_{false};
+    bool modularLayoutDone_{false};
+    bool isPanningCanvas_{false};
+    float lastPanPointerX_{0.0f};
+    float lastPanPointerY_{0.0f};
+    bool isRightClickCandidate_{false};
+    float rightClickStartX_{0.0f};
+    float rightClickStartY_{0.0f};
+
+    // Freeform Module Dragging
+    int draggingModuleIdx_{-1};
+    float dragModuleOffsetWorldX_{0.0f};
+    float dragModuleOffsetWorldY_{0.0f};
+
+    // Module Search & Add Dialog
+    PluginSearchDialog moduleSearchDialog_;
+    float pendingModuleSpawnX_{0.0f};
+    float pendingModuleSpawnY_{0.0f};
+
     bool isDraggingCord_{false};
     int dragCordSrcMod_{-1};
     int dragCordSrcJack_{-1};

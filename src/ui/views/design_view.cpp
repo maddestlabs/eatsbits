@@ -53,6 +53,74 @@ DesignView::DesignView() {
         currentScriptCode_ = code;
     };
     textEditor_.setText(currentScriptCode_);
+
+    // Configure 2D Modular Zoom & Pan
+    modularZoomPan_.setUniformZoomLimits(0.40f, 2.0f);
+
+    // Configure Modular Search Dialog
+    moduleSearchDialog_.onPluginSelected = [this](PluginDialogMode, const PluginEntry& entry, uint32_t) {
+        ModularModuleDef newMod;
+        newMod.title = entry.name;
+        newMod.type = entry.engineTag;
+        newMod.w = 210.0f;
+        newMod.h = 340.0f;
+        newMod.r = std::clamp(entry.r * 0.35f, 0.12f, 0.45f);
+        newMod.g = std::clamp(entry.g * 0.35f, 0.12f, 0.45f);
+        newMod.b = std::clamp(entry.b * 0.35f, 0.12f, 0.45f);
+
+        std::string tag = entry.engineTag;
+        for (char& c : tag) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        if (tag.find("VCO") != std::string::npos || tag.find("OSC") != std::string::npos || tag.find("POLYBLEP") != std::string::npos) {
+            newMod.knobs = {{"TUNE", 0.50f, -24.0f, 24.0f, "st"}, {"FINE", 0.50f, -50.0f, 50.0f, "ct"}, {"WAVE", 0.25f, 0.0f, 1.0f, ""}, {"PW", 0.50f, 0.0f, 1.0f, "%"}};
+            newMod.inputs = {"1V/OCT", "PW CV", "FM"};
+            newMod.outputs = {"OUT", "SUB"};
+        } else if (tag.find("VCF") != std::string::npos || tag.find("FILTER") != std::string::npos || tag.find("LADDER") != std::string::npos || tag.find("SVF") != std::string::npos) {
+            newMod.knobs = {{"CUTOFF", 0.65f, 20.0f, 20000.0f, "Hz"}, {"RESO", 0.50f, 0.0f, 1.0f, ""}, {"DRIVE", 0.25f, 0.0f, 1.0f, "dB"}, {"KEYTRK", 0.50f, 0.0f, 1.0f, ""}};
+            newMod.inputs = {"AUDIO IN", "CUTOFF CV", "FM"};
+            newMod.outputs = {"LP OUT", "HP OUT"};
+        } else if (tag.find("REVERB") != std::string::npos) {
+            newMod.knobs = {{"DECAY", 0.60f, 0.1f, 10.0f, "s"}, {"DAMP", 0.40f, 0.0f, 1.0f, ""}, {"MIX", 0.45f, 0.0f, 1.0f, "%"}, {"SIZE", 0.70f, 0.0f, 1.0f, ""}};
+            newMod.inputs = {"IN L", "IN R"};
+            newMod.outputs = {"OUT L", "OUT R"};
+        } else if (tag.find("DELAY") != std::string::npos) {
+            newMod.knobs = {{"TIME", 0.50f, 10.0f, 2000.0f, "ms"}, {"FEEDBK", 0.45f, 0.0f, 1.0f, "%"}, {"DAMP", 0.30f, 0.0f, 1.0f, ""}, {"MIX", 0.40f, 0.0f, 1.0f, "%"}};
+            newMod.inputs = {"IN L", "IN R", "TIME CV"};
+            newMod.outputs = {"OUT L", "OUT R"};
+        } else if (tag.find("CHORUS") != std::string::npos) {
+            newMod.knobs = {{"RATE", 0.35f, 0.05f, 10.0f, "Hz"}, {"DEPTH", 0.60f, 0.0f, 1.0f, "%"}, {"FEEDBK", 0.30f, 0.0f, 1.0f, "%"}, {"MIX", 0.50f, 0.0f, 1.0f, "%"}};
+            newMod.inputs = {"IN L", "IN R"};
+            newMod.outputs = {"OUT L", "OUT R"};
+        } else if (tag.find("COMP") != std::string::npos) {
+            newMod.knobs = {{"THRESH", 0.60f, -60.0f, 0.0f, "dB"}, {"RATIO", 0.40f, 1.0f, 20.0f, ":1"}, {"ATTACK", 0.20f, 0.1f, 100.0f, "ms"}, {"RELEASE", 0.50f, 10.0f, 1000.0f, "ms"}};
+            newMod.inputs = {"IN L", "IN R", "SIDECHAIN"};
+            newMod.outputs = {"OUT L", "OUT R"};
+        } else if (tag.find("ADSR") != std::string::npos || tag.find("ENV") != std::string::npos) {
+            newMod.knobs = {{"ATTACK", 0.10f, 1.0f, 2000.0f, "ms"}, {"DECAY", 0.35f, 1.0f, 3000.0f, "ms"}, {"SUSTAIN", 0.70f, 0.0f, 1.0f, "%"}, {"RELEASE", 0.40f, 5.0f, 5000.0f, "ms"}};
+            newMod.inputs = {"GATE", "RETRIG"};
+            newMod.outputs = {"ENV OUT", "INV OUT"};
+        } else if (tag.find("LFO") != std::string::npos) {
+            newMod.knobs = {{"RATE", 0.50f, 0.05f, 20.0f, "Hz"}, {"DEPTH", 0.75f, 0.0f, 1.0f, "%"}, {"SHAPE", 0.0f, 0.0f, 1.0f, ""}, {"PHASE", 0.0f, 0.0f, 360.0f, "deg"}};
+            newMod.inputs = {"SYNC", "RESET"};
+            newMod.outputs = {"TRI", "SQR", "SAW"};
+        } else if (tag.find("MIXER") != std::string::npos) {
+            newMod.knobs = {{"CH 1", 0.75f, 0.0f, 1.0f, ""}, {"CH 2", 0.75f, 0.0f, 1.0f, ""}, {"CH 3", 0.50f, 0.0f, 1.0f, ""}, {"CH 4", 0.50f, 0.0f, 1.0f, ""}};
+            newMod.inputs = {"IN 1", "IN 2", "IN 3", "IN 4"};
+            newMod.outputs = {"MIX L", "MIX R"};
+        } else if (tag.find("OUT") != std::string::npos || tag.find("MASTER") != std::string::npos) {
+            newMod.knobs = {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}, {"PHONES", 0.70f, 0.0f, 1.0f, ""}};
+            newMod.inputs = {"MAIN L", "MAIN R"};
+            newMod.outputs = {"MON L", "MON R"};
+        } else {
+            newMod.knobs = {{"PARAM 1", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 2", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 3", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 4", 0.50f, 0.0f, 1.0f, ""}};
+            newMod.inputs = {"IN 1", "IN 2", "CV IN"};
+            newMod.outputs = {"OUT 1", "OUT 2"};
+        }
+
+        newMod.x = pendingModuleSpawnX_;
+        newMod.y = pendingModuleSpawnY_;
+        addModule(newMod);
+    };
 }
 
 void DesignView::setSubMode(DesignSubMode mode) noexcept {
@@ -66,7 +134,40 @@ void DesignView::resetPatch() {
 }
 
 void DesignView::addModule(const ModularModuleDef& mod) {
-    modules_.push_back(mod);
+    ModularModuleDef m = mod;
+    if (m.x == 0.0f && m.y == 0.0f && !modules_.empty()) {
+        float rightmostX = studioBodyBounds_.x + 24.0f;
+        for (const auto& existing : modules_) {
+            if (existing.x + existing.w + 20.0f > rightmostX) {
+                rightmostX = existing.x + existing.w + 20.0f;
+            }
+        }
+        m.x = rightmostX;
+        m.y = studioBodyBounds_.y + modularToolbarBounds_.h + 16.0f + 10.0f;
+        if (m.h <= 0.0f) m.h = 340.0f;
+    }
+    modules_.push_back(m);
+}
+
+void DesignView::openModuleSearchDialog(float worldSpawnX, float worldSpawnY) {
+    if (worldSpawnX == 0.0f && worldSpawnY == 0.0f) {
+        float nextX = studioBodyBounds_.x + 24.0f;
+        for (const auto& mod : modules_) {
+            if (mod.x + mod.w + 20.0f > nextX) {
+                nextX = mod.x + mod.w + 20.0f;
+            }
+        }
+        pendingModuleSpawnX_ = nextX;
+        pendingModuleSpawnY_ = studioBodyBounds_.y + modularToolbarBounds_.h + 16.0f + 10.0f;
+    } else {
+        float snappedX = std::round(worldSpawnX / 15.0f) * 15.0f;
+        float row0Y = modularZoomPan_.getViewportOriginY();
+        int targetRow = static_cast<int>(std::round((worldSpawnY - (row0Y + 16.0f + 10.0f)) / 380.0f));
+        float snappedY = row0Y + targetRow * 380.0f + 16.0f + 10.0f;
+        pendingModuleSpawnX_ = snappedX;
+        pendingModuleSpawnY_ = snappedY;
+    }
+    moduleSearchDialog_.open(PluginDialogMode::AddModule, "Modular Rack");
 }
 
 void DesignView::initDefaultTargetsAndCode() {
@@ -1088,6 +1189,9 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     modularToolbarBounds_ = Rect2D(studioBodyBounds_.x, studioBodyBounds_.y, studioBodyBounds_.w, 34.0f);
     btnModularResetPatch_ = Rect2D(modularToolbarBounds_.x + modularToolbarBounds_.w - 110.0f, modularToolbarBounds_.y + 5.0f, 98.0f, 24.0f);
     btnModularAddModule_ = Rect2D(btnModularResetPatch_.x - 115.0f, modularToolbarBounds_.y + 5.0f, 105.0f, 24.0f);
+    btnModularZoomIn_ = Rect2D(btnModularAddModule_.x - 30.0f, modularToolbarBounds_.y + 5.0f, 24.0f, 24.0f);
+    btnModularZoomOut_ = Rect2D(btnModularZoomIn_.x - 28.0f, modularToolbarBounds_.y + 5.0f, 24.0f, 24.0f);
+    btnModularZoomReset_ = Rect2D(btnModularZoomOut_.x - 60.0f, modularToolbarBounds_.y + 5.0f, 54.0f, 24.0f);
 
     // GUI Designer layout
     designerToolbarBounds_ = Rect2D(studioBodyBounds_.x, studioBodyBounds_.y + guiSubBarBounds_.h, studioBodyBounds_.w, 34.0f);
@@ -1099,18 +1203,33 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     btnToggleInspector_ = Rect2D(designerToolbarBounds_.x + designerToolbarBounds_.w - 96.0f, designerToolbarBounds_.y + 5.0f, 88.0f, 24.0f);
 
     // Modular Rack layout inside studioBodyBounds_
-    float railH = 14.0f;
+    float railH = 16.0f;
     float rackBodyY = studioBodyBounds_.y + modularToolbarBounds_.h;
     float rackBodyH = std::max(200.0f, studioBodyBounds_.h - modularToolbarBounds_.h);
-    float modX = studioBodyBounds_.x + 24.0f;
-    float modY = rackBodyY + railH + 10.0f;
-    float modH = std::max(260.0f, rackBodyH - (railH * 2.0f) - 20.0f);
 
-    for (size_t m = 0; m < modules_.size(); ++m) {
-        modules_[m].x = modX;
-        modules_[m].y = modY;
-        modules_[m].h = modH;
-        modX += modules_[m].w + 20.0f;
+    // Configure 2D Viewport
+    Rect2D rackViewport(studioBodyBounds_.x, rackBodyY, studioBodyBounds_.w, rackBodyH);
+    modularZoomPan_.setViewport(rackViewport.x, rackViewport.y, rackViewport.w, rackViewport.h);
+    if (!modularPanInitialized_) {
+        modularZoomPan_.setPan(rackViewport.x, rackViewport.y);
+        modularPanInitialized_ = true;
+    }
+
+    // Modal dialog layout
+    moduleSearchDialog_.layout(bounds_.w, bounds_.h);
+
+    if (!modularLayoutDone_) {
+        float modX = studioBodyBounds_.x + 24.0f;
+        float modY = rackBodyY + railH + 10.0f;
+        float modH = std::max(320.0f, rackBodyH - (railH * 2.0f) - 20.0f);
+
+        for (size_t m = 0; m < modules_.size(); ++m) {
+            modules_[m].x = modX;
+            modules_[m].y = modY;
+            modules_[m].h = modH;
+            modX += modules_[m].w + 20.0f;
+        }
+        modularLayoutDone_ = true;
     }
 }
 
@@ -1179,6 +1298,11 @@ void DesignView::render(const ViewContext& ctx) {
 
             itemY += itemH + 2.0f;
         }
+    }
+
+    // Render Module Search Dialog modal overlay on top if open
+    if (moduleSearchDialog_.isOpen() && ctx.renderer && ctx.theme) {
+        moduleSearchDialog_.render(*ctx.renderer, *ctx.theme);
     }
 }
 
@@ -1598,6 +1722,18 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     // Add module & reset patch buttons
     btnModularResetPatch_ = Rect2D(modularToolbarBounds_.x + modularToolbarBounds_.w - 110.0f, modularToolbarBounds_.y + 6.0f, 98.0f, 22.0f);
     btnModularAddModule_ = Rect2D(btnModularResetPatch_.x - 118.0f, modularToolbarBounds_.y + 6.0f, 108.0f, 22.0f);
+    btnModularZoomIn_ = Rect2D(btnModularAddModule_.x - 30.0f, modularToolbarBounds_.y + 6.0f, 24.0f, 22.0f);
+    btnModularZoomOut_ = Rect2D(btnModularZoomIn_.x - 28.0f, modularToolbarBounds_.y + 6.0f, 24.0f, 22.0f);
+    btnModularZoomReset_ = Rect2D(btnModularZoomOut_.x - 60.0f, modularToolbarBounds_.y + 6.0f, 54.0f, 22.0f);
+
+    // Draw Zoom buttons
+    std::string zoomPct = std::to_string(static_cast<int>(std::round(modularZoomPan_.getZoomX() * 100.0f))) + "%";
+    drawButton(r, btnModularZoomReset_, zoomPct,
+               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnModularZoomOut_, "-",
+               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 11.0f, 3.0f, 1.0f);
+    drawButton(r, btnModularZoomIn_, "+",
+               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 11.0f, 3.0f, 1.0f);
 
     drawButton(r, btnModularAddModule_, "+ ADD MODULE",
                Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{1.0f, 0.85f, 0.0f, 0.6f}, Color{1.0f, 0.85f, 0.0f, 1.0f}, 9.5f, 3.0f, 1.0f);
@@ -1605,91 +1741,184 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     drawButton(r, btnModularResetPatch_, "RESET PATCH",
                Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 9.5f, 3.0f, 1.0f);
 
-    // Steel rack mounting rails top and bottom with screw holes
-    float railH = 14.0f;
+    // Canvas Viewport & Scissoring
     float rackBodyY = rect.y + topBarH;
     float rackBodyH = rect.h - topBarH;
-    drawRect(r, rect.x, rackBodyY, rect.w, railH, 0.22f, 0.23f, 0.28f, 1.0f);
-    drawRect(r, rect.x, rackBodyY + rackBodyH - railH, rect.w, railH, 0.22f, 0.23f, 0.28f, 1.0f);
+    modularZoomPan_.setViewport(rect.x, rackBodyY, rect.w, rackBodyH);
 
-    for (float sx = rect.x + 16.0f; sx < rect.x + rect.w; sx += 40.0f) {
-        drawCircle(r, sx, rackBodyY + 7.0f, 2.5f, 0.45f, 0.48f, 0.55f, 1.0f);
-        drawCircle(r, sx, rackBodyY + rackBodyH - 7.0f, 2.5f, 0.45f, 0.48f, 0.55f, 1.0f);
+    r.pushScissor(rect.x, rackBodyY, rect.w, rackBodyH);
+
+    // Canvas background
+    drawRect(r, rect.x, rackBodyY, rect.w, rackBodyH, 0.07f, 0.08f, 0.10f, 1.0f);
+
+    // Multi-Row Eurorack Rails (Standard 3U = 380px)
+    constexpr float kRowHeight = 380.0f;
+    constexpr float kRailH = 16.0f;
+    float row0Y = rackBodyY;
+    float minWorldY = modularZoomPan_.screenToWorldY(rackBodyY);
+    float maxWorldY = modularZoomPan_.screenToWorldY(rackBodyY + rackBodyH);
+    float minWorldX = modularZoomPan_.screenToWorldX(rect.x);
+    float maxWorldX = modularZoomPan_.screenToWorldX(rect.x + rect.w);
+
+    int startRow = static_cast<int>(std::floor((minWorldY - row0Y) / kRowHeight)) - 1;
+    int endRow = static_cast<int>(std::ceil((maxWorldY - row0Y) / kRowHeight)) + 1;
+    if (startRow > 0) startRow = 0;
+    if (endRow < 2) endRow = 2;
+
+    for (int row = startRow; row <= endRow; ++row) {
+        float rowWorldY = row0Y + row * kRowHeight;
+        float rowScreenY = modularZoomPan_.worldToScreenY(rowWorldY);
+        float rowScreenH = modularZoomPan_.worldDistanceToScreenY(kRowHeight);
+
+        // Dark backplane
+        drawRect(r, rect.x, rowScreenY, rect.w, rowScreenH, 0.06f, 0.07f, 0.09f, 1.0f);
+
+        // Power distribution bus bar channel (VCV Rack / Cardinal aesthetic)
+        float busWorldY = rowWorldY + (kRowHeight * 0.5f) - 14.0f;
+        float busScreenY = modularZoomPan_.worldToScreenY(busWorldY);
+        float busScreenH = modularZoomPan_.worldDistanceToScreenY(28.0f);
+        drawRect(r, rect.x, busScreenY, rect.w, busScreenH, 0.10f, 0.11f, 0.14f, 1.0f);
+        // Red stripe on ribbon bus cable
+        drawRect(r, rect.x, busScreenY + 2.0f, rect.w, 3.0f, 0.75f, 0.18f, 0.18f, 0.55f);
+
+        // Eurorack 16-pin gold power connector headers spaced every 240px
+        float firstHeaderX = std::floor(minWorldX / 240.0f) * 240.0f + 60.0f;
+        for (float hx = firstHeaderX; hx < maxWorldX + 240.0f; hx += 240.0f) {
+            float shx = modularZoomPan_.worldToScreenX(hx);
+            float shy = busScreenY + 4.0f;
+            drawRect(r, shx, shy, 54.0f * modularZoomPan_.getZoomX(), busScreenH - 8.0f, 0.15f, 0.16f, 0.20f, 1.0f);
+            drawRoundedRectOutline(r, shx, shy, 54.0f * modularZoomPan_.getZoomX(), busScreenH - 8.0f, 2.0f, 0.24f, 0.26f, 0.32f, 0.8f, 1.0f);
+            // Gold pins
+            for (int p = 0; p < 8; ++p) {
+                float pinX = shx + (6.0f + p * 5.5f) * modularZoomPan_.getZoomX();
+                drawCircle(r, pinX, shy + 5.0f, 1.4f * modularZoomPan_.getZoomX(), 0.85f, 0.70f, 0.20f, 0.95f);
+                drawCircle(r, pinX, shy + busScreenH - 13.0f, 1.4f * modularZoomPan_.getZoomX(), 0.85f, 0.70f, 0.20f, 0.95f);
+            }
+        }
+
+        // Top Mounting Rail
+        float topRailScreenY = modularZoomPan_.worldToScreenY(rowWorldY);
+        float railScreenH = modularZoomPan_.worldDistanceToScreenY(kRailH);
+        drawRect(r, rect.x, topRailScreenY, rect.w, railScreenH, 0.22f, 0.24f, 0.28f, 1.0f);
+        drawLine(r, rect.x, topRailScreenY + 1.0f, rect.x + rect.w, topRailScreenY + 1.0f, 0.38f, 0.40f, 0.46f, 0.9f, 1.0f);
+        drawLine(r, rect.x, topRailScreenY + railScreenH, rect.x + rect.w, topRailScreenY + railScreenH, 0.12f, 0.13f, 0.15f, 1.0f, 1.0f);
+
+        // Bottom Mounting Rail
+        float btmRailWorldY = rowWorldY + kRowHeight - kRailH;
+        float btmRailScreenY = modularZoomPan_.worldToScreenY(btmRailWorldY);
+        drawRect(r, rect.x, btmRailScreenY, rect.w, railScreenH, 0.22f, 0.24f, 0.28f, 1.0f);
+        drawLine(r, rect.x, btmRailScreenY + 1.0f, rect.x + rect.w, btmRailScreenY + 1.0f, 0.38f, 0.40f, 0.46f, 0.9f, 1.0f);
+        drawLine(r, rect.x, btmRailScreenY + railScreenH, rect.x + rect.w, btmRailScreenY + railScreenH, 0.12f, 0.13f, 0.15f, 1.0f, 1.0f);
+
+        // Threaded screw holes (1 HP = ~15px increments or 30px)
+        float firstScrewX = std::floor(minWorldX / 30.0f) * 30.0f;
+        for (float sx = firstScrewX; sx < maxWorldX + 30.0f; sx += 30.0f) {
+            float ssx = modularZoomPan_.worldToScreenX(sx);
+            float topHoleY = topRailScreenY + railScreenH * 0.5f;
+            float btmHoleY = btmRailScreenY + railScreenH * 0.5f;
+            drawCircle(r, ssx, topHoleY, 2.5f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
+            drawCircle(r, ssx, topHoleY, 1.2f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
+            drawCircle(r, ssx, btmHoleY, 2.5f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
+            drawCircle(r, ssx, btmHoleY, 1.2f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
+        }
     }
 
-    // Position modules horizontally
-    float modX = rect.x + 24.0f;
-    float modY = rackBodyY + railH + 10.0f;
-    float modH = rackBodyH - (railH * 2.0f) - 20.0f;
+    // Render Modules
+    float zoom = modularZoomPan_.getZoomX();
 
     for (size_t m = 0; m < modules_.size(); ++m) {
         auto& mod = modules_[m];
-        mod.x = modX;
-        mod.y = modY;
-        mod.h = modH;
+        float sx = modularZoomPan_.worldToScreenX(mod.x);
+        float sy = modularZoomPan_.worldToScreenY(mod.y);
+        float sw = modularZoomPan_.worldDistanceToScreenX(mod.w);
+        float sh = modularZoomPan_.worldDistanceToScreenY(mod.h);
+
+        // Culling if entirely outside visible canvas
+        if (sx + sw < rect.x || sx > rect.x + rect.w || sy + sh < rackBodyY || sy > rackBodyY + rackBodyH) {
+            continue;
+        }
+
+        bool isDragging = (draggingModuleIdx_ == static_cast<int>(m));
 
         // Faceplate chassis
-        drawRoundedRect(r, mod.x, mod.y, mod.w, mod.h, 4.0f, mod.r, mod.g, mod.b, 1.0f);
-        drawRoundedRectOutline(r, mod.x, mod.y, mod.w, mod.h, 4.0f, 0.42f, 0.45f, 0.52f, 1.0f, 1.5f);
+        drawRoundedRect(r, sx, sy, sw, sh, 4.0f * zoom, mod.r, mod.g, mod.b, 1.0f);
+        if (isDragging) {
+            drawRoundedRectOutline(r, sx - 2.0f, sy - 2.0f, sw + 4.0f, sh + 4.0f, 5.0f * zoom,
+                                   1.0f, 0.85f, 0.0f, 0.85f, 2.0f);
+        } else {
+            drawRoundedRectOutline(r, sx, sy, sw, sh, 4.0f * zoom, 0.42f, 0.45f, 0.52f, 1.0f, 1.5f * zoom);
+        }
 
-        // Corner screws
-        drawCircle(r, mod.x + 8.0f, mod.y + 8.0f, 3.0f, 0.6f, 0.62f, 0.7f, 1.0f);
-        drawCircle(r, mod.x + mod.w - 8.0f, mod.y + 8.0f, 3.0f, 0.6f, 0.62f, 0.7f, 1.0f);
-        drawCircle(r, mod.x + 8.0f, mod.y + mod.h - 8.0f, 3.0f, 0.6f, 0.62f, 0.7f, 1.0f);
-        drawCircle(r, mod.x + mod.w - 8.0f, mod.y + mod.h - 8.0f, 3.0f, 0.6f, 0.62f, 0.7f, 1.0f);
+        // Corner mounting thumbscrews (knurled silver with screw driver notch)
+        auto drawThumbscrew = [&](float worldX, float worldY) {
+            float scX = modularZoomPan_.worldToScreenX(worldX);
+            float scY = modularZoomPan_.worldToScreenY(worldY);
+            drawCircle(r, scX, scY, 3.5f * zoom, 0.65f, 0.68f, 0.75f, 1.0f);
+            drawCircle(r, scX, scY, 2.2f * zoom, 0.48f, 0.50f, 0.58f, 1.0f);
+            drawLine(r, scX - 2.0f * zoom, scY, scX + 2.0f * zoom, scY, 0.15f, 0.16f, 0.19f, 0.9f, 1.0f * zoom);
+        };
+        drawThumbscrew(mod.x + 8.0f, mod.y + 8.0f);
+        drawThumbscrew(mod.x + mod.w - 8.0f, mod.y + 8.0f);
+        drawThumbscrew(mod.x + 8.0f, mod.y + mod.h - 8.0f);
+        drawThumbscrew(mod.x + mod.w - 8.0f, mod.y + mod.h - 8.0f);
 
         // Title banner
-        drawRect(r, mod.x, mod.y, mod.w, 24.0f, 0.14f, 0.15f, 0.18f, 1.0f);
-        drawText(r, mod.title, mod.x + 12.0f, mod.y + 6.0f, 10.0f, 0.0f, 0.95f, 1.0f, 1.0f);
+        float banH = 24.0f * zoom;
+        drawRect(r, sx, sy, sw, banH, 0.14f, 0.15f, 0.18f, 1.0f);
+        drawText(r, mod.title, sx + 12.0f * zoom, sy + 6.0f * zoom, 10.0f * zoom, 0.0f, 0.95f, 1.0f, 1.0f);
+
+        // Drag handle grip dots on top right of title banner
+        float gripX = sx + sw - 14.0f * zoom;
+        drawCircle(r, gripX, sy + 7.0f * zoom, 1.5f * zoom, 0.55f, 0.60f, 0.70f, 0.75f);
+        drawCircle(r, gripX, sy + 12.0f * zoom, 1.5f * zoom, 0.55f, 0.60f, 0.70f, 0.75f);
+        drawCircle(r, gripX, sy + 17.0f * zoom, 1.5f * zoom, 0.55f, 0.60f, 0.70f, 0.75f);
 
         // Knobs
         for (size_t k = 0; k < mod.knobs.size(); ++k) {
             float kx = mod.x + 40.0f + ((k % 2) * 85.0f);
             float ky = mod.y + 65.0f + ((k / 2) * 70.0f);
+            float skx = modularZoomPan_.worldToScreenX(kx);
+            float sky = modularZoomPan_.worldToScreenY(ky);
 
-            bool isDragging = (draggingModuleKnobMod_ == static_cast<int>(m) &&
-                               draggingModuleKnobIdx_ == static_cast<int>(k));
+            bool isKnobDragging = (draggingModuleKnobMod_ == static_cast<int>(m) &&
+                                   draggingModuleKnobIdx_ == static_cast<int>(k));
 
-            // Outer dial glow if dragging
-            if (isDragging) {
-                drawCircle(r, kx, ky, 20.0f, 1.0f, 0.85f, 0.0f, 0.35f);
+            if (isKnobDragging) {
+                drawCircle(r, skx, sky, 20.0f * zoom, 1.0f, 0.85f, 0.0f, 0.35f);
             }
 
-            // Authentic Eatsbeats 3D knob with radial gradient body & lighting
-            // Skirt bevel
-            drawCircle(r, kx, ky, 16.0f, 0.08f, 0.09f, 0.11f, 1.0f);
-            drawCircleOutline(r, kx, ky, 16.0f, 0.20f, 0.22f, 0.26f, 0.7f, 1.0f);
+            drawCircle(r, skx, sky, 16.0f * zoom, 0.08f, 0.09f, 0.11f, 1.0f);
+            drawCircleOutline(r, skx, sky, 16.0f * zoom, 0.20f, 0.22f, 0.26f, 0.7f, 1.0f * zoom);
 
-            // Core cylinder body with top-left overhead 3D radial gradient
-            float offX = -0.25f * 13.0f;
-            float offY = -0.30f * 13.0f;
-            drawCircleRadial3StopGradient(r, kx, ky, 13.0f,
-                                          Color(0.42f, 0.45f, 0.52f, 1.0f),  // bodyLight
-                                          Color(0.24f, 0.26f, 0.31f, 1.0f),  // bodyColor
-                                          Color(0.12f, 0.13f, 0.16f, 1.0f),  // bodyDark
+            float offX = -0.25f * 13.0f * zoom;
+            float offY = -0.30f * 13.0f * zoom;
+            drawCircleRadial3StopGradient(r, skx, sky, 13.0f * zoom,
+                                          Color(0.42f, 0.45f, 0.52f, 1.0f),
+                                          Color(0.24f, 0.26f, 0.31f, 1.0f),
+                                          Color(0.12f, 0.13f, 0.16f, 1.0f),
                                           offX, offY, 0.50f, 32);
-            drawCircleOutline(r, kx, ky, 13.0f, 0.08f, 0.09f, 0.12f, 0.6f, 1.0f);
+            drawCircleOutline(r, skx, sky, 13.0f * zoom, 0.08f, 0.09f, 0.12f, 0.6f, 1.0f * zoom);
 
             float ang = -2.356f + (mod.knobs[k].value * 4.712f);
-            float nx = kx + std::sin(ang) * 11.0f;
-            float ny = ky - std::cos(ang) * 11.0f;
-            drawLine(r, kx, ky, nx, ny, isDragging ? 0.0f : 1.0f, isDragging ? 1.0f : 0.85f, 0.0f, 1.0f, 2.5f);
+            float nx = skx + std::sin(ang) * 11.0f * zoom;
+            float ny = sky - std::cos(ang) * 11.0f * zoom;
+            drawLine(r, skx, sky, nx, ny, isKnobDragging ? 0.0f : 1.0f, isKnobDragging ? 1.0f : 0.85f, 0.0f, 1.0f, 2.5f * zoom);
 
-            drawText(r, mod.knobs[k].label, kx - 16.0f, ky + 18.0f, 8.5f, 0.8f, 0.85f, 0.9f, 0.9f);
+            drawText(r, mod.knobs[k].label, skx - 16.0f * zoom, sky + 18.0f * zoom, 8.5f * zoom, 0.8f, 0.85f, 0.9f, 0.9f);
 
-            // Readout
             std::ostringstream ss;
             ss << std::fixed << std::setprecision(2) << mod.knobs[k].value;
-            drawText(r, ss.str(), kx - 12.0f, ky + 29.0f, 7.5f, 0.6f, 0.7f, 0.8f, 0.8f);
+            drawText(r, ss.str(), skx - 12.0f * zoom, sky + 29.0f * zoom, 7.5f * zoom, 0.6f, 0.7f, 0.8f, 0.8f);
         }
 
         // Jacks: Inputs (Cyan) on Left, Outputs (Gold) on Right
-        float jackY = mod.y + mod.h - 45.0f;
+        float jackWorldY = mod.y + mod.h - 45.0f;
+        float sjy = modularZoomPan_.worldToScreenY(jackWorldY);
 
         for (size_t i = 0; i < mod.inputs.size(); ++i) {
             float jx = mod.x + 30.0f + (i * 45.0f);
+            float sjx = modularZoomPan_.worldToScreenX(jx);
 
-            // Check if connected
             bool isConnected = false;
             Color wireColor{0.13f, 0.96f, 0.91f};
             for (const auto& c : patchCords_) {
@@ -1700,19 +1929,20 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
                 }
             }
 
-            drawCircle(r, jx, jackY, 12.0f, 0.12f, 0.13f, 0.16f, 1.0f);
-            drawCircle(r, jx, jackY, 8.0f, 0.0f, 0.95f, 1.0f, 1.0f);
-            drawCircle(r, jx, jackY, 4.0f, 0.02f, 0.02f, 0.03f, 1.0f);
+            drawCircle(r, sjx, sjy, 12.0f * zoom, 0.12f, 0.13f, 0.16f, 1.0f);
+            drawCircle(r, sjx, sjy, 8.0f * zoom, 0.0f, 0.95f, 1.0f, 1.0f);
+            drawCircle(r, sjx, sjy, 4.0f * zoom, 0.02f, 0.02f, 0.03f, 1.0f);
 
             if (isConnected) {
-                drawCircle(r, jx, jackY, 14.0f, wireColor.r, wireColor.g, wireColor.b, 0.4f);
+                drawCircle(r, sjx, sjy, 14.0f * zoom, wireColor.r, wireColor.g, wireColor.b, 0.45f);
             }
 
-            drawText(r, mod.inputs[i], jx - 12.0f, jackY - 22.0f, 7.5f, 0.0f, 0.95f, 1.0f, 0.9f);
+            drawText(r, mod.inputs[i], sjx - 12.0f * zoom, sjy - 22.0f * zoom, 7.5f * zoom, 0.0f, 0.95f, 1.0f, 0.9f);
         }
 
         for (size_t o = 0; o < mod.outputs.size(); ++o) {
             float jx = mod.x + mod.w - 30.0f - (o * 45.0f);
+            float sjx = modularZoomPan_.worldToScreenX(jx);
 
             bool isConnected = false;
             Color wireColor{1.0f, 0.55f, 0.0f};
@@ -1724,18 +1954,16 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
                 }
             }
 
-            drawCircle(r, jx, jackY, 12.0f, 0.12f, 0.13f, 0.16f, 1.0f);
-            drawCircle(r, jx, jackY, 8.0f, 1.0f, 0.55f, 0.0f, 1.0f);
-            drawCircle(r, jx, jackY, 4.0f, 0.02f, 0.02f, 0.03f, 1.0f);
+            drawCircle(r, sjx, sjy, 12.0f * zoom, 0.12f, 0.13f, 0.16f, 1.0f);
+            drawCircle(r, sjx, sjy, 8.0f * zoom, 1.0f, 0.55f, 0.0f, 1.0f);
+            drawCircle(r, sjx, sjy, 4.0f * zoom, 0.02f, 0.02f, 0.03f, 1.0f);
 
             if (isConnected) {
-                drawCircle(r, jx, jackY, 14.0f, wireColor.r, wireColor.g, wireColor.b, 0.4f);
+                drawCircle(r, sjx, sjy, 14.0f * zoom, wireColor.r, wireColor.g, wireColor.b, 0.45f);
             }
 
-            drawText(r, mod.outputs[o], jx - 10.0f, jackY - 22.0f, 7.5f, 1.0f, 0.55f, 0.0f, 0.9f);
+            drawText(r, mod.outputs[o], sjx - 10.0f * zoom, sjy - 22.0f * zoom, 7.5f * zoom, 1.0f, 0.55f, 0.0f, 0.9f);
         }
-
-        modX += mod.w + 16.0f;
     }
 
     // Draw Catenary Patch Cords
@@ -1746,19 +1974,27 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
         const auto& sm = modules_[cord.sourceModule];
         const auto& dm = modules_[cord.destModule];
 
-        float x1 = sm.x + sm.w - 30.0f - (cord.sourceJack * 45.0f);
-        float y1 = sm.y + sm.h - 45.0f;
+        float x1w = sm.x + sm.w - 30.0f - (cord.sourceJack * 45.0f);
+        float y1w = sm.y + sm.h - 45.0f;
+        float x2w = dm.x + 30.0f + (cord.destJack * 45.0f);
+        float y2w = dm.y + dm.h - 45.0f;
 
-        float x2 = dm.x + 30.0f + (cord.destJack * 45.0f);
-        float y2 = dm.y + dm.h - 45.0f;
+        float x1 = modularZoomPan_.worldToScreenX(x1w);
+        float y1 = modularZoomPan_.worldToScreenY(y1w);
+        float x2 = modularZoomPan_.worldToScreenX(x2w);
+        float y2 = modularZoomPan_.worldToScreenY(y2w);
 
         renderCatenaryCable(r, x1, y1, x2, y2, cord.r, cord.g, cord.b);
     }
 
     // Active live dragged cord
     if (isDraggingCord_) {
-        renderCatenaryCable(r, cordStartX_, cordStartY_, cordCurrentX_, cordCurrentY_, dragCordR_, dragCordG_, dragCordB_);
+        float x1 = modularZoomPan_.worldToScreenX(cordStartX_);
+        float y1 = modularZoomPan_.worldToScreenY(cordStartY_);
+        renderCatenaryCable(r, x1, y1, cordCurrentX_, cordCurrentY_, dragCordR_, dragCordG_, dragCordB_);
     }
+
+    r.popScissor();
 }
 
 void DesignView::renderCatenaryCable(BatchRenderer2D& r, float x1, float y1, float x2, float y2,
@@ -2262,6 +2498,13 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
 
+        // 0. Forward to embedded Module Search Dialog if open
+        if (moduleSearchDialog_.isOpen()) {
+            if (moduleSearchDialog_.handlePointer(ev)) {
+                return true;
+            }
+        }
+
         // 2. Modular Rack interaction
         if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {
             // Modular toolbar buttons
@@ -2273,19 +2516,28 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 return true;
             }
             if (btnModularAddModule_.contains(ev.x, ev.y)) {
-                ModularModuleDef newMod{
-                    "LFO MODULATOR " + std::to_string(modules_.size() + 1), "LFO",
-                    0.0f, 0.0f, 200.0f, 320.0f, 0.18f, 0.22f, 0.20f,
-                    {{"RATE", 0.5f, 0.1f, 20.0f, "Hz"}, {"DEPTH", 0.7f, 0.0f, 1.0f, ""}},
-                    {"SYNC"}, {"TRI", "SQR"}
-                };
-                addModule(newMod);
-                layout(bounds_, ctx);
-                if (ctx.onShowNotification) {
-                    ctx.onShowNotification("Added module to modular rack: " + newMod.title);
-                }
+                openModuleSearchDialog(0.0f, 0.0f);
                 return true;
             }
+            if (btnModularZoomIn_.contains(ev.x, ev.y)) {
+                modularZoomPan_.zoomAt(modularZoomPan_.getViewportOriginX() + modularZoomPan_.getViewportWidth() * 0.5f,
+                                       modularZoomPan_.getViewportOriginY() + modularZoomPan_.getViewportHeight() * 0.5f, 1.15f);
+                return true;
+            }
+            if (btnModularZoomOut_.contains(ev.x, ev.y)) {
+                modularZoomPan_.zoomAt(modularZoomPan_.getViewportOriginX() + modularZoomPan_.getViewportWidth() * 0.5f,
+                                       modularZoomPan_.getViewportOriginY() + modularZoomPan_.getViewportHeight() * 0.5f, 0.85f);
+                return true;
+            }
+            if (btnModularZoomReset_.contains(ev.x, ev.y)) {
+                modularZoomPan_.setZoom(1.0f, 1.0f);
+                modularZoomPan_.setPan(modularZoomPan_.getViewportOriginX(), modularZoomPan_.getViewportOriginY());
+                return true;
+            }
+
+            // Convert pointer event to Modular World Space for canvas hit testing
+            float wx = modularZoomPan_.screenToWorldX(ev.x);
+            float wy = modularZoomPan_.screenToWorldY(ev.y);
 
             // Check Module Knobs
             for (size_t m = 0; m < modules_.size(); ++m) {
@@ -2293,8 +2545,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 for (size_t k = 0; k < mod.knobs.size(); ++k) {
                     float kx = mod.x + 40.0f + ((k % 2) * 85.0f);
                     float ky = mod.y + 65.0f + ((k / 2) * 70.0f);
-                    float dx = ev.x - kx;
-                    float dy = ev.y - ky;
+                    float dx = wx - kx;
+                    float dy = wy - ky;
                     if ((dx * dx + dy * dy) <= (18.0f * 18.0f)) {
                         draggingModuleKnobMod_ = static_cast<int>(m);
                         draggingModuleKnobIdx_ = static_cast<int>(k);
@@ -2313,8 +2565,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 // Inputs
                 for (size_t i = 0; i < mod.inputs.size(); ++i) {
                     float jx = mod.x + 30.0f + (i * 45.0f);
-                    float dx = ev.x - jx;
-                    float dy = ev.y - jackY;
+                    float dx = wx - jx;
+                    float dy = wy - jackY;
                     if ((dx * dx + dy * dy) <= (14.0f * 14.0f)) {
                         if (ev.button == PointerButton::Right) {
                             // Right click on input: cycle color or disconnect
@@ -2346,8 +2598,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 // Outputs
                 for (size_t o = 0; o < mod.outputs.size(); ++o) {
                     float jx = mod.x + mod.w - 30.0f - (o * 45.0f);
-                    float dx = ev.x - jx;
-                    float dy = ev.y - jackY;
+                    float dx = wx - jx;
+                    float dy = wy - jackY;
                     if ((dx * dx + dy * dy) <= (14.0f * 14.0f)) {
                         if (ev.button == PointerButton::Right) {
                             // Right click on output: cycle color or disconnect
@@ -2375,6 +2627,32 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                         }
                     }
                 }
+            }
+
+            // Check Module Chassis & Title Banner for Freeform Module Dragging
+            for (int m = static_cast<int>(modules_.size()) - 1; m >= 0; --m) {
+                const auto& mod = modules_[m];
+                if (wx >= mod.x && wx <= mod.x + mod.w && wy >= mod.y && wy <= mod.y + mod.h) {
+                    if (ev.button == PointerButton::Left) {
+                        draggingModuleIdx_ = m;
+                        dragModuleOffsetWorldX_ = wx - mod.x;
+                        dragModuleOffsetWorldY_ = wy - mod.y;
+                        return true;
+                    }
+                }
+            }
+
+            // Canvas Panning (Middle-mouse drag or Right-mouse drag / click)
+            if (ev.button == PointerButton::Middle || ev.button == PointerButton::Right) {
+                isPanningCanvas_ = true;
+                lastPanPointerX_ = ev.x;
+                lastPanPointerY_ = ev.y;
+                if (ev.button == PointerButton::Right) {
+                    isRightClickCandidate_ = true;
+                    rightClickStartX_ = ev.x;
+                    rightClickStartY_ = ev.y;
+                }
+                return true;
             }
         }
 
@@ -2598,8 +2876,35 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (moduleSearchDialog_.isOpen()) {
+            if (moduleSearchDialog_.handlePointer(ev)) return true;
+        }
+
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
             textEditor_.handlePointer(ev, ctx);
+        }
+
+        // Modular rack canvas panning
+        if (isPanningCanvas_) {
+            float dx = ev.x - lastPanPointerX_;
+            float dy = ev.y - lastPanPointerY_;
+            modularZoomPan_.panByScreen(dx, dy);
+            lastPanPointerX_ = ev.x;
+            lastPanPointerY_ = ev.y;
+            if (isRightClickCandidate_ && (std::hypot(ev.x - rightClickStartX_, ev.y - rightClickStartY_) > 5.0f)) {
+                isRightClickCandidate_ = false;
+            }
+            return true;
+        }
+
+        // Modular rack freeform module dragging
+        if (draggingModuleIdx_ >= 0 && draggingModuleIdx_ < static_cast<int>(modules_.size())) {
+            float wx = modularZoomPan_.screenToWorldX(ev.x);
+            float wy = modularZoomPan_.screenToWorldY(ev.y);
+            auto& mod = modules_[draggingModuleIdx_];
+            mod.x = wx - dragModuleOffsetWorldX_;
+            mod.y = wy - dragModuleOffsetWorldY_;
+            return true;
         }
 
         // Modular rack knob dragging
@@ -2653,8 +2958,33 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Up) {
+        if (moduleSearchDialog_.isOpen()) {
+            if (moduleSearchDialog_.handlePointer(ev)) return true;
+        }
+
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
             textEditor_.handlePointer(ev, ctx);
+        }
+
+        if (isPanningCanvas_) {
+            isPanningCanvas_ = false;
+            if (isRightClickCandidate_) {
+                isRightClickCandidate_ = false;
+                openModuleSearchDialog(modularZoomPan_.screenToWorldX(ev.x), modularZoomPan_.screenToWorldY(ev.y));
+                return true;
+            }
+            return true;
+        }
+
+        if (draggingModuleIdx_ >= 0 && draggingModuleIdx_ < static_cast<int>(modules_.size())) {
+            auto& mod = modules_[draggingModuleIdx_];
+            // Snap to nearest 15px HP increment and rail row
+            mod.x = std::round(mod.x / 15.0f) * 15.0f;
+            float row0Y = modularZoomPan_.getViewportOriginY();
+            int targetRow = static_cast<int>(std::round((mod.y - (row0Y + 16.0f + 10.0f)) / 380.0f));
+            mod.y = row0Y + targetRow * 380.0f + 16.0f + 10.0f;
+            draggingModuleIdx_ = -1;
+            return true;
         }
 
         if (draggingModuleKnobMod_ >= 0) {
@@ -2664,7 +2994,9 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         }
 
         if (isDraggingCord_) {
-            // Find closest jack within 26px
+            // Find closest jack within 26px in world units
+            float cwx = modularZoomPan_.screenToWorldX(cordCurrentX_);
+            float cwy = modularZoomPan_.screenToWorldY(cordCurrentY_);
             int targetMod = -1;
             int targetJack = -1;
             bool targetIsOutput = false;
@@ -2680,8 +3012,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if (dragCordSrcIsOutput_) {
                     for (size_t i = 0; i < mod.inputs.size(); ++i) {
                         float jx = mod.x + 30.0f + (i * 45.0f);
-                        float dx = cordCurrentX_ - jx;
-                        float dy = cordCurrentY_ - jackY;
+                        float dx = cwx - jx;
+                        float dy = cwy - jackY;
                         float distSq = dx * dx + dy * dy;
                         if (distSq < bestDist) {
                             bestDist = distSq;
@@ -2693,8 +3025,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 } else {
                     for (size_t o = 0; o < mod.outputs.size(); ++o) {
                         float jx = mod.x + mod.w - 30.0f - (o * 45.0f);
-                        float dx = cordCurrentX_ - jx;
-                        float dy = cordCurrentY_ - jackY;
+                        float dx = cwx - jx;
+                        float dy = cwy - jackY;
                         float distSq = dx * dx + dy * dy;
                         if (distSq < bestDist) {
                             bestDist = distSq;
@@ -2745,8 +3077,16 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Scroll) {
+        if (moduleSearchDialog_.isOpen()) {
+            if (moduleSearchDialog_.handlePointer(ev)) return true;
+        }
         if (isExplorerOpen_ && explorerBounds_.contains(ev.x, ev.y)) {
             explorerScrollY_ = std::clamp(explorerScrollY_ - ev.scrollY * 24.0f, 0.0f, explorerMaxScrollY_);
+            return true;
+        }
+        if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {
+            float factor = (ev.scrollY > 0.0f) ? 1.10f : 0.90f;
+            modularZoomPan_.zoomAt(ev.x, ev.y, factor);
             return true;
         }
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
@@ -2758,11 +3098,43 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 }
 
 bool DesignView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+    if (moduleSearchDialog_.isOpen()) {
+        if (moduleSearchDialog_.handleKey(key, scancode, action, mods)) {
+            return true;
+        }
+    }
+
     if (action == 1) { // GLFW_PRESS
         // Ctrl+Enter: Compile current script
         if (key == 257 && (mods & 2)) {
             compileCurrentScript(ctx);
             return true;
+        }
+
+        if (mode_ == DesignSubMode::ModularRack) {
+            // Space or Enter opens Module Search Dialog
+            if (key == 32 || (key == 257 && !(mods & 2))) {
+                openModuleSearchDialog(0.0f, 0.0f);
+                return true;
+            }
+            // Zoom In (+ or =)
+            if (key == 61 || key == 334) {
+                modularZoomPan_.zoomAt(modularZoomPan_.getViewportOriginX() + modularZoomPan_.getViewportWidth() * 0.5f,
+                                       modularZoomPan_.getViewportOriginY() + modularZoomPan_.getViewportHeight() * 0.5f, 1.15f);
+                return true;
+            }
+            // Zoom Out (-)
+            if (key == 45 || key == 333) {
+                modularZoomPan_.zoomAt(modularZoomPan_.getViewportOriginX() + modularZoomPan_.getViewportWidth() * 0.5f,
+                                       modularZoomPan_.getViewportOriginY() + modularZoomPan_.getViewportHeight() * 0.5f, 0.85f);
+                return true;
+            }
+            // Reset Zoom (0)
+            if (key == 48 || key == 320) {
+                modularZoomPan_.setZoom(1.0f, 1.0f);
+                modularZoomPan_.setPan(modularZoomPan_.getViewportOriginX(), modularZoomPan_.getViewportOriginY());
+                return true;
+            }
         }
     }
     if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
@@ -2774,6 +3146,11 @@ bool DesignView::handleKey(int key, int scancode, int action, int mods, const Vi
 }
 
 bool DesignView::handleChar(char32_t codepoint, const ViewContext& ctx) {
+    if (moduleSearchDialog_.isOpen()) {
+        if (moduleSearchDialog_.handleChar(codepoint)) {
+            return true;
+        }
+    }
     if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
         return textEditor_.handleChar(codepoint, ctx);
     }

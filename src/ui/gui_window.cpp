@@ -16118,6 +16118,10 @@ PluginSearchDialog* GuiWindow::getActivePluginSearchDialog() noexcept {
         if (modularTrackInspectorView_->getPluginSearchDialog().isOpen()) {
             return &modularTrackInspectorView_->getPluginSearchDialog();
         }
+    } else if (activeView_ == WorkspaceView::Design && modularDesignView_) {
+        if (modularDesignView_->getModuleSearchDialog().isOpen()) {
+            return &modularDesignView_->getModuleSearchDialog();
+        }
     }
     return nullptr;
 }

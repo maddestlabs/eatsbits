@@ -136,6 +136,86 @@ void PluginSearchDialog::initLibrary() {
             {"bitcrusher", "Vintage Sampler Crusher", "AUDIO FX", "BITCRUSHER", "Gritty 12-bit sampler crunch, sample rate reduction, and drive.", 0.74f, 0.0f, 1.0f}
         };
     }
+
+    if (moduleLibrary_.empty()) {
+        moduleLibrary_ = {
+            // VCO / Synths
+            {"modular_oscillator", "Oscillator (PolyBLEP 1V/Oct)", "VCO / SYNTHS", "POLYBLEP",
+             "Analog-modeled bandlimited oscillator with morphing shapes (Sine, Tri, Saw, Ramp, Square) and 1V/Oct CV modulation.",
+             0.0f, 0.95f, 1.0f},
+            {"modular_dual_vco", "Dual VCO Voice", "VCO / SYNTHS", "DUAL_VCO",
+             "Dual analog oscillator voice with detuning, hard sync, and sub-oscillator.",
+             0.0f, 0.95f, 1.0f},
+            {"modular_303_voice", "TB-303 Acid Synth Voice", "VCO / SYNTHS", "DIODE_LADDER",
+             "Iconic transistor bassline synth voice with accent and slide.",
+             0.13f, 0.96f, 0.91f},
+            {"modular_drum_synth", "Drum Kit Synth Voice", "VCO / SYNTHS", "DRUM_VOICE",
+             "Dedicated analog/PCM rhythm synthesizer voice module with kick, snare, and percussion.",
+             1.0f, 0.16f, 0.43f},
+            {"modular_noise_sh", "Noise & Chaos Generator", "VCO / SYNTHS", "NOISE_SH",
+             "Pink/white noise generator with sample & hold and random stepped voltage.",
+             0.30f, 0.70f, 1.0f},
+
+            // Filters
+            {"modular_moog_vcf", "Moog Ladder VCF (24dB Analog)", "FILTERS", "MOOG_LADDER",
+             "4-pole 24dB/oct resonant transistor ladder filter with drive and keytracking.",
+             1.0f, 0.55f, 0.0f},
+            {"modular_svf_filter", "State Variable Filter (SVF)", "FILTERS", "SVF_12DB",
+             "Multi-mode 12dB/oct state variable filter with simultaneous LP, HP, BP, and Notch outputs.",
+             1.0f, 0.65f, 0.1f},
+            {"modular_diode_vcf", "Diode Ladder Filter (18dB)", "FILTERS", "DIODE_VCF",
+             "Classic diode matrix resonant lowpass filter with aggressive non-linear saturation.",
+             1.0f, 0.50f, 0.0f},
+            {"modular_comb_filter", "Comb Filter / Resonator", "FILTERS", "COMB_RESO",
+             "Tuned delay resonator for Karplus-Strong physical modeling and metallic timbres.",
+             1.0f, 0.75f, 0.2f},
+
+            // Effects
+            {"modular_reverb", "Plate / Hall Reverb (Algorithmic)", "EFFECTS", "REVERB_SC",
+             "Lush algorithmic stereo space simulator with damping, decay, and predelay.",
+             0.74f, 0.0f, 1.0f},
+            {"modular_delay", "Stereo Delay & Damping", "EFFECTS", "DELAY_LINE",
+             "Dual stereo delay lines with tape flutter, cross-feed ping-pong, and damping.",
+             0.74f, 0.0f, 1.0f},
+            {"modular_chorus", "Analog Chorus / Flanger", "EFFECTS", "BBD_CHORUS",
+             "Multi-voice BBD spatial chorus, jet flanger, and analog overdrive.",
+             0.74f, 0.0f, 1.0f},
+            {"modular_compressor", "Studio Bus Compressor", "EFFECTS", "VCA_COMP",
+             "Precision peak/RMS dynamic compressor with sidechain CV input and makeup gain.",
+             0.74f, 0.0f, 1.0f},
+            {"modular_distortion", "Tube Overdrive & Saturation", "EFFECTS", "DISTORTION",
+             "Warm vacuum tube saturation, harmonic excitation, and soft clipping.",
+             0.74f, 0.0f, 1.0f},
+
+            // Modulation & Dynamics
+            {"modular_adsr", "Dual ADSR Envelope", "MODULATION & DYNAMICS", "ADSR_ENV",
+             "Attack-Decay-Sustain-Release envelope generator with CV gate trigger and linear/exponential response.",
+             0.0f, 0.95f, 0.45f},
+            {"modular_lfo", "Multi-Wave LFO", "MODULATION & DYNAMICS", "LFO_MULTI",
+             "Low frequency modulation oscillator with sine, triangle, square, ramp, and random stepped S&H.",
+             0.0f, 0.95f, 0.45f},
+            {"modular_vca", "Dual VCA (Linear / Exponential)", "MODULATION & DYNAMICS", "DUAL_VCA",
+             "Voltage-controlled amplifier with response contour switch and CV attenuator.",
+             0.0f, 0.95f, 0.45f},
+            {"modular_env_follower", "Envelope Follower & Gate", "MODULATION & DYNAMICS", "ENV_FOLLOWER",
+             "Audio-rate envelope detector with sensitivity and gate threshold.",
+             0.0f, 0.95f, 0.45f},
+
+            // Utilities
+            {"modular_mixer_4ch", "4-Channel CV / Audio Mixer", "UTILITIES", "MIXER_4CH",
+             "4-input summing mixer with channel levels, pan knobs, and master level.",
+             1.0f, 0.85f, 0.0f},
+            {"modular_scope", "Audio Scope Visualizer", "UTILITIES", "CRT_SCOPE",
+             "Real-time CRT oscilloscope visualizer module with timebase and trigger.",
+             1.0f, 0.85f, 0.0f},
+            {"modular_master_out", "Audio Output / Master Bus", "UTILITIES", "AUDIO_OUT",
+             "Stereo Eurorack master output module with volume knob, peak VU meters, and headphone out.",
+             1.0f, 0.85f, 0.0f},
+            {"modular_clock_div", "Clock & Gate Divider", "UTILITIES", "CLOCK_DIV",
+             "Master tempo clock divider with 1/2, 1/4, 1/8, 1/16 division and multiplication outputs.",
+             1.0f, 0.85f, 0.0f}
+        };
+    }
 }
 
 void PluginSearchDialog::open(PluginDialogMode mode, const std::string& targetTrackName, uint32_t targetTrackIndex) {
@@ -210,6 +290,9 @@ std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
     } else if (mode_ == PluginDialogMode::AddUtility) {
         source = &utilityLibrary_;
         cats = &utilityCategories_;
+    } else if (mode_ == PluginDialogMode::AddModule) {
+        source = &moduleLibrary_;
+        cats = &moduleCategories_;
     } else {
         source = &audioFxLibrary_;
         cats = &audioFxCategories_;
@@ -333,6 +416,8 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         title = "ADD MIDI SEQUENCE • " + (targetTrackName_.empty() ? "TRACK" : targetTrackName_);
     } else if (mode_ == PluginDialogMode::AddUtility) {
         title = "UTILITY & MACRO SCRIPTS";
+    } else if (mode_ == PluginDialogMode::AddModule) {
+        title = "ADD EURORACK MODULE • MODULAR RACK";
     } else {
         title = "ADD AUDIO FX • " + (targetTrackName_.empty() ? "TRACK" : targetTrackName_);
     }
@@ -378,7 +463,8 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                        (mode_ == PluginDialogMode::AddDrums) ? drumsCategories_ :
                        (mode_ == PluginDialogMode::AddMidiFx) ? midiFxCategories_ :
                        (mode_ == PluginDialogMode::AddMidiSeq) ? midiSeqCategories_ :
-                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ : audioFxCategories_;
+                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ :
+                       (mode_ == PluginDialogMode::AddModule) ? moduleCategories_ : audioFxCategories_;
 
     float chipX = dialogBounds_.x + 20.0f;
     float chipY = dialogBounds_.y + 58.0f;
@@ -571,7 +657,8 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
             Color addBorder{entry.r, entry.g, entry.b, btnHover ? 1.0f : 0.85f};
             Color addText{entry.r, entry.g, entry.b, 1.0f};
 
-            std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" : "+ ADD";
+            std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" :
+                                   (mode_ == PluginDialogMode::AddModule) ? "+ ADD MODULE" : "+ ADD";
             drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, btnLabel, addBg, addBorder, addText, 10.0f, 4.0f, 1.0f);
         }
     }
@@ -668,7 +755,8 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
                        (mode_ == PluginDialogMode::AddDrums) ? drumsCategories_ :
                        (mode_ == PluginDialogMode::AddMidiFx) ? midiFxCategories_ :
                        (mode_ == PluginDialogMode::AddMidiSeq) ? midiSeqCategories_ :
-                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ : audioFxCategories_;
+                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ :
+                       (mode_ == PluginDialogMode::AddModule) ? moduleCategories_ : audioFxCategories_;
 
     float chipX = dialogBounds_.x + 20.0f;
     float chipY = dialogBounds_.y + 58.0f;

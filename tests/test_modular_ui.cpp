@@ -736,6 +736,101 @@ void testDesignView() {
     design.resetPatch();
     assert(design.getPatchCords().size() == 2);
 
+    // 3b. Test 2D Zoom & Pan Engine, Freeform Module Dragging, and Module Search Dialog
+    // Coordinate Transform Verification
+    float testSx = 500.0f, testSy = 300.0f;
+    float wx = design.getModularZoomPan().screenToWorldX(testSx);
+    float wy = design.getModularZoomPan().screenToWorldY(testSy);
+    assertNear(design.getModularZoomPan().worldToScreenX(wx), testSx, 0.01f, "worldToScreenX invertible");
+    assertNear(design.getModularZoomPan().worldToScreenY(wy), testSy, 0.01f, "worldToScreenY invertible");
+
+    // Middle-Mouse Canvas Panning
+    PointerEvent pMiddleDown = makePointer(500.0f, 300.0f, PointerAction::Down, PointerType::Mouse, 0.0, PointerButton::Middle);
+    assert(design.handlePointer(pMiddleDown, ctx));
+    assert(design.isPanningCanvas());
+    float panBeforeX = design.getModularZoomPan().getPanX();
+    PointerEvent pMiddleMove = makePointer(450.0f, 300.0f, PointerAction::Move, PointerType::Mouse, 0.0, PointerButton::Middle);
+    assert(design.handlePointer(pMiddleMove, ctx));
+    assert(design.getModularZoomPan().getPanX() > panBeforeX);
+    PointerEvent pMiddleUp = makePointer(450.0f, 300.0f, PointerAction::Up, PointerType::Mouse, 0.0, PointerButton::Middle);
+    assert(design.handlePointer(pMiddleUp, ctx));
+    assert(!design.isPanningCanvas());
+
+    // Zoom Bounds Clamping (0.4x to 2.0x)
+    PointerEvent pScrollZoomIn = makePointer(500.0f, 300.0f, PointerAction::Scroll);
+    pScrollZoomIn.scrollY = 3.0f;
+    design.handlePointer(pScrollZoomIn, ctx);
+    assert(design.getModularZoomPan().getZoomX() > 1.0f);
+    for (int z = 0; z < 25; ++z) {
+        design.handlePointer(pScrollZoomIn, ctx);
+    }
+    assert(design.getModularZoomPan().getZoomX() <= 2.0f);
+
+    PointerEvent pScrollZoomOut = makePointer(500.0f, 300.0f, PointerAction::Scroll);
+    pScrollZoomOut.scrollY = -3.0f;
+    for (int z = 0; z < 30; ++z) {
+        design.handlePointer(pScrollZoomOut, ctx);
+    }
+    assert(design.getModularZoomPan().getZoomX() >= 0.40f);
+
+    // Reset Zoom to 1.0 via '0' key
+    design.handleKey(48, 0, 1, 0, ctx);
+    assertNear(design.getModularZoomPan().getZoomX(), 1.0f, 0.01f, "Zoom reset to 1.0");
+
+    // Freeform Module Dragging & 15px HP snapping
+    const auto& mod0 = design.getModules()[0];
+    float bannerX = mod0.x + 20.0f;
+    float bannerY = mod0.y + 12.0f;
+    PointerEvent pBannerDown = makePointer(bannerX, bannerY, PointerAction::Down);
+    assert(design.handlePointer(pBannerDown, ctx));
+    assert(design.getDraggingModuleIndex() == 0);
+    float origMod0X = design.getModules()[0].x;
+    PointerEvent pBannerMove = makePointer(bannerX + 45.0f, bannerY, PointerAction::Move);
+    assert(design.handlePointer(pBannerMove, ctx));
+    assert(design.getModules()[0].x > origMod0X);
+    PointerEvent pBannerUp = makePointer(bannerX + 45.0f, bannerY, PointerAction::Up);
+    assert(design.handlePointer(pBannerUp, ctx));
+    assert(design.getDraggingModuleIndex() == -1);
+    assert(std::fmod(design.getModules()[0].x, 15.0f) == 0.0f);
+
+    // Module Search & Add Dialog Integration
+    assert(!design.getModuleSearchDialog().isOpen());
+    // Open via Space key
+    design.handleKey(32, 0, 1, 0, ctx);
+    assert(design.getModuleSearchDialog().isOpen());
+    assert(design.getModuleSearchDialog().getMode() == PluginDialogMode::AddModule);
+
+    // Filter categories (All, VCO/Synths, Filters, Effects, Modulation, Utilities)
+    design.getModuleSearchDialog().setSelectedCategoryIndex(1); // VCO / SYNTHS
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+    design.getModuleSearchDialog().setSelectedCategoryIndex(2); // FILTERS
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+    design.getModuleSearchDialog().setSelectedCategoryIndex(3); // EFFECTS
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+    design.getModuleSearchDialog().setSelectedCategoryIndex(4); // MODULATION & DYNAMICS
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+    design.getModuleSearchDialog().setSelectedCategoryIndex(5); // UTILITIES
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+
+    // Search query filter
+    design.getModuleSearchDialog().setSelectedCategoryIndex(0); // ALL
+    design.getModuleSearchDialog().setSearchQuery("Moog");
+    assert(design.getModuleSearchDialog().getFilteredCount() >= 1);
+
+    // Close dialog
+    design.getModuleSearchDialog().close();
+    assert(!design.getModuleSearchDialog().isOpen());
+
+    // Insert module via dialog selection
+    size_t modCountBefore = design.getModules().size();
+    design.openModuleSearchDialog(750.0f, 150.0f);
+    assert(design.getModuleSearchDialog().isOpen());
+    const auto& moduleLib = design.getModuleSearchDialog().getModuleLibrary();
+    assert(!moduleLib.empty());
+    design.getModuleSearchDialog().onPluginSelected(PluginDialogMode::AddModule, moduleLib[0], 0);
+    assert(design.getModules().size() == modCountBefore + 1);
+    assert(design.getModules().back().title == moduleLib[0].name);
+
     // 4. Test Visual GUI Designer
     design.setSubMode(DesignSubMode::GuiDesigner);
     assert(design.getSubMode() == DesignSubMode::GuiDesigner);
