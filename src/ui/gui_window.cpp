@@ -14833,6 +14833,31 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 return;
             }
         }
+    } else if (button == 2) { // Middle click
+        if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = PointerButton::Middle;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularDesignView_->handlePointer(pev, ctx)) return;
+        }
+        if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = PointerButton::Middle;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->handlePointer(pev, ctx)) return;
+        }
     }
 }
 

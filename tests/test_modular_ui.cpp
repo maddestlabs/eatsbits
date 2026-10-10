@@ -756,9 +756,18 @@ void testDesignView() {
     assert(design.handlePointer(pMiddleUp, ctx));
     assert(!design.isPanningCanvas());
 
-    // Zoom Bounds Clamping (0.4x to 2.0x)
+    // Bare Mousewheel Canvas Panning
+    float panWheelBeforeY = design.getModularZoomPan().getPanY();
+    PointerEvent pWheelPan = makePointer(500.0f, 300.0f, PointerAction::Scroll);
+    pWheelPan.scrollY = 2.0f;
+    pWheelPan.mods.ctrl = false;
+    design.handlePointer(pWheelPan, ctx);
+    assert(design.getModularZoomPan().getPanY() > panWheelBeforeY);
+
+    // Ctrl+Mousewheel Zoom Bounds Clamping (0.4x to 2.0x)
     PointerEvent pScrollZoomIn = makePointer(500.0f, 300.0f, PointerAction::Scroll);
     pScrollZoomIn.scrollY = 3.0f;
+    pScrollZoomIn.mods.ctrl = true;
     design.handlePointer(pScrollZoomIn, ctx);
     assert(design.getModularZoomPan().getZoomX() > 1.0f);
     for (int z = 0; z < 25; ++z) {
@@ -768,6 +777,7 @@ void testDesignView() {
 
     PointerEvent pScrollZoomOut = makePointer(500.0f, 300.0f, PointerAction::Scroll);
     pScrollZoomOut.scrollY = -3.0f;
+    pScrollZoomOut.mods.ctrl = true;
     for (int z = 0; z < 30; ++z) {
         design.handlePointer(pScrollZoomOut, ctx);
     }
@@ -777,7 +787,7 @@ void testDesignView() {
     design.handleKey(48, 0, 1, 0, ctx);
     assertNear(design.getModularZoomPan().getZoomX(), 1.0f, 0.01f, "Zoom reset to 1.0");
 
-    // Freeform Module Dragging & 15px HP snapping
+    // VCV Rack / Cardinal HP Rivet Hole Drag Movement & Module Bumping
     const auto& mod0 = design.getModules()[0];
     float bannerX = mod0.x + 20.0f;
     float bannerY = mod0.y + 12.0f;
@@ -785,10 +795,31 @@ void testDesignView() {
     assert(design.handlePointer(pBannerDown, ctx));
     assert(design.getDraggingModuleIndex() == 0);
     float origMod0X = design.getModules()[0].x;
-    PointerEvent pBannerMove = makePointer(bannerX + 45.0f, bannerY, PointerAction::Move);
-    assert(design.handlePointer(pBannerMove, ctx));
-    assert(design.getModules()[0].x > origMod0X);
-    PointerEvent pBannerUp = makePointer(bannerX + 45.0f, bannerY, PointerAction::Up);
+    float origMod1X = design.getModules()[1].x;
+
+    // Movement strictly in discrete HP rivet increments: moving by sub-HP distance (e.g. 7px) does not move module
+    PointerEvent pBannerSubHp = makePointer(bannerX + 7.0f, bannerY, PointerAction::Move);
+    assert(design.handlePointer(pBannerSubHp, ctx));
+    assert(design.getModules()[0].x == origMod0X);
+
+    // Moving by 1 HP (15px) snaps module by exactly 15px
+    PointerEvent pBanner1Hp = makePointer(bannerX + 15.0f, bannerY, PointerAction::Move);
+    assert(design.handlePointer(pBanner1Hp, ctx));
+    assert(design.getModules()[0].x == origMod0X + 15.0f);
+
+    // Drag Module 0 over Module 1: Module 1 is bumped to the right!
+    PointerEvent pBannerBump = makePointer(bannerX + 270.0f, bannerY, PointerAction::Move);
+    assert(design.handlePointer(pBannerBump, ctx));
+    assert(design.getModules()[0].x == origMod0X + 270.0f);
+    assert(design.getModules()[1].x > origMod1X); // Bumped to right of Module 0
+
+    // Move Module 0 back to its initial location: Module 1 positions are restored!
+    PointerEvent pBannerRestore = makePointer(bannerX, bannerY, PointerAction::Move);
+    assert(design.handlePointer(pBannerRestore, ctx));
+    assert(design.getModules()[0].x == origMod0X);
+    assert(design.getModules()[1].x == origMod1X);
+
+    PointerEvent pBannerUp = makePointer(bannerX, bannerY, PointerAction::Up);
     assert(design.handlePointer(pBannerUp, ctx));
     assert(design.getDraggingModuleIndex() == -1);
     assert(std::fmod(design.getModules()[0].x, 15.0f) == 0.0f);

@@ -271,10 +271,30 @@ private:
     float rightClickStartX_{0.0f};
     float rightClickStartY_{0.0f};
 
-    // Freeform Module Dragging
+    // Eurorack Hardware Alignment Constants (VCV Rack / Cardinal)
+    static constexpr float kHpWidth = 15.0f;
+    static constexpr float kRowHeight = 380.0f;
+    static constexpr float kModuleTopRailOffset = 26.0f;
+
+    // Freeform Module Dragging with Rivet Snap & Bumping
+    struct ModuleDragInitialState {
+        int index{-1};
+        float x{0.0f};
+        float y{0.0f};
+        int hp{0};
+        int row{0};
+        int widthHp{1};
+    };
+    std::vector<ModuleDragInitialState> initialModuleStates_;
     int draggingModuleIdx_{-1};
+    int dragStartHp_{0};
+    int dragStartRow_{0};
+    float dragPointerStartWorldX_{0.0f};
+    float dragPointerStartWorldY_{0.0f};
     float dragModuleOffsetWorldX_{0.0f};
     float dragModuleOffsetWorldY_{0.0f};
+
+    void applyModuleBumping(int draggedIdx, int targetRow, int targetHp);
 
     // Module Search & Add Dialog
     PluginSearchDialog moduleSearchDialog_;

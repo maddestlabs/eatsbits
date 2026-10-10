@@ -17,21 +17,21 @@ DesignView::DesignView() {
     patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
     patchCords_.push_back({1, 1, 2, 0, 0.13f, 0.96f, 0.91f});
 
-    // Default Eurorack Modular rack modules
+    // Default Eurorack Modular rack modules (Rivet-aligned: 1 HP = 15px, row height = 380px)
     modules_ = {
-        {"OSC 1: TB-303 CORE", "OSC", 24.0f, 80.0f, 230.0f, 320.0f, 0.20f, 0.21f, 0.24f,
+        {"OSC 1: TB-303 CORE", "OSC", 30.0f, 80.0f, 240.0f, 320.0f, 0.20f, 0.21f, 0.24f,
          {{"TUNE", 0.50f, -24.0f, 24.0f, "st"}, {"WAVE", 0.0f, 0.0f, 1.0f, ""}, {"GLIDE", 0.35f, 0.0f, 1.0f, "s"}},
          {"CV IN", "GATE"}, {"OUT", "SUB"}},
 
-        {"FILTER: 24dB DIODE", "VCF", 274.0f, 80.0f, 230.0f, 320.0f, 0.22f, 0.23f, 0.26f,
+        {"FILTER: 24dB DIODE", "VCF", 270.0f, 80.0f, 240.0f, 320.0f, 0.22f, 0.23f, 0.26f,
          {{"CUTOFF", 0.65f, 20.0f, 20000.0f, "Hz"}, {"RESON", 0.78f, 0.0f, 1.0f, ""}, {"ENV MOD", 0.60f, 0.0f, 1.0f, ""}, {"ACCENT", 0.70f, 0.0f, 1.0f, ""}},
          {"AUDIO IN", "FM IN"}, {"LPF OUT", "ENV OUT"}},
 
-        {"VCA & SATURATION", "VCA", 524.0f, 80.0f, 210.0f, 320.0f, 0.19f, 0.20f, 0.23f,
+        {"VCA & SATURATION", "VCA", 510.0f, 80.0f, 210.0f, 320.0f, 0.19f, 0.20f, 0.23f,
          {{"DRIVE", 0.45f, 1.0f, 10.0f, "x"}, {"ATTACK", 0.05f, 0.001f, 1.0f, "s"}, {"DECAY", 0.45f, 0.01f, 2.0f, "s"}},
          {"IN", "CV"}, {"OUT", "MON"}},
 
-        {"OUT: MASTER BUS", "OUT", 754.0f, 80.0f, 210.0f, 320.0f, 0.18f, 0.19f, 0.22f,
+        {"OUT: MASTER BUS", "OUT", 720.0f, 80.0f, 210.0f, 320.0f, 0.18f, 0.19f, 0.22f,
          {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}},
          {"L IN", "R IN"}, {"MAIN L", "MAIN R"}}
     };
@@ -135,39 +135,159 @@ void DesignView::resetPatch() {
 
 void DesignView::addModule(const ModularModuleDef& mod) {
     ModularModuleDef m = mod;
+    int widthHp = std::max(1, static_cast<int>(std::round(m.w / kHpWidth)));
+    m.w = widthHp * kHpWidth;
+    if (m.h <= 0.0f) m.h = 320.0f;
+
+    float row0Y = modularZoomPan_.getViewportOriginY();
     if (m.x == 0.0f && m.y == 0.0f && !modules_.empty()) {
-        float rightmostX = studioBodyBounds_.x + 24.0f;
+        float rightmostX = 30.0f;
         for (const auto& existing : modules_) {
-            if (existing.x + existing.w + 20.0f > rightmostX) {
-                rightmostX = existing.x + existing.w + 20.0f;
+            if (existing.x + existing.w > rightmostX) {
+                rightmostX = existing.x + existing.w;
             }
         }
-        m.x = rightmostX;
-        m.y = studioBodyBounds_.y + modularToolbarBounds_.h + 16.0f + 10.0f;
-        if (m.h <= 0.0f) m.h = 340.0f;
+        m.x = std::round(rightmostX / kHpWidth) * kHpWidth;
+        m.y = row0Y + kModuleTopRailOffset;
+    } else {
+        m.x = std::round(m.x / kHpWidth) * kHpWidth;
+        int targetRow = static_cast<int>(std::round((m.y - (row0Y + kModuleTopRailOffset)) / kRowHeight));
+        m.y = row0Y + targetRow * kRowHeight + kModuleTopRailOffset;
     }
     modules_.push_back(m);
 }
 
 void DesignView::openModuleSearchDialog(float worldSpawnX, float worldSpawnY) {
+    float row0Y = modularZoomPan_.getViewportOriginY();
     if (worldSpawnX == 0.0f && worldSpawnY == 0.0f) {
-        float nextX = studioBodyBounds_.x + 24.0f;
+        float nextX = 30.0f;
         for (const auto& mod : modules_) {
-            if (mod.x + mod.w + 20.0f > nextX) {
-                nextX = mod.x + mod.w + 20.0f;
+            if (mod.x + mod.w > nextX) {
+                nextX = mod.x + mod.w;
             }
         }
-        pendingModuleSpawnX_ = nextX;
-        pendingModuleSpawnY_ = studioBodyBounds_.y + modularToolbarBounds_.h + 16.0f + 10.0f;
+        pendingModuleSpawnX_ = std::round(nextX / kHpWidth) * kHpWidth;
+        pendingModuleSpawnY_ = row0Y + kModuleTopRailOffset;
     } else {
-        float snappedX = std::round(worldSpawnX / 15.0f) * 15.0f;
-        float row0Y = modularZoomPan_.getViewportOriginY();
-        int targetRow = static_cast<int>(std::round((worldSpawnY - (row0Y + 16.0f + 10.0f)) / 380.0f));
-        float snappedY = row0Y + targetRow * 380.0f + 16.0f + 10.0f;
+        float snappedX = std::round(worldSpawnX / kHpWidth) * kHpWidth;
+        int targetRow = static_cast<int>(std::round((worldSpawnY - (row0Y + kModuleTopRailOffset)) / kRowHeight));
         pendingModuleSpawnX_ = snappedX;
-        pendingModuleSpawnY_ = snappedY;
+        pendingModuleSpawnY_ = row0Y + targetRow * kRowHeight + kModuleTopRailOffset;
     }
     moduleSearchDialog_.open(PluginDialogMode::AddModule, "Modular Rack");
+}
+
+void DesignView::applyModuleBumping(int draggedIdx, int targetRow, int targetHp) {
+    if (draggedIdx < 0 || draggedIdx >= static_cast<int>(modules_.size())) return;
+    if (initialModuleStates_.empty()) return;
+
+    float row0Y = modularZoomPan_.getViewportOriginY();
+    auto& draggedMod = modules_[draggedIdx];
+    int widthHpD = std::max(1, static_cast<int>(std::round(draggedMod.w / kHpWidth)));
+
+    // Update dragged module position strictly snapped to discrete HP rivet and row
+    draggedMod.x = targetHp * kHpWidth;
+    draggedMod.y = row0Y + targetRow * kRowHeight + kModuleTopRailOffset;
+
+    // Reset all other modules to their initial recorded positions
+    for (size_t i = 0; i < modules_.size(); ++i) {
+        if (static_cast<int>(i) == draggedIdx) continue;
+        modules_[i].x = initialModuleStates_[i].x;
+        modules_[i].y = initialModuleStates_[i].y;
+    }
+
+    // Collect all other modules originally in targetRow
+    struct RowItem {
+        int index;
+        int initialHp;
+        int widthHp;
+        int currentHp;
+    };
+    std::vector<RowItem> rowItems;
+    rowItems.reserve(modules_.size());
+
+    for (size_t i = 0; i < initialModuleStates_.size(); ++i) {
+        if (static_cast<int>(i) == draggedIdx) continue;
+        if (initialModuleStates_[i].row == targetRow) {
+            rowItems.push_back({
+                static_cast<int>(i),
+                initialModuleStates_[i].hp,
+                initialModuleStates_[i].widthHp,
+                initialModuleStates_[i].hp
+            });
+        }
+    }
+
+    if (rowItems.empty()) return;
+
+    // Sort by initial HP ascending
+    std::sort(rowItems.begin(), rowItems.end(), [](const RowItem& a, const RowItem& b) {
+        return a.initialHp < b.initialHp;
+    });
+
+    // Check if dragged module overlaps with any module in targetRow
+    bool hasOverlap = false;
+    for (const auto& item : rowItems) {
+        int overlapStart = std::max(item.initialHp, targetHp);
+        int overlapEnd = std::min(item.initialHp + item.widthHp, targetHp + widthHpD);
+        if (overlapStart < overlapEnd) {
+            hasOverlap = true;
+            break;
+        }
+    }
+
+    // If no overlap, every module in targetRow stays at its initial position
+    if (!hasOverlap) return;
+
+    // Separate modules into left group (bumped to left of D) and right group (bumped to right of D)
+    // based on whether the module's initial center is left or right of the dragged module's center.
+    float centerD = targetHp + (widthHpD * 0.5f);
+
+    std::vector<RowItem> leftGroup;
+    std::vector<RowItem> rightGroup;
+
+    for (const auto& item : rowItems) {
+        float centerItem = item.initialHp + (item.widthHp * 0.5f);
+        if (centerItem < centerD) {
+            leftGroup.push_back(item);
+        } else {
+            rightGroup.push_back(item);
+        }
+    }
+
+    // Resolve left group from right to left (closest to D first)
+    int maxRightEdge = targetHp;
+    for (int j = static_cast<int>(leftGroup.size()) - 1; j >= 0; --j) {
+        auto& item = leftGroup[j];
+        int desiredHp = item.initialHp;
+        if (desiredHp + item.widthHp > maxRightEdge) {
+            desiredHp = maxRightEdge - item.widthHp;
+        }
+        item.currentHp = desiredHp;
+        maxRightEdge = desiredHp;
+    }
+
+    // Resolve right group from left to right (closest to D first)
+    int minLeftEdge = targetHp + widthHpD;
+    for (size_t j = 0; j < rightGroup.size(); ++j) {
+        auto& item = rightGroup[j];
+        int desiredHp = item.initialHp;
+        if (desiredHp < minLeftEdge) {
+            desiredHp = minLeftEdge;
+        }
+        item.currentHp = desiredHp;
+        minLeftEdge = desiredHp + item.widthHp;
+    }
+
+    // Apply computed positions to modules
+    for (const auto& item : leftGroup) {
+        modules_[item.index].x = item.currentHp * kHpWidth;
+        modules_[item.index].y = row0Y + targetRow * kRowHeight + kModuleTopRailOffset;
+    }
+    for (const auto& item : rightGroup) {
+        modules_[item.index].x = item.currentHp * kHpWidth;
+        modules_[item.index].y = row0Y + targetRow * kRowHeight + kModuleTopRailOffset;
+    }
 }
 
 void DesignView::initDefaultTargetsAndCode() {
@@ -1219,15 +1339,17 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     moduleSearchDialog_.layout(bounds_.w, bounds_.h);
 
     if (!modularLayoutDone_) {
-        float modX = studioBodyBounds_.x + 24.0f;
-        float modY = rackBodyY + railH + 10.0f;
-        float modH = std::max(320.0f, rackBodyH - (railH * 2.0f) - 20.0f);
+        float modX = 30.0f; // 2 HP starting offset
+        float modY = rackBodyY + kModuleTopRailOffset;
+        float modH = 320.0f;
 
         for (size_t m = 0; m < modules_.size(); ++m) {
+            int wHp = std::max(1, static_cast<int>(std::round(modules_[m].w / kHpWidth)));
+            modules_[m].w = wHp * kHpWidth;
             modules_[m].x = modX;
             modules_[m].y = modY;
             modules_[m].h = modH;
-            modX += modules_[m].w + 20.0f;
+            modX += modules_[m].w;
         }
         modularLayoutDone_ = true;
     }
@@ -1810,16 +1932,16 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
         drawLine(r, rect.x, btmRailScreenY + 1.0f, rect.x + rect.w, btmRailScreenY + 1.0f, 0.38f, 0.40f, 0.46f, 0.9f, 1.0f);
         drawLine(r, rect.x, btmRailScreenY + railScreenH, rect.x + rect.w, btmRailScreenY + railScreenH, 0.12f, 0.13f, 0.15f, 1.0f, 1.0f);
 
-        // Threaded screw holes (1 HP = ~15px increments or 30px)
-        float firstScrewX = std::floor(minWorldX / 30.0f) * 30.0f;
-        for (float sx = firstScrewX; sx < maxWorldX + 30.0f; sx += 30.0f) {
+        // Threaded screw / rivet holes (1 HP = 15px increments)
+        float firstScrewX = std::floor(minWorldX / kHpWidth) * kHpWidth;
+        for (float sx = firstScrewX; sx < maxWorldX + kHpWidth; sx += kHpWidth) {
             float ssx = modularZoomPan_.worldToScreenX(sx);
             float topHoleY = topRailScreenY + railScreenH * 0.5f;
             float btmHoleY = btmRailScreenY + railScreenH * 0.5f;
-            drawCircle(r, ssx, topHoleY, 2.5f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
-            drawCircle(r, ssx, topHoleY, 1.2f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
-            drawCircle(r, ssx, btmHoleY, 2.5f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
-            drawCircle(r, ssx, btmHoleY, 1.2f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
+            drawCircle(r, ssx, topHoleY, 2.2f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
+            drawCircle(r, ssx, topHoleY, 1.0f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
+            drawCircle(r, ssx, btmHoleY, 2.2f * modularZoomPan_.getZoomX(), 0.14f, 0.15f, 0.18f, 1.0f);
+            drawCircle(r, ssx, btmHoleY, 1.0f * modularZoomPan_.getZoomX(), 0.04f, 0.05f, 0.06f, 1.0f);
         }
     }
 
@@ -1849,7 +1971,7 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
             drawRoundedRectOutline(r, sx, sy, sw, sh, 4.0f * zoom, 0.42f, 0.45f, 0.52f, 1.0f, 1.5f * zoom);
         }
 
-        // Corner mounting thumbscrews (knurled silver with screw driver notch)
+        // Corner mounting thumbscrews (knurled silver with screw driver notch, aligned to HP rivet pitch)
         auto drawThumbscrew = [&](float worldX, float worldY) {
             float scX = modularZoomPan_.worldToScreenX(worldX);
             float scY = modularZoomPan_.worldToScreenY(worldY);
@@ -1857,10 +1979,10 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
             drawCircle(r, scX, scY, 2.2f * zoom, 0.48f, 0.50f, 0.58f, 1.0f);
             drawLine(r, scX - 2.0f * zoom, scY, scX + 2.0f * zoom, scY, 0.15f, 0.16f, 0.19f, 0.9f, 1.0f * zoom);
         };
-        drawThumbscrew(mod.x + 8.0f, mod.y + 8.0f);
-        drawThumbscrew(mod.x + mod.w - 8.0f, mod.y + 8.0f);
-        drawThumbscrew(mod.x + 8.0f, mod.y + mod.h - 8.0f);
-        drawThumbscrew(mod.x + mod.w - 8.0f, mod.y + mod.h - 8.0f);
+        drawThumbscrew(mod.x + 7.5f, mod.y + 8.0f);
+        drawThumbscrew(mod.x + mod.w - 7.5f, mod.y + 8.0f);
+        drawThumbscrew(mod.x + 7.5f, mod.y + mod.h - 8.0f);
+        drawThumbscrew(mod.x + mod.w - 7.5f, mod.y + mod.h - 8.0f);
 
         // Title banner
         float banH = 24.0f * zoom;
@@ -2637,6 +2759,28 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                         draggingModuleIdx_ = m;
                         dragModuleOffsetWorldX_ = wx - mod.x;
                         dragModuleOffsetWorldY_ = wy - mod.y;
+                        dragPointerStartWorldX_ = wx;
+                        dragPointerStartWorldY_ = wy;
+
+                        // Snapshot initial states of all modules on rack for bumping & restoration
+                        float row0Y = modularZoomPan_.getViewportOriginY();
+                        initialModuleStates_.clear();
+                        initialModuleStates_.reserve(modules_.size());
+                        for (size_t i = 0; i < modules_.size(); ++i) {
+                            int modHp = static_cast<int>(std::round(modules_[i].x / kHpWidth));
+                            int modRow = static_cast<int>(std::round((modules_[i].y - (row0Y + kModuleTopRailOffset)) / kRowHeight));
+                            int modW = std::max(1, static_cast<int>(std::round(modules_[i].w / kHpWidth)));
+                            initialModuleStates_.push_back({
+                                static_cast<int>(i),
+                                modules_[i].x,
+                                modules_[i].y,
+                                modHp,
+                                modRow,
+                                modW
+                            });
+                        }
+                        dragStartHp_ = initialModuleStates_[m].hp;
+                        dragStartRow_ = initialModuleStates_[m].row;
                         return true;
                     }
                 }
@@ -2897,13 +3041,21 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
 
-        // Modular rack freeform module dragging
+        // Modular rack freeform module dragging (VCV Rack / Cardinal HP Rivet Increments & Bumping)
         if (draggingModuleIdx_ >= 0 && draggingModuleIdx_ < static_cast<int>(modules_.size())) {
             float wx = modularZoomPan_.screenToWorldX(ev.x);
             float wy = modularZoomPan_.screenToWorldY(ev.y);
-            auto& mod = modules_[draggingModuleIdx_];
-            mod.x = wx - dragModuleOffsetWorldX_;
-            mod.y = wy - dragModuleOffsetWorldY_;
+
+            float deltaX = wx - dragPointerStartWorldX_;
+            float deltaY = wy - dragPointerStartWorldY_;
+
+            int deltaHp = static_cast<int>(std::round(deltaX / kHpWidth));
+            int deltaRow = static_cast<int>(std::round(deltaY / kRowHeight));
+
+            int targetHp = dragStartHp_ + deltaHp;
+            int targetRow = dragStartRow_ + deltaRow;
+
+            applyModuleBumping(draggingModuleIdx_, targetRow, targetHp);
             return true;
         }
 
@@ -2977,13 +3129,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         }
 
         if (draggingModuleIdx_ >= 0 && draggingModuleIdx_ < static_cast<int>(modules_.size())) {
-            auto& mod = modules_[draggingModuleIdx_];
-            // Snap to nearest 15px HP increment and rail row
-            mod.x = std::round(mod.x / 15.0f) * 15.0f;
-            float row0Y = modularZoomPan_.getViewportOriginY();
-            int targetRow = static_cast<int>(std::round((mod.y - (row0Y + 16.0f + 10.0f)) / 380.0f));
-            mod.y = row0Y + targetRow * 380.0f + 16.0f + 10.0f;
             draggingModuleIdx_ = -1;
+            initialModuleStates_.clear();
             return true;
         }
 
@@ -3085,9 +3232,22 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
         if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {
-            float factor = (ev.scrollY > 0.0f) ? 1.10f : 0.90f;
-            modularZoomPan_.zoomAt(ev.x, ev.y, factor);
-            return true;
+            if (ev.mods.ctrl) {
+                // Ctrl + mousewheel: zoom in / out anchored to mouse cursor
+                float factor = (ev.scrollY > 0.0f) ? 1.10f : 0.90f;
+                modularZoomPan_.zoomAt(ev.x, ev.y, factor);
+                return true;
+            } else {
+                // Bare mousewheel: pan canvas vertically (or horizontally if shift is held)
+                float panDeltaX = ev.scrollX * 30.0f;
+                float panDeltaY = ev.scrollY * 30.0f;
+                if (ev.mods.shift) {
+                    panDeltaX = ev.scrollY * 30.0f;
+                    panDeltaY = 0.0f;
+                }
+                modularZoomPan_.panByScreen(panDeltaX, panDeltaY);
+                return true;
+            }
         }
         if (mode_ == DesignSubMode::Code || mode_ == DesignSubMode::Split) {
             if (textEditor_.handlePointer(ev, ctx)) return true;
