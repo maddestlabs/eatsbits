@@ -16,6 +16,37 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [ ] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API**
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
+  - **Rationale**:
+    Developers and Eatscript authors should work with canonical, prefix-free musical concepts (`eats.dsp.Oscillator`, `eats.fx.Reverb`, `eats.fx.Chorus`) rather than leaking third-party vendor brand names (`daisysp::`, `DaisyReverb`, `DaisyOscillator`). Additionally, maintaining duplicate bespoke versions of `ChorusNode`, `DelayNode`, and `CompressorNode` alongside their superior DaisySP equivalents creates cognitive confusion, inconsistent parameter conventions, and double maintenance overhead.
+  - **Acceptance Criteria**:
+    1. **Unify C++ GraphNode Classes & Drop Vendor Prefix**:
+       - Rename and consolidate `DaisyOscillatorNode` $\to$ `OscillatorNode` (`include/eatsbits/audio/graph/nodes/oscillator_node.hpp`), providing the canonical PolyBLEP bandlimited oscillator with 1V/Oct CV modulation.
+       - Rename `DaisyFilterNode` $\to$ `MoogFilterNode` (or `FilterNode`) wrapping analog-modeled 24dB Moog ladder and SVF filters.
+       - Rename `DaisyReverbNode` $\to$ `ReverbNode` as the standard algorithmic stereo plate/hall reverb.
+       - Upgrade existing `ChorusNode`, `DelayNode`, and `CompressorNode` to internally encapsulate their respective DaisySP engines (`daisysp::Chorus`/`daisysp::Flanger`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Compressor`) while preserving standard parameter setters/getters.
+       - Eliminate redundant bespoke DSP files in `src/audio/dsp/` and `include/eatsbits/audio/dsp/` superseded by DaisySP.
+    2. **Clean, Prefix-Free Eatscript API Manifest**:
+       - Update `include/eatsbits/eatscript/api_manifest.hpp` with canonical names:
+         - `eats.dsp.Oscillator` (aliases: `"osc"`, `"Oscillator"`)
+         - `eats.dsp.MoogFilter` (aliases: `"moog"`, `"moog_ladder"`, `"Filter"`)
+         - `eats.fx.Reverb` (aliases: `"reverb"`, `"reverb_sc"`, `"Reverb"`)
+         - `eats.fx.Delay` (aliases: `"delay"`, `"Delay"`)
+         - `eats.fx.Chorus` (aliases: `"chorus"`, `"flanger"`, `"Chorus"`)
+         - `eats.fx.Compressor` (aliases: `"compressor"`, `"Compressor"`)
+       - Maintain legacy `Daisy*` aliases so older scripts continue running seamlessly without breakage.
+    3. **AudioEngine & FX Rack Consolidation**:
+       - Update `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate the unified canonical nodes (`ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`, `MoogFilterNode`).
+    4. **Preserve Distinct Specialized & Retro Engines**:
+       - Retain `BiquadNode` and `ParametricEqNode` for surgical parametric EQ (peaking/shelving/notch filters).
+       - Retain `ConvolverNode` for FFT partitioned impulse responses (speaker cabinets, acoustic spaces).
+       - Retain `WaveShaperNode` for custom tanh overdrive/distortion curves.
+       - Retain vintage sound chip emulators (`Ym2612Node`, `Tb303Node`, `SidNode`, `SnesNode`, `Dx7Node`).
+    5. **Automated Verification & Web Build Validation**:
+       - Update tests in `tests/test_daisysp_nodes.cpp` (or `test_modular_nodes.cpp`) to verify the unified nodes for zero runtime allocations, parameter sweeps, and audio stability.
+       - Confirm 100% test pass on native desktop (`.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
+
 ---
 
 ## 🕒 Recent Completions (Reference Context)
