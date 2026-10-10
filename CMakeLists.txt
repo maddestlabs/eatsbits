@@ -149,6 +149,12 @@ add_library(eats_audio STATIC
     src/project/preset_manager.cpp
     src/audio/clap/clap_plugin_loader.cpp
     src/audio/graph/nodes/clap_audio_node.cpp
+    src/audio/graph/nodes/oscillator_node.cpp
+    src/audio/graph/nodes/moog_filter_node.cpp
+    src/audio/graph/nodes/reverb_node.cpp
+    src/audio/graph/nodes/delay_node.cpp
+    src/audio/graph/nodes/chorus_node.cpp
+    src/audio/graph/nodes/compressor_node.cpp
     src/audio/graph/nodes/daisy/daisy_oscillator_node.cpp
     src/audio/graph/nodes/daisy/daisy_filter_node.cpp
     src/audio/graph/nodes/daisy/daisy_reverb_node.cpp

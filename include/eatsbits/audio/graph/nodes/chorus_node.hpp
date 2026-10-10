@@ -1,21 +1,28 @@
 #ifndef EATS_CHORUS_NODE_HPP
 #define EATS_CHORUS_NODE_HPP
 
-#include <vector>
-#include <cmath>
+#include <string>
 #include <algorithm>
+#include <cmath>
 #include "../graph_node.hpp"
-#include "../../dsp/chorus_flanger.hpp"
+#include "daisysp.h"
 
 namespace eatsbits::audio {
 
 /**
- * Modular Stereo Chorus & Flanger Graph Node.
+ * Modular Stereo Chorus & Modulation Graph Node.
+ * Powered by DaisySP's Chorus, Flanger, and Overdrive DSP engines with zero heap allocation.
  * Input Port 0: Stereo Audio (L/R)
- * Output Port 0: Modulated Stereo Audio (L/R)
+ * Output Port 0: Modulated/Saturated Stereo Audio (L/R)
  */
 class ChorusNode : public GraphNode {
 public:
+    enum class ModType {
+        Chorus = 0,
+        Flanger = 1,
+        Overdrive = 2
+    };
+
     explicit ChorusNode(std::string name = "ChorusFlanger")
         : GraphNode(std::move(name)) {
         addInputPort(2);  // Port 0: Stereo in
@@ -23,72 +30,133 @@ public:
     }
 
     void prepare(double sampleRate, uint32_t maxBlockSize) override {
-        sampleRate_ = sampleRate;
+        sampleRate_ = static_cast<float>(sampleRate);
         maxBlockSize_ = maxBlockSize;
-        chorus_.setSampleRate(static_cast<float>(sampleRate));
+
+        chorus_.Init(sampleRate_);
+        chorus_.SetPan(0.0f, 1.0f); // Wide stereo spread
+
+        flangerL_.Init(sampleRate_);
+        flangerR_.Init(sampleRate_);
+        flangerL_.SetLfoFreq(rate_);
+        flangerR_.SetLfoFreq(rate_ * 1.05f); // Subtle stereo offset
+        flangerL_.SetLfoDepth(depth_);
+        flangerR_.SetLfoDepth(depth_);
+        flangerL_.SetFeedback(feedback_);
+        flangerR_.SetFeedback(feedback_);
+
+        overdriveL_.Init();
+        overdriveR_.Init();
+        overdriveL_.SetDrive(drive_);
+        overdriveR_.SetDrive(drive_);
+
         reset();
     }
 
     void reset() noexcept override {
-        chorus_.reset();
+        chorus_.Init(sampleRate_);
+        chorus_.SetPan(0.0f, 1.0f);
+        flangerL_.Init(sampleRate_);
+        flangerR_.Init(sampleRate_);
+        overdriveL_.Init();
+        overdriveR_.Init();
+        applyParameters();
     }
 
-    void setRateHz(float rate) noexcept { chorus_.setRateHz(rate); }
-    [[nodiscard]] float getRateHz() const noexcept { return chorus_.getRateHz(); }
+    void setType(ModType type) noexcept { type_ = type; }
+    [[nodiscard]] ModType getType() const noexcept { return type_; }
 
-    void setDepthMs(float depth) noexcept { chorus_.setDepthMs(depth); }
-    [[nodiscard]] float getDepthMs() const noexcept { return chorus_.getDepthMs(); }
+    void setRate(float rateHz) noexcept {
+        rate_ = std::clamp(rateHz, 0.05f, 20.0f);
+        flangerL_.SetLfoFreq(rate_);
+        flangerR_.SetLfoFreq(rate_ * 1.05f);
+    }
+    [[nodiscard]] float getRate() const noexcept { return rate_; }
+    void setRateHz(float rateHz) noexcept { setRate(rateHz); }
+    [[nodiscard]] float getRateHz() const noexcept { return getRate(); }
 
-    void setBaseDelayMs(float delayMs) noexcept { chorus_.setBaseDelayMs(delayMs); }
-    [[nodiscard]] float getBaseDelayMs() const noexcept { return chorus_.getBaseDelayMs(); }
+    void setDepth(float depth) noexcept {
+        depth_ = std::clamp(depth, 0.0f, 1.0f);
+        flangerL_.SetLfoDepth(depth_);
+        flangerR_.SetLfoDepth(depth_);
+    }
+    [[nodiscard]] float getDepth() const noexcept { return depth_; }
+    void setDepthMs(float depthMs) noexcept {
+        setDepth(std::clamp(depthMs / 6.0f, 0.0f, 1.0f));
+    }
+    [[nodiscard]] float getDepthMs() const noexcept { return depth_ * 6.0f; }
 
-    void setFeedback(float fb) noexcept { chorus_.setFeedback(fb); }
-    [[nodiscard]] float getFeedback() const noexcept { return chorus_.getFeedback(); }
+    void setBaseDelayMs(float delayMs) noexcept {
+        baseDelayMs_ = std::clamp(delayMs, 0.1f, 50.0f);
+    }
+    [[nodiscard]] float getBaseDelayMs() const noexcept { return baseDelayMs_; }
 
-    void setMix(float mix) noexcept { chorus_.setMix(mix); }
-    [[nodiscard]] float getMix() const noexcept { return chorus_.getMix(); }
+    void setFeedback(float fb) noexcept {
+        feedback_ = std::clamp(fb, 0.0f, 0.95f);
+        flangerL_.SetFeedback(feedback_);
+        flangerR_.SetFeedback(feedback_);
+    }
+    [[nodiscard]] float getFeedback() const noexcept { return feedback_; }
 
-    void setStereoPhaseSpreadRad(float rad) noexcept { chorus_.setStereoPhaseSpreadRad(rad); }
-    [[nodiscard]] float getStereoPhaseSpreadRad() const noexcept { return chorus_.getStereoPhaseSpreadRad(); }
+    void setDrive(float drv) noexcept {
+        drive_ = std::clamp(drv, 0.0f, 1.0f);
+        overdriveL_.SetDrive(drive_);
+        overdriveR_.SetDrive(drive_);
+    }
+    [[nodiscard]] float getDrive() const noexcept { return drive_; }
+
+    void setDryWet(float mix) noexcept {
+        dryWet_ = std::clamp(mix, 0.0f, 1.0f);
+    }
+    [[nodiscard]] float getDryWet() const noexcept { return dryWet_; }
+    void setMix(float mix) noexcept { setDryWet(mix); }
+    [[nodiscard]] float getMix() const noexcept { return getDryWet(); }
+
+    void setStereoPhaseSpreadRad(float rad) noexcept {
+        stereoPhaseSpreadRad_ = rad;
+        chorus_.SetPan(0.0f, 1.0f);
+    }
+    [[nodiscard]] float getStereoPhaseSpreadRad() const noexcept { return stereoPhaseSpreadRad_; }
 
     void setParameter(uint32_t paramId, float value) noexcept override {
         switch (paramId) {
-            case 0: setRateHz(value); break;
-            case 1: setDepthMs(value); break;
-            case 2: setBaseDelayMs(value); break;
-            case 3: setFeedback(value); break;
-            case 4: setMix(value); break;
-            case 5: setStereoPhaseSpreadRad(value); break;
+            case 0: setRate(value); break;
+            case 1: setDepth(value > 1.0f ? value / 6.0f : value); break;
+            case 2: setFeedback(value); break;
+            case 3: setDrive(value); break;
+            case 4: setDryWet(value); break;
+            case 5: setType(static_cast<ModType>(static_cast<int>(value))); break;
             default: break;
         }
     }
 
-    void processBlock(uint32_t numFrames) noexcept override {
-        const float* inL = getInputBuffer(0, 0);
-        const float* inR = getInputBuffer(0, 1);
-        float* outL = getOutputBuffer(0, 0);
-        float* outR = getOutputBuffer(0, 1);
-
-        if (!outL || !outR) return;
-
-        if (!enabled_ || (!inL && !inR)) {
-            std::fill_n(outL, numFrames, 0.0f);
-            std::fill_n(outR, numFrames, 0.0f);
-            return;
-        }
-
-        const float* srcL = inL ? inL : inR;
-        const float* srcR = inR ? inR : inL;
-
-        std::copy_n(srcL, numFrames, outL);
-        std::copy_n(srcR, numFrames, outR);
-
-        chorus_.processStereo(outL, outR, numFrames);
-    }
+    void processBlock(uint32_t numFrames) noexcept override;
 
 private:
-    dsp::ChorusFlangerCore chorus_;
+    void applyParameters() noexcept {
+        setRate(rate_);
+        setDepth(depth_);
+        setFeedback(feedback_);
+        setDrive(drive_);
+    }
+
+    daisysp::Chorus chorus_;
+    daisysp::Flanger flangerL_, flangerR_;
+    daisysp::Overdrive overdriveL_, overdriveR_;
+
+    float sampleRate_{48000.0f};
+    float rate_{1.2f};
+    float depth_{0.5f};
+    float baseDelayMs_{7.0f};
+    float feedback_{0.3f};
+    float drive_{0.4f};
+    float dryWet_{0.5f};
+    float stereoPhaseSpreadRad_{1.57f};
+    ModType type_{ModType::Chorus};
 };
+
+// Aliases for prefix-free and backward compatibility
+using DaisyModulationNode = ChorusNode;
 
 } // namespace eatsbits::audio
 

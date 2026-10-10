@@ -136,11 +136,19 @@ public:
             },
             {
                 "eats.dsp.Oscillator",
-                "eatsbits/audio/dsp/oscillator.hpp",
-                "eatsbits::dsp::Oscillator",
-                {},
-                {"eats_core"},
-                {"Oscillator", "eat.dsp.Oscillator", "oscillator"}
+                "eatsbits/audio/graph/nodes/oscillator_node.hpp",
+                "eatsbits::audio::OscillatorNode",
+                {"src/audio/graph/nodes/oscillator_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"Oscillator", "osc", "eat.dsp.Oscillator", "oscillator", "DaisyOscillator", "daisy_oscillator", "daisy_osc", "eats.dsp.DaisyOscillator", "eats.dsp.daisy_osc"}
+            },
+            {
+                "eats.dsp.MoogFilter",
+                "eatsbits/audio/graph/nodes/moog_filter_node.hpp",
+                "eatsbits::audio::MoogFilterNode",
+                {"src/audio/graph/nodes/moog_filter_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"MoogFilter", "moog", "moog_ladder", "Filter", "daisy_filter", "DaisyFilter", "daisy_svf", "eats.dsp.DaisyFilter", "eats.dsp.moog_ladder"}
             },
             {
                 "eats.fx.ChorusFlanger",
@@ -148,7 +156,7 @@ public:
                 "eatsbits::dsp::ChorusFlanger",
                 {},
                 {"eats_core"},
-                {"ChorusFlanger", "eat.fx.ChorusFlanger", "chorus_flanger", "chorus", "flanger"}
+                {"ChorusFlanger", "eat.fx.ChorusFlanger", "chorus_flanger"}
             },
             {
                 "eats.fx.DynamicsProcessor",
@@ -156,7 +164,7 @@ public:
                 "eatsbits::dsp::DynamicsProcessor",
                 {},
                 {"eats_core"},
-                {"DynamicsProcessor", "eat.fx.DynamicsProcessor", "compressor", "limiter"}
+                {"DynamicsProcessor", "eat.fx.DynamicsProcessor", "limiter"}
             },
             {
                 "eats.fx.Convolver",
@@ -164,7 +172,7 @@ public:
                 "eatsbits::dsp::ConvolverCore",
                 {},
                 {"eats_core"},
-                {"Convolver", "eat.fx.Convolver", "convolver", "reverb"}
+                {"Convolver", "eat.fx.Convolver", "convolver", "reverb_ir"}
             },
             {
                 "eats.fx.ParametricEQ",
@@ -175,52 +183,84 @@ public:
                 {"ParametricEQ", "eat.fx.ParametricEQ", "eq", "Equalizer"}
             },
             {
-                "eats.dsp.DaisyOscillator",
-                "eatsbits/audio/graph/nodes/daisy/daisy_oscillator_node.hpp",
-                "eatsbits::audio::DaisyOscillatorNode",
-                {"src/audio/graph/nodes/daisy/daisy_oscillator_node.cpp"},
+                "eats.fx.Reverb",
+                "eatsbits/audio/graph/nodes/reverb_node.hpp",
+                "eatsbits::audio::ReverbNode",
+                {"src/audio/graph/nodes/reverb_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyOscillator", "daisy_oscillator", "daisy_osc", "eats.dsp.daisy_osc"}
+                {"Reverb", "reverb", "reverb_sc", "reverbsc", "daisy_reverb", "DaisyReverb", "eats.fx.DaisyReverb", "eats.fx.reverb_sc"}
+            },
+            {
+                "eats.fx.Delay",
+                "eatsbits/audio/graph/nodes/delay_node.hpp",
+                "eatsbits::audio::DelayNode",
+                {"src/audio/graph/nodes/delay_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"Delay", "delay", "daisy_delay", "daisy_echo", "DaisyDelay", "eats.fx.DaisyDelay"}
+            },
+            {
+                "eats.fx.Chorus",
+                "eatsbits/audio/graph/nodes/chorus_node.hpp",
+                "eatsbits::audio::ChorusNode",
+                {"src/audio/graph/nodes/chorus_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"Chorus", "chorus", "flanger", "daisy_chorus", "daisy_flanger", "daisy_overdrive", "DaisyModulation", "eats.fx.DaisyModulation"}
+            },
+            {
+                "eats.fx.Compressor",
+                "eatsbits/audio/graph/nodes/compressor_node.hpp",
+                "eatsbits::audio::CompressorNode",
+                {"src/audio/graph/nodes/compressor_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"Compressor", "compressor", "daisy_compressor", "daisy_comp", "DaisyCompressor", "eats.fx.DaisyCompressor"}
+            },
+            {
+                "eats.dsp.DaisyOscillator",
+                "eatsbits/audio/graph/nodes/oscillator_node.hpp",
+                "eatsbits::audio::OscillatorNode",
+                {"src/audio/graph/nodes/oscillator_node.cpp"},
+                {"eats_audio", "eats_daisysp"},
+                {"DaisyOscillator", "daisy_oscillator"}
             },
             {
                 "eats.dsp.DaisyFilter",
-                "eatsbits/audio/graph/nodes/daisy/daisy_filter_node.hpp",
-                "eatsbits::audio::DaisyFilterNode",
-                {"src/audio/graph/nodes/daisy/daisy_filter_node.cpp"},
+                "eatsbits/audio/graph/nodes/moog_filter_node.hpp",
+                "eatsbits::audio::MoogFilterNode",
+                {"src/audio/graph/nodes/moog_filter_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyFilter", "daisy_filter", "moog_ladder", "daisy_svf", "eats.dsp.moog_ladder"}
+                {"DaisyFilter"}
             },
             {
                 "eats.fx.DaisyReverb",
-                "eatsbits/audio/graph/nodes/daisy/daisy_reverb_node.hpp",
-                "eatsbits::audio::DaisyReverbNode",
-                {"src/audio/graph/nodes/daisy/daisy_reverb_node.cpp"},
+                "eatsbits/audio/graph/nodes/reverb_node.hpp",
+                "eatsbits::audio::ReverbNode",
+                {"src/audio/graph/nodes/reverb_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyReverb", "reverb_sc", "reverbsc", "daisy_reverb", "eats.fx.reverb_sc"}
+                {"DaisyReverb"}
             },
             {
                 "eats.fx.DaisyDelay",
-                "eatsbits/audio/graph/nodes/daisy/daisy_delay_node.hpp",
-                "eatsbits::audio::DaisyDelayNode",
-                {"src/audio/graph/nodes/daisy/daisy_delay_node.cpp"},
+                "eatsbits/audio/graph/nodes/delay_node.hpp",
+                "eatsbits::audio::DelayNode",
+                {"src/audio/graph/nodes/delay_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyDelay", "daisy_delay", "daisy_echo", "eats.fx.daisy_delay"}
+                {"DaisyDelay"}
             },
             {
                 "eats.fx.DaisyModulation",
-                "eatsbits/audio/graph/nodes/daisy/daisy_modulation_node.hpp",
-                "eatsbits::audio::DaisyModulationNode",
-                {"src/audio/graph/nodes/daisy/daisy_modulation_node.cpp"},
+                "eatsbits/audio/graph/nodes/chorus_node.hpp",
+                "eatsbits::audio::ChorusNode",
+                {"src/audio/graph/nodes/chorus_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyModulation", "daisy_chorus", "daisy_flanger", "daisy_overdrive", "eats.fx.daisy_chorus"}
+                {"DaisyModulation"}
             },
             {
                 "eats.fx.DaisyCompressor",
-                "eatsbits/audio/graph/nodes/daisy/daisy_compressor_node.hpp",
-                "eatsbits::audio::DaisyCompressorNode",
-                {"src/audio/graph/nodes/daisy/daisy_compressor_node.cpp"},
+                "eatsbits/audio/graph/nodes/compressor_node.hpp",
+                "eatsbits::audio::CompressorNode",
+                {"src/audio/graph/nodes/compressor_node.cpp"},
                 {"eats_audio", "eats_daisysp"},
-                {"DaisyCompressor", "daisy_compressor", "daisy_comp", "eats.fx.daisy_compressor"}
+                {"DaisyCompressor"}
             }
         };
         return s_modules;

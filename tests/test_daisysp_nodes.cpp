@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "eatsbits/audio/graph/audio_graph.hpp"
+#include "eatsbits/audio/graph/nodes/modular_nodes.hpp"
 #include "eatsbits/audio/graph/nodes/daisy/daisy_nodes.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 
@@ -29,12 +30,12 @@ static bool isBufferFinite(const float* buf, size_t size) {
     return true;
 }
 
-// 1. DaisyOscillatorNode Tests
-void testDaisyOscillator() {
-    std::cout << "[Test 1] Testing DaisyOscillatorNode...\n";
+// 1. OscillatorNode Tests (PolyBLEP bandlimited oscillator)
+void testOscillator() {
+    std::cout << "[Test 1] Testing canonical OscillatorNode & DaisyOscillator alias...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("TestOsc");
+    auto osc = std::make_shared<OscillatorNode>("TestOsc");
     NodeId oscId = graph.addNode(osc);
     graph.setOutputNode(oscId, 0);
     graph.compile();
@@ -45,7 +46,7 @@ void testDaisyOscillator() {
 
     // Test each waveform mode
     for (int wf = 0; wf <= 8; ++wf) {
-        osc->setWaveform(static_cast<DaisyOscillatorNode::Waveform>(wf));
+        osc->setWaveform(static_cast<OscillatorNode::Waveform>(wf));
         osc->setFrequency(440.0f);
         osc->setAmplitude(0.75f);
         osc->setPulseWidth(0.5f);
@@ -71,20 +72,23 @@ void testDaisyOscillator() {
         TEST_ASSERT(isBufferFinite(outL.data(), 256));
     }
 
-    std::cout << "  [SUCCESS] DaisyOscillatorNode verified across waveforms and parameter sweeps!\n";
+    // Verify DaisyOscillatorNode alias type equality
+    static_assert(std::is_same_v<OscillatorNode, DaisyOscillatorNode>, "DaisyOscillatorNode must alias OscillatorNode");
+
+    std::cout << "  [SUCCESS] OscillatorNode verified across waveforms and parameter sweeps!\n";
 }
 
-// 2. DaisyFilterNode Tests
-void testDaisyFilter() {
-    std::cout << "[Test 2] Testing DaisyFilterNode (MoogLadder & SVF)...\n";
+// 2. MoogFilterNode Tests (MoogLadder & SVF)
+void testMoogFilter() {
+    std::cout << "[Test 2] Testing canonical MoogFilterNode (MoogLadder & SVF)...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("SourceOsc");
-    osc->setWaveform(DaisyOscillatorNode::Waveform::PolyBlepSaw);
+    auto osc = std::make_shared<OscillatorNode>("SourceOsc");
+    osc->setWaveform(OscillatorNode::Waveform::PolyBlepSaw);
     osc->setFrequency(120.0f);
     osc->setAmplitude(0.8f);
 
-    auto filter = std::make_shared<DaisyFilterNode>("TestFilter");
+    auto filter = std::make_shared<MoogFilterNode>("TestFilter");
     NodeId oscId = graph.addNode(osc);
     NodeId fltId = graph.addNode(filter);
 
@@ -97,7 +101,7 @@ void testDaisyFilter() {
     std::vector<float> outR(256, 0.0f);
 
     // Test MoogLadder
-    filter->setMode(DaisyFilterNode::FilterMode::MoogLadder);
+    filter->setMode(MoogFilterNode::FilterMode::MoogLadder);
     filter->setCutoff(500.0f);
     filter->setResonance(0.7f);
     graph.process(outL.data(), outR.data(), 256);
@@ -105,11 +109,11 @@ void testDaisyFilter() {
     TEST_ASSERT(isBufferFinite(outR.data(), 256));
 
     // Test SVF Modes: Low, High, Band, Notch
-    DaisyFilterNode::FilterMode svfModes[] = {
-        DaisyFilterNode::FilterMode::SvfLowpass,
-        DaisyFilterNode::FilterMode::SvfHighpass,
-        DaisyFilterNode::FilterMode::SvfBandpass,
-        DaisyFilterNode::FilterMode::SvfNotch
+    MoogFilterNode::FilterMode svfModes[] = {
+        MoogFilterNode::FilterMode::SvfLowpass,
+        MoogFilterNode::FilterMode::SvfHighpass,
+        MoogFilterNode::FilterMode::SvfBandpass,
+        MoogFilterNode::FilterMode::SvfNotch
     };
 
     for (auto m : svfModes) {
@@ -129,19 +133,23 @@ void testDaisyFilter() {
         TEST_ASSERT(isBufferFinite(outL.data(), 256));
     }
 
-    std::cout << "  [SUCCESS] DaisyFilterNode verified for MoogLadder and SVF modes!\n";
+    // Verify DaisyFilterNode and FilterNode aliases
+    static_assert(std::is_same_v<MoogFilterNode, DaisyFilterNode>, "DaisyFilterNode must alias MoogFilterNode");
+    static_assert(std::is_same_v<MoogFilterNode, FilterNode>, "FilterNode must alias MoogFilterNode");
+
+    std::cout << "  [SUCCESS] MoogFilterNode verified for MoogLadder and SVF modes!\n";
 }
 
-// 3. DaisyReverbNode Tests
-void testDaisyReverb() {
-    std::cout << "[Test 3] Testing DaisyReverbNode (ReverbSc)...\n";
+// 3. ReverbNode Tests (ReverbSc)
+void testReverb() {
+    std::cout << "[Test 3] Testing canonical ReverbNode (ReverbSc algorithmic reverb)...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("VerbSource");
+    auto osc = std::make_shared<OscillatorNode>("VerbSource");
     osc->setFrequency(330.0f);
     osc->setAmplitude(0.5f);
 
-    auto verb = std::make_shared<DaisyReverbNode>("TestVerb");
+    auto verb = std::make_shared<ReverbNode>("TestVerb");
     verb->setFeedback(0.85f);
     verb->setDampingFreq(8000.0f);
     verb->setDryWet(0.5f);
@@ -166,17 +174,20 @@ void testDaisyReverb() {
     graph.process(outL.data(), outR.data(), 256);
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
 
-    std::cout << "  [SUCCESS] DaisyReverbNode verified!\n";
+    // Verify DaisyReverbNode alias
+    static_assert(std::is_same_v<ReverbNode, DaisyReverbNode>, "DaisyReverbNode must alias ReverbNode");
+
+    std::cout << "  [SUCCESS] ReverbNode verified!\n";
 }
 
-// 4. DaisyDelayNode Tests
-void testDaisyDelay() {
-    std::cout << "[Test 4] Testing DaisyDelayNode...\n";
+// 4. DelayNode Tests
+void testDelay() {
+    std::cout << "[Test 4] Testing canonical DelayNode (DaisySP DelayLine + Tone damping)...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("PulseSource");
+    auto osc = std::make_shared<OscillatorNode>("PulseSource");
     osc->setFrequency(200.0f);
-    auto delay = std::make_shared<DaisyDelayNode>("TestDelay");
+    auto delay = std::make_shared<DelayNode>("TestDelay");
     delay->setDelayTime(0.05f); // 50ms delay
     delay->setFeedback(0.5f);
     delay->setDampingFreq(10000.0f);
@@ -196,16 +207,23 @@ void testDaisyDelay() {
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
     TEST_ASSERT(isBufferFinite(outR.data(), 256));
 
-    std::cout << "  [SUCCESS] DaisyDelayNode verified!\n";
+    // Test millisecond interface
+    delay->setDelayTimeMs(120.0f);
+    TEST_ASSERT(std::abs(delay->getDelayTimeMs() - 120.0f) < 0.1f);
+
+    // Verify DaisyDelayNode alias
+    static_assert(std::is_same_v<DelayNode, DaisyDelayNode>, "DaisyDelayNode must alias DelayNode");
+
+    std::cout << "  [SUCCESS] DelayNode verified!\n";
 }
 
-// 5. DaisyModulationNode Tests
-void testDaisyModulation() {
-    std::cout << "[Test 5] Testing DaisyModulationNode (Chorus, Flanger, Overdrive)...\n";
+// 5. ChorusNode Tests (Chorus, Flanger, Overdrive)
+void testChorus() {
+    std::cout << "[Test 5] Testing canonical ChorusNode (Chorus, Flanger, Overdrive)...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("ModOsc");
-    auto mod = std::make_shared<DaisyModulationNode>("TestMod");
+    auto osc = std::make_shared<OscillatorNode>("ModOsc");
+    auto mod = std::make_shared<ChorusNode>("TestMod");
 
     NodeId oscId = graph.addNode(osc);
     NodeId modId = graph.addNode(mod);
@@ -218,7 +236,7 @@ void testDaisyModulation() {
     std::vector<float> outR(256, 0.0f);
 
     // Chorus
-    mod->setType(DaisyModulationNode::ModType::Chorus);
+    mod->setType(ChorusNode::ModType::Chorus);
     mod->setRate(1.5f);
     mod->setDepth(0.6f);
     mod->setDryWet(0.5f);
@@ -226,7 +244,7 @@ void testDaisyModulation() {
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
 
     // Flanger
-    mod->setType(DaisyModulationNode::ModType::Flanger);
+    mod->setType(ChorusNode::ModType::Flanger);
     mod->setRate(0.8f);
     mod->setDepth(0.7f);
     mod->setFeedback(0.4f);
@@ -234,23 +252,32 @@ void testDaisyModulation() {
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
 
     // Overdrive
-    mod->setType(DaisyModulationNode::ModType::Overdrive);
+    mod->setType(ChorusNode::ModType::Overdrive);
     mod->setDrive(0.8f);
     mod->setDryWet(0.7f);
     graph.process(outL.data(), outR.data(), 256);
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
 
-    std::cout << "  [SUCCESS] DaisyModulationNode verified across all modes!\n";
+    // Backward compatibility methods
+    mod->setRateHz(2.0f);
+    TEST_ASSERT(std::abs(mod->getRateHz() - 2.0f) < 0.01f);
+    mod->setDepthMs(3.0f);
+    TEST_ASSERT(mod->getDepthMs() > 0.0f);
+
+    // Verify DaisyModulationNode alias
+    static_assert(std::is_same_v<ChorusNode, DaisyModulationNode>, "DaisyModulationNode must alias ChorusNode");
+
+    std::cout << "  [SUCCESS] ChorusNode verified across all modes!\n";
 }
 
-// 6. DaisyCompressorNode Tests
-void testDaisyCompressor() {
-    std::cout << "[Test 6] Testing DaisyCompressorNode...\n";
+// 6. CompressorNode Tests
+void testCompressor() {
+    std::cout << "[Test 6] Testing canonical CompressorNode...\n";
 
     AudioGraph graph;
-    auto osc = std::make_shared<DaisyOscillatorNode>("LoudOsc");
+    auto osc = std::make_shared<OscillatorNode>("LoudOsc");
     osc->setAmplitude(1.5f);
-    auto comp = std::make_shared<DaisyCompressorNode>("TestComp");
+    auto comp = std::make_shared<CompressorNode>("TestComp");
     comp->setThreshold(-12.0f);
     comp->setRatio(6.0f);
     comp->setAttack(0.005f);
@@ -271,12 +298,15 @@ void testDaisyCompressor() {
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
     TEST_ASSERT(isBufferFinite(outR.data(), 256));
 
-    std::cout << "  [SUCCESS] DaisyCompressorNode verified!\n";
+    // Verify DaisyCompressorNode alias
+    static_assert(std::is_same_v<CompressorNode, DaisyCompressorNode>, "DaisyCompressorNode must alias CompressorNode");
+
+    std::cout << "  [SUCCESS] CompressorNode verified!\n";
 }
 
-// 7. AudioEngine Track FX Integration Tests
-void testAudioEngineDaisyFxIntegration() {
-    std::cout << "[Test 7] Testing AudioEngine DaisySP FX Rack Integration...\n";
+// 7. AudioEngine Track FX Integration Tests (Prefix-Free & Legacy Brand Aliases)
+void testAudioEngineModularFxIntegration() {
+    std::cout << "[Test 7] Testing AudioEngine Prefix-Free Modular FX Rack Integration...\n";
 
     AudioEngine engine;
     AudioEngineConfig cfg{};
@@ -285,19 +315,19 @@ void testAudioEngineDaisyFxIntegration() {
 
     uint32_t tIdx = engine.addTrack("SynthTrack");
 
-    // Build a multi-insert FX chain containing all DaisySP effects
+    // Build a multi-insert FX chain containing canonical prefix-free effects
     std::vector<AudioEngine::TrackAudioFxItem> fxChain = {
-        { "DaisyMoogLadder", "MOOG_FILTER", 0.4f, 0.7f, true, "fx_moog" },
-        { "DaisyStereoChorus", "DAISY_CHORUS", 0.3f, 0.5f, true, "fx_chorus" },
-        { "DaisyTapeDelay", "DAISY_DELAY", 0.35f, 0.4f, true, "fx_delay" },
-        { "DaisyPlatespace", "DAISY_REVERB", 0.8f, 0.35f, true, "fx_verb" },
-        { "DaisyStudioComp", "DAISY_COMPRESSOR", 0.5f, 1.0f, true, "fx_comp" }
+        { "MoogLadder", "MOOG_FILTER", 0.4f, 0.7f, true, "fx_moog" },
+        { "StereoChorus", "CHORUS", 0.3f, 0.5f, true, "fx_chorus" },
+        { "TapeDelay", "DELAY", 0.35f, 0.4f, true, "fx_delay" },
+        { "Platespace", "REVERB", 0.8f, 0.35f, true, "fx_verb" },
+        { "StudioComp", "COMPRESSOR", 0.5f, 1.0f, true, "fx_comp" }
     };
 
     bool rebuildOk = engine.rebuildTrackAudioFx(tIdx, fxChain);
     TEST_ASSERT(rebuildOk);
 
-    // Test parameter updates
+    // Test parameter updates with prefix-free names
     bool p1 = engine.setTrackAudioFxParam(tIdx, 0, "cutoff", 1500.0f);
     bool p2 = engine.setTrackAudioFxParam(tIdx, 0, "resonance", 0.6f);
     bool p3 = engine.setTrackAudioFxParam(tIdx, 1, "rate", 1.8f);
@@ -314,18 +344,29 @@ void testAudioEngineDaisyFxIntegration() {
     TEST_ASSERT(isBufferFinite(outL.data(), 256));
     TEST_ASSERT(isBufferFinite(outR.data(), 256));
 
-    std::cout << "  [SUCCESS] AudioEngine DaisySP FX rack rebuild & parameter dispatch verified!\n";
+    // Also test rebuild with legacy DAISY_* prefixed types
+    std::vector<AudioEngine::TrackAudioFxItem> legacyChain = {
+        { "DaisyMoogLadder", "DAISY_FILTER", 0.4f, 0.7f, true, "fx_moog" },
+        { "DaisyStereoChorus", "DAISY_CHORUS", 0.3f, 0.5f, true, "fx_chorus" },
+        { "DaisyTapeDelay", "DAISY_DELAY", 0.35f, 0.4f, true, "fx_delay" },
+        { "DaisyPlatespace", "DAISY_REVERB", 0.8f, 0.35f, true, "fx_verb" },
+        { "DaisyStudioComp", "DAISY_COMPRESSOR", 0.5f, 1.0f, true, "fx_comp" }
+    };
+    bool legacyOk = engine.rebuildTrackAudioFx(tIdx, legacyChain);
+    TEST_ASSERT(legacyOk);
+
+    std::cout << "  [SUCCESS] AudioEngine modular FX rack rebuild & parameter dispatch verified for both prefix-free & legacy names!\n";
 }
 
 int main() {
-    std::cout << "=== Running DaisySP Modular DSP & FX Tests ===\n";
-    testDaisyOscillator();
-    testDaisyFilter();
-    testDaisyReverb();
-    testDaisyDelay();
-    testDaisyModulation();
-    testDaisyCompressor();
-    testAudioEngineDaisyFxIntegration();
-    std::cout << "=== All DaisySP Tests Passed Cleanly (100%) ===\n";
+    std::cout << "=== Running Modular DSP & FX Tests (Prefix-Free & DaisySP) ===\n";
+    testOscillator();
+    testMoogFilter();
+    testReverb();
+    testDelay();
+    testChorus();
+    testCompressor();
+    testAudioEngineModularFxIntegration();
+    std::cout << "=== All Modular DSP & FX Tests Passed Cleanly (100%) ===\n";
     return 0;
 }

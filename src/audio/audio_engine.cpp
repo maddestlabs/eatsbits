@@ -59,6 +59,8 @@ void emscripten_thread_sleep(double msecs) { emscripten_sleep(static_cast<unsign
 #include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
+#include "eatsbits/audio/graph/nodes/reverb_node.hpp"
+#include "eatsbits/audio/graph/nodes/moog_filter_node.hpp"
 #include "eatsbits/audio/graph/nodes/daisy/daisy_nodes.hpp"
 #include "eatsbits/project/project_file.hpp"
 
@@ -762,88 +764,70 @@ bool AudioEngine::rebuildTrackAudioFx(uint32_t trackIndex, const std::vector<Tra
         }
 
         if (!node) {
-            if (tUpper.find("DAISY_REVERB") != std::string::npos || tUpper.find("REVERBSC") != std::string::npos ||
-                tUpper.find("REVERB_SC") != std::string::npos || tUpper.find("DAISY REVERB") != std::string::npos) {
-                auto dr = std::make_shared<DaisyReverbNode>(fx.name.empty() ? "DaisyReverb" : fx.name);
+            if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("ZERO-LATENCY IR") != std::string::npos ||
+                tUpper.find("ROOM") != std::string::npos || tUpper.find("HALL") != std::string::npos ||
+                tUpper.find("SPACE") != std::string::npos) {
+                auto conv = std::make_shared<ConvolverNode>(fx.name.empty() ? "ConvolverReverb" : fx.name);
+                conv->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
+                conv->setDecay(0.4f + fx.drive * 3.6f);
+                conv->setRoomSize(0.5f + fx.drive * 0.9f);
+                node = conv;
+            } else if (tUpper.find("REVERB") != std::string::npos || tUpper.find("REVERBSC") != std::string::npos ||
+                       tUpper.find("REVERB_SC") != std::string::npos) {
+                auto dr = std::make_shared<ReverbNode>(fx.name.empty() ? "Reverb" : fx.name);
                 dr->setFeedback(std::clamp(fx.drive > 1.0f ? fx.drive / 100.0f : (fx.drive > 0.0f ? fx.drive : 0.85f), 0.1f, 0.99f));
                 dr->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
                 node = dr;
-            } else if (tUpper.find("DAISY_DELAY") != std::string::npos || tUpper.find("DAISY DELAY") != std::string::npos) {
-                auto dd = std::make_shared<DaisyDelayNode>(fx.name.empty() ? "DaisyDelay" : fx.name);
+            } else if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
+                       tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
+                auto dd = std::make_shared<DelayNode>(fx.name.empty() ? "Delay" : fx.name);
                 dd->setDelayTime(std::max(0.01f, (fx.drive > 2.0f) ? fx.drive / 1000.0f : fx.drive * 0.8f));
                 dd->setFeedback(std::clamp(fx.drive * 0.6f, 0.0f, 0.95f));
                 dd->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
                 node = dd;
-            } else if (tUpper.find("DAISY_FILTER") != std::string::npos || tUpper.find("MOOG_LADDER") != std::string::npos ||
-                       tUpper.find("MOOG_FILTER") != std::string::npos || tUpper.find("DAISY_SVF") != std::string::npos ||
-                       tUpper.find("DAISY FILTER") != std::string::npos) {
-                auto df = std::make_shared<DaisyFilterNode>(fx.name.empty() ? "DaisyFilter" : fx.name);
-                if (tUpper.find("MOOG") != std::string::npos || tUpper.find("LADDER") != std::string::npos) {
-                    df->setMode(DaisyFilterNode::FilterMode::MoogLadder);
-                } else if (tUpper.find("HIGH") != std::string::npos || tUpper.find("HP") != std::string::npos) {
-                    df->setMode(DaisyFilterNode::FilterMode::SvfHighpass);
+            } else if (tUpper.find("MOOG") != std::string::npos || tUpper.find("LADDER") != std::string::npos ||
+                       tUpper.find("MOOG_FILTER") != std::string::npos || tUpper.find("MOOG_LADDER") != std::string::npos ||
+                       tUpper.find("DAISY_FILTER") != std::string::npos || tUpper.find("DAISY FILTER") != std::string::npos) {
+                auto df = std::make_shared<MoogFilterNode>(fx.name.empty() ? "MoogFilter" : fx.name);
+                if (tUpper.find("HIGH") != std::string::npos || tUpper.find("HP") != std::string::npos) {
+                    df->setMode(MoogFilterNode::FilterMode::SvfHighpass);
                 } else if (tUpper.find("BAND") != std::string::npos || tUpper.find("BP") != std::string::npos) {
-                    df->setMode(DaisyFilterNode::FilterMode::SvfBandpass);
+                    df->setMode(MoogFilterNode::FilterMode::SvfBandpass);
                 } else if (tUpper.find("NOTCH") != std::string::npos) {
-                    df->setMode(DaisyFilterNode::FilterMode::SvfNotch);
+                    df->setMode(MoogFilterNode::FilterMode::SvfNotch);
+                } else if (tUpper.find("SVF") != std::string::npos) {
+                    df->setMode(MoogFilterNode::FilterMode::SvfLowpass);
                 } else {
-                    df->setMode(DaisyFilterNode::FilterMode::SvfLowpass);
+                    df->setMode(MoogFilterNode::FilterMode::MoogLadder);
                 }
                 float cutoff = (fx.drive > 20.0f) ? fx.drive : (20.0f * std::pow(1000.0f, std::clamp(fx.drive, 0.0f, 1.0f)));
                 df->setCutoff(cutoff);
                 df->setResonance(std::clamp(fx.mix, 0.0f, 0.98f));
                 node = df;
-            } else if (tUpper.find("DAISY_CHORUS") != std::string::npos || tUpper.find("DAISY_FLANGER") != std::string::npos ||
-                       tUpper.find("DAISY_OVERDRIVE") != std::string::npos || tUpper.find("DAISY_MOD") != std::string::npos ||
-                       tUpper.find("DAISY MODULATION") != std::string::npos) {
-                auto dm = std::make_shared<DaisyModulationNode>(fx.name.empty() ? "DaisyModulation" : fx.name);
+            } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos ||
+                       tUpper.find("MODULATION") != std::string::npos || tUpper.find("BUCKET") != std::string::npos ||
+                       tUpper.find("BBD") != std::string::npos || tUpper.find("DAISY_MOD") != std::string::npos ||
+                       tUpper.find("DAISY MODULATION") != std::string::npos || tUpper.find("DAISY_CHORUS") != std::string::npos ||
+                       tUpper.find("DAISY_FLANGER") != std::string::npos) {
+                auto dm = std::make_shared<ChorusNode>(fx.name.empty() ? "Chorus" : fx.name);
                 if (tUpper.find("FLANGER") != std::string::npos) {
-                    dm->setType(DaisyModulationNode::ModType::Flanger);
-                } else if (tUpper.find("OVERDRIVE") != std::string::npos || tUpper.find("DRIVE") != std::string::npos) {
-                    dm->setType(DaisyModulationNode::ModType::Overdrive);
+                    dm->setType(ChorusNode::ModType::Flanger);
+                } else if (tUpper.find("OVERDRIVE") != std::string::npos) {
+                    dm->setType(ChorusNode::ModType::Overdrive);
                 } else {
-                    dm->setType(DaisyModulationNode::ModType::Chorus);
+                    dm->setType(ChorusNode::ModType::Chorus);
                 }
                 dm->setRate(std::max(0.1f, fx.drive * 4.0f));
                 dm->setDepth(std::clamp(fx.drive, 0.1f, 1.0f));
                 dm->setDrive(std::clamp(fx.drive, 0.0f, 1.0f));
                 dm->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
                 node = dm;
-            } else if (tUpper.find("DAISY_COMP") != std::string::npos || tUpper.find("DAISY_COMPRESSOR") != std::string::npos ||
-                       tUpper.find("DAISY COMPRESSOR") != std::string::npos) {
-                auto dc = std::make_shared<DaisyCompressorNode>(fx.name.empty() ? "DaisyCompressor" : fx.name);
+            } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
+                auto dc = std::make_shared<CompressorNode>(fx.name.empty() ? "Compressor" : fx.name);
                 dc->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
                 dc->setRatio(1.5f + fx.drive * 6.0f);
                 dc->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
                 node = dc;
-            } else if (tUpper.find("DELAY") != std::string::npos || tUpper.find("ECHO") != std::string::npos ||
-                tUpper.find("PING-PONG") != std::string::npos || tUpper == "ACIDECHO") {
-                auto d = std::make_shared<DelayNode>(fx.name.empty() ? "StereoDelay" : fx.name);
-                d->setDelayTimeMs(std::max(10.0f, fx.drive * 800.0f));
-                d->setFeedback(std::clamp(fx.drive * 0.75f, 0.0f, 0.90f));
-                d->setDryWet(std::clamp(fx.mix, 0.0f, 1.0f));
-                node = d;
-            } else if (tUpper.find("CONVOLVER") != std::string::npos || tUpper.find("REVERB") != std::string::npos ||
-                       tUpper.find("ZERO-LATENCY IR") != std::string::npos || tUpper.find("ROOM") != std::string::npos ||
-                       tUpper.find("HALL") != std::string::npos || tUpper.find("SPACE") != std::string::npos) {
-                auto conv = std::make_shared<ConvolverNode>(fx.name.empty() ? "ConvolverReverb" : fx.name);
-                conv->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-                conv->setDecay(0.4f + fx.drive * 3.6f);
-                conv->setRoomSize(0.5f + fx.drive * 0.9f);
-                node = conv;
-            } else if (tUpper.find("CHORUS") != std::string::npos || tUpper.find("FLANGER") != std::string::npos ||
-                       tUpper.find("BUCKET") != std::string::npos || tUpper.find("BBD") != std::string::npos) {
-                auto ch = std::make_shared<ChorusNode>(fx.name.empty() ? "ChorusFlanger" : fx.name);
-                ch->setRateHz(std::max(0.1f, fx.drive * 4.0f));
-                ch->setDepthMs(std::max(0.5f, fx.drive * 6.0f));
-                ch->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-                node = ch;
-            } else if (tUpper.find("COMP") != std::string::npos || tUpper.find("DYNAMICS") != std::string::npos) {
-                auto comp = std::make_shared<CompressorNode>(fx.name.empty() ? "Compressor" : fx.name);
-                comp->setThreshold(-30.0f + (1.0f - fx.drive) * 24.0f);
-                comp->setRatio(1.5f + fx.drive * 6.0f);
-                comp->setMix(std::clamp(fx.mix, 0.0f, 1.0f));
-                node = comp;
             } else if (tUpper.find("LIMIT") != std::string::npos) {
                 auto lim = std::make_shared<LimiterNode>(fx.name.empty() ? "BrickwallLimiter" : fx.name);
                 lim->setCeilingDbfs(-0.1f);
@@ -935,10 +919,15 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
     for (char& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     if (auto delay = std::dynamic_pointer_cast<DelayNode>(node)) {
-        if (p == "time" || p == "param1" || p == "rate") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
-        else if (p == "feedback" || p == "param2") delay->setFeedback(std::clamp(value * 0.75f, 0.0f, 0.90f));
-        else if (p == "mix" || p == "param4" || p == "wet") delay->setDryWet(std::clamp(value, 0.0f, 1.0f));
-        else if (p == "drive") delay->setDelayTimeMs(std::max(10.0f, value * 800.0f));
+        if (p == "time" || p == "delay" || p == "rate" || p == "param1" || p == "drive") {
+            delay->setDelayTime(value > 2.0f ? value / 1000.0f : std::clamp(value, 0.005f, 1.95f));
+        } else if (p == "feedback" || p == "fb" || p == "param2") {
+            delay->setFeedback(std::clamp(value, 0.0f, 0.98f));
+        } else if (p == "damping" || p == "damp" || p == "tone" || p == "freq" || p == "param3") {
+            delay->setDampingFreq(std::clamp(value > 1.0f ? value : (200.0f + value * 18000.0f), 200.0f, 20000.0f));
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
+            delay->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        }
     } else if (auto conv = std::dynamic_pointer_cast<ConvolverNode>(node)) {
         if (p == "mix" || p == "param4" || p == "wet") conv->setMix(std::clamp(value, 0.0f, 1.0f));
         else if (p == "decay" || p == "time" || p == "param1" || p == "drive") conv->setDecay(0.3f + value * 4.0f);
@@ -946,16 +935,33 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
         else if (p == "roomsize" || p == "size" || p == "param3") conv->setRoomSize(0.5f + value * 1.0f);
         else if (p == "damping" || p == "param5") conv->setDamping(value);
     } else if (auto chorus = std::dynamic_pointer_cast<ChorusNode>(node)) {
-        if (p == "rate" || p == "param1" || p == "time") chorus->setRateHz(std::max(0.1f, value * 4.0f));
-        else if (p == "depth" || p == "param2" || p == "feedback") chorus->setDepthMs(std::max(0.5f, value * 6.0f));
-        else if (p == "mix" || p == "param4" || p == "wet") chorus->setMix(std::clamp(value, 0.0f, 1.0f));
-        else if (p == "drive") chorus->setRateHz(std::max(0.1f, value * 4.0f));
+        if (p == "rate" || p == "speed" || p == "freq" || p == "param1" || p == "time" || p == "drive") {
+            chorus->setRate(std::clamp(value > 1.0f ? value : (0.1f + value * 10.0f), 0.05f, 20.0f));
+        } else if (p == "depth" || p == "param2") {
+            chorus->setDepth(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "feedback" || p == "fb" || p == "param3") {
+            chorus->setFeedback(std::clamp(value, 0.0f, 0.95f));
+        } else if (p == "drive") {
+            chorus->setDrive(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
+            chorus->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        } else if (p == "type" || p == "mode" || p == "param5") {
+            chorus->setType(static_cast<ChorusNode::ModType>(static_cast<int>(value)));
+        }
     } else if (auto comp = std::dynamic_pointer_cast<CompressorNode>(node)) {
-        if (p == "threshold" || p == "param1" || p == "thresh") comp->setThreshold(-30.0f + (1.0f - value) * 24.0f);
-        else if (p == "ratio" || p == "param2" || p == "drive") comp->setRatio(1.5f + value * 6.0f);
-        else if (p == "mix" || p == "param4" || p == "wet") comp->setMix(std::clamp(value, 0.0f, 1.0f));
-        else if (p == "attack") comp->setAttack(std::max(0.1f, value * 100.0f));
-        else if (p == "gain") comp->setMakeupGain((value - 0.5f) * 24.0f);
+        if (p == "threshold" || p == "thresh" || p == "param1") {
+            comp->setThreshold(value <= 0.0f && value >= -80.0f ? value : (-60.0f + value * 60.0f));
+        } else if (p == "ratio" || p == "param2" || p == "drive") {
+            comp->setRatio(value >= 1.0f ? value : (1.0f + value * 19.0f));
+        } else if (p == "attack" || p == "att" || p == "param3") {
+            comp->setAttack(value > 0.0001f && value <= 1.0f ? value : (0.001f + value * 0.2f));
+        } else if (p == "release" || p == "rel" || p == "param4") {
+            comp->setRelease(value > 0.001f && value <= 3.0f ? value : (0.01f + value * 1.5f));
+        } else if (p == "gain" || p == "makeup" || p == "param5") {
+            comp->setMakeupGain((value - 0.5f) * 24.0f);
+        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param6") {
+            comp->setDryWet(std::clamp(value, 0.0f, 1.0f));
+        }
     } else if (auto ws = std::dynamic_pointer_cast<WaveShaperNode>(node)) {
         if (p == "drive" || p == "param1" || p == "param5" || p == "pre") ws->setDrive(value > 1.0f ? value : (1.0f + value * 8.0f));
         else if (p == "mix" || p == "param4" || p == "wet") ws->setMix(std::clamp(value, 0.0f, 1.0f));
@@ -994,61 +1000,24 @@ bool AudioEngine::setTrackAudioFxParam(uint32_t trackIndex, size_t fxIndex, cons
         } else if (p == "mix" || p == "wet") {
             es->setParameter(1, value);
         }
-    } else if (auto dr = std::dynamic_pointer_cast<DaisyReverbNode>(node)) {
+    } else if (auto reverb = std::dynamic_pointer_cast<ReverbNode>(node)) {
         if (p == "decay" || p == "feedback" || p == "time" || p == "fb" || p == "param1" || p == "drive") {
-            dr->setFeedback(std::clamp(value > 1.0f ? value / 100.0f : value, 0.0f, 0.999f));
+            reverb->setFeedback(std::clamp(value > 1.0f ? value / 100.0f : value, 0.0f, 0.999f));
         } else if (p == "damping" || p == "damp" || p == "freq" || p == "lpfreq" || p == "param2") {
-            dr->setDampingFreq(std::clamp(value > 1.0f ? value : (100.0f + value * 15000.0f), 100.0f, 20000.0f));
+            reverb->setDampingFreq(std::clamp(value > 1.0f ? value : (100.0f + value * 15000.0f), 100.0f, 20000.0f));
         } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param3" || p == "param4") {
-            dr->setDryWet(std::clamp(value, 0.0f, 1.0f));
+            reverb->setDryWet(std::clamp(value, 0.0f, 1.0f));
         }
-    } else if (auto dd = std::dynamic_pointer_cast<DaisyDelayNode>(node)) {
-        if (p == "time" || p == "delay" || p == "rate" || p == "param1" || p == "drive") {
-            dd->setDelayTime(value > 2.0f ? value / 1000.0f : std::clamp(value, 0.005f, 1.95f));
-        } else if (p == "feedback" || p == "fb" || p == "param2") {
-            dd->setFeedback(std::clamp(value, 0.0f, 0.98f));
-        } else if (p == "damping" || p == "damp" || p == "tone" || p == "freq" || p == "param3") {
-            dd->setDampingFreq(std::clamp(value > 1.0f ? value : (200.0f + value * 18000.0f), 200.0f, 20000.0f));
-        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
-            dd->setDryWet(std::clamp(value, 0.0f, 1.0f));
-        }
-    } else if (auto df = std::dynamic_pointer_cast<DaisyFilterNode>(node)) {
+    } else if (auto moog = std::dynamic_pointer_cast<MoogFilterNode>(node)) {
         if (p == "cutoff" || p == "freq" || p == "param1" || p == "drive") {
             float cutoff = (value > 20.0f) ? value : (20.0f * std::pow(1000.0f, std::clamp(value, 0.0f, 1.0f)));
-            df->setCutoff(cutoff);
+            moog->setCutoff(cutoff);
         } else if (p == "resonance" || p == "reso" || p == "res" || p == "q" || p == "param2") {
-            df->setResonance(std::clamp(value, 0.0f, 0.99f));
+            moog->setResonance(std::clamp(value, 0.0f, 0.99f));
         } else if (p == "drive" || p == "param3") {
-            df->setDrive(std::clamp(value, 0.0f, 1.0f));
+            moog->setDrive(std::clamp(value, 0.0f, 1.0f));
         } else if (p == "mode" || p == "type" || p == "param4") {
-            df->setMode(static_cast<DaisyFilterNode::FilterMode>(static_cast<int>(value)));
-        }
-    } else if (auto dm = std::dynamic_pointer_cast<DaisyModulationNode>(node)) {
-        if (p == "rate" || p == "speed" || p == "freq" || p == "param1" || p == "drive") {
-            dm->setRate(std::clamp(value > 1.0f ? value : (0.1f + value * 10.0f), 0.05f, 20.0f));
-        } else if (p == "depth" || p == "param2") {
-            dm->setDepth(std::clamp(value, 0.0f, 1.0f));
-        } else if (p == "feedback" || p == "fb" || p == "drive" || p == "param3") {
-            dm->setFeedback(std::clamp(value, 0.0f, 0.95f));
-            dm->setDrive(std::clamp(value, 0.0f, 1.0f));
-        } else if (p == "mix" || p == "wet" || p == "drywet" || p == "param4") {
-            dm->setDryWet(std::clamp(value, 0.0f, 1.0f));
-        } else if (p == "type" || p == "mode" || p == "param5") {
-            dm->setType(static_cast<DaisyModulationNode::ModType>(static_cast<int>(value)));
-        }
-    } else if (auto dc = std::dynamic_pointer_cast<DaisyCompressorNode>(node)) {
-        if (p == "threshold" || p == "thresh" || p == "param1") {
-            dc->setThreshold(value <= 0.0f && value >= -80.0f ? value : (-60.0f + value * 60.0f));
-        } else if (p == "ratio" || p == "param2" || p == "drive") {
-            dc->setRatio(value >= 1.0f ? value : (1.0f + value * 19.0f));
-        } else if (p == "attack" || p == "att" || p == "param3") {
-            dc->setAttack(value > 0.0001f && value <= 1.0f ? value : (0.001f + value * 0.2f));
-        } else if (p == "release" || p == "rel" || p == "param4") {
-            dc->setRelease(value > 0.001f && value <= 3.0f ? value : (0.01f + value * 1.5f));
-        } else if (p == "gain" || p == "makeup" || p == "param5") {
-            dc->setMakeupGain((value - 0.5f) * 24.0f);
-        } else if (p == "mix" || p == "wet" || p == "param6") {
-            dc->setDryWet(std::clamp(value, 0.0f, 1.0f));
+            moog->setMode(static_cast<MoogFilterNode::FilterMode>(static_cast<int>(value)));
         }
     }
 

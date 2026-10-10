@@ -1,131 +1,122 @@
 #ifndef EATS_DELAY_NODE_HPP
 #define EATS_DELAY_NODE_HPP
 
-#include <vector>
-#include <cmath>
+#include <string>
 #include <algorithm>
+#include <cmath>
 #include "../graph_node.hpp"
+#include "daisysp.h"
 
 namespace eatsbits::audio {
 
 /**
- * High-performance Stereo Delay / Echo Node with feedback and dry/wet mix.
- * Pre-allocated delay ring buffers guarantee zero allocation during real-time processing.
+ * Modular Stereo Delay & Echo Graph Node with High-Frequency Damping & Feedback.
+ * Powered by DaisySP DelayLine and Tone filter with fixed static buffers (zero runtime heap allocations).
+ * Input Port 0: Stereo Audio (L/R)
+ * Output Port 0: Delayed Stereo Audio (L/R)
  */
 class DelayNode : public GraphNode {
 public:
+    static constexpr size_t kMaxDelaySamples = 96000; // 2.0s at 48kHz
+
     explicit DelayNode(std::string name = "StereoDelay")
         : GraphNode(std::move(name)) {
-        addInputPort(2);  // Stereo input
-        addOutputPort(2); // Stereo output
+        addInputPort(2);  // Port 0: Stereo in
+        addOutputPort(2); // Port 0: Stereo out
     }
 
     void prepare(double sampleRate, uint32_t maxBlockSize) override {
-        sampleRate_ = sampleRate;
+        sampleRate_ = static_cast<float>(sampleRate);
         maxBlockSize_ = maxBlockSize;
-        // Max delay 2.0 seconds
-        maxDelayFrames_ = static_cast<size_t>(sampleRate * 2.0);
-        delayBufL_.assign(maxDelayFrames_, 0.0f);
-        delayBufR_.assign(maxDelayFrames_, 0.0f);
-        updateDelayFrames();
+
+        delayL_.Init();
+        delayR_.Init();
+        dampL_.Init(sampleRate_);
+        dampR_.Init(sampleRate_);
+
+        updateDelaySamples();
+        dampL_.SetFreq(dampingFreq_);
+        dampR_.SetFreq(dampingFreq_);
         reset();
     }
 
     void reset() noexcept override {
-        std::fill(delayBufL_.begin(), delayBufL_.end(), 0.0f);
-        std::fill(delayBufR_.begin(), delayBufR_.end(), 0.0f);
-        writeIndex_ = 0;
+        delayL_.Reset();
+        delayR_.Reset();
+        lastFeedbackL_ = 0.0f;
+        lastFeedbackR_ = 0.0f;
     }
+
+    void setDelayTime(float seconds) noexcept {
+        delayTimeSec_ = std::clamp(seconds, 0.001f, 1.95f);
+        updateDelaySamples();
+    }
+    [[nodiscard]] float getDelayTime() const noexcept { return delayTimeSec_; }
 
     void setDelayTimeMs(float delayTimeMs) noexcept {
-        delayTimeMs_ = std::clamp(delayTimeMs, 1.0f, 2000.0f);
-        updateDelayFrames();
+        setDelayTime(delayTimeMs / 1000.0f);
     }
+    [[nodiscard]] float getDelayTimeMs() const noexcept { return delayTimeSec_ * 1000.0f; }
 
-    [[nodiscard]] float getDelayTimeMs() const noexcept { return delayTimeMs_; }
-
-    void setFeedback(float feedback) noexcept {
-        feedback_ = std::clamp(feedback, 0.0f, 0.98f);
+    void setFeedback(float fb) noexcept {
+        feedback_ = std::clamp(fb, 0.0f, 0.98f);
     }
-
     [[nodiscard]] float getFeedback() const noexcept { return feedback_; }
 
-    void setDryWet(float dryWet) noexcept {
-        dryWet_ = std::clamp(dryWet, 0.0f, 1.0f);
+    void setDampingFreq(float freqHz) noexcept {
+        dampingFreq_ = std::clamp(freqHz, 200.0f, sampleRate_ * 0.48f);
+        dampL_.SetFreq(dampingFreq_);
+        dampR_.SetFreq(dampingFreq_);
     }
+    [[nodiscard]] float getDampingFreq() const noexcept { return dampingFreq_; }
 
+    void setDryWet(float mix) noexcept {
+        dryWet_ = std::clamp(mix, 0.0f, 1.0f);
+    }
     [[nodiscard]] float getDryWet() const noexcept { return dryWet_; }
 
     void setParameter(uint32_t paramId, float value) noexcept override {
         switch (paramId) {
-            case 0: setDelayTimeMs(value); break;
+            case 0:
+                if (value > 2.0f) setDelayTimeMs(value);
+                else setDelayTime(value);
+                break;
             case 1: setFeedback(value); break;
-            case 2: setDryWet(value); break;
+            case 2:
+                if (value > 1.0f) setDampingFreq(value);
+                else setDryWet(value);
+                break;
+            case 3: setDryWet(value); break;
             default: break;
         }
     }
 
-    void processBlock(uint32_t numFrames) noexcept override {
-        const float* inL = getInputBuffer(0, 0);
-        const float* inR = getInputBuffer(0, 1);
-        float* outL = getOutputBuffer(0, 0);
-        float* outR = getOutputBuffer(0, 1);
-
-        if (!outL || !outR) return;
-
-        if (!enabled_ || (!inL && !inR)) {
-            std::fill_n(outL, numFrames, 0.0f);
-            std::fill_n(outR, numFrames, 0.0f);
-            return;
-        }
-
-        const float* srcL = inL ? inL : inR;
-        const float* srcR = inR ? inR : inL;
-
-        const float dryGain = 1.0f - dryWet_;
-        const float wetGain = dryWet_;
-        const size_t bufSize = delayBufL_.size();
-        if (bufSize == 0) return;
-
-        for (uint32_t i = 0; i < numFrames; ++i) {
-            // Calculate read index
-            size_t readIndex = (writeIndex_ + bufSize - delayFrames_) % bufSize;
-
-            float delayedL = delayBufL_[readIndex];
-            float delayedR = delayBufR_[readIndex];
-
-            // Mix wet with dry for output
-            outL[i] = srcL[i] * dryGain + delayedL * wetGain;
-            outR[i] = srcR[i] * dryGain + delayedR * wetGain;
-
-            // Write into delay buffer with feedback
-            delayBufL_[writeIndex_] = srcL[i] + delayedL * feedback_;
-            delayBufR_[writeIndex_] = srcR[i] + delayedR * feedback_;
-
-            writeIndex_ = (writeIndex_ + 1) % bufSize;
-        }
-    }
+    void processBlock(uint32_t numFrames) noexcept override;
 
 private:
-    void updateDelayFrames() noexcept {
-        delayFrames_ = std::clamp(
-            static_cast<size_t>(sampleRate_ * (delayTimeMs_ / 1000.0f)),
-            size_t{1},
-            maxDelayFrames_ > 1 ? maxDelayFrames_ - 1 : size_t{1}
-        );
+    void updateDelaySamples() noexcept {
+        float samples = delayTimeSec_ * sampleRate_;
+        delayL_.SetDelay(samples);
+        delayR_.SetDelay(samples);
     }
 
-    float delayTimeMs_{375.0f}; // 1/8th note at 120 BPM
+    daisysp::DelayLine<float, kMaxDelaySamples> delayL_;
+    daisysp::DelayLine<float, kMaxDelaySamples> delayR_;
+    daisysp::Tone dampL_;
+    daisysp::Tone dampR_;
+
+    float sampleRate_{48000.0f};
+    float delayTimeSec_{0.35f};
     float feedback_{0.45f};
-    float dryWet_{0.35f};
+    float dampingFreq_{12000.0f};
+    float dryWet_{0.40f};
 
-    size_t maxDelayFrames_{96000};
-    size_t delayFrames_{18000};
-    size_t writeIndex_{0};
-
-    std::vector<float> delayBufL_;
-    std::vector<float> delayBufR_;
+    float lastFeedbackL_{0.0f};
+    float lastFeedbackR_{0.0f};
 };
+
+// Aliases for prefix-free and backward compatibility
+using DaisyDelayNode = DelayNode;
 
 } // namespace eatsbits::audio
 
