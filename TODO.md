@@ -47,6 +47,31 @@ To execute items automatically, run in Antigravity:
        - Update tests in `tests/test_daisysp_nodes.cpp` (or `test_modular_nodes.cpp`) to verify the unified nodes for zero runtime allocations, parameter sweeps, and audio stability.
        - Confirm 100% test pass on native desktop (`.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
 
+- [ ] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog**
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `tests/test_modular_ui.cpp`
+  - **Rationale**:
+    The current Design > Modular view places modules in a rigid, single horizontal line with no dragging, zooming, or panning. In contrast, VCV Rack and Cardinal provide an intuitive, infinite Eurorack rack canvas where musicians can pan/zoom anywhere, drag and drop modules freely onto standard 3U horizontal mounting rails, and interconnect modules with organic catenary cables. Additionally, replacing prototype hardcoded module presets with our existing filterable/searchable `PluginSearchDialog` gives users a fast, keyboard-friendly way to discover and insert instruments, filters, effects, and utilities.
+  - **Acceptance Criteria**:
+    1. **Infinite 2D Zoom & Pan Engine**:
+       - Wire `ZoomPanPresenter` into `DesignView::renderModularRack` and input event handlers (`handlePointer`, `handleWheel`, `handleKey`).
+       - Support middle-mouse drag and right-mouse drag for smooth 2D canvas panning.
+       - Support mouse wheel and trackpad pinch-to-zoom (anchored to cursor position) with smooth bounds (e.g. 0.4x to 2.0x zoom).
+    2. **Eurorack Multi-Row Mounting Rails & Visual Structure**:
+       - Render infinite/tiled horizontal Eurorack rows with standard 3U height (380px) and metal threaded mounting strips with evenly-spaced screw holes top and bottom.
+       - Render empty rail slots with visible dark backplane/power distribution bus bar channels (matching VCV Rack / Cardinal aesthetic).
+       - Snap modules to horizontal HP increments (1 HP = ~15px) or allow free-floating rail positioning, rendering top and bottom mounting thumbscrews.
+    3. **Freeform Module Drag-and-Drop & Reordering**:
+       - Enable dragging modules by their top title banner or faceplate margin across rails and positions.
+       - Support live reordering and collision avoidance or free rail docking.
+       - Ensure patch cables dynamically track dragged modules in real-time with catenary physics droop and jack highlight halos.
+    4. **Module Search & Add Dialog Integration**:
+       - Connect the `+ ADD MODULE` button (and canvas right-click context menu or hotkey `Enter`/`Space`) to open `PluginSearchDialog` configured with `PluginDialogMode::AddModule`.
+       - Populate search categories: `All`, `VCO / Synths`, `Filters`, `Effects (Reverb/Delay)`, `Modulation & Dynamics`, `Utilities (Mixer/VCA/Scope)`.
+       - Instantiating a module places it directly under the cursor or into the nearest open rail slot on the canvas.
+    5. **Automated Unit Testing & Interactive Verification**:
+       - Add regression tests in `tests/test_modular_ui.cpp` verifying canvas coordinate transforms (`screenToWorld`, `worldToScreen`), module drag hit-testing, zoom bounds, and dialog module insertion.
+       - Verify 100% test pass on native desktop (`.\build.ps1 -Test -NoRun`) and WebAssembly compatibility (`.\build-web.ps1 -NoServe`).
+
 ---
 
 ## 🕒 Recent Completions (Reference Context)
