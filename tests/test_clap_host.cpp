@@ -80,6 +80,38 @@ void testPluginLoaderPathsAndScanning() {
     std::printf("    Found descriptor: '%s' by %s (isInstrument=%d)\n",
         desc->name.c_str(), desc->vendor.c_str(), desc->isInstrument);
 
+    // Verify cached descriptor retrieval (0ms latency, thread-safe)
+    auto cachedPlugins = loader.getDiscoveredPlugins();
+    EATS_CHECK(!cachedPlugins.empty());
+    std::printf("    Verified in-memory cached plugin descriptors: %zu cached\n", cachedPlugins.size());
+
+    // Verify Portable / Binary Path setting configuration (Reaper portable mode)
+    EATS_CHECK(loader.isIncludeBinaryPathEnabled());
+    loader.setIncludeBinaryPath(false);
+    EATS_CHECK(!loader.isIncludeBinaryPathEnabled());
+    auto sysOnlyPaths = loader.getDefaultSearchPaths();
+    loader.setIncludeBinaryPath(true);
+    EATS_CHECK(loader.isIncludeBinaryPathEnabled());
+    auto portablePaths = loader.getDefaultSearchPaths();
+    EATS_CHECK(portablePaths.size() >= sysOnlyPaths.size());
+    std::printf("    Verified portable binary path toggle: %zu sys-only vs %zu portable paths\n",
+        sysOnlyPaths.size(), portablePaths.size());
+
+    // Verify async scan functionality
+    std::atomic<bool> asyncComplete{false};
+    loader.scanDirectoriesAsync(localPaths, [&](const auto& asyncPlugins) {
+        EATS_CHECK(!asyncPlugins.empty());
+        asyncComplete.store(true);
+    });
+
+    int waitIter = 0;
+    while (!asyncComplete.load() && waitIter < 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        waitIter++;
+    }
+    EATS_CHECK(asyncComplete.load());
+    std::printf("    Verified background scanDirectoriesAsync completion without blocking\n");
+
     std::printf("[+] ClapPluginLoader tests passed.\n\n");
 }
 

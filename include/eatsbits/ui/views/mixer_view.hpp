@@ -2,8 +2,10 @@
 
 #include "view_base.hpp"
 #include "../widgets/track_properties_drawer.hpp"
+#include "../arranger_track_data.hpp"
 #include "eatsbits/presenter/scalar_drag_presenter.hpp"
 #include <vector>
+#include <span>
 #include <string>
 #include <memory>
 #include <algorithm>
@@ -211,7 +213,28 @@ public:
     [[nodiscard]] bool hitTestMasterFader(float x, float y) const noexcept;
     [[nodiscard]] bool hitTestChannelFader(size_t index, float cx, float x, float y) const noexcept;
 
-    // Synchronization with DAW Window & Audio Engine
+    // Zero-allocation Synchronization with DAW Window & Audio Engine
+    void syncFromWindow(
+        std::span<const ArrangerTrackData> tracks,
+        uint32_t selectedTrackIdx,
+        float masterVol, float masterPanVal, bool masterMuteVal,
+        float masterPeakLeft, float masterPeakRight,
+        std::span<const float> chPeaksL, std::span<const float> chPeaksR,
+        bool propertiesExpanded, float propertiesWidth,
+        bool showRouting, bool showPan, bool showButtons, bool showMeters,
+        bool showAutomation, bool showReadouts, bool browserOpen, float scrollY);
+
+    void syncFromWindow(
+        std::span<const ArrangerTrackData> tracks,
+        uint32_t selectedTrackIdx,
+        float masterVol, float masterPanVal, bool masterMuteVal,
+        float masterPeakLeft, float masterPeakRight,
+        const float* chPeaksL, const float* chPeaksR, size_t numPeaks,
+        bool propertiesExpanded, float propertiesWidth,
+        bool showRouting, bool showPan, bool showButtons, bool showMeters,
+        bool showAutomation, bool showReadouts, bool browserOpen, float scrollY);
+
+    // Legacy Synchronization with DAW Window & Audio Engine (retained for backward compatibility)
     void syncFromWindow(
         const std::vector<std::string>& trackNames,
         const std::vector<float>& trackVols,

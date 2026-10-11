@@ -3,13 +3,13 @@
 
 namespace eatsbits::ui {
 
-void drawText(BatchRenderer2D& /*r*/, const std::string& str, float x, float y, float size,
+void drawText(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
               float red, float green, float blue, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     drawVectorString(str, x, y, scale, red, green, blue, alpha);
 }
 
-void drawCenteredText(BatchRenderer2D& /*r*/, const std::string& str, const Rect2D& bounds,
+void drawCenteredText(BatchRenderer2D& /*r*/, std::string_view str, const Rect2D& bounds,
                       float size, const Color& col, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     float cx = bounds.x + bounds.w * 0.5f;
@@ -17,7 +17,7 @@ void drawCenteredText(BatchRenderer2D& /*r*/, const std::string& str, const Rect
     drawVectorStringCentered(str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
 }
 
-void drawRotatedText(BatchRenderer2D& r, const std::string& str, float cx, float cy,
+void drawRotatedText(BatchRenderer2D& r, std::string_view str, float cx, float cy,
                      float angleDegrees, float size, const Color& col, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     r.setRotation(angleDegrees, cx, cy);
@@ -25,7 +25,7 @@ void drawRotatedText(BatchRenderer2D& r, const std::string& str, float cx, float
     r.resetRotation();
 }
 
-void drawButton(BatchRenderer2D& r, const Rect2D& bounds, const std::string& label,
+void drawButton(BatchRenderer2D& r, const Rect2D& bounds, std::string_view label,
                 const Color& bgCol, const Color& borderCol, const Color& textCol,
                 float size, float cornerRadius, float borderWidth) {
     if (cornerRadius > 0.5f) {

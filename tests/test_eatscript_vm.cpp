@@ -232,6 +232,65 @@ eat.daw.generate_acid(steps=32, root=40)
     std::cout << "  -> Passed: AST Evaluator successfully executed literals, dicts, kwargs, and host methods." << std::endl;
 }
 
+void testParserTrailingCommasAndSubscripts() {
+    std::cout << "[Test] Parser Trailing Commas & Subscripts..." << std::endl;
+
+    // 1. Trailing comma in function call
+    std::string callScript = R"(
+def transform(notes, params):
+    return eat.arpeggiate(
+        notes,
+        rate=params.get("Rate", 1.0),
+        gate=0.85,
+        swing=0.1,
+    )
+)";
+    Lexer lexer1(callScript);
+    Parser parser1(lexer1.tokenize());
+    auto prog1 = parser1.parse();
+    assert(prog1 != nullptr);
+    assert(!prog1->statements.empty());
+
+    // 2. Trailing comma in function def parameter list
+    std::string defScript = R"(
+def my_func(
+    time,
+    freq,
+    note,
+    params,
+):
+    return 1.0
+)";
+    Lexer lexer2(defScript);
+    Parser parser2(lexer2.tokenize());
+    auto prog2 = parser2.parse();
+    assert(prog2 != nullptr);
+    assert(!prog2->statements.empty());
+
+    // 3. Subscript assignment and indexing
+    std::string subscriptScript = R"(
+def init():
+    params["Cutoff"] = 1400.0
+    params['Resonance'] = 9.2
+    return params["Cutoff"]
+)";
+    Lexer lexer3(subscriptScript);
+    Parser parser3(lexer3.tokenize());
+    auto prog3 = parser3.parse();
+    assert(prog3 != nullptr);
+    assert(!prog3->statements.empty());
+
+    // Evaluate subscript script
+    Evaluator eval;
+    eval.setVariable("params", Value(std::map<std::string, Value>{}));
+    eval.evaluateSource(subscriptScript);
+    assert(eval.hasFunction("init"));
+    Value res = eval.callFunction("init");
+    assert(res.asNumber() == 1400.0);
+
+    std::cout << "  -> Passed: Trailing commas and subscript indexing/assignment parsed and evaluated correctly." << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits Eatscript C++ Core Test Suite ===" << std::endl;
     testLexer();
@@ -240,6 +299,7 @@ int main() {
     testVMMultiExpression();
     testVMStereoAudioFx();
     testASTEvaluator();
+    testParserTrailingCommasAndSubscripts();
     std::cout << "=== ALL EATSCRIPT VM TESTS PASSED SUCCESSFULLY! ===" << std::endl;
     return 0;
 }

@@ -12,6 +12,7 @@
 #include <string>
 #include <functional>
 #include <chrono>
+#include <span>
 
 namespace eatsbits::ui {
 
@@ -143,6 +144,8 @@ public:
     [[nodiscard]] const ArrangerMixerDrawer& getMixerDrawer() const noexcept { return mixerDrawer_; }
     void setMasterLevels(float masterVol, float masterPan, bool masterMute, float masterPeakL, float masterPeakR,
                          const float* chPeaksL = nullptr, const float* chPeaksR = nullptr, size_t numPeaks = 0);
+    void setMasterLevels(float masterVol, float masterPan, bool masterMute, float masterPeakL, float masterPeakR,
+                         std::span<const float> chPeaksL, std::span<const float> chPeaksR);
 
     // Track addition / modification API
     void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine = "");

@@ -10,6 +10,7 @@
 #include <vector>
 #include <map>
 #include <functional>
+#include <span>
 
 namespace eatsbits::ui {
 
@@ -163,6 +164,7 @@ public:
     std::function<void(const std::string& text)> onCopyToClipboard;
 
     void setAudioScopeBuffer(const float* buffer, size_t count);
+    void setAudioScopeBuffer(std::span<const float> buffer);
 
 private:
     void initDefaultTargetsAndCode();
@@ -249,6 +251,7 @@ private:
 
     // Scope audio waveform
     std::vector<float> scopeSamples_;
+    std::span<const float> scopeSpan_{};
 
     // Modular rack state & toolbar
     std::vector<ModularModuleDef> modules_;

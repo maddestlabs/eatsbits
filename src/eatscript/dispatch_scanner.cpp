@@ -201,6 +201,29 @@ static void scanStmt(const Stmt* stmt, DependencyScanResult& result) {
             }
             break;
         }
+        case StmtKind::IndexAssign: {
+            const auto* ia = static_cast<const IndexAssignStmt*>(stmt);
+            if (ia->variableName == "params" && ia->index && ia->index->kind == ExprKind::String && ia->value) {
+                const auto* strIdx = static_cast<const StringLiteral*>(ia->index.get());
+                float val = 0.0f;
+                if (ia->value->kind == ExprKind::Number) {
+                    val = static_cast<float>(static_cast<const NumberLiteral*>(ia->value.get())->value);
+                }
+                auto it = std::find_if(result.parameters.begin(), result.parameters.end(),
+                    [&](const ExtractedParam& ep) { return ep.name == strIdx->value; });
+                if (it == result.parameters.end()) {
+                    result.parameters.push_back(ExtractedParam{
+                        .name = strIdx->value,
+                        .minVal = 0.0f,
+                        .maxVal = (val > 0.0f) ? val * 2.0f : 1.0f,
+                        .defaultVal = val
+                    });
+                }
+            }
+            if (ia->index) scanExpr(ia->index.get(), result);
+            if (ia->value) scanExpr(ia->value.get(), result);
+            break;
+        }
         case StmtKind::Return: {
             const auto* rs = static_cast<const ReturnStmt*>(stmt);
             if (rs->value) {
@@ -302,6 +325,12 @@ static void scanExpr(const Expr* expr, DependencyScanResult& result) {
             for (const auto& entry : d->entries) {
                 scanExpr(entry.value.get(), result);
             }
+            break;
+        }
+        case ExprKind::Index: {
+            const auto* idx = static_cast<const IndexExpr*>(expr);
+            if (idx->object) scanExpr(idx->object.get(), result);
+            if (idx->index) scanExpr(idx->index.get(), result);
             break;
         }
         default:

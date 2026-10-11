@@ -1,57 +1,58 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include "geometry.hpp"
 #include "batch_renderer_2d.hpp"
 #include "theme.hpp"
 
 namespace eatsbits::ui {
 
-void drawVectorString(const std::string& str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
-void drawVectorStringCentered(const std::string& str, float cx, float cy, float scale, float r, float g, float b, float a = 1.0f);
-void drawMonoString(const std::string& str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
+void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
+void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a = 1.0f);
+void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
 
-inline void drawVectorString(const std::string& str, float x, float y, float scale, const Color& c) {
+inline void drawVectorString(std::string_view str, float x, float y, float scale, const Color& c) {
     drawVectorString(str, x, y, scale, c.r, c.g, c.b, c.a);
 }
 
-inline void drawVectorStringCentered(const std::string& str, float cx, float cy, float scale, const Color& c) {
+inline void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, const Color& c) {
     drawVectorStringCentered(str, cx, cy, scale, c.r, c.g, c.b, c.a);
 }
 
-inline void drawMonoString(const std::string& str, float x, float y, float scale, const Color& c) {
+inline void drawMonoString(std::string_view str, float x, float y, float scale, const Color& c) {
     drawMonoString(str, x, y, scale, c.r, c.g, c.b, c.a);
 }
 
-void drawText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+void drawText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
               float red, float green, float blue, float alpha = 1.0f);
 
-inline void drawText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+inline void drawText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                      const Color& col, float alpha = 1.0f) {
     drawText(r, str, x, y, size, col.r, col.g, col.b, alpha * col.a);
 }
 
-void drawCenteredText(BatchRenderer2D& r, const std::string& str, const Rect2D& bounds,
+void drawCenteredText(BatchRenderer2D& r, std::string_view str, const Rect2D& bounds,
                       float size, const Color& col, float alpha = 1.0f);
 
-inline void drawCenteredText(BatchRenderer2D& r, const std::string& str, float x, float y, float w, float h,
+inline void drawCenteredText(BatchRenderer2D& r, std::string_view str, float x, float y, float w, float h,
                              float size, const Color& col, float alpha = 1.0f) {
     drawCenteredText(r, str, Rect2D{x, y, w, h}, size, col, alpha);
 }
 
-inline void drawCenteredText(BatchRenderer2D& r, const std::string& str, float x, float y, float w, float h,
+inline void drawCenteredText(BatchRenderer2D& r, std::string_view str, float x, float y, float w, float h,
                              float size, float red, float green, float blue, float alpha = 1.0f) {
     drawCenteredText(r, str, Rect2D{x, y, w, h}, size, Color{red, green, blue, alpha}, 1.0f);
 }
 
-void drawRotatedText(BatchRenderer2D& r, const std::string& str, float cx, float cy,
+void drawRotatedText(BatchRenderer2D& r, std::string_view str, float cx, float cy,
                      float angleDegrees, float size, const Color& col, float alpha = 1.0f);
 
-void drawButton(BatchRenderer2D& r, const Rect2D& bounds, const std::string& label,
+void drawButton(BatchRenderer2D& r, const Rect2D& bounds, std::string_view label,
                 const Color& bgCol, const Color& borderCol, const Color& textCol,
                 float size = 10.5f, float cornerRadius = 4.0f, float borderWidth = 1.0f);
 
-inline void drawButton(BatchRenderer2D& r, float x, float y, float w, float h, const std::string& label,
+inline void drawButton(BatchRenderer2D& r, float x, float y, float w, float h, std::string_view label,
                        const Color& bgCol, const Color& borderCol, const Color& textCol,
                        float size = 10.5f, float cornerRadius = 4.0f, float borderWidth = 1.0f) {
     drawButton(r, Rect2D{x, y, w, h}, label, bgCol, borderCol, textCol, size, cornerRadius, borderWidth);

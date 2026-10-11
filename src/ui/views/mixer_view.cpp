@@ -413,6 +413,106 @@ bool MixerView::hitTestChannelFader(size_t index, float cx, float x, float y) co
 }
 
 void MixerView::syncFromWindow(
+    std::span<const ArrangerTrackData> tracks,
+    uint32_t selectedTrackIdx,
+    float masterVol, float masterPanVal, bool masterMuteVal,
+    float masterPeakLeft, float masterPeakRight,
+    std::span<const float> chPeaksL, std::span<const float> chPeaksR,
+    bool propertiesExpanded, float propertiesWidth,
+    bool showRouting, bool showPan, bool showButtons, bool showMeters,
+    bool showAutomation, bool showReadouts, bool browserOpen, float scrollY) {
+
+    bool isMasterDragging = (activeFaderIndex_ == -1 || activePanIndex_ == -1);
+    for (const auto& [id, sess] : activeFaderSessions_) {
+        if (sess.faderIndex == -1) isMasterDragging = true;
+    }
+    if (!isMasterDragging) {
+        masterChannel_.fader = masterVol;
+        masterChannel_.pan = masterPanVal;
+    }
+    masterChannel_.mute = masterMuteVal;
+    masterChannel_.peakL = masterPeakLeft;
+    masterChannel_.peakR = masterPeakRight;
+    masterChannel_.peakHoldL = std::max(masterChannel_.peakHoldL * 0.96f, masterPeakLeft);
+    masterChannel_.peakHoldR = std::max(masterChannel_.peakHoldR * 0.96f, masterPeakRight);
+
+    selectedChannel_ = static_cast<int>(selectedTrackIdx);
+
+    if (!propertiesDrawer_.isDragging()) {
+        propertiesDrawer_.setExpanded(propertiesExpanded);
+        propertiesDrawer_.setWidth(propertiesWidth);
+    }
+    propertiesDrawer_.setScrollY(scrollY);
+
+    showRouting_ = showRouting;
+    showPan_ = showPan;
+    showButtons_ = showButtons;
+    showMeters_ = showMeters;
+    showAutomation_ = showAutomation;
+    showReadouts_ = showReadouts;
+
+    if (channels_.size() != tracks.size()) {
+        channels_.resize(tracks.size());
+    }
+    size_t count = channels_.size();
+    if (selectedChannel_ >= static_cast<int>(count)) {
+        selectedChannel_ = std::max(0, static_cast<int>(count) - 1);
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& trk = tracks[i];
+        if (channels_[i].name != trk.name) {
+            channels_[i].name = trk.name;
+        }
+        bool isChDragging = (activeFaderIndex_ == static_cast<int>(i) || activePanIndex_ == static_cast<int>(i));
+        for (const auto& [id, sess] : activeFaderSessions_) {
+            if (sess.faderIndex == static_cast<int>(i)) isChDragging = true;
+        }
+        if (!isChDragging) {
+            channels_[i].fader = trk.volume;
+            channels_[i].pan = trk.pan;
+        }
+        channels_[i].mute = trk.mute;
+        channels_[i].solo = trk.solo;
+        channels_[i].freeze = trk.freeze;
+        channels_[i].r = trk.r;
+        channels_[i].g = trk.g;
+        channels_[i].b = trk.b;
+        if (channels_[i].instrument != trk.instrument) {
+            channels_[i].instrument = trk.instrument;
+        }
+
+        if (i < chPeaksL.size()) {
+            channels_[i].peakL = chPeaksL[i];
+            channels_[i].peakHoldL = std::max(channels_[i].peakHoldL * 0.96f, chPeaksL[i]);
+        }
+        if (i < chPeaksR.size()) {
+            channels_[i].peakR = chPeaksR[i];
+            channels_[i].peakHoldR = std::max(channels_[i].peakHoldR * 0.96f, chPeaksR[i]);
+        }
+    }
+}
+
+void MixerView::syncFromWindow(
+    std::span<const ArrangerTrackData> tracks,
+    uint32_t selectedTrackIdx,
+    float masterVol, float masterPanVal, bool masterMuteVal,
+    float masterPeakLeft, float masterPeakRight,
+    const float* chPeaksL, const float* chPeaksR, size_t numPeaks,
+    bool propertiesExpanded, float propertiesWidth,
+    bool showRouting, bool showPan, bool showButtons, bool showMeters,
+    bool showAutomation, bool showReadouts, bool browserOpen, float scrollY) {
+
+    std::span<const float> spanL(chPeaksL ? chPeaksL : nullptr, chPeaksL ? numPeaks : 0);
+    std::span<const float> spanR(chPeaksR ? chPeaksR : nullptr, chPeaksR ? numPeaks : 0);
+    syncFromWindow(tracks, selectedTrackIdx, masterVol, masterPanVal, masterMuteVal,
+                   masterPeakLeft, masterPeakRight, spanL, spanR,
+                   propertiesExpanded, propertiesWidth,
+                   showRouting, showPan, showButtons, showMeters,
+                   showAutomation, showReadouts, browserOpen, scrollY);
+}
+
+void MixerView::syncFromWindow(
     const std::vector<std::string>& trackNames,
     const std::vector<float>& trackVols,
     const std::vector<float>& trackPans,
@@ -552,7 +652,9 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.masterCeilingDbfs = masterCeilingDbfs_;
         drawerData_.masterLimiterDrive = masterLimiterDrive_;
         drawerData_.masterTargetLufs = masterTargetLufs_;
-        drawerData_.masterAudioFx = masterAudioFx_;
+        if (drawerData_.masterAudioFx.size() != masterAudioFx_.size()) {
+            drawerData_.masterAudioFx = masterAudioFx_;
+        }
     } else {
         size_t chIdx = (selectedChannel_ >= 0 && static_cast<size_t>(selectedChannel_) < channels_.size())
             ? static_cast<size_t>(selectedChannel_) : 0;
@@ -606,8 +708,12 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.knob3Name = selCh.knob3Name;
         drawerData_.knob4Name = selCh.knob4Name;
 
-        drawerData_.midiFx = selCh.midiFx;
-        drawerData_.audioFx = selCh.audioFx;
+        if (drawerData_.midiFx.size() != selCh.midiFx.size()) {
+            drawerData_.midiFx = selCh.midiFx;
+        }
+        if (drawerData_.audioFx.size() != selCh.audioFx.size()) {
+            drawerData_.audioFx = selCh.audioFx;
+        }
 
         drawerData_.syncKnobsIfEmpty();
     }

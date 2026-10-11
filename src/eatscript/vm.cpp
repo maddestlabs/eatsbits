@@ -136,6 +136,11 @@ void VM::compileStmt(Stmt* stmt) {
         int slot = addLocal(a->variableName);
         processChunk_.emitOp(OpCode::SetLocal);
         processChunk_.emitByte(static_cast<uint8_t>(slot));
+    } else if (auto* ia = ast_cast<IndexAssignStmt>(stmt)) {
+        compileExpr(ia->value.get());
+        int slot = addLocal(ia->variableName);
+        processChunk_.emitOp(OpCode::SetLocal);
+        processChunk_.emitByte(static_cast<uint8_t>(slot));
     } else if (auto* e = ast_cast<ExprStmt>(stmt)) {
         compileExpr(e->expression.get());
     } else if (auto* ifs = ast_cast<IfStmt>(stmt)) {
@@ -210,6 +215,8 @@ void VM::compileExpr(Expr* expr) {
             processChunk_.emitOp(OpCode::Constant);
             processChunk_.emitByte(static_cast<uint8_t>(idx));
         }
+    } else if (auto* ie = ast_cast<IndexExpr>(expr)) {
+        compileExpr(ie->object.get());
     } else if (auto* bin = ast_cast<BinaryExpr>(expr)) {
         compileExpr(bin->left.get());
         compileExpr(bin->right.get());
@@ -236,16 +243,16 @@ void VM::compileExpr(Expr* expr) {
         }
     } else if (auto* call = ast_cast<CallExpr>(expr)) {
         // Identify math functions: math.sin, math.cos, math.tanh, etc.
-        auto* mem = ast_cast<MemberExpr>(call->callee.get());
-        if (mem) {
-            auto* objId = ast_cast<IdentifierExpr>(mem->object.get());
+        auto* callMem = ast_cast<MemberExpr>(call->callee.get());
+        if (callMem) {
+            auto* objId = ast_cast<IdentifierExpr>(callMem->object.get());
             if (objId && objId->name == "math") {
                 if (!call->args.empty()) {
                     compileExpr(call->args[0].get());
                 }
-                if (mem->member == "sin") processChunk_.emitOp(OpCode::MathSin);
-                else if (mem->member == "cos") processChunk_.emitOp(OpCode::MathCos);
-                else if (mem->member == "tanh") processChunk_.emitOp(OpCode::MathTanh);
+                if (callMem->member == "sin") processChunk_.emitOp(OpCode::MathSin);
+                else if (callMem->member == "cos") processChunk_.emitOp(OpCode::MathCos);
+                else if (callMem->member == "tanh") processChunk_.emitOp(OpCode::MathTanh);
                 else if (mem->member == "exp") processChunk_.emitOp(OpCode::MathExp);
                 else if (mem->member == "floor") processChunk_.emitOp(OpCode::MathFloor);
                 else if (mem->member == "sqrt") processChunk_.emitOp(OpCode::MathSqrt);

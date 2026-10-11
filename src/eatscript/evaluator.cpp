@@ -252,6 +252,25 @@ Value Evaluator::evalStmt(Stmt* stmt) {
         setVariable(a->variableName, val);
         return val;
     }
+    if (auto* ia = ast_cast<IndexAssignStmt>(stmt)) {
+        Value idx = evalExpr(ia->index.get());
+        Value val = evalExpr(ia->value.get());
+        Value var = getVariable(ia->variableName);
+        if (var.isDict()) {
+            var.dictVal[idx.toString()] = val;
+            setVariable(ia->variableName, var);
+        } else if (var.isList()) {
+            size_t i = static_cast<size_t>(idx.asNumber());
+            if (i < var.listVal.size()) {
+                var.listVal[i] = val;
+                setVariable(ia->variableName, var);
+            }
+        } else {
+            var = Value(std::map<std::string, Value>{{idx.toString(), val}});
+            setVariable(ia->variableName, var);
+        }
+        return val;
+    }
     if (auto* r = ast_cast<ReturnStmt>(stmt)) {
         returnValue_ = r->value ? evalExpr(r->value.get()) : Value();
         returning_ = true;
@@ -385,6 +404,21 @@ Value Evaluator::evalExpr(Expr* expr) {
     }
     if (auto* call = ast_cast<CallExpr>(expr)) {
         return evalCall(call);
+    }
+    if (auto* idxExpr = ast_cast<IndexExpr>(expr)) {
+        Value obj = evalExpr(idxExpr->object.get());
+        Value idx = evalExpr(idxExpr->index.get());
+        if (obj.isDict()) {
+            return obj.get(idx.toString());
+        }
+        if (obj.isList()) {
+            size_t i = static_cast<size_t>(idx.asNumber());
+            if (i < obj.listVal.size()) {
+                return obj.listVal[i];
+            }
+            return Value();
+        }
+        return Value();
     }
 
     return Value();

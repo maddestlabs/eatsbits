@@ -71,8 +71,8 @@ void PluginSearchDialog::initLibrary() {
         }
     }
 
-    // 2. Discover and populate installed external CLAP plugins
-    auto clapPlugins = audio::ClapPluginLoader::instance().scanDirectories();
+    // 2. Discover and populate installed external CLAP plugins from cache
+    auto clapPlugins = audio::ClapPluginLoader::instance().getDiscoveredPlugins();
 
     for (const auto& cp : clapPlugins) {
         PluginEntry entry;
@@ -219,7 +219,9 @@ void PluginSearchDialog::initLibrary() {
 }
 
 void PluginSearchDialog::open(PluginDialogMode mode, const std::string& targetTrackName, uint32_t targetTrackIndex) {
-    initLibrary();
+    if (allPresetLibrary_.empty()) {
+        initLibrary();
+    }
     mode_ = mode;
     targetTrackName_ = targetTrackName;
     targetTrackIndex_ = targetTrackIndex;
@@ -245,6 +247,7 @@ void PluginSearchDialog::layout(float screenW, float screenH) {
 
     dialogBounds_ = Rect2D(dx, dy, dw, dh);
     closeBtnBounds_ = Rect2D(dx + dw - 36.0f, dy + 14.0f, 24.0f, 24.0f);
+    rescanBtnBounds_ = Rect2D(closeBtnBounds_.x - 80.0f, dy + 15.0f, 70.0f, 22.0f);
     searchBoxBounds_ = Rect2D(dx + 20.0f, dy + 92.0f, dw - 40.0f, 32.0f);
     searchClearBtnBounds_ = Rect2D(searchBoxBounds_.x + searchBoxBounds_.w - 28.0f, searchBoxBounds_.y + 4.0f, 24.0f, 24.0f);
 }
@@ -438,7 +441,7 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         countStr = std::to_string(entries.size()) + " PRESETS";
     }
     float countW = countStr.length() * 6.5f + 14.0f;
-    float countX = closeBtnBounds_.x - countW - 14.0f;
+    float countX = rescanBtnBounds_.x - countW - 8.0f;
     float countY = dialogBounds_.y + 18.0f;
     drawRoundedRect(r, countX, countY, countW, 18.0f, 4.0f,
                     theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
@@ -446,6 +449,28 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                      entries.empty() ? 0.9f : theme.textMuted.r,
                      entries.empty() ? 0.4f : theme.textMuted.g,
                      entries.empty() ? 0.4f : theme.textMuted.b, 0.95f);
+
+    // [ ↻ SCAN ] Button in header
+    bool isScanning = audio::ClapPluginLoader::instance().isScanning();
+    bool scanHov = rescanBtnBounds_.contains(lastMouseX_, lastMouseY_);
+    drawRoundedRect(r, rescanBtnBounds_.x, rescanBtnBounds_.y, rescanBtnBounds_.w, rescanBtnBounds_.h, 4.0f,
+                    scanHov ? theme.controlWell.r : theme.controlBackground.r,
+                    scanHov ? theme.controlWell.g : theme.controlBackground.g,
+                    scanHov ? theme.controlWell.b : theme.controlBackground.b, 0.9f);
+    drawRoundedRectOutline(r, rescanBtnBounds_.x, rescanBtnBounds_.y, rescanBtnBounds_.w, rescanBtnBounds_.h, 4.0f,
+                           isScanning ? theme.primaryAccent.r : (scanHov ? theme.primaryAccent.r : theme.borderSubtle.r),
+                           isScanning ? theme.primaryAccent.g : (scanHov ? theme.primaryAccent.g : theme.borderSubtle.g),
+                           isScanning ? theme.primaryAccent.b : (scanHov ? theme.primaryAccent.b : theme.borderSubtle.b),
+                           1.0f, 1.0f);
+    if (isScanning) {
+        drawCenteredText(r, "SCANNING...", rescanBtnBounds_.x, rescanBtnBounds_.y, rescanBtnBounds_.w, rescanBtnBounds_.h, 8.0f,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+    } else {
+        drawCenteredText(r, "↻ SCAN", rescanBtnBounds_.x, rescanBtnBounds_.y, rescanBtnBounds_.w, rescanBtnBounds_.h, 8.5f,
+                         scanHov ? theme.primaryAccent.r : theme.textSecondary.r,
+                         scanHov ? theme.primaryAccent.g : theme.textSecondary.g,
+                         scanHov ? theme.primaryAccent.b : theme.textSecondary.b, 1.0f);
+    }
 
     // Close button (metallic screw icon)
     float clCenterX = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
@@ -728,6 +753,16 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     if (closeBtnBounds_.contains(ev.x, ev.y)) {
         close();
         if (onClose) onClose();
+        return true;
+    }
+
+    // Rescan button
+    if (rescanBtnBounds_.contains(ev.x, ev.y)) {
+        if (!audio::ClapPluginLoader::instance().isScanning()) {
+            audio::ClapPluginLoader::instance().scanDirectoriesAsync({}, [this](const auto&) {
+                initLibrary();
+            });
+        }
         return true;
     }
 

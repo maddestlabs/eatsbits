@@ -370,6 +370,11 @@ void FullscreenDeviceModal::setAudioScopeBuffer(const float* buffer, size_t coun
     scopeBufferCount_ = count;
 }
 
+void FullscreenDeviceModal::setAudioScopeBuffer(std::span<const float> buffer) noexcept {
+    scopeBuffer_ = buffer.data();
+    scopeBufferCount_ = buffer.size();
+}
+
 void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     screenWidth_ = std::max(640.0f, screenW);
     screenHeight_ = std::max(480.0f, screenH);

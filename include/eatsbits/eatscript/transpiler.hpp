@@ -42,8 +42,10 @@ public:
     void visit(CallExpr* node);
     void visit(ListLiteral* node);
     void visit(DictLiteral* node);
+    void visit(IndexExpr* node);
     void visit(ExprStmt* node);
     void visit(AssignStmt* node);
+    void visit(IndexAssignStmt* node);
     void visit(ReturnStmt* node);
     void visit(IfStmt* node);
     void visit(FunctionDef* node);

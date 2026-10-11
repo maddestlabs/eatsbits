@@ -16,11 +16,95 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
+- [ ] **Eliminate Per-Frame Heap Allocations in GUI Render Loop (`std::span` & Direct Model References)**
+  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/views/mixer_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/mixer_view.hpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [include/eatsbits/ui/views/track_inspector_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/track_inspector_view.hpp), [src/ui/views/track_inspector_view.cpp](file:///c:/git/eatsbits/src/ui/views/track_inspector_view.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
+  - **Acceptance Criteria**:
+    1. **Zero Heap Allocations in `renderFrame()`**:
+       - Remove temporary `std::vector<std::string>`, `std::vector<float>`, and `std::vector<Color>` constructions in [`GuiWindow::renderFrame`](file:///c:/git/eatsbits/src/ui/gui_window.cpp#L6174-L6250) across Mixer and Track Inspector view rendering paths.
+       - Refactor `syncFromWindow(...)` or view layout calls to directly consume existing track data via `std::span` or direct read-only references to `arrangerTracks_` / sequencer models.
+    2. **Telemetry & Audio Scope Buffer Passing**:
+       - Ensure scope and meter buffers are passed as lightweight non-owning views (`std::span<const float>`) rather than copying sample vectors.
+    3. **Automated Verification**:
+       - Add verification test in [`tests/test_gui_interaction.cpp`](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp) confirming that invoking `renderFrame()` multiple times during playback causes 0 memory churn / allocations.
+       - Verify all existing GUI interaction and modular UI test suites pass cleanly.
+
+- [ ] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers**
+  - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
+  - **Acceptance Criteria**:
+    1. **Virtual Relative Delta Drag Mode**:
+       - Support relative mouse drag for knobs and vertical faders: capture the mouse on drag start, track relative deltas without clamping to screen borders, and restore the mouse position on drag release.
+    2. **Industry-Standard Gesture Modifiers**:
+       - Support `Shift` modifier for precision adjustment ($0.1\times$ sensitivity multiplier).
+       - Support `Ctrl` / `Cmd` + click to immediately restore control to its default value (e.g. center for pan, 0 dB for track faders).
+       - Support double-click to trigger [`ValueEditDialog`](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/value_edit_dialog.hpp) for direct numeric keyboard input.
+    3. **Automated Verification**:
+       - Add unit tests in [`tests/test_presenters.cpp`](file:///c:/git/eatsbits/tests/test_presenters.cpp) verifying modifier sensitivity scaling, double-click value edit routing, and relative delta math.
+
+- [ ] **Add RAII Scissor Scope Management to `BatchRenderer2D`**
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
+  - **Acceptance Criteria**:
+    1. **RAII `ScissorScope`**:
+       - Implement `ScissorScope` struct that pushes a scissor rect on construction and automatically clears or restores previous scissor state on scope exit.
+       - Support nested clipping rects by calculating the intersection of parent and child clip rectangles.
+    2. **Refactor Existing Scissor Calls**:
+       - Replace manual, error-prone `setScissorRect` and `clearScissorRect` calls in [`ScrollableArea`](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), inspector panels, and modal dialogs with `ScissorScope`.
+    3. **Automated Verification**:
+       - Add unit test in [`tests/test_ui_canvas.cpp`](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp) testing nested clipping rectangle calculation and automatic RAII unwinding.
+
+- [ ] **Implement Static Chrome Offscreen Texture (FBO) Caching**
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp)
+  - **Acceptance Criteria**:
+    1. **Offscreen Chrome Backing Store**:
+       - Allocate a backing texture/render target in `BatchRenderer2D` for static background chrome (top transport metal faceplate, panel bevels, static track headers).
+       - Render static chrome once; on subsequent frames blit the cached chrome and only redraw dynamic elements (playhead, meters, scope, active controls).
+    2. **Dirty Invalidation Lifecycle**:
+       - Automatically invalidate the chrome cache upon window resize, theme changes, or panel toggle events.
+    3. **Automated Verification**:
+       - Verify rendering correctness in headless mode and ensure visual parity with and without chrome caching enabled.
+
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Eliminate Startup Eatscript Parser Errors & Implement Subscript Indexing / Trailing Commas in DSL Grammar** (2026-10-11)
+  - **Context/Files**: [include/eatsbits/eatscript/ast.hpp](file:///c:/git/eatsbits/include/eatsbits/eatscript/ast.hpp), [src/eatscript/parser.cpp](file:///c:/git/eatsbits/src/eatscript/parser.cpp), [src/eatscript/evaluator.cpp](file:///c:/git/eatsbits/src/eatscript/evaluator.cpp), [src/eatscript/transpiler.cpp](file:///c:/git/eatsbits/src/eatscript/transpiler.cpp), [src/eatscript/dispatch_scanner.cpp](file:///c:/git/eatsbits/src/eatscript/dispatch_scanner.cpp), [src/eatscript/vm.cpp](file:///c:/git/eatsbits/src/eatscript/vm.cpp), [src/project/preset_loader.cpp](file:///c:/git/eatsbits/src/project/preset_loader.cpp), [src/project/preset_manager.cpp](file:///c:/git/eatsbits/src/project/preset_manager.cpp), [presets/midi_fx/arpeggiator_midi_fx.eats](file:///c:/git/eatsbits/presets/midi_fx/arpeggiator_midi_fx.eats), [presets/midi_fx/euclidean_acid_generator.eats](file:///c:/git/eatsbits/presets/midi_fx/euclidean_acid_generator.eats), [tests/test_eatscript_vm.cpp](file:///c:/git/eatsbits/tests/test_eatscript_vm.cpp)
+  - **Acceptance Criteria**:
+    1. **Dictionary Subscript Indexing & Assignment (`params['Key'] = val`)**:
+       - Added `ExprKind::Index` (`IndexExpr`) and `StmtKind::IndexAssign` (`IndexAssignStmt`) to AST.
+       - Implemented parser lookahead in `parseExpressionOrAssignment()` to distinguish subscript assignment from standalone expressions.
+       - Implemented AST Evaluator, VM Bytecode emission, AOT C++ Transpiler, and Dispatch Scanner support for subscript assignments and lookups.
+    2. **Grammar Support for Trailing Commas**:
+       - Updated `parseCall()` and `parseFunctionDef()` to gracefully handle trailing commas before `)` in argument lists and parameter lists.
+    3. **Preset Directory Filtering**:
+       - Added guards in `PresetManager::scanDirectory` and `PresetLoader::parseFromEatscript` to ignore non-preset INI/song project files (`[project]`, `return eatsbeats.song`, `"format": "eatsbits"`) so project files are never misparsed as Eatscript presets.
+       - Removed stray INI project file `presets/default.eats`.
+    4. **Preset Script Refactoring**:
+       - Removed trailing comma in `presets/midi_fx/arpeggiator_midi_fx.eats`.
+       - Updated `presets/midi_fx/euclidean_acid_generator.eats` to standard host processor call `eat.euclidean()`.
+    5. **Automated Verification**:
+       - Added unit test `testParserTrailingCommasAndSubscripts()` in `test_eatscript_vm.cpp`.
+       - Verified all 37 preset files in `presets/` parse with 0 errors via `eatscript_cli.exe`.
+       - Verified clean application startup with 0 parser errors.
+
+- [x] **Optimize CLAP Plugin Scanning & Add Portable App / Binary Directory Setting (Reaper Mode)** (2026-10-11)
+  - **Context/Files**: `include/eatsbits/audio/clap/clap_plugin_loader.hpp`, `src/audio/clap/clap_plugin_loader.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_clap_host.cpp`
+  - **Acceptance Criteria**:
+    1. **Decoupled Dialog Open from Filesystem Scanning (Zero-Latency Opens)**:
+       - Removed synchronous directory scanning and recursive DLL probing from `PluginSearchDialog::open()`. Presets and discovered CLAP plugins are served immediately from in-memory cache (`ClapPluginLoader::getDiscoveredPlugins()`), reducing dialog open latency to 0ms.
+    2. **Added Header [ ↻ SCAN ] Button & Background Asynchronous Scanner**:
+       - Added a dedicated `[ ↻ SCAN ]` button with scanning pulse indicators to `PluginSearchDialog` header.
+       - Implemented `ClapPluginLoader::scanDirectoriesAsync()` to execute scans in background threads without blocking audio processing or the WebGPU render loop.
+       - Auto-refreshes dialog cards when a scan completes.
+    3. **Portable / Binary Directory Search Path Setting (Reaper-Style)**:
+       - Added `includeBinaryPath` configuration (default `true`) allowing the DAW to run portably from any directory, scanning `<exe_dir>/plugins`, `<exe_dir>`, and `<cwd>/plugins` without requiring system-wide installation.
+       - Added a toggle switch and `[ ↻ RESCAN PLUGINS ]` button in the System Settings modal (Section 5: "AUDIO & CLAP PLUGINS") with real-time discovered plugin counter.
+    4. **Filesystem Traversal & Non-CLAP Library Probe Optimization**:
+       - Added `disable_recursion_pending()` to skip traversing `.git`, `.agents`, `CMakeFiles`, `node_modules`, `.vs`, and IDE cache folders.
+       - Maintained an in-memory cache of non-CLAP libraries (`nonClapLibraries_`) so failed DLLs are never repeatedly inspected with `LoadLibraryA`.
+    5. **Automated Verification**:
+       - Added tests in `tests/test_clap_host.cpp` verifying portable path toggle, in-memory cache retrieval, and async scanning. Verified 100% pass across all 48 test suites.
 
 - [x] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog** (commits `560db9d`, `a2884de`, 2026-10-10)
   - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`

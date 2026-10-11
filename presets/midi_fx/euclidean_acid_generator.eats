@@ -12,28 +12,12 @@ def init():
     }
 
 def transform_notes(notes, params, time_ctx):
-    eat.clear_notes()
-    
-    hits = int(params.get("hits", 7))
-    steps = int(params.get("steps", 16))
-    base_pitch = int(params.get("root_pitch", 36))
-    
-    # 1. Generate Euclidean rhythm pattern
-    pattern = eat.euclidean(hits, steps)
-    
-    # 2. Pentatonic scale offsets
-    minor_pentatonic = [0, 3, 5, 7, 10, 12]
-    
-    step_duration = 0.25 # 16th note
-    for i in range(len(pattern)):
-        if pattern[i] == 1:
-            scale_degree = minor_pentatonic[i % len(minor_pentatonic)]
-            pitch = base_pitch + scale_degree
-            start_step = i * step_duration
-            vel = 0.95 if (i % 4 == 0) else 0.80
-            eat.add_note(pitch, start_step, step_duration * 0.85, vel)
-    
-    return eat.get_notes()
+    return eat.euclidean(
+        notes,
+        hits=params.get("hits", 7.0),
+        steps=params.get("steps", 16.0),
+        root_pitch=params.get("root_pitch", 36.0)
+    )
 
 def gui():
     return {

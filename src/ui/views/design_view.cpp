@@ -1190,9 +1190,15 @@ const ScriptTarget& DesignView::getActiveTarget() const {
 }
 
 void DesignView::setAudioScopeBuffer(const float* buffer, size_t count) {
-    if (!buffer || count == 0) return;
-    scopeSamples_.resize(count);
-    std::memcpy(scopeSamples_.data(), buffer, count * sizeof(float));
+    if (!buffer || count == 0) {
+        scopeSpan_ = {};
+        return;
+    }
+    scopeSpan_ = std::span<const float>(buffer, count);
+}
+
+void DesignView::setAudioScopeBuffer(std::span<const float> buffer) {
+    scopeSpan_ = buffer;
 }
 
 void DesignView::compileCurrentScript(const ViewContext& ctx) {
@@ -1795,14 +1801,15 @@ void DesignView::renderOscilloscope(const ViewContext& ctx, const Rect2D& rect) 
     float midY = rect.y + (rect.h * 0.5f);
     drawLine(r, rect.x, midY, rect.x + rect.w, midY, 0.0f, 0.25f, 0.15f, 0.5f, 1.0f);
 
-    size_t count = scopeSamples_.size();
-    if (count > 1) {
+    size_t count = !scopeSpan_.empty() ? scopeSpan_.size() : scopeSamples_.size();
+    const float* samples = !scopeSpan_.empty() ? scopeSpan_.data() : scopeSamples_.data();
+    if (count > 1 && samples) {
         float prevX = rect.x;
-        float prevY = midY - (scopeSamples_[0] * (rect.h * 0.42f));
+        float prevY = midY - (samples[0] * (rect.h * 0.42f));
 
         for (size_t s = 1; s < count; ++s) {
             float px = rect.x + (static_cast<float>(s) / (count - 1)) * rect.w;
-            float py = midY - (scopeSamples_[s] * (rect.h * 0.42f));
+            float py = midY - (samples[s] * (rect.h * 0.42f));
 
             drawLine(r, prevX, prevY, px, py, 0.0f, 1.0f, 0.60f, 0.95f, 2.0f);
             prevX = px;

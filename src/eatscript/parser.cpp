@@ -100,16 +100,21 @@ std::shared_ptr<FunctionDef> Parser::parseFunctionDef() {
     consume(TokenType::LeftParen, "Expected '(' after function name");
 
     std::vector<std::string> params;
+    skipNewlines();
     if (!check(TokenType::RightParen)) {
         do {
+            skipNewlines();
+            if (check(TokenType::RightParen)) break;
             const Token& p = consume(TokenType::Identifier, "Expected parameter name");
             params.push_back(p.text);
             // Ignore default parameter values: targetNote=0, isSlide=False
             if (match(TokenType::Assign)) {
                 parseExpression();
             }
+            skipNewlines();
         } while (match(TokenType::Comma));
     }
+    skipNewlines();
     consume(TokenType::RightParen, "Expected ')' after parameter list");
     consume(TokenType::Colon, "Expected ':' after function signature");
 
@@ -180,6 +185,26 @@ std::shared_ptr<Stmt> Parser::parseExpressionOrAssignment() {
             auto val = parseExpression();
             match(TokenType::Newline);
             return std::make_shared<AssignStmt>(std::move(varName), std::move(val));
+        }
+        // Lookahead for var[index] = expr
+        if (current_ + 1 < tokens_.size() && tokens_[current_ + 1].type == TokenType::LeftBracket) {
+            size_t probe = current_ + 2;
+            int bracketDepth = 1;
+            while (probe < tokens_.size() && bracketDepth > 0) {
+                if (tokens_[probe].type == TokenType::LeftBracket) bracketDepth++;
+                else if (tokens_[probe].type == TokenType::RightBracket) bracketDepth--;
+                probe++;
+            }
+            if (bracketDepth == 0 && probe < tokens_.size() && tokens_[probe].type == TokenType::Assign) {
+                std::string varName = advance().text;
+                consume(TokenType::LeftBracket, "Expected '['");
+                auto idxExpr = parseExpression();
+                consume(TokenType::RightBracket, "Expected ']'");
+                consume(TokenType::Assign, "Expected '=' in index assignment");
+                auto val = parseExpression();
+                match(TokenType::Newline);
+                return std::make_shared<IndexAssignStmt>(std::move(varName), std::move(idxExpr), std::move(val));
+            }
         }
     }
 
@@ -281,6 +306,8 @@ std::shared_ptr<Expr> Parser::parseCall() {
             std::vector<std::string> argNames;
             if (!check(TokenType::RightParen)) {
                 do {
+                    skipNewlines();
+                    if (check(TokenType::RightParen)) break;
                     std::string argName;
                     // Check for named argument: step=0.25
                     if (check(TokenType::Identifier) && current_ + 1 < tokens_.size() &&
@@ -290,13 +317,19 @@ std::shared_ptr<Expr> Parser::parseCall() {
                     }
                     argNames.push_back(std::move(argName));
                     args.push_back(parseExpression());
+                    skipNewlines();
                 } while (match(TokenType::Comma));
             }
+            skipNewlines();
             consume(TokenType::RightParen, "Expected ')' after argument list");
             expr = std::make_shared<CallExpr>(std::move(expr), std::move(args), std::move(argNames));
         } else if (match(TokenType::Dot)) {
             const Token& name = consume(TokenType::Identifier, "Expected property or method name after '.'");
             expr = std::make_shared<MemberExpr>(std::move(expr), name.text);
+        } else if (match(TokenType::LeftBracket)) {
+            auto idx = parseExpression();
+            consume(TokenType::RightBracket, "Expected ']' after index");
+            expr = std::make_shared<IndexExpr>(std::move(expr), std::move(idx));
         } else {
             break;
         }

@@ -2,6 +2,8 @@
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#include <thread>
+#include <unordered_set>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -11,8 +13,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
 #else
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 namespace eatsbits::audio {
@@ -145,6 +151,31 @@ ClapPluginLoader& ClapPluginLoader::instance() {
     return sInstance;
 }
 
+static std::filesystem::path getExecutableDirectory() {
+    std::error_code ec;
+#if defined(_WIN32)
+    char buffer[MAX_PATH] = {0};
+    DWORD len = GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    if (len > 0) {
+        return std::filesystem::path(buffer).parent_path();
+    }
+#elif defined(__APPLE__)
+    char buffer[1024] = {0};
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) == 0) {
+        return std::filesystem::path(buffer).parent_path();
+    }
+#elif defined(__linux__)
+    char buffer[1024] = {0};
+    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len > 0) {
+        buffer[len] = '\0';
+        return std::filesystem::path(buffer).parent_path();
+    }
+#endif
+    return std::filesystem::current_path(ec);
+}
+
 std::vector<std::filesystem::path> ClapPluginLoader::getDefaultSearchPaths() const {
     std::vector<std::filesystem::path> paths;
 
@@ -162,12 +193,6 @@ std::vector<std::filesystem::path> ClapPluginLoader::getDefaultSearchPaths() con
     if (len > 0) {
         paths.push_back(std::filesystem::path(localAppData) / "Programs" / "Common" / "CLAP");
     }
-
-    // 3. Current working directory / local build directory
-    paths.push_back(std::filesystem::current_path());
-    paths.push_back(std::filesystem::current_path() / "plugins");
-    paths.push_back(std::filesystem::current_path() / "build");
-    paths.push_back(std::filesystem::current_path() / "build" / "Release");
 #elif defined(__APPLE__)
     // 1. /Library/Audio/Plug-Ins/CLAP
     paths.push_back("/Library/Audio/Plug-Ins/CLAP");
@@ -177,7 +202,6 @@ std::vector<std::filesystem::path> ClapPluginLoader::getDefaultSearchPaths() con
     if (home) {
         paths.push_back(std::filesystem::path(home) / "Library/Audio/Plug-Ins/CLAP");
     }
-    paths.push_back(std::filesystem::current_path());
 #else
     // Linux standard paths
     // 1. ~/.clap
@@ -188,20 +212,75 @@ std::vector<std::filesystem::path> ClapPluginLoader::getDefaultSearchPaths() con
     // 2. /usr/lib/clap & /usr/local/lib/clap
     paths.push_back("/usr/lib/clap");
     paths.push_back("/usr/local/lib/clap");
-    paths.push_back(std::filesystem::current_path());
 #endif
 
-    return paths;
+    // 3. Binary / Current Working Directory (Portable / Standalone app mode, similar to Reaper)
+    if (includeBinaryPath_) {
+        auto exeDir = getExecutableDirectory();
+        std::error_code ec;
+        if (!exeDir.empty()) {
+            paths.push_back(exeDir / "plugins");
+            paths.push_back(exeDir);
+        }
+
+        auto cwd = std::filesystem::current_path(ec);
+        if (!cwd.empty() && cwd != exeDir) {
+            paths.push_back(cwd / "plugins");
+            paths.push_back(cwd);
+        }
+        if (std::filesystem::exists(cwd / "build" / "Release", ec)) {
+            paths.push_back(cwd / "build" / "Release");
+        }
+        if (std::filesystem::exists(cwd / "build", ec)) {
+            paths.push_back(cwd / "build");
+        }
+    }
+
+    // 4. Custom user configured search paths
+    for (const auto& cp : customSearchPaths_) {
+        paths.push_back(cp);
+    }
+
+    // Deduplicate paths while preserving order
+    std::vector<std::filesystem::path> uniquePaths;
+    for (const auto& p : paths) {
+        std::error_code ec;
+        if (!std::filesystem::exists(p, ec) || !std::filesystem::is_directory(p, ec)) {
+            continue;
+        }
+        bool alreadyIncluded = false;
+        for (const auto& u : uniquePaths) {
+            std::error_code compEc;
+            if (p == u || std::filesystem::equivalent(p, u, compEc)) {
+                alreadyIncluded = true;
+                break;
+            }
+        }
+        if (!alreadyIncluded) {
+            uniquePaths.push_back(p);
+        }
+    }
+
+    return uniquePaths;
 }
+
+struct ScanningGuard {
+    std::atomic<bool>& flag;
+    explicit ScanningGuard(std::atomic<bool>& f) : flag(f) { flag.store(true); }
+    ~ScanningGuard() { flag.store(false); }
+};
 
 std::vector<ClapPluginDescriptor> ClapPluginLoader::scanDirectories(
     const std::vector<std::filesystem::path>& customPaths
 ) {
+    ScanningGuard guard(isScanning_);
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<std::filesystem::path> searchPaths = customPaths.empty()
         ? getDefaultSearchPaths()
         : customPaths;
+
+    std::unordered_set<std::string> scannedFilesInPass;
 
     for (const auto& dirPath : searchPaths) {
         std::error_code ec;
@@ -209,22 +288,49 @@ std::vector<ClapPluginDescriptor> ClapPluginLoader::scanDirectories(
             continue;
         }
 
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(dirPath, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        auto dirIter = std::filesystem::recursive_directory_iterator(
+            dirPath,
+            std::filesystem::directory_options::skip_permission_denied,
+            ec
+        );
+
+        for (auto it = dirIter; it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
             if (ec) break;
 
+            // Never recurse into VCS, temporary or IDE internals
+            if (it->is_directory(ec)) {
+                std::string dirname = it->path().filename().string();
+                if (dirname == ".git" || dirname == ".agents" || dirname == "node_modules" ||
+                    dirname == "CMakeFiles" || dirname == ".vs" || dirname == ".vscode" ||
+                    dirname == ".cache" || dirname == ".idea") {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+
             std::error_code isFileEc;
-            if (!entry.is_regular_file(isFileEc)) {
+            if (!it->is_regular_file(isFileEc)) {
                 continue;
             }
 
-            const auto& p = entry.path();
+            const auto& p = it->path();
             std::string ext = p.extension().string();
             for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
             if (ext == ".clap" || ext == ".dll" || ext == ".so") {
                 std::string fullPath = p.string();
 
-                // Check if already scanned
+                if (scannedFilesInPass.count(fullPath) > 0) {
+                    continue;
+                }
+                scannedFilesInPass.insert(fullPath);
+
+                // Skip files previously verified to NOT be CLAP plugins
+                if (nonClapLibraries_.count(fullPath) > 0) {
+                    continue;
+                }
+
+                // Check if already discovered
                 bool alreadyDiscovered = false;
                 for (const auto& disc : discoveredPlugins_) {
                     if (disc.libraryPath == fullPath) {
@@ -237,11 +343,15 @@ std::vector<ClapPluginDescriptor> ClapPluginLoader::scanDirectories(
                 // Attempt to load and inspect
                 auto libHandle = ClapLibraryHandle::load(fullPath);
                 if (!libHandle || !libHandle->isValid()) {
+                    nonClapLibraries_.insert(fullPath);
                     continue;
                 }
 
                 const auto* factory = libHandle->getPluginFactory();
-                if (!factory) continue;
+                if (!factory) {
+                    nonClapLibraries_.insert(fullPath);
+                    continue;
+                }
 
                 const uint32_t count = factory->get_plugin_count(factory);
                 for (uint32_t i = 0; i < count; ++i) {
@@ -309,6 +419,41 @@ std::vector<ClapPluginDescriptor> ClapPluginLoader::scanDirectories(
     return discoveredPlugins_;
 }
 
+void ClapPluginLoader::scanDirectoriesAsync(
+    const std::vector<std::filesystem::path>& customPaths,
+    std::function<void(const std::vector<ClapPluginDescriptor>&)> onComplete
+) {
+    if (isScanning_.load()) {
+        return; // Already actively scanning
+    }
+    std::thread([this, customPaths, onComplete = std::move(onComplete)]() {
+        auto plugins = this->scanDirectories(customPaths);
+        if (onComplete) {
+            onComplete(plugins);
+        }
+    }).detach();
+}
+
+std::vector<ClapPluginDescriptor> ClapPluginLoader::getDiscoveredPlugins() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return discoveredPlugins_;
+}
+
+void ClapPluginLoader::setCustomSearchPaths(const std::vector<std::filesystem::path>& paths) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    customSearchPaths_ = paths;
+}
+
+void ClapPluginLoader::addCustomSearchPath(const std::filesystem::path& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    customSearchPaths_.push_back(path);
+}
+
+std::vector<std::filesystem::path> ClapPluginLoader::getCustomSearchPaths() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return customSearchPaths_;
+}
+
 const ClapPluginDescriptor* ClapPluginLoader::findPluginById(const std::string& pluginId) const {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& p : discoveredPlugins_) {
@@ -369,6 +514,7 @@ void ClapPluginLoader::clearCache() {
     std::lock_guard<std::mutex> lock(mutex_);
     discoveredPlugins_.clear();
     loadedLibraries_.clear();
+    nonClapLibraries_.clear();
 }
 
 } // namespace eatsbits::audio

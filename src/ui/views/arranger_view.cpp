@@ -513,6 +513,21 @@ void ArrangerView::setMasterLevels(float masterVol, float masterPan, bool master
     }
 }
 
+void ArrangerView::setMasterLevels(float masterVol, float masterPan, bool masterMute,
+                                   float masterPeakL, float masterPeakR,
+                                   std::span<const float> chPeaksL, std::span<const float> chPeaksR) {
+    masterVolume_ = masterVol;
+    masterPan_ = masterPan;
+    masterMute_ = masterMute;
+    masterPeakL_ = masterPeakL;
+    masterPeakR_ = masterPeakR;
+    size_t numPeaks = std::min(chPeaksL.size(), chPeaksR.size());
+    if (numPeaks > 0) {
+        chPeaksL_.assign(chPeaksL.data(), chPeaksL.data() + numPeaks);
+        chPeaksR_.assign(chPeaksR.data(), chPeaksR.data() + numPeaks);
+    }
+}
+
 void ArrangerView::setActiveTrack(uint32_t idx) noexcept {
     if (idx < tracks_.size()) {
         activeTrackIndex_ = idx;
@@ -1316,15 +1331,16 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
              0.18f, 0.85f, 0.95f, 1.0f);
 
     // Song Key badge
-    std::string keyText = std::string(theory::ChordTheory::pitchClassNames[songKeyRoot_]) +
-                          (isSongKeyMinor_ ? "m" : " maj");
-    float keyBadgeW = static_cast<float>(keyText.length()) * 6.5f + 10.0f;
+    char keyBuf[16];
+    const char* pcName = (songKeyRoot_ < 12) ? theory::ChordTheory::pitchClassNames[songKeyRoot_] : "C";
+    snprintf(keyBuf, sizeof(keyBuf), "%s%s", pcName, isSongKeyMinor_ ? "m" : " maj");
+    float keyBadgeW = static_cast<float>(std::strlen(keyBuf)) * 6.5f + 10.0f;
     float keyBadgeX = chordHeaderBounds_.x + chordHeaderBounds_.w - keyBadgeW - 28.0f;
     drawRoundedRect(r, keyBadgeX, chordHeaderBounds_.y + 4.0f, keyBadgeW, chordHeaderBounds_.h - 8.0f, 3.0f,
                     0.14f, 0.16f, 0.22f, 0.9f);
     drawRoundedRectOutline(r, keyBadgeX, chordHeaderBounds_.y + 4.0f, keyBadgeW, chordHeaderBounds_.h - 8.0f, 3.0f,
                            0.28f, 0.35f, 0.48f, 0.8f, 1.0f);
-    drawText(r, keyText, keyBadgeX + 5.0f, chordHeaderBounds_.y + 8.0f, 8.5f,
+    drawText(r, std::string_view(keyBuf), keyBadgeX + 5.0f, chordHeaderBounds_.y + 8.0f, 8.5f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
     // [ + ] button to open Circle of Fifths
@@ -1452,8 +1468,9 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
         drawLine(r, bx, rulerBounds_.y + rulerBounds_.h - 8.0f, bx, rulerBounds_.y + rulerBounds_.h,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f, 1.0f);
 
-        std::string barStr = std::to_string(bar);
-        drawText(r, barStr, bx + 4.0f, rulerBounds_.y + 7.0f, 10.0f,
+        char barBuf[16];
+        snprintf(barBuf, sizeof(barBuf), "%u", bar);
+        drawText(r, std::string_view(barBuf), bx + 4.0f, rulerBounds_.y + 7.0f, 10.0f,
                  theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.9f);
     }
 
@@ -1491,20 +1508,36 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
     if (activeTrackIndex_ < tracks_.size()) {
         auto& track = tracks_[activeTrackIndex_];
         bool trackChanged = (drawerData_.trackIndex != activeTrackIndex_ ||
+                             drawerData_.totalTracks != tracks_.size() ||
+                             drawerData_.trackName != track.name ||
                              drawerData_.instrument != track.instrument ||
                              drawerData_.instrumentEngine != track.instrumentEngine);
         if (trackChanged) {
             drawerData_.knobs.clear();
+            drawerData_.trackIndex = activeTrackIndex_;
+            drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+            drawerData_.trackName = track.name;
+            drawerData_.instrument = track.instrument;
+            drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+            drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
+            drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
+            drawerData_.iconRef = track.iconRef;
+
+            if (drawerData_.allTrackNames.size() != tracks_.size()) {
+                drawerData_.allTrackNames.clear();
+                drawerData_.allTrackNames.reserve(tracks_.size());
+                for (const auto& trk : tracks_) {
+                    drawerData_.allTrackNames.push_back(trk.name);
+                }
+            } else {
+                for (size_t i = 0; i < tracks_.size(); ++i) {
+                    if (drawerData_.allTrackNames[i] != tracks_[i].name) {
+                        drawerData_.allTrackNames[i] = tracks_[i].name;
+                    }
+                }
+            }
         }
 
-        drawerData_.trackIndex = activeTrackIndex_;
-        drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
-        drawerData_.trackName = track.name;
-        drawerData_.instrument = track.instrument;
-        drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
-        drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
-        drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
-        drawerData_.iconRef = track.iconRef;
         drawerData_.r = track.r;
         drawerData_.g = track.g;
         drawerData_.b = track.b;
@@ -1525,27 +1558,29 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
         drawerData_.knob3Name = track.knob3Name;
         drawerData_.knob4Name = track.knob4Name;
 
-        drawerData_.allTrackNames.clear();
-        for (const auto& trk : tracks_) {
-            drawerData_.allTrackNames.push_back(trk.name);
-        }
-
         // If in Clip tab and no clip was selected, auto-select clip 0 if available
         if (inspectorTab_ == ArrangerInspectorTab::Clip && selectedClipIndex_ < 0 && !track.clips.empty()) {
             selectedClipIndex_ = 0;
         }
 
-        drawerData_.selectedClipIndex = selectedClipIndex_;
+        if (drawerData_.selectedClipIndex != selectedClipIndex_) {
+            drawerData_.selectedClipIndex = selectedClipIndex_;
+            if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
+                const auto& cl = track.clips[selectedClipIndex_];
+                drawerData_.clipName = cl.name;
+            } else {
+                drawerData_.clipName.clear();
+            }
+        }
+
         if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
             const auto& cl = track.clips[selectedClipIndex_];
-            drawerData_.clipName = cl.name;
             drawerData_.clipStartBar = cl.startBar;
             drawerData_.clipLengthBars = cl.lengthBars;
             drawerData_.clipLooped = cl.isLooped;
             drawerData_.clipLoopLengthBars = cl.loopLengthBars;
             drawerData_.clipTranspose = cl.transposeSemitones;
         } else {
-            drawerData_.clipName.clear();
             drawerData_.clipStartBar = 0;
             drawerData_.clipLengthBars = 0;
             drawerData_.clipLooped = false;
@@ -1553,8 +1588,12 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
             drawerData_.clipTranspose = 0;
         }
 
-        drawerData_.midiFx = track.midiFx;
-        drawerData_.audioFx = track.audioFx;
+        if (drawerData_.midiFx.size() != track.midiFx.size()) {
+            drawerData_.midiFx = track.midiFx;
+        }
+        if (drawerData_.audioFx.size() != track.audioFx.size()) {
+            drawerData_.audioFx = track.audioFx;
+        }
         drawerData_.syncKnobsIfEmpty();
     }
 

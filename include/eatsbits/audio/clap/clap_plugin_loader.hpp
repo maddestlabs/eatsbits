@@ -5,7 +5,10 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <filesystem>
+#include <atomic>
+#include <functional>
 #include "clap/clap.h"
 
 namespace eatsbits::audio {
@@ -71,10 +74,25 @@ public:
     // Scan directories (default or custom) for all available .clap files and cache descriptors
     std::vector<ClapPluginDescriptor> scanDirectories(const std::vector<std::filesystem::path>& customPaths = {});
 
-    // Retrieve cached plugin descriptors from previous scan
-    [[nodiscard]] const std::vector<ClapPluginDescriptor>& getDiscoveredPlugins() const noexcept {
-        return discoveredPlugins_;
-    }
+    // Asynchronous scan in a background thread to prevent UI stalls
+    void scanDirectoriesAsync(
+        const std::vector<std::filesystem::path>& customPaths = {},
+        std::function<void(const std::vector<ClapPluginDescriptor>&)> onComplete = nullptr
+    );
+
+    [[nodiscard]] bool isScanning() const noexcept { return isScanning_.load(); }
+
+    // Retrieve cached plugin descriptors from previous scan (thread-safe)
+    [[nodiscard]] std::vector<ClapPluginDescriptor> getDiscoveredPlugins() const;
+
+    // Configurable option to include current / binary directory (Portable / Standalone app mode, similar to Reaper)
+    void setIncludeBinaryPath(bool enable) noexcept { includeBinaryPath_ = enable; }
+    [[nodiscard]] bool isIncludeBinaryPathEnabled() const noexcept { return includeBinaryPath_; }
+
+    // Custom search paths
+    void setCustomSearchPaths(const std::vector<std::filesystem::path>& paths);
+    void addCustomSearchPath(const std::filesystem::path& path);
+    [[nodiscard]] std::vector<std::filesystem::path> getCustomSearchPaths() const;
 
     // Find descriptor by ID or name
     [[nodiscard]] const ClapPluginDescriptor* findPluginById(const std::string& pluginId) const;
@@ -99,6 +117,10 @@ private:
     ~ClapPluginLoader() = default;
 
     mutable std::mutex mutex_;
+    std::atomic<bool> isScanning_{false};
+    bool includeBinaryPath_{true};
+    std::vector<std::filesystem::path> customSearchPaths_;
+    std::unordered_set<std::string> nonClapLibraries_;
     std::vector<ClapPluginDescriptor> discoveredPlugins_;
     std::unordered_map<std::string, std::weak_ptr<ClapLibraryHandle>> loadedLibraries_;
 };

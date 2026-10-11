@@ -19,7 +19,7 @@ def transform_notes(notes, params, time_context):
         octaves=params.get("Octaves", 2.0),
         pattern=params.get("Pattern", "Up"),
         gate=params.get("Gate", 0.85),
-        swing=params.get("Swing", 0.0),
+        swing=params.get("Swing", 0.0)
     )
 
 def gui():

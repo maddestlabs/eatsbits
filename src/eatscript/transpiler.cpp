@@ -135,6 +135,9 @@ void Transpiler::transpileStmt(const Stmt* stmt) {
         case StmtKind::Assign:
             visit(static_cast<AssignStmt*>(const_cast<Stmt*>(stmt)));
             break;
+        case StmtKind::IndexAssign:
+            visit(static_cast<IndexAssignStmt*>(const_cast<Stmt*>(stmt)));
+            break;
         case StmtKind::Return:
             visit(static_cast<ReturnStmt*>(const_cast<Stmt*>(stmt)));
             break;
@@ -179,6 +182,9 @@ void Transpiler::transpileExpr(const Expr* expr) {
             break;
         case ExprKind::Dict:
             visit(static_cast<DictLiteral*>(const_cast<Expr*>(expr)));
+            break;
+        case ExprKind::Index:
+            visit(static_cast<IndexExpr*>(const_cast<Expr*>(expr)));
             break;
     }
 }
@@ -295,6 +301,14 @@ void Transpiler::visit(ListLiteral* node) {
 
 void Transpiler::visit(DictLiteral* /*node*/) {}
 
+void Transpiler::visit(IndexExpr* node) {
+    if (!node) return;
+    transpileExpr(node->object.get());
+    output_ += "[";
+    transpileExpr(node->index.get());
+    output_ += "]";
+}
+
 void Transpiler::visit(ExprStmt* node) {
     output_.clear();
     transpileExpr(node->expression.get());
@@ -305,6 +319,16 @@ void Transpiler::visit(AssignStmt* node) {
     output_.clear();
     transpileExpr(node->value.get());
     processBodyCode_ += emitIndent() + "double " + node->variableName + " = " + output_ + ";\n";
+}
+
+void Transpiler::visit(IndexAssignStmt* node) {
+    output_.clear();
+    std::string keyOutput;
+    transpileExpr(node->index.get());
+    keyOutput = output_;
+    output_.clear();
+    transpileExpr(node->value.get());
+    processBodyCode_ += emitIndent() + node->variableName + "[" + keyOutput + "] = " + output_ + ";\n";
 }
 
 void Transpiler::visit(ReturnStmt* node) {

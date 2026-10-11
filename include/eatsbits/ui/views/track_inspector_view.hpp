@@ -2,8 +2,11 @@
 
 #include "view_base.hpp"
 #include "../widgets/track_properties_panel.hpp"
+#include "../arranger_track_data.hpp"
 #include <string>
+#include <string_view>
 #include <vector>
+#include <span>
 #include <functional>
 #include <memory>
 #include <algorithm>
@@ -55,9 +58,11 @@ public:
 
     // Live Oscilloscope Audio Buffer
     void setAudioScopeBuffer(const float* buffer, size_t count);
+    void setAudioScopeBuffer(std::span<const float> buffer);
 
     // Preset & Preset Counter
     void setPresetInfo(size_t activePresetIdx, size_t totalPresets, const std::string& presetTitle, const std::string& presetSubtitle);
+    void setPresetInfo(size_t activePresetIdx, size_t totalPresets, std::string_view presetTitle, std::string_view presetSubtitle);
 
     // Reusable Plugin Search Dialog
     [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return panel_.getPluginSearchDialog(); }
@@ -67,7 +72,18 @@ public:
     [[nodiscard]] TrackPropertiesPanel& getPanel() noexcept { return panel_; }
     [[nodiscard]] const TrackPropertiesPanel& getPanel() const noexcept { return panel_; }
 
-    // Synchronization from Window
+    // Zero-allocation Synchronization from Window
+    void syncFromWindow(
+        std::span<const ArrangerTrackData> tracks,
+        uint32_t selectedTrackIdx,
+        std::string_view activePresetTitle,
+        std::string_view activePresetSubtitle,
+        size_t activePresetIdx,
+        size_t totalPresets,
+        float scrollY
+    );
+
+    // Legacy Synchronization from Window (retained for backward compatibility)
     void syncFromWindow(
         const std::vector<std::string>& trackNames,
         const std::vector<float>& trackVols,
@@ -133,6 +149,7 @@ public:
 private:
     void initDefaultTracks();
     void syncKnobsForTrack(InspectorTrackChannel& trk);
+    void updateDrawerData();
     TrackPropertiesDrawerData buildDrawerData() const;
     void syncBackFromDrawerData(const TrackPropertiesDrawerData& d);
 
@@ -141,6 +158,7 @@ private:
 
     float scopeBuffer_[256]{0.0f};
     size_t scopeBufferCount_{256};
+    std::span<const float> scopeSpan_{};
 
     size_t activePresetIdx_{0};
     size_t totalPresets_{156};
@@ -148,6 +166,7 @@ private:
     std::string presetSubtitle_{"Diode Ladder Synthesizer"};
 
     TrackPropertiesPanel panel_;
+    TrackPropertiesDrawerData drawerData_;
 };
 
 } // namespace eatsbits::ui

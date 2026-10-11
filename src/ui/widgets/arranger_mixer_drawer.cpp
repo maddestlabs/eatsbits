@@ -112,7 +112,7 @@ void ArrangerMixerDrawer::render(
     const float iconY = pullTabBounds_.y + (pullTabBounds_.h - 12.0f) * 0.5f;
     drawSlidersTuneIcon(r, iconX, iconY, 12.0f, isExpanded_ ? theme.primaryAccent : theme.textSecondary);
 
-    const std::string tabLabel = isExpanded_ ? "MIXER [M] ^" : "ARRANGER MIXER [M]";
+    const std::string_view tabLabel = isExpanded_ ? "MIXER [M] ^" : "ARRANGER MIXER [M]";
     const Color labelCol = isExpanded_ ? theme.primaryAccent : theme.textPrimary;
     drawCenteredText(r, tabLabel, pullTabBounds_.x + 24.0f, pullTabBounds_.y, pullTabBounds_.w - 42.0f, pullTabBounds_.h, 10.0f, labelCol);
 
@@ -162,8 +162,9 @@ void ArrangerMixerDrawer::render(
     // Selected track info badge
     if (activeTrackIndex < tracks.size()) {
         const auto& actTrack = tracks[activeTrackIndex];
-        const std::string badge = "TRACK #" + std::to_string(activeTrackIndex + 1) + " • " + actTrack.name;
-        drawText(r, badge, headerBounds_.x + 120.0f, headerBounds_.y + 6.5f, 9.5f, theme.textSecondary);
+        char badgeBuf[64];
+        snprintf(badgeBuf, sizeof(badgeBuf), "TRACK #%u • %s", activeTrackIndex + 1, actTrack.name.c_str());
+        drawText(r, std::string_view(badgeBuf), headerBounds_.x + 120.0f, headerBounds_.y + 6.5f, 9.5f, theme.textSecondary);
     }
 
     // Close button [v]
@@ -306,20 +307,28 @@ void ArrangerMixerDrawer::render(
         drawRoundedRectOutline(r, stripX + 3.0f, channelsViewportBounds_.y + 3.0f, kChannelWidth - 6.0f, 18.0f, 3.0f,
                                trackCol.withAlpha(0.85f), 1.0f);
 
-        std::string trackLabel = "#" + std::to_string(i + 1) + " " + track.name;
+        char trackLabelBuf[32];
+        snprintf(trackLabelBuf, sizeof(trackLabelBuf), "#%zu %s", i + 1, track.name.c_str());
+        std::string_view trackLabel(trackLabelBuf);
         if (trackLabel.length() > 10) {
-            trackLabel = trackLabel.substr(0, 9) + "..";
+            trackLabelBuf[8] = '.';
+            trackLabelBuf[9] = '.';
+            trackLabelBuf[10] = '\0';
+            trackLabel = std::string_view(trackLabelBuf, 10);
         }
         drawCenteredText(r, trackLabel, stripX + 3.0f, channelsViewportBounds_.y + 3.0f,
                          kChannelWidth - 6.0f, 18.0f, 9.0f, trackCol);
 
         // Pan Readout & Indicator
         const float panY = channelsViewportBounds_.y + 24.0f;
-        std::string panStr = "C";
+        char panBuf[16];
         if (track.pan < -0.05f) {
-            panStr = "L" + std::to_string(static_cast<int>(std::round(-track.pan * 100.0f)));
+            snprintf(panBuf, sizeof(panBuf), "L%d", static_cast<int>(std::round(-track.pan * 100.0f)));
         } else if (track.pan > 0.05f) {
-            panStr = "R" + std::to_string(static_cast<int>(std::round(track.pan * 100.0f)));
+            snprintf(panBuf, sizeof(panBuf), "R%d", static_cast<int>(std::round(track.pan * 100.0f)));
+        } else {
+            panBuf[0] = 'C';
+            panBuf[1] = '\0';
         }
 
         const Rect2D panPillBounds(stripX + 6.0f, panY, kChannelWidth - 12.0f, 14.0f);

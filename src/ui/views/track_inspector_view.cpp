@@ -447,14 +447,75 @@ TrackPropertiesDrawerData TrackInspectorView::buildDrawerData() const {
 
     d.activePresetIdx = activePresetIdx_;
     d.totalPresets = totalPresets_;
-    d.scopeBuffer = scopeBuffer_;
-    d.scopeBufferCount = scopeBufferCount_;
+    d.scopeBuffer = scopeSpan_.empty() ? scopeBuffer_ : scopeSpan_.data();
+    d.scopeBufferCount = scopeSpan_.empty() ? scopeBufferCount_ : scopeSpan_.size();
 
     if (onPopulateClapData) {
         onPopulateClapData(selectedTrackIndex_, d);
     }
 
     return d;
+}
+
+void TrackInspectorView::updateDrawerData() {
+    drawerData_.trackIndex = selectedTrackIndex_;
+    drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+
+    if (drawerData_.allTrackNames.size() != tracks_.size()) {
+        drawerData_.allTrackNames.resize(tracks_.size());
+        drawerData_.allTrackColors.resize(tracks_.size());
+    }
+    for (size_t i = 0; i < tracks_.size(); ++i) {
+        if (drawerData_.allTrackNames[i] != tracks_[i].name) {
+            drawerData_.allTrackNames[i] = tracks_[i].name;
+        }
+        drawerData_.allTrackColors[i] = Color(tracks_[i].r, tracks_[i].g, tracks_[i].b);
+    }
+
+    if (selectedTrackIndex_ < tracks_.size()) {
+        const auto& trk = tracks_[selectedTrackIndex_];
+        drawerData_.trackName = trk.name;
+        drawerData_.trackType = trk.type;
+        drawerData_.r = trk.r; drawerData_.g = trk.g; drawerData_.b = trk.b;
+        drawerData_.volume = trk.volume;
+        drawerData_.pan = trk.pan;
+        drawerData_.mute = trk.mute;
+        drawerData_.solo = trk.solo;
+        drawerData_.freeze = trk.freeze;
+        drawerData_.instrument = trk.instrument;
+        drawerData_.instrumentEngine = trk.instrumentEngine;
+        drawerData_.chordFollowMode = trk.chordFollowMode;
+        if (drawerData_.knobs.size() != trk.knobs.size()) {
+            drawerData_.knobs = trk.knobs;
+        } else {
+            for (size_t k = 0; k < trk.knobs.size(); ++k) {
+                drawerData_.knobs[k].value = trk.knobs[k].value;
+                drawerData_.knobs[k].display = trk.knobs[k].display;
+            }
+        }
+        drawerData_.midiFxData = trk.midiFx;
+        drawerData_.audioFxData = trk.audioFx;
+        if (drawerData_.midiFx.size() != trk.midiFxList.size()) {
+            drawerData_.midiFx = trk.midiFxList;
+        }
+        if (drawerData_.audioFx.size() != trk.audioFxList.size()) {
+            drawerData_.audioFx = trk.audioFxList;
+        }
+        drawerData_.presetTitle = trk.instrument.empty() ? trk.name : trk.instrument;
+        drawerData_.presetSubtitle = trk.name + " • " + (trk.instrument.empty() ? "Track" : trk.instrument);
+    } else {
+        drawerData_.presetTitle = presetTitle_;
+        drawerData_.presetSubtitle = presetSubtitle_;
+    }
+
+    drawerData_.activePresetIdx = activePresetIdx_;
+    drawerData_.totalPresets = totalPresets_;
+    drawerData_.scopeBuffer = scopeSpan_.empty() ? scopeBuffer_ : scopeSpan_.data();
+    drawerData_.scopeBufferCount = scopeSpan_.empty() ? scopeBufferCount_ : scopeSpan_.size();
+
+    if (onPopulateClapData) {
+        onPopulateClapData(selectedTrackIndex_, drawerData_);
+    }
 }
 
 void TrackInspectorView::syncBackFromDrawerData(const TrackPropertiesDrawerData& d) {
@@ -495,18 +556,82 @@ InspectorTrackChannel& TrackInspectorView::getTrack(size_t idx) {
 }
 
 void TrackInspectorView::setAudioScopeBuffer(const float* buffer, size_t count) {
-    if (!buffer || count == 0) return;
-    size_t copyCount = std::min(count, size_t{256});
-    std::copy(buffer, buffer + copyCount, scopeBuffer_);
-    scopeBufferCount_ = copyCount;
+    if (!buffer || count == 0) {
+        scopeSpan_ = {};
+        return;
+    }
+    scopeSpan_ = std::span<const float>(buffer, count);
+}
+
+void TrackInspectorView::setAudioScopeBuffer(std::span<const float> buffer) {
+    scopeSpan_ = buffer;
 }
 
 void TrackInspectorView::setPresetInfo(size_t activePresetIdx, size_t totalPresets,
                                       const std::string& presetTitle, const std::string& presetSubtitle) {
     activePresetIdx_ = activePresetIdx;
     totalPresets_ = totalPresets;
-    presetTitle_ = presetTitle;
-    presetSubtitle_ = presetSubtitle;
+    if (presetTitle_ != presetTitle) presetTitle_ = presetTitle;
+    if (presetSubtitle_ != presetSubtitle) presetSubtitle_ = presetSubtitle;
+}
+
+void TrackInspectorView::setPresetInfo(size_t activePresetIdx, size_t totalPresets,
+                                      std::string_view presetTitle, std::string_view presetSubtitle) {
+    activePresetIdx_ = activePresetIdx;
+    totalPresets_ = totalPresets;
+    if (presetTitle_ != presetTitle) presetTitle_ = presetTitle;
+    if (presetSubtitle_ != presetSubtitle) presetSubtitle_ = presetSubtitle;
+}
+
+void TrackInspectorView::syncFromWindow(
+    std::span<const ArrangerTrackData> tracks,
+    uint32_t selectedTrackIdx,
+    std::string_view activePresetTitle,
+    std::string_view activePresetSubtitle,
+    size_t activePresetIdx,
+    size_t totalPresets,
+    float scrollY
+) {
+    setActiveTrack(selectedTrackIdx);
+    setPresetInfo(activePresetIdx, totalPresets, activePresetTitle, activePresetSubtitle);
+    setScrollY(scrollY);
+
+    size_t count = tracks.size();
+    while (tracks_.size() < count) {
+        InspectorTrackChannel nt;
+        nt.name = "Track " + std::to_string(tracks_.size() + 1);
+        syncKnobsForTrack(nt);
+        tracks_.push_back(std::move(nt));
+    }
+    if (tracks_.size() > count) {
+        tracks_.resize(count);
+    }
+    if (selectedTrackIndex_ >= tracks_.size() && !tracks_.empty()) {
+        selectedTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& src = tracks[i];
+        auto& trk = tracks_[i];
+        if (trk.name != src.name) trk.name = src.name;
+        trk.volume = src.volume;
+        trk.pan = src.pan;
+        trk.mute = src.mute;
+        trk.solo = src.solo;
+        trk.freeze = src.freeze;
+        trk.r = src.r;
+        trk.g = src.g;
+        trk.b = src.b;
+        trk.chordFollowMode = src.chordFollowMode;
+
+        if (trk.instrument != src.instrument && !src.instrument.empty()) {
+            trk.instrument = src.instrument;
+        }
+        if (!src.instrumentEngine.empty() && trk.instrumentEngine != src.instrumentEngine) {
+            trk.instrumentEngine = src.instrumentEngine;
+            syncKnobsForTrack(trk);
+        }
+    }
 }
 
 void TrackInspectorView::syncFromWindow(
@@ -591,14 +716,14 @@ void TrackInspectorView::render(const ViewContext& ctx) {
     drawRect(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h,
              theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
-    auto data = buildDrawerData();
-    panel_.render(r, theme, data, ctx.mouseX, ctx.mouseY);
+    updateDrawerData();
+    panel_.render(r, theme, drawerData_, ctx.mouseX, ctx.mouseY);
 }
 
 bool TrackInspectorView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
-    auto data = buildDrawerData();
-    bool handled = panel_.handlePointer(ev, data, ctx);
-    syncBackFromDrawerData(data);
+    updateDrawerData();
+    bool handled = panel_.handlePointer(ev, drawerData_, ctx);
+    syncBackFromDrawerData(drawerData_);
     return handled;
 }
 

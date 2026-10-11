@@ -329,25 +329,33 @@ PresetDefinition PresetLoader::parseFromEatscript(const std::string& scriptSourc
         }
     }
 
-    // 2. Evaluate AST via Evaluator
-    eatscript::Evaluator evaluator;
-    evaluator.evaluateSource(scriptSource);
+    // Guard against project files (e.g. INI [project] or eatsbeats.song)
+    if (scriptSource.find("[project]") != std::string::npos ||
+        scriptSource.find("return eatsbeats.song") != std::string::npos) {
+        return def;
+    }
 
-    if (evaluator.hasFunction("init")) {
-        eatscript::Value initRes = evaluator.callFunction("init");
-        if (initRes.isDict()) {
-            for (const auto& [key, pVal] : initRes.dictVal) {
-                if (pVal.isDict()) {
-                    PresetParam p{};
-                    p.name = pVal.get("name", eatscript::Value(key)).asString();
-                    p.minVal = pVal.get("min", eatscript::Value(0.0)).asFloat();
-                    p.maxVal = pVal.get("max", eatscript::Value(1.0)).asFloat();
-                    p.defaultVal = pVal.get("default", eatscript::Value(p.minVal)).asFloat();
-                    p.currentVal = p.defaultVal;
-                    p.step = pVal.get("step", eatscript::Value(0.0)).asFloat();
-                    p.unit = pVal.get("unit", eatscript::Value("")).asString();
-                    p.allowVariance = pVal.get("allow_variance", eatscript::Value(true)).asBoolean(true);
-                    def.params[key] = p;
+    // 2. Evaluate AST via Evaluator (only if script defines functions)
+    eatscript::Evaluator evaluator;
+    if (scriptSource.find("def ") != std::string::npos) {
+        evaluator.evaluateSource(scriptSource);
+
+        if (evaluator.hasFunction("init")) {
+            eatscript::Value initRes = evaluator.callFunction("init");
+            if (initRes.isDict()) {
+                for (const auto& [key, pVal] : initRes.dictVal) {
+                    if (pVal.isDict()) {
+                        PresetParam p{};
+                        p.name = pVal.get("name", eatscript::Value(key)).asString();
+                        p.minVal = pVal.get("min", eatscript::Value(0.0)).asFloat();
+                        p.maxVal = pVal.get("max", eatscript::Value(1.0)).asFloat();
+                        p.defaultVal = pVal.get("default", eatscript::Value(p.minVal)).asFloat();
+                        p.currentVal = p.defaultVal;
+                        p.step = pVal.get("step", eatscript::Value(0.0)).asFloat();
+                        p.unit = pVal.get("unit", eatscript::Value("")).asString();
+                        p.allowVariance = pVal.get("allow_variance", eatscript::Value(true)).asBoolean(true);
+                        def.params[key] = p;
+                    }
                 }
             }
         }

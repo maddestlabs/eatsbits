@@ -183,6 +183,13 @@ void PresetManager::scanPresetsFolder(const std::string& basePath) {
                 buffer << file.rdbuf();
                 item.rawScript = buffer.str();
 
+                // Skip non-preset project/song files (e.g. INI [project] or eatsbeats.song)
+                if (item.rawScript.find("[project]") != std::string::npos ||
+                    item.rawScript.find("return eatsbeats.song") != std::string::npos ||
+                    item.rawScript.find("\"format\": \"eatsbits\"") != std::string::npos) {
+                    continue;
+                }
+
                 std::istringstream stream(item.rawScript);
                 std::string line;
                 while (std::getline(stream, line)) {
@@ -227,6 +234,13 @@ size_t PresetManager::scanDirectory(const std::string& dirPath, const std::strin
                 std::stringstream buffer;
                 buffer << file.rdbuf();
                 item.rawScript = buffer.str();
+
+                // Skip non-preset project/song files
+                if (item.rawScript.find("[project]") != std::string::npos ||
+                    item.rawScript.find("return eatsbeats.song") != std::string::npos ||
+                    item.rawScript.find("\"format\": \"eatsbits\"") != std::string::npos) {
+                    continue;
+                }
 
                 std::istringstream stream(item.rawScript);
                 std::string line;

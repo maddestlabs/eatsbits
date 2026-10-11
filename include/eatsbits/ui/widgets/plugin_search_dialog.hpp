@@ -70,6 +70,8 @@ public:
     void setSelectedCategoryIndex(int idx) noexcept { selectedCategoryIndex_ = idx; }
     [[nodiscard]] size_t getFilteredCount() const { return getFilteredEntries().size(); }
 
+    void refreshLibrary() { initLibrary(); }
+
     void setClipboardProvider(std::function<std::string()> provider) {
         clipboardProvider_ = std::move(provider);
     }
@@ -101,6 +103,7 @@ private:
     float screenHeight_{800.0f};
     Rect2D dialogBounds_{0.0f, 0.0f, 620.0f, 540.0f};
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D rescanBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchClearBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 

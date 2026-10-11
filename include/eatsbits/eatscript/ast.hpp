@@ -21,12 +21,14 @@ enum class ExprKind : uint8_t {
     Unary,
     Call,
     List,
-    Dict
+    Dict,
+    Index
 };
 
 enum class StmtKind : uint8_t {
     Expr,
     Assign,
+    IndexAssign,
     Return,
     If,
     FunctionDef
@@ -129,6 +131,14 @@ struct DictLiteral : Expr {
     ~DictLiteral() { EATS_WASM_KEEP_THIS; }
 };
 
+struct IndexExpr : Expr {
+    std::shared_ptr<Expr> object;
+    std::shared_ptr<Expr> index;
+    IndexExpr(std::shared_ptr<Expr> obj, std::shared_ptr<Expr> idx)
+        : Expr(ExprKind::Index), object(std::move(obj)), index(std::move(idx)) {}
+    ~IndexExpr() { EATS_WASM_KEEP_THIS; }
+};
+
 // Statements
 struct ExprStmt : Stmt {
     std::shared_ptr<Expr> expression;
@@ -143,6 +153,15 @@ struct AssignStmt : Stmt {
     AssignStmt(std::string name, std::shared_ptr<Expr> val)
         : Stmt(StmtKind::Assign), variableName(std::move(name)), value(std::move(val)) {}
     ~AssignStmt() { EATS_WASM_KEEP_THIS; }
+};
+
+struct IndexAssignStmt : Stmt {
+    std::string variableName;
+    std::shared_ptr<Expr> index;
+    std::shared_ptr<Expr> value;
+    IndexAssignStmt(std::string name, std::shared_ptr<Expr> idx, std::shared_ptr<Expr> val)
+        : Stmt(StmtKind::IndexAssign), variableName(std::move(name)), index(std::move(idx)), value(std::move(val)) {}
+    ~IndexAssignStmt() { EATS_WASM_KEEP_THIS; }
 };
 
 struct ReturnStmt : Stmt {
@@ -187,9 +206,11 @@ template <> struct ASTTraits<UnaryExpr> { static constexpr ExprKind exprKind = E
 template <> struct ASTTraits<CallExpr> { static constexpr ExprKind exprKind = ExprKind::Call; };
 template <> struct ASTTraits<ListLiteral> { static constexpr ExprKind exprKind = ExprKind::List; };
 template <> struct ASTTraits<DictLiteral> { static constexpr ExprKind exprKind = ExprKind::Dict; };
+template <> struct ASTTraits<IndexExpr> { static constexpr ExprKind exprKind = ExprKind::Index; };
 
 template <> struct ASTTraits<ExprStmt> { static constexpr StmtKind stmtKind = StmtKind::Expr; };
 template <> struct ASTTraits<AssignStmt> { static constexpr StmtKind stmtKind = StmtKind::Assign; };
+template <> struct ASTTraits<IndexAssignStmt> { static constexpr StmtKind stmtKind = StmtKind::IndexAssign; };
 template <> struct ASTTraits<ReturnStmt> { static constexpr StmtKind stmtKind = StmtKind::Return; };
 template <> struct ASTTraits<IfStmt> { static constexpr StmtKind stmtKind = StmtKind::If; };
 template <> struct ASTTraits<FunctionDef> { static constexpr StmtKind stmtKind = StmtKind::FunctionDef; };

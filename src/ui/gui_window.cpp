@@ -17,6 +17,7 @@
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
+#include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include <iostream>
@@ -1026,7 +1027,7 @@ inline bool isSpecialSymbol(uint32_t cp) {
            (cp >= 0x25A0 && cp <= 0x25FF);   // Geometric shapes
 }
 
-void drawVectorString(const std::string& str, float x, float y, float scale, float r, float g, float b, float a) {
+void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
     bool hasSpecial = false;
     for (unsigned char c : str) {
         if (c >= 0x80) {
@@ -1052,7 +1053,7 @@ void drawVectorString(const std::string& str, float x, float y, float scale, flo
                           (static_cast<unsigned int>(cb) << 16) |
                           (static_cast<unsigned int>(ca) << 24);
         fonsSetColor(fs, col);
-        fonsDrawText(fs, x, y, str.c_str(), nullptr);
+        fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
         return;
     }
 
@@ -1073,8 +1074,7 @@ void drawVectorString(const std::string& str, float x, float y, float scale, flo
             drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
             curX += charW;
         } else {
-            // Draw regular glyph via FontStash
-            std::string sub(prevPtr, ptr);
+            // Draw regular glyph chunk via FontStash with zero allocations
             FONScontext* fs = g_activeFontRenderer->fs;
             fonsClearState(fs);
             float fontSize = std::max(11.0f, scale * 15.5f);
@@ -1090,12 +1090,12 @@ void drawVectorString(const std::string& str, float x, float y, float scale, flo
                               (static_cast<unsigned int>(cb) << 16) |
                               (static_cast<unsigned int>(ca) << 24);
             fonsSetColor(fs, col);
-            curX = fonsDrawText(fs, curX, y, sub.c_str(), nullptr);
+            curX = fonsDrawText(fs, curX, y, prevPtr, ptr);
         }
     }
 }
 
-void drawVectorStringCentered(const std::string& str, float cx, float cy, float scale, float r, float g, float b, float a) {
+void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
     bool hasSpecial = false;
     for (unsigned char c : str) {
         if (c >= 0x80) {
@@ -1121,7 +1121,7 @@ void drawVectorStringCentered(const std::string& str, float cx, float cy, float 
                           (static_cast<unsigned int>(cb) << 16) |
                           (static_cast<unsigned int>(ca) << 24);
         fonsSetColor(fs, col);
-        fonsDrawText(fs, cx, cy + 0.5f, str.c_str(), nullptr);
+        fonsDrawText(fs, cx, cy + 0.5f, str.data(), str.data() + str.size());
         return;
     }
 
@@ -1132,7 +1132,7 @@ void drawVectorStringCentered(const std::string& str, float cx, float cy, float 
     drawVectorString(str, startX, startY, scale, r, g, b, a);
 }
 
-float drawSyntaxString(const std::string& str, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
+float drawSyntaxString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
     if (g_activeFontRenderer && g_activeFontRenderer->fs && (g_activeFontRenderer->fontMono != FONS_INVALID || g_activeFontRenderer->fontNormal != FONS_INVALID)) {
         int fid = (g_activeFontRenderer->fontMono != FONS_INVALID) ? g_activeFontRenderer->fontMono : g_activeFontRenderer->fontNormal;
         FONScontext* fs = g_activeFontRenderer->fs;
@@ -1151,13 +1151,13 @@ float drawSyntaxString(const std::string& str, float x, float y, float scale, fl
                           (static_cast<unsigned int>(cb) << 16) |
                           (static_cast<unsigned int>(ca) << 24);
         fonsSetColor(fs, col);
-        return fonsDrawText(fs, x, y, str.c_str(), nullptr);
+        return fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
     }
     drawVectorString(str, x, y, scale, r, g, b, a);
     return x + static_cast<float>(str.size()) * (7.0f * scale);
 }
 
-void drawMonoString(const std::string& str, float x, float y, float scale, float r, float g, float b, float a) {
+void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
     if (g_activeFontRenderer && g_activeFontRenderer->fs && (g_activeFontRenderer->fontMono != FONS_INVALID || g_activeFontRenderer->fontNormal != FONS_INVALID)) {
         int fid = (g_activeFontRenderer->fontMono != FONS_INVALID) ? g_activeFontRenderer->fontMono : g_activeFontRenderer->fontNormal;
         FONScontext* fs = g_activeFontRenderer->fs;
@@ -1176,7 +1176,7 @@ void drawMonoString(const std::string& str, float x, float y, float scale, float
                           (static_cast<unsigned int>(cb) << 16) |
                           (static_cast<unsigned int>(ca) << 24);
         fonsSetColor(fs, col);
-        fonsDrawText(fs, x, y, str.c_str(), nullptr);
+        fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
         return;
     }
     drawVectorString(str, x, y, scale, r, g, b, a);
@@ -1545,6 +1545,7 @@ GuiWindow::GuiWindow(uint32_t width, uint32_t height, const std::string& title)
     initEatscriptIde();
     initNoteScriptEditor();
     initArrangerTracks();
+    audio::ClapPluginLoader::instance().scanDirectoriesAsync();
 }
 
 GuiWindow::~GuiWindow() {
@@ -6044,7 +6045,7 @@ void GuiWindow::renderFrame() {
         telemetryPresenter_.update(*engine_, frameDt);
     }
 
-    const auto& scope = telemetryPresenter_.getScopeSamples();
+    auto scope = telemetryPresenter_.getScopeSpan();
     if (!scope.empty()) {
         canvas_.setScopeData(scope.data(), std::min(scope.size(), size_t(128)));
     }
@@ -6103,7 +6104,7 @@ void GuiWindow::renderFrame() {
         // 2. ACTIVE VIEW DISPATCH OR HIGH-PERFORMANCE DEDICATED FULL-DISPLAY DEVICE
         // =========================================================================
         if (fullscreenDeviceModal_.isOpen()) {
-            fullscreenDeviceModal_.setAudioScopeBuffer(scopeBuffer_, 128);
+            fullscreenDeviceModal_.setAudioScopeBuffer(std::span<const float>(scopeBuffer_, 128));
             fullscreenDeviceModal_.layout(static_cast<float>(width_), static_cast<float>(height_));
             fullscreenDeviceModal_.update(frameDt);
             if (fullscreenDeviceModal_.isGuiEmbedded() && engine_) {
@@ -6134,11 +6135,12 @@ void GuiWindow::renderFrame() {
                 ViewContext ctx = createViewContext();
                 float topY = 56.0f;
                 float bottomY = static_cast<float>(height_) - 48.0f;
+                size_t numTrackPeaks = std::min(chPeakL_.size(), arrangerTracks_.size());
                 modularArrangerView_->setMasterLevels(
                     masterVolume_, masterPan_, masterMute_,
                     masterPeakL_, masterPeakR_,
-                    chPeakL_.data(), chPeakR_.data(),
-                    std::min(chPeakL_.size(), arrangerTracks_.size())
+                    std::span<const float>(chPeakL_.data(), numTrackPeaks),
+                    std::span<const float>(chPeakR_.data(), numTrackPeaks)
                 );
                 modularArrangerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
                 modularArrangerView_->render(ctx);
@@ -6148,120 +6150,77 @@ void GuiWindow::renderFrame() {
                 ViewContext ctx = createViewContext();
                 float topY = 56.0f;
                 float bottomY = static_cast<float>(height_) - 48.0f;
-                modularDesignView_->setAudioScopeBuffer(scopeBuffer_, 256);
+                modularDesignView_->setAudioScopeBuffer(std::span<const float>(scopeBuffer_, 256));
                 modularDesignView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
                 modularDesignView_->render(ctx);
             }
         } else if (activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) {
-        if (modularEditView_) {
-            ViewContext ctx = createViewContext();
-            float topY = 56.0f;
-            float bottomY = static_cast<float>(height_) - 48.0f;
-            if (modularEditView_->getActiveTrackIndex() != selectedTrackIndex_) {
-                syncActiveClipToEditView(selectedTrackIndex_, -1);
-            }
-            modularEditView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
-            modularEditView_->render(ctx);
-        }
-    } else if (activeView_ == WorkspaceView::Mixer) {
-        if (modularMixerView_) {
-            ViewContext ctx = createViewContext();
-            float topY = 56.0f;
-            float bottomY = bPanelY - 6.0f;
-
-            std::vector<std::string> trackNames;
-            std::vector<float> trackVols;
-            std::vector<float> trackPans;
-            std::vector<bool> trackMutes;
-            std::vector<bool> trackSolos;
-            std::vector<bool> trackFreezes;
-            std::vector<Color> trackColors;
-
-            size_t trkCount = arrangerTracks_.empty() ? mixerStrips_.size() : arrangerTracks_.size();
-            for (size_t i = 0; i < trkCount; ++i) {
-                std::string name = (i < arrangerTracks_.size()) ? arrangerTracks_[i].name : ((i < mixerStrips_.size()) ? mixerStrips_[i].name : ("Track " + std::to_string(i + 1)));
-                float vol = (i < arrangerTracks_.size()) ? arrangerTracks_[i].volume : ((i < mixerStrips_.size()) ? mixerStrips_[i].volume : 0.8f);
-                float pan = (i < arrangerTracks_.size()) ? arrangerTracks_[i].pan : ((i < mixerStrips_.size()) ? mixerStrips_[i].pan : 0.0f);
-                bool mute = (i < arrangerTracks_.size()) ? arrangerTracks_[i].mute : ((i < mixerStrips_.size()) ? mixerStrips_[i].mute : false);
-                bool solo = (i < arrangerTracks_.size()) ? arrangerTracks_[i].solo : ((i < mixerStrips_.size()) ? mixerStrips_[i].solo : false);
-                bool freeze = (i < arrangerTracks_.size()) ? arrangerTracks_[i].freeze : ((i < mixerStrips_.size()) ? mixerStrips_[i].freeze : false);
-                Color col = (i < arrangerTracks_.size()) ? Color(arrangerTracks_[i].r, arrangerTracks_[i].g, arrangerTracks_[i].b) : Color(0.0f, 0.90f, 1.0f);
-
-                trackNames.push_back(name);
-                trackVols.push_back(vol);
-                trackPans.push_back(pan);
-                trackMutes.push_back(mute);
-                trackSolos.push_back(solo);
-                trackFreezes.push_back(freeze);
-                trackColors.push_back(col);
-            }
-
-            modularMixerView_->syncFromWindow(
-                trackNames, trackVols, trackPans, trackMutes, trackSolos, trackFreezes, trackColors,
-                selectedTrackIndex_, masterVolume_, masterPan_, masterMute_,
-                masterPeakL_, masterPeakR_, chPeakL_.data(), chPeakR_.data(), 5,
-                mixerPropertiesExpanded_, mixerPropertiesWidth_,
-                showMixerRouting_, showMixerPan_, showMixerButtons_,
-                showMixerMeters_, showMixerAutomation_, showMixerReadouts_,
-                browserOpen_, trackInspectorScrollY_
-            );
-            if (modularArrangerView_) {
-                const auto& arrTracks = modularArrangerView_->getTracks();
-                auto& mixChannels = modularMixerView_->getChannels();
-                for (size_t i = 0; i < mixChannels.size() && i < arrTracks.size(); ++i) {
-                    mixChannels[i].audioFx = arrTracks[i].audioFx;
-                    mixChannels[i].midiFx = arrTracks[i].midiFx;
-                    mixChannels[i].instrument = arrTracks[i].instrument;
+            if (modularEditView_) {
+                ViewContext ctx = createViewContext();
+                float topY = 56.0f;
+                float bottomY = static_cast<float>(height_) - 48.0f;
+                if (modularEditView_->getActiveTrackIndex() != selectedTrackIndex_) {
+                    syncActiveClipToEditView(selectedTrackIndex_, -1);
                 }
+                modularEditView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+                modularEditView_->render(ctx);
             }
-            modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
-            modularMixerView_->render(ctx);
-        }
-    } else if (activeView_ == WorkspaceView::HardwarePanel || activeView_ == WorkspaceView::Track) {
-        if (modularTrackInspectorView_) {
-            ViewContext ctx = createViewContext();
-            float topY = 56.0f;
-            float bottomY = bPanelY - 6.0f;
+        } else if (activeView_ == WorkspaceView::Mixer) {
+            if (modularMixerView_) {
+                ViewContext ctx = createViewContext();
+                float topY = 56.0f;
+                float bottomY = bPanelY - 6.0f;
 
-            std::vector<std::string> trackNames;
-            std::vector<float> trackVols;
-            std::vector<float> trackPans;
-            std::vector<bool> trackMutes;
-            std::vector<bool> trackSolos;
-            std::vector<bool> trackFreezes;
-            std::vector<Color> trackColors;
-            std::vector<std::string> trackInstruments;
-            std::vector<std::string> trackInstrumentEngines;
+                size_t numTrackPeaks = std::min(chPeakL_.size(), arrangerTracks_.size());
+                std::span<const float> peaksL(chPeakL_.data(), numTrackPeaks);
+                std::span<const float> peaksR(chPeakR_.data(), numTrackPeaks);
 
-            std::vector<theory::ChordFollowMode> trackChordFollowModes;
-
-            for (const auto& trk : arrangerTracks_) {
-                trackNames.push_back(trk.name);
-                trackVols.push_back(trk.volume);
-                trackPans.push_back(trk.pan);
-                trackMutes.push_back(trk.mute);
-                trackSolos.push_back(trk.solo);
-                trackFreezes.push_back(trk.freeze);
-                trackColors.push_back(Color(trk.r, trk.g, trk.b));
-                trackInstruments.push_back(trk.instrument);
-                trackInstrumentEngines.push_back(trk.instrumentEngine);
-                trackChordFollowModes.push_back(trk.chordFollowMode);
+                modularMixerView_->syncFromWindow(
+                    std::span<const ArrangerTrackData>(arrangerTracks_),
+                    selectedTrackIndex_, masterVolume_, masterPan_, masterMute_,
+                    masterPeakL_, masterPeakR_, peaksL, peaksR,
+                    mixerPropertiesExpanded_, mixerPropertiesWidth_,
+                    showMixerRouting_, showMixerPan_, showMixerButtons_,
+                    showMixerMeters_, showMixerAutomation_, showMixerReadouts_,
+                    browserOpen_, trackInspectorScrollY_
+                );
+                if (modularArrangerView_) {
+                    const auto& arrTracks = modularArrangerView_->getTracks();
+                    auto& mixChannels = modularMixerView_->getChannels();
+                    for (size_t i = 0; i < mixChannels.size() && i < arrTracks.size(); ++i) {
+                        if (mixChannels[i].instrument != arrTracks[i].instrument) {
+                            mixChannels[i].instrument = arrTracks[i].instrument;
+                        }
+                        if (mixChannels[i].audioFx.size() != arrTracks[i].audioFx.size()) {
+                            mixChannels[i].audioFx = arrTracks[i].audioFx;
+                        }
+                        if (mixChannels[i].midiFx.size() != arrTracks[i].midiFx.size()) {
+                            mixChannels[i].midiFx = arrTracks[i].midiFx;
+                        }
+                    }
+                }
+                modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+                modularMixerView_->render(ctx);
             }
+        } else if (activeView_ == WorkspaceView::HardwarePanel || activeView_ == WorkspaceView::Track) {
+            if (modularTrackInspectorView_) {
+                ViewContext ctx = createViewContext();
+                float topY = 56.0f;
+                float bottomY = bPanelY - 6.0f;
 
-            const auto* preset = getActivePreset();
-            std::string pTitle = preset ? preset->guiRoot.title : "TB-303 Acid Bassline";
-            std::string pSub = preset ? preset->guiRoot.subtitle : "Diode Ladder Synthesizer";
+                const auto* preset = getActivePreset();
+                std::string_view pTitle = preset ? std::string_view(preset->guiRoot.title) : std::string_view("TB-303 Acid Bassline");
+                std::string_view pSub = preset ? std::string_view(preset->guiRoot.subtitle) : std::string_view("Diode Ladder Synthesizer");
 
-            modularTrackInspectorView_->syncFromWindow(
-                trackNames, trackVols, trackPans, trackMutes, trackSolos, trackFreezes, trackColors,
-                selectedTrackIndex_, pTitle, pSub, activePresetIndex_, presets_.size(), trackInspectorScrollY_,
-                trackInstruments, trackInstrumentEngines, trackChordFollowModes
-            );
-            modularTrackInspectorView_->setAudioScopeBuffer(scopeBuffer_, 256);
-            modularTrackInspectorView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
-            modularTrackInspectorView_->render(ctx);
+                modularTrackInspectorView_->syncFromWindow(
+                    std::span<const ArrangerTrackData>(arrangerTracks_),
+                    selectedTrackIndex_, pTitle, pSub, activePresetIndex_, presets_.size(), trackInspectorScrollY_
+                );
+                modularTrackInspectorView_->setAudioScopeBuffer(std::span<const float>(scopeBuffer_, 256));
+                modularTrackInspectorView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+                modularTrackInspectorView_->render(ctx);
+            }
         }
-    }
 
         // Virtual Piano Keyboard Drawer (Horizontal collapsible drawer docking above bottom nav)
         drawVirtualKeyboardDrawer();
@@ -6467,7 +6426,7 @@ void GuiWindow::renderFrame() {
                 else if (projectHubSection_ == 2) curDrawerH = 244.0f;
                 else if (projectHubSection_ == 3) curDrawerH = 100.0f;
                 else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
-                else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+                else if (projectHubSection_ == 5) curDrawerH = 176.0f;
                 else if (projectHubSection_ == 6) curDrawerH = 100.0f;
             }
 
@@ -6495,7 +6454,7 @@ void GuiWindow::renderFrame() {
                 "DISPLAY & WORKSPACE",
                 "CHASSIS COLOR ACCENTS & TINTS",
                 "CRT SHADER",
-                "AUDIO ENGINE CONFIG",
+                "AUDIO & CLAP PLUGINS",
                 "CREDITS & ACKNOWLEDGMENTS"
             };
 
@@ -7022,20 +6981,58 @@ void GuiWindow::renderFrame() {
                             projectHubScrollArea_.renderScrollbar(*batchRenderer_, theme);
                         }
                     } else if (s == 5) {
-                        // SECTION 5: AUDIO ENGINE CONFIG
-                        drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
-                        drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
+                        // SECTION 5: AUDIO ENGINE & CLAP PLUGINS
+                        drawRoundedRect(hubX + 20.0f, contentY + 2.0f, hubW - 40.0f, 78.0f, 6.0f, theme.backgroundDark);
+                        drawRoundedRectOutline(hubX + 20.0f, contentY + 2.0f, hubW - 40.0f, 78.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
 #if defined(__EMSCRIPTEN__)
-                        drawVectorString("• Hardware Driver: WebAssembly AudioWorklet / WebGPU Native", hubX + 32.0f, contentY + 14.0f, 0.75f, theme.textPrimary);
+                        drawVectorString("• Hardware Driver: WebAssembly AudioWorklet / WebGPU Native", hubX + 32.0f, contentY + 12.0f, 0.70f, theme.textPrimary);
 #elif defined(_WIN32)
-                        drawVectorString("• Hardware Driver: WASAPI Exclusive Low-Latency (miniaudio)", hubX + 32.0f, contentY + 14.0f, 0.75f, theme.textPrimary);
+                        drawVectorString("• Hardware Driver: WASAPI Exclusive Low-Latency (miniaudio)", hubX + 32.0f, contentY + 12.0f, 0.70f, theme.textPrimary);
 #else
-                        drawVectorString("• Hardware Driver: ALSA / CoreAudio Low-Latency (miniaudio)", hubX + 32.0f, contentY + 14.0f, 0.75f, theme.textPrimary);
+                        drawVectorString("• Hardware Driver: ALSA / CoreAudio Low-Latency (miniaudio)", hubX + 32.0f, contentY + 12.0f, 0.70f, theme.textPrimary);
 #endif
-                        drawVectorString("• Sample Rate: 48,000 Hz Hardware Native / Stereo Floating-Point", hubX + 32.0f, contentY + 30.0f, 0.75f, theme.textSecondary);
-                        drawVectorString("• Buffer Latency: 128 frames (~2.67 ms) / Strict Zero-Allocation Audio Loop", hubX + 32.0f, contentY + 46.0f, 0.75f, theme.textSecondary);
-                        drawVectorString("• Script Engine: Dual-Mode Eatscript VM & SIMD AOT Transpiler (Pure C++20)", hubX + 32.0f, contentY + 62.0f, 0.75f, theme.textSecondary);
-                        drawVectorString("• Lock-Free Concurrency: SPSC Wait-Free Event & Meter Ringbuffers", hubX + 32.0f, contentY + 78.0f, 0.75f, theme.textSecondary);
+                        drawVectorString("• Sample Rate: 48,000 Hz Native Stereo / Strict Zero-Allocation Audio Loop", hubX + 32.0f, contentY + 27.0f, 0.70f, theme.textSecondary);
+                        drawVectorString("• Script Engine: Dual-Mode Eatscript VM & SIMD AOT Transpiler (Pure C++20)", hubX + 32.0f, contentY + 42.0f, 0.70f, theme.textSecondary);
+                        drawVectorString("• Lock-Free Concurrency: SPSC Wait-Free Event & Meter Ringbuffers", hubX + 32.0f, contentY + 57.0f, 0.70f, theme.textSecondary);
+
+                        // CLAP Plugin Scanner & Portable Configuration Card
+                        float clapCardY = contentY + 86.0f;
+                        drawRoundedRect(hubX + 20.0f, clapCardY, hubW - 40.0f, 82.0f, 6.0f, theme.backgroundDark);
+                        drawRoundedRectOutline(hubX + 20.0f, clapCardY, hubW - 40.0f, 82.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
+
+                        // Row 1: Include Application / Binary Directory Toggle (Reaper portable mode)
+                        bool incBin = audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled();
+                        drawVectorString("Scan App / Binary Directory (Portable / Reaper mode)", hubX + 32.0f, clapCardY + 14.0f, 0.80f, theme.textPrimary);
+                        drawVectorString("Includes ./plugins and executable folder without install", hubX + 32.0f, clapCardY + 27.0f, 0.65f, theme.textMuted);
+
+                        // Toggle Switch [hubX + hubW - 74, clapCardY + 12, 44, 20]
+                        drawRoundedRect(hubX + hubW - 74.0f, clapCardY + 12.0f, 44.0f, 20.0f, 10.0f,
+                                       incBin ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
+                        drawRoundedRectOutline(hubX + hubW - 74.0f, clapCardY + 12.0f, 44.0f, 20.0f, 10.0f,
+                                              incBin ? theme.primaryAccent : theme.borderSubtle, 1.0f);
+                        drawCircle(incBin ? (hubX + hubW - 42.0f) : (hubX + hubW - 62.0f), clapCardY + 22.0f, 7.0f,
+                                   incBin ? theme.primaryAccent : theme.textMuted);
+
+                        // Row 2: Status & [ ↻ RESCAN PLUGINS ] Button
+                        float row2Y = clapCardY + 45.0f;
+                        drawLine(hubX + 24.0f, row2Y, hubX + hubW - 24.0f, row2Y, theme.borderSubtle.darken(0.15f), 1.0f);
+
+                        size_t numDiscovered = audio::ClapPluginLoader::instance().getDiscoveredPlugins().size();
+                        bool isScanning = audio::ClapPluginLoader::instance().isScanning();
+                        std::string statusStr = isScanning ? "Scanning plugin directories in background..."
+                                                           : ("CLAP Plugins: " + std::to_string(numDiscovered) + " discovered");
+                        drawVectorString(statusStr, hubX + 32.0f, row2Y + 17.0f, 0.75f,
+                                         isScanning ? theme.primaryAccent : theme.textSecondary);
+
+                        // Rescan Button
+                        float btnW = 146.0f;
+                        float btnH = 24.0f;
+                        float btnX = hubX + hubW - btnW - 32.0f;
+                        float btnY = row2Y + 6.0f;
+                        drawRoundedRect(btnX, btnY, btnW, btnH, 4.0f, theme.controlBackground);
+                        drawRoundedRectOutline(btnX, btnY, btnW, btnH, 4.0f, isScanning ? theme.primaryAccent : theme.borderSubtle, 1.0f);
+                        drawVectorString(isScanning ? "SCANNING..." : "↻ RESCAN PLUGINS", btnX + 16.0f, btnY + 7.0f, 0.70f,
+                                         isScanning ? theme.primaryAccent : theme.textPrimary);
                     } else if (s == 6) {
                         // SECTION 6: CREDITS & ACKNOWLEDGMENTS
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
@@ -9139,7 +9136,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
         else if (projectHubSection_ == 2) curDrawerH = 244.0f;
         else if (projectHubSection_ == 3) curDrawerH = 268.0f;
         else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
-        else if (projectHubSection_ == 5) curDrawerH = 100.0f;
+        else if (projectHubSection_ == 5) curDrawerH = 176.0f;
         else if (projectHubSection_ == 6) curDrawerH = 100.0f;
     }
 
@@ -9359,6 +9356,22 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
             }
 
             res.action = ProjectHubAction::ContentDrag;
+            return res;
+        } else if (projectHubSection_ == 5) {
+            float contentStartY = drawerY;
+            float clapCardY = contentStartY + 86.0f;
+            // Toggle switch at [hubX + hubW - 74, clapCardY + 12, 44, 20]
+            if (x >= hubX + hubW - 80.0f && x <= hubX + hubW - 20.0f &&
+                y >= clapCardY + 8.0f && y <= clapCardY + 36.0f) {
+                res.action = ProjectHubAction::ToggleIncludeBinaryClapPath;
+                return res;
+            }
+            // Rescan button at [hubX + hubW - 178, clapCardY + 51, 146, 24]
+            if (x >= hubX + hubW - 186.0f && x <= hubX + hubW - 24.0f &&
+                y >= clapCardY + 47.0f && y <= clapCardY + 77.0f) {
+                res.action = ProjectHubAction::RescanClapPlugins;
+                return res;
+            }
             return res;
         }
     }
@@ -13279,6 +13292,21 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::SetPanelTint:
                         setPanelChassisTint(hubHit.panelTint);
                         break;
+                    case ProjectHubAction::ToggleIncludeBinaryClapPath: {
+                        bool cur = audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled();
+                        audio::ClapPluginLoader::instance().setIncludeBinaryPath(!cur);
+                        setStatusMessage(std::string("Portable CLAP Binary Path: ") + (!cur ? "ENABLED (Reaper Mode)" : "DISABLED (System Paths Only)"));
+                        break;
+                    }
+                    case ProjectHubAction::RescanClapPlugins: {
+                        if (!audio::ClapPluginLoader::instance().isScanning()) {
+                            setStatusMessage("Scanning CLAP plugin directories in background...");
+                            audio::ClapPluginLoader::instance().scanDirectoriesAsync({}, [this](const auto& res) {
+                                setStatusMessage("CLAP Scan Complete: " + std::to_string(res.size()) + " plugins discovered.");
+                            });
+                        }
+                        break;
+                    }
                     case ProjectHubAction::CrtPresetStudioRef: {
                         auto cfg = dawnBridge_.getMaterialConfig();
                         cfg.scanlineIntensity = 0.38f;

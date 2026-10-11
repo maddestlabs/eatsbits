@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <string>
+#include <span>
 
 namespace eatsbits::audio {
     class AudioEngine;
@@ -119,7 +120,9 @@ public:
     [[nodiscard]] const TelemetrySnapshot& getSnapshot() const noexcept { return snapshot_; }
     [[nodiscard]] const ChannelMeterData& getMasterMeter() const noexcept { return snapshot_.masterMeter; }
     [[nodiscard]] const std::vector<ChannelMeterData>& getTrackMeters() const noexcept { return snapshot_.trackMeters; }
+    [[nodiscard]] std::span<const ChannelMeterData> getTrackMeterSpan() const noexcept { return snapshot_.trackMeters; }
     [[nodiscard]] const std::vector<float>& getScopeSamples() const noexcept { return snapshot_.scopeSamples; }
+    [[nodiscard]] std::span<const float> getScopeSpan() const noexcept { return snapshot_.scopeSamples; }
     [[nodiscard]] const std::array<float, 16>& getSpectrumBands() const noexcept { return snapshot_.spectrumBands; }
     [[nodiscard]] const TransportTelemetry& getTransport() const noexcept { return snapshot_.transport; }
 

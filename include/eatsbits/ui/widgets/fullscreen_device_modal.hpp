@@ -13,6 +13,7 @@
 #include <functional>
 #include <cmath>
 #include <algorithm>
+#include <span>
 #include <chrono>
 
 namespace eatsbits::ui {
@@ -62,6 +63,7 @@ public:
 
     void syncData(const TrackPropertiesDrawerData& data) noexcept;
     void setAudioScopeBuffer(const float* buffer, size_t count) noexcept;
+    void setAudioScopeBuffer(std::span<const float> buffer) noexcept;
 
     [[nodiscard]] const GuiPanelDef& getGuiPanel() const noexcept { return guiPanel_; }
     [[nodiscard]] GuiPanelDef& getGuiPanel() noexcept { return guiPanel_; }

@@ -12,6 +12,46 @@
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
 
+#include <atomic>
+#include <new>
+
+static std::atomic<size_t> g_allocationCount{0};
+static std::atomic<bool> g_trackAllocations{false};
+
+void* operator new(size_t size) {
+    if (g_trackAllocations.load(std::memory_order_relaxed)) {
+        g_allocationCount.fetch_add(1, std::memory_order_relaxed);
+    }
+    void* ptr = std::malloc(size);
+    if (!ptr) throw std::bad_alloc();
+    return ptr;
+}
+
+void* operator new[](size_t size) {
+    if (g_trackAllocations.load(std::memory_order_relaxed)) {
+        g_allocationCount.fetch_add(1, std::memory_order_relaxed);
+    }
+    void* ptr = std::malloc(size);
+    if (!ptr) throw std::bad_alloc();
+    return ptr;
+}
+
+void operator delete(void* ptr) noexcept {
+    std::free(ptr);
+}
+
+void operator delete(void* ptr, size_t) noexcept {
+    std::free(ptr);
+}
+
+void operator delete[](void* ptr) noexcept {
+    std::free(ptr);
+}
+
+void operator delete[](void* ptr, size_t) noexcept {
+    std::free(ptr);
+}
+
 #define REQUIRE(expr) do { \
     if (!(expr)) { \
         std::cerr << "Assertion failed: (" #expr ") at " << __FILE__ << ":" << __LINE__ << std::endl; \
@@ -3458,6 +3498,66 @@ void testFullscreenDeviceModal() {
     std::cout << "  [PASS] Fullscreen Device Modal tests passed." << std::endl;
 }
 
+void testZeroAllocationGuiRenderLoop() {
+    std::cout << "[Test] Zero heap allocations in GUI render loop (renderFrame during playback)..." << std::endl;
+
+    AudioEngine engine;
+    AudioEngineConfig cfg{};
+    cfg.sampleRate = 48000;
+    cfg.bufferFrameSize = 128;
+    engine.setupDefaultAcidGraph();
+
+    auto& seq = engine.getSequencer();
+    seq.addTrack("Acid Bass", 1, 16);
+    seq.addTrack("Drums", 2, 16);
+
+    GuiWindow window(1280, 800, "Zero Alloc Test");
+    bool initOk = window.initialize(engine);
+    REQUIRE(initOk);
+
+    // Start playback
+    seq.start();
+    REQUIRE(seq.isPlaying());
+
+    // 1. Warm-up frames to initialize one-time OpenGL/WebGPU buffers, fonts, and geometry caches
+    const WorkspaceView viewsToTest[] = {
+        WorkspaceView::Arranger,
+        WorkspaceView::Mixer,
+        WorkspaceView::Track,
+        WorkspaceView::Design
+    };
+
+    for (auto v : viewsToTest) {
+        window.setActiveView(v);
+        for (int w = 0; w < 3; ++w) {
+            window.renderFrame();
+        }
+    }
+
+    // 2. Measure memory allocations across active view render loops during active playback
+    for (auto v : viewsToTest) {
+        window.setActiveView(v);
+        // Single warm-up frame for the specific view switch
+        window.renderFrame();
+
+        g_allocationCount.store(0, std::memory_order_relaxed);
+        g_trackAllocations.store(true, std::memory_order_seq_cst);
+
+        // Render 20 consecutive frames during live playback
+        for (int f = 0; f < 20; ++f) {
+            window.renderFrame();
+        }
+
+        g_trackAllocations.store(false, std::memory_order_seq_cst);
+        size_t allocs = g_allocationCount.load(std::memory_order_relaxed);
+        std::cout << "  View " << static_cast<int>(v) << " (20 frames during playback): " << allocs << " allocations" << std::endl;
+        REQUIRE(allocs == 0);
+    }
+
+    seq.stop();
+    std::cout << "  [PASS] Zero-allocation GUI render loop verified across Mixer, Track Inspector, Arranger, and Design." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 6 GUI Interaction Tests ===" << std::endl;
     testDawnBridgeLifecycle();
@@ -3488,6 +3588,7 @@ int main() {
     testProjectHubAndTopLeftMenu();
     testFullscreenAndLiveResize();
     testFullscreenDeviceModal();
+    testZeroAllocationGuiRenderLoop();
     std::cout << "=== All Phase 6 GUI Interaction Tests Passed! ===" << std::endl;
     return 0;
 }
