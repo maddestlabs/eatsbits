@@ -7,6 +7,35 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API** (commit `7f81637`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
+  - **Acceptance Criteria**:
+    1. **Unify C++ GraphNode Classes & Drop Vendor Prefix**:
+       - Consolidated `DaisyOscillatorNode` $\to$ canonical `OscillatorNode` (`include/eatsbits/audio/graph/nodes/oscillator_node.hpp`), providing PolyBLEP bandlimited oscillator with 1V/Oct CV modulation.
+       - Consolidated `DaisyFilterNode` $\to$ canonical `MoogFilterNode` (`include/eatsbits/audio/graph/nodes/moog_filter_node.hpp`) wrapping analog-modeled 24dB Moog ladder and SVF filters (LP/HP/BP/Notch).
+       - Consolidated `DaisyReverbNode` $\to$ canonical `ReverbNode` (`include/eatsbits/audio/graph/nodes/reverb_node.hpp`) as algorithmic stereo plate/hall reverb (`daisysp::ReverbSc`).
+       - Upgraded `ChorusNode`, `DelayNode`, and `CompressorNode` to internally encapsulate DaisySP engines (`daisysp::Chorus`/`daisysp::Flanger`/`daisysp::Overdrive`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Compressor`) with zero heap allocations and backwards-compatible parameter interfaces.
+       - Created aggregation header `modular_nodes.hpp` and retained forwarders for all legacy `Daisy*` headers.
+    2. **Clean, Prefix-Free Eatscript API Manifest**:
+       - Updated `include/eatsbits/eatscript/api_manifest.hpp` with canonical names:
+         - `eats.dsp.Oscillator` (aliases: `"osc"`, `"Oscillator"`)
+         - `eats.dsp.MoogFilter` (aliases: `"moog"`, `"moog_ladder"`, `"Filter"`)
+         - `eats.fx.Reverb` (aliases: `"reverb"`, `"reverb_sc"`, `"Reverb"`)
+         - `eats.fx.Delay` (aliases: `"delay"`, `"Delay"`)
+         - `eats.fx.Chorus` (aliases: `"chorus"`, `"flanger"`, `"Chorus"`)
+         - `eats.fx.Compressor` (aliases: `"compressor"`, `"Compressor"`)
+       - Maintained legacy `Daisy*` aliases so older scripts and reflection queries continue running without breakage.
+    3. **AudioEngine & FX Rack Consolidation**:
+       - Streamlined `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate and parameterize the unified canonical nodes (`ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`, `MoogFilterNode`).
+    4. **Preserved Distinct Specialized & Retro Engines**:
+       - Retained `BiquadNode` and `ParametricEqNode` for surgical parametric EQ (peaking/shelving/notch filters).
+       - Retained `ConvolverNode` for FFT partitioned impulse responses (speaker cabinets, acoustic spaces).
+       - Retained `WaveShaperNode` for custom tanh overdrive/distortion curves.
+       - Retained vintage sound chip emulators (`Ym2612Node`, `Tb303Node`, `SidNode`, `SnesNode`, `Dx7Node`).
+    5. **Automated Verification & Web Build Validation**:
+       - Updated `tests/test_daisysp_nodes.cpp` verifying canonical nodes, parameter sweeps, and audio stability.
+       - 100% test pass on native desktop (49/49 test suites) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
+
 - [x] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite** (commit `14329da`, 2026-10-09)
   - **Context/Files**: `third_party/daisysp/`, `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
   - **Acceptance Criteria**:

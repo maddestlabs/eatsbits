@@ -16,17 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers**
-  - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
-  - **Acceptance Criteria**:
-    1. **Virtual Relative Delta Drag Mode**:
-       - Support relative mouse drag for knobs and vertical faders: capture the mouse on drag start, track relative deltas without clamping to screen borders, and restore the mouse position on drag release.
-    2. **Industry-Standard Gesture Modifiers**:
-       - Support `Shift` modifier for precision adjustment ($0.1\times$ sensitivity multiplier).
-       - Support `Ctrl` / `Cmd` + click to immediately restore control to its default value (e.g. center for pan, 0 dB for track faders).
-       - Support double-click to trigger [`ValueEditDialog`](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/value_edit_dialog.hpp) for direct numeric keyboard input.
-    3. **Automated Verification**:
-       - Add unit tests in [`tests/test_presenters.cpp`](file:///c:/git/eatsbits/tests/test_presenters.cpp) verifying modifier sensitivity scaling, double-click value edit routing, and relative delta math.
 
 - [ ] **Add RAII Scissor Scope Management to `BatchRenderer2D`**
   - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
@@ -55,6 +44,19 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers** (commit `a8ef98c`, 2026-10-11)
+  - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/presenter/drag_handler.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/drag_handler.hpp), [include/eatsbits/ui/widgets/track_properties_panel.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/track_properties_panel.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [src/ui/widgets/track_properties_panel.cpp](file:///c:/git/eatsbits/src/ui/widgets/track_properties_panel.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
+  - **Acceptance Criteria**:
+    1. **Virtual Relative Delta Drag Mode**:
+       - Implemented relative mouse drag for knobs, sliders, and faders in `ScalarDragPresenter`: captures cursor via GLFW on drag start, accumulates unbounded relative deltas without border clamping, clamps `accumulatedDelta_` to parameter travel limits to ensure instantaneous reversal without deadzone lag, and restores original cursor coordinates on drag release.
+    2. **Industry-Standard Gesture Modifiers**:
+       - Implemented `Shift` modifier precision scaling across presenter, widgets, MixerView, and TrackPropertiesPanel with standard $0.10\times$ sensitivity ratio.
+       - Implemented `Ctrl` / `Cmd` + click instant default reset: restores volume/faders to 1.0 (0 dB unity gain), pan to 0.0 (center), and EQ/knobs to their default parameters.
+       - Implemented double-click detection (<350ms, <6px) routing to `ValueEditDialog` for direct numeric and keyboard input across presenters and views.
+    3. **Automated Verification**:
+       - Added unit test `testInfiniteRotaryDeltaDragAndFineAdjustment()` in `tests/test_presenters.cpp` verifying relative deltas, unbounded motion, GLFW capture callbacks, shift modifier $0.10\times$ scaling, Ctrl+click reset, and double-click dispatch.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 - [x] **Eliminate Per-Frame Heap Allocations in GUI Render Loop (`std::span` & Direct Model References)** (commit `39deacb`, 2026-10-11)
   - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/views/mixer_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/mixer_view.hpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [include/eatsbits/ui/views/track_inspector_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/track_inspector_view.hpp), [src/ui/views/track_inspector_view.cpp](file:///c:/git/eatsbits/src/ui/views/track_inspector_view.cpp), [src/ui/views/arranger_view.cpp](file:///c:/git/eatsbits/src/ui/views/arranger_view.cpp), [src/ui/views/design_view.cpp](file:///c:/git/eatsbits/src/ui/views/design_view.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/icon_registry.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/icon_registry.hpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp), [src/ui/dawn_bridge.cpp](file:///c:/git/eatsbits/src/ui/dawn_bridge.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
@@ -131,34 +133,6 @@ To execute items automatically, run in Antigravity:
        - Added regression tests in `tests/test_modular_ui.cpp` (`testDesignView`) verifying coordinate transforms, middle-drag panning, bare wheel panning, Ctrl+wheel zooming, sub-HP deadband, 1 HP discrete step dragging, neighbor bumping on collision, and complete initial position restoration upon return.
        - Verified 100% test pass on native desktop (49/49 test suites via `.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation (`.\build-web.ps1 -NoServe`).
 
-- [x] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API** (commit `7f81637`, 2026-10-09)
-  - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
-  - **Acceptance Criteria**:
-    1. **Unify C++ GraphNode Classes & Drop Vendor Prefix**:
-       - Consolidated `DaisyOscillatorNode` $\to$ canonical `OscillatorNode` (`include/eatsbits/audio/graph/nodes/oscillator_node.hpp`), providing PolyBLEP bandlimited oscillator with 1V/Oct CV modulation.
-       - Consolidated `DaisyFilterNode` $\to$ canonical `MoogFilterNode` (`include/eatsbits/audio/graph/nodes/moog_filter_node.hpp`) wrapping analog-modeled 24dB Moog ladder and SVF filters (LP/HP/BP/Notch).
-       - Consolidated `DaisyReverbNode` $\to$ canonical `ReverbNode` (`include/eatsbits/audio/graph/nodes/reverb_node.hpp`) as algorithmic stereo plate/hall reverb (`daisysp::ReverbSc`).
-       - Upgraded `ChorusNode`, `DelayNode`, and `CompressorNode` to internally encapsulate DaisySP engines (`daisysp::Chorus`/`daisysp::Flanger`/`daisysp::Overdrive`, `daisysp::DelayLine` + `daisysp::Tone`, `daisysp::Compressor`) with zero heap allocations and backwards-compatible parameter interfaces.
-       - Created aggregation header `modular_nodes.hpp` and retained forwarders for all legacy `Daisy*` headers.
-    2. **Clean, Prefix-Free Eatscript API Manifest**:
-       - Updated `include/eatsbits/eatscript/api_manifest.hpp` with canonical names:
-         - `eats.dsp.Oscillator` (aliases: `"osc"`, `"Oscillator"`)
-         - `eats.dsp.MoogFilter` (aliases: `"moog"`, `"moog_ladder"`, `"Filter"`)
-         - `eats.fx.Reverb` (aliases: `"reverb"`, `"reverb_sc"`, `"Reverb"`)
-         - `eats.fx.Delay` (aliases: `"delay"`, `"Delay"`)
-         - `eats.fx.Chorus` (aliases: `"chorus"`, `"flanger"`, `"Chorus"`)
-         - `eats.fx.Compressor` (aliases: `"compressor"`, `"Compressor"`)
-       - Maintained legacy `Daisy*` aliases so older scripts and reflection queries continue running without breakage.
-    3. **AudioEngine & FX Rack Consolidation**:
-       - Streamlined `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam` to instantiate and parameterize the unified canonical nodes (`ReverbNode`, `DelayNode`, `ChorusNode`, `CompressorNode`, `MoogFilterNode`).
-    4. **Preserved Distinct Specialized & Retro Engines**:
-       - Retained `BiquadNode` and `ParametricEqNode` for surgical parametric EQ (peaking/shelving/notch filters).
-       - Retained `ConvolverNode` for FFT partitioned impulse responses (speaker cabinets, acoustic spaces).
-       - Retained `WaveShaperNode` for custom tanh overdrive/distortion curves.
-       - Retained vintage sound chip emulators (`Ym2612Node`, `Tb303Node`, `SidNode`, `SnesNode`, `Dx7Node`).
-    5. **Automated Verification & Web Build Validation**:
-       - Updated `tests/test_daisysp_nodes.cpp` verifying canonical nodes, parameter sweeps, and audio stability.
-       - 100% test pass on native desktop (49/49 test suites) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

@@ -1195,6 +1195,33 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-11] DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers (commit `a8ef98c`)
+- **Architectural Context**:
+  - Implemented DAW-standard relative rotary delta drag and gesture modifiers across the presenter layer, UI widgets, and views.
+  - Enabled virtual mouse capture without screen border clamping, restoring cursor to original coordinates on drag release.
+  - Standardized gesture modifiers: `Shift` for precision adjustment ($0.10\times$ sensitivity multiplier), `Ctrl` / `Cmd` + click for instant parameter default reset (unity 0 dB for volume/faders, center for pan, default for parameters), and double-click (<350ms, <6px) routing to `ValueEditDialog` for keyboard numeric entry.
+- **Key Changes Implemented**:
+  - **`ScalarDragPresenter` & Relative Delta Tracking**:
+    - Added `relativeMode`, `captureMouse`, and `defaultValue` to `ScalarDragConfig`.
+    - Implemented continuous delta accumulation in `onPointerMove`: accumulates `stepDx` and `stepDy` unbounded, clamping `accumulatedDelta_` to parameter boundaries to eliminate dead-zone lag on directional reversal.
+    - Added `onMouseCapture_` callback lifecycle: triggers on drag start, release, and cancel.
+    - Added `onPointerDown`: intercepts `Ctrl`/`Cmd` + click to restore defaults and detects double-clicks (<350ms) to trigger `onDoubleClicked_`.
+  - **`GuiWindow` Integration**:
+    - Connected `scalarDragPresenter_.setOnMouseCapture`: enables `GLFW_CURSOR_DISABLED` on drag start and restores `GLFW_CURSOR_NORMAL` with cursor repositioning via `glfwSetCursorPos` on drag release.
+    - Fixed delta calculation in `onMouseMove` so `mouseDx` and `mouseDy` are preserved and passed to `activeDragHandler_`.
+    - Wired `Ctrl`+click reset and relative capture configuration across Track Inspector, Arranger, Transport, and Audio Graph rack knobs.
+  - **`MixerView` & `TrackPropertiesPanel` Alignment**:
+    - Standardized fine drag sensitivity scaling to strictly $0.10\times$ with `Shift`.
+    - Wired `Ctrl`+click parameter resets on channel/master faders, pan knobs, and parametric EQ bands.
+    - Connected double-click gestures to `ValueEditDialog` in `TrackPropertiesPanel` and `MixerView`.
+  - **Widgets**:
+    - Updated `SkeuomorphicKnob` and `SkeuomorphicSlider` with `defaultNormValue`, `resetToDefault()`, and $0.10\times$ `Shift` fine sensitivity.
+  - **Automated Verification**:
+    - Added unit test `testInfiniteRotaryDeltaDragAndFineAdjustment()` in `tests/test_presenters.cpp` verifying relative deltas, unbounded motion, GLFW capture callbacks, shift modifier $0.10\times$ scaling, Ctrl+click reset, and double-click dispatch.
+    - 100% test pass across all 48 test suites in `ctest`.
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
