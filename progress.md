@@ -1245,6 +1245,28 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
       - Added unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
       - 100% test pass across all 48 test suites in `ctest`.
 
+- **Item Completed**: "Implement Static Chrome Offscreen Texture (FBO) Caching" (commit `0f5d700`, 2026-10-11)
+  - **Summary**:
+    - Implemented static chrome offscreen texture / raster caching in `BatchRenderer2D` and `GuiWindow`.
+    - Static background chrome (top transport metal faceplate, machined bevels, hex fasteners, bottom navigation strip) is rendered once into an offscreen cache and restored in $O(1)$ block copies on subsequent frames, avoiding redundant procedural draw calls.
+    - Implemented dirty invalidation lifecycle automatically invalidating the chrome cache upon window resize, theme changes, view switches, side browser toggles, and modal openings.
+  - **Key Changes Implemented**:
+    - **`BatchRenderer2D` Chrome Backing Store & Blit Methods**:
+      - Added `snapshotFramebuffer`, `restoreFramebuffer`, and `restoreFramebufferRegion` to `IBatchRenderBackend` and implemented high-throughput CPU/GPU raster snapshotting in `FilamentBatchBackend`.
+      - Added `beginChromeRecording()`, `endChromeRecording()`, `drawCachedChrome()`, and `drawCachedChromeRegion()` to `BatchRenderer2D`.
+      - Added telemetry tracking `getChromeDrawCallsAvoided()` to monitor avoided draw calls.
+    - **`GuiWindow` Integration**:
+      - Implemented `renderStaticChrome()` to centralize static chrome rendering (machined plate, bevels, rivets, trenches).
+      - In `renderFrame()`: checks `isChromeCacheValid()`; records and snapshots chrome on cold frames, and executes instant blit on warm frames.
+      - In `drawTopTransportBar()`: blits `drawCachedChromeRegion(0, 0, 0, 0, width, 56.0f)` when cache is valid, bypassing redundant procedural chassis and bevel rendering.
+      - In bottom navigation strip: blits `drawCachedChromeRegion(0, chinTopY, 0, chinTopY, width, chinTotalH)`.
+    - **Dirty Invalidation Lifecycle**:
+      - Invalidation in `BatchRenderer2D::resize()` and `BatchRenderer2D::shutdown()`.
+      - Invalidation wired to `setActiveThemePreset()`, `setActiveView()`, `onWindowResize()`, `toggleBrowser()`, and `toggleProjectHub()`.
+    - **Automated Verification**:
+      - Added `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone recording, cache validation metrics, visual parity (`std::memcmp == 0`), sub-region blitting, and lifecycle invalidation across resize, view, theme, and drawer events.
+      - 100% test pass across all 48 test suites in `ctest`.
+
 ---
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
@@ -1254,3 +1276,4 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 - **Process Lock Protection**: Keep `build.ps1` equipped with automatic termination of active debug instances prior to MSVC linking to avoid `LNK1104`.
 - **Clean Repository Roots**: Keep test exports and logs out of git tracking via `.gitignore`.
 - **100% Test Pass Rate**: Run `ctest` across all 27 unit tests after any architectural migration.
+

@@ -16,23 +16,27 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-
-- [ ] **Implement Static Chrome Offscreen Texture (FBO) Caching**
-  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp)
-  - **Acceptance Criteria**:
-    1. **Offscreen Chrome Backing Store**:
-       - Allocate a backing texture/render target in `BatchRenderer2D` for static background chrome (top transport metal faceplate, panel bevels, static track headers).
-       - Render static chrome once; on subsequent frames blit the cached chrome and only redraw dynamic elements (playhead, meters, scope, active controls).
-    2. **Dirty Invalidation Lifecycle**:
-       - Automatically invalidate the chrome cache upon window resize, theme changes, or panel toggle events.
-    3. **Automated Verification**:
-       - Verify rendering correctness in headless mode and ensure visual parity with and without chrome caching enabled.
+*(Active queue is currently clear. Add new refinement items or features above.)*
 
 ---
 
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Implement Static Chrome Offscreen Texture (FBO) Caching** (commit `0f5d700`, 2026-10-11)
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
+  - **Acceptance Criteria**:
+    1. **Offscreen Chrome Backing Store & Blit Pipeline**:
+       - Added `snapshotFramebuffer`, `restoreFramebuffer`, and `restoreFramebufferRegion` to `IBatchRenderBackend` and implemented high-throughput CPU/GPU raster snapshotting in `FilamentBatchBackend`.
+       - Implemented `BatchRenderer2D::beginChromeRecording()`, `endChromeRecording()`, `drawCachedChrome()`, and `drawCachedChromeRegion()`, enabling static background chrome (top transport metal faceplate, machined bevels, hex fasteners, bottom navigation strip) to be rendered once and restored in $O(1)$ block copies.
+       - Wired region blitting into `drawTopTransportBar()` and chin chassis in `GuiWindow::renderFrame()`, avoiding redundant procedural draw calls for static chrome on subsequent frames.
+    2. **Dirty Invalidation Lifecycle**:
+       - Added automatic chrome cache invalidation in `BatchRenderer2D::resize()` and `BatchRenderer2D::shutdown()`.
+       - Integrated cache invalidation into `GuiWindow` upon window resize (`onWindowResize`), theme changes (`setActiveThemePreset`), view changes (`setActiveView`), side browser toggle (`toggleBrowser`, `setBrowserOpen`), and project hub toggle (`toggleProjectHub`, `setProjectHubOpen`).
+    3. **Automated Verification**:
+       - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` to `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 - [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
   - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
@@ -94,24 +98,6 @@ To execute items automatically, run in Antigravity:
        - Added unit test `testParserTrailingCommasAndSubscripts()` in `test_eatscript_vm.cpp`.
        - Verified all 37 preset files in `presets/` parse with 0 errors via `eatscript_cli.exe`.
        - Verified clean application startup with 0 parser errors.
-
-- [x] **Optimize CLAP Plugin Scanning & Add Portable App / Binary Directory Setting (Reaper Mode)** (2026-10-11)
-  - **Context/Files**: `include/eatsbits/audio/clap/clap_plugin_loader.hpp`, `src/audio/clap/clap_plugin_loader.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_clap_host.cpp`
-  - **Acceptance Criteria**:
-    1. **Decoupled Dialog Open from Filesystem Scanning (Zero-Latency Opens)**:
-       - Removed synchronous directory scanning and recursive DLL probing from `PluginSearchDialog::open()`. Presets and discovered CLAP plugins are served immediately from in-memory cache (`ClapPluginLoader::getDiscoveredPlugins()`), reducing dialog open latency to 0ms.
-    2. **Added Header [ ↻ SCAN ] Button & Background Asynchronous Scanner**:
-       - Added a dedicated `[ ↻ SCAN ]` button with scanning pulse indicators to `PluginSearchDialog` header.
-       - Implemented `ClapPluginLoader::scanDirectoriesAsync()` to execute scans in background threads without blocking audio processing or the WebGPU render loop.
-       - Auto-refreshes dialog cards when a scan completes.
-    3. **Portable / Binary Directory Search Path Setting (Reaper-Style)**:
-       - Added `includeBinaryPath` configuration (default `true`) allowing the DAW to run portably from any directory, scanning `<exe_dir>/plugins`, `<exe_dir>`, and `<cwd>/plugins` without requiring system-wide installation.
-       - Added a toggle switch and `[ ↻ RESCAN PLUGINS ]` button in the System Settings modal (Section 5: "AUDIO & CLAP PLUGINS") with real-time discovered plugin counter.
-    4. **Filesystem Traversal & Non-CLAP Library Probe Optimization**:
-       - Added `disable_recursion_pending()` to skip traversing `.git`, `.agents`, `CMakeFiles`, `node_modules`, `.vs`, and IDE cache folders.
-       - Maintained an in-memory cache of non-CLAP libraries (`nonClapLibraries_`) so failed DLLs are never repeatedly inspected with `LoadLibraryA`.
-    5. **Automated Verification**:
-       - Added tests in `tests/test_clap_host.cpp` verifying portable path toggle, in-memory cache retrieval, and async scanning. Verified 100% pass across all 48 test suites.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

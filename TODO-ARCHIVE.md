@@ -7,6 +7,24 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Optimize CLAP Plugin Scanning & Add Portable App / Binary Directory Setting (Reaper Mode)** (2026-10-11)
+  - **Context/Files**: `include/eatsbits/audio/clap/clap_plugin_loader.hpp`, `src/audio/clap/clap_plugin_loader.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_clap_host.cpp`
+  - **Acceptance Criteria**:
+    1. **Decoupled Dialog Open from Filesystem Scanning (Zero-Latency Opens)**:
+       - Removed synchronous directory scanning and recursive DLL probing from `PluginSearchDialog::open()`. Presets and discovered CLAP plugins are served immediately from in-memory cache (`ClapPluginLoader::getDiscoveredPlugins()`), reducing dialog open latency to 0ms.
+    2. **Added Header [ ↻ SCAN ] Button & Background Asynchronous Scanner**:
+       - Added a dedicated `[ ↻ SCAN ]` button with scanning pulse indicators to `PluginSearchDialog` header.
+       - Implemented `ClapPluginLoader::scanDirectoriesAsync()` to execute scans in background threads without blocking audio processing or the WebGPU render loop.
+       - Auto-refreshes dialog cards when a scan completes.
+    3. **Portable / Binary Directory Search Path Setting (Reaper-Style)**:
+       - Added `includeBinaryPath` configuration (default `true`) allowing the DAW to run portably from any directory, scanning `<exe_dir>/plugins`, `<exe_dir>`, and `<cwd>/plugins` without requiring system-wide installation.
+       - Added a toggle switch and `[ ↻ RESCAN PLUGINS ]` button in the System Settings modal (Section 5: "AUDIO & CLAP PLUGINS") with real-time discovered plugin counter.
+    4. **Filesystem Traversal & Non-CLAP Library Probe Optimization**:
+       - Added `disable_recursion_pending()` to skip traversing `.git`, `.agents`, `CMakeFiles`, `node_modules`, `.vs`, and IDE cache folders.
+       - Maintained an in-memory cache of non-CLAP libraries (`nonClapLibraries_`) so failed DLLs are never repeatedly inspected with `LoadLibraryA`.
+    5. **Automated Verification**:
+       - Added tests in `tests/test_clap_host.cpp` verifying portable path toggle, in-memory cache retrieval, and async scanning. Verified 100% pass across all 48 test suites.
+
 - [x] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog** (commits `560db9d`, `a2884de`, 2026-10-10)
   - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
   - **Acceptance Criteria**:
