@@ -16,7 +16,7 @@ public:
 
     [[nodiscard]] virtual bool isDragging() const noexcept = 0;
 
-    virtual void onPointerDown(const ui::PointerEvent& ev) { (void)ev; }
+    virtual bool onPointerDown(const ui::PointerEvent& ev) { (void)ev; return false; }
     virtual void onPointerMove(const ui::PointerEvent& ev) = 0;
     virtual void onPointerUp(const ui::PointerEvent& ev) = 0;
     virtual void cancelDrag() = 0;

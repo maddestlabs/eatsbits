@@ -2921,6 +2921,59 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 }
             }
 
+            // Universal Left-Click double-click detection -> opens ValueEditDialog
+            if (ev.button == PointerButton::Left) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastClickTime_).count();
+                float dist = std::hypot(ev.x - lastClickX_, ev.y - lastClickY_);
+                if (lastClickArea_ == hit.area && elapsedMs > 0 && elapsedMs < 350 && dist < 6.0f) {
+                    lastClickTime_ = {};
+                    lastClickArea_ = TrackPropertiesHitArea::None;
+                    if (openValueEditForHit(hit, data, ctx.onOpenValueEdit)) {
+                        return true;
+                    }
+                } else {
+                    lastClickTime_ = now;
+                    lastClickX_ = ev.x;
+                    lastClickY_ = ev.y;
+                    lastClickArea_ = hit.area;
+                }
+            }
+
+            // Ctrl / Cmd + Click immediately restores default value
+            if (ev.mods.ctrl || ev.mods.meta) {
+                if (hit.area == TrackPropertiesHitArea::VolumeSlider) {
+                    data.volume = 1.0f;
+                    if (onVolumeChanged) onVolumeChanged(data.trackIndex, 1.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::PanKnob) {
+                    data.pan = 0.0f;
+                    if (onPanChanged) onPanChanged(data.trackIndex, 0.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::EqHpf) {
+                    data.eqHpf = 20.0f;
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHpf", 20.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::EqLowGain) {
+                    data.eqLowGain = 0.0f;
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqLow", 0.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::EqMidGain) {
+                    data.eqMidGain = 0.0f;
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqMid", 0.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::EqHighGain) {
+                    data.eqHighGain = 0.0f;
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHigh", 0.0f);
+                    return true;
+                } else if (hit.area == TrackPropertiesHitArea::InstrumentKnob && hit.index >= 0 && hit.index < static_cast<int>(data.knobs.size())) {
+                    data.knobs[hit.index].value = 0.5f;
+                    data.knobs[hit.index].display = "50%";
+                    if (onParamChanged) onParamChanged(data.trackIndex, data.knobs[hit.index].name, 0.5f);
+                    return true;
+                }
+            }
+
             // Mobile / Touch Long-Press Detection (>= 0.45s hold triggers ValueEditDialog)
             if (ev.type == PointerType::Touch || ctx.isMobile) {
                 if (hit.area == TrackPropertiesHitArea::VolumeSlider ||
@@ -3122,14 +3175,16 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
         if (dragMode_ == DragMode::PanKnob) {
             float dy = dragStartY_ - ev.y;
-            data.pan = std::clamp(dragStartVal_ + (dy / 100.0f), -1.0f, 1.0f);
+            float sens = ev.mods.shift ? 0.10f : 1.0f;
+            data.pan = std::clamp(dragStartVal_ + (dy / 100.0f) * sens, -1.0f, 1.0f);
             if (onPanChanged) onPanChanged(data.trackIndex, data.pan);
             return true;
         }
 
         if (dragMode_ == DragMode::InstrumentKnob) {
             float dy = dragStartY_ - ev.y;
-            float newVal = std::clamp(dragStartVal_ + (dy / 150.0f), 0.0f, 1.0f);
+            float sens = ev.mods.shift ? 0.10f : 1.0f;
+            float newVal = std::clamp(dragStartVal_ + (dy / 150.0f) * sens, 0.0f, 1.0f);
             std::string pName;
             if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
                 draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
@@ -3162,7 +3217,8 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             auto& fx = data.audioFx[activeFxIndex_];
             if (activeKnobIndex_ >= 0 && static_cast<size_t>(activeKnobIndex_) < fx.knobs.size()) {
                 float dy = dragStartY_ - ev.y;
-                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f), 0.0f, 1.0f);
+                float sens = ev.mods.shift ? 0.10f : 1.0f;
+                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f) * sens, 0.0f, 1.0f);
                 fx.knobs[activeKnobIndex_].value = newVal;
 
                 const auto& kname = fx.knobs[activeKnobIndex_].name;
@@ -3219,7 +3275,8 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             auto& fx = data.midiFx[activeFxIndex_];
             if (activeKnobIndex_ >= 0 && static_cast<size_t>(activeKnobIndex_) < fx.knobs.size()) {
                 float dy = dragStartY_ - ev.y;
-                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f), 0.0f, 1.0f);
+                float sens = ev.mods.shift ? 0.10f : 1.0f;
+                float newVal = std::clamp(dragStartVal_ + (dy / 120.0f) * sens, 0.0f, 1.0f);
                 fx.knobs[activeKnobIndex_].value = newVal;
 
                 const auto& kname = fx.knobs[activeKnobIndex_].name;

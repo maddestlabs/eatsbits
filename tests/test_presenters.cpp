@@ -34,6 +34,8 @@
 #include "eatsbits/presenter/telemetry_presenter.hpp"
 #include "eatsbits/presenter/scroll_physics_presenter.hpp"
 #include "eatsbits/presenter/zoom_pan_presenter.hpp"
+#include "eatsbits/ui/widgets/skeuomorphic_knob.hpp"
+#include "eatsbits/ui/widgets/skeuomorphic_slider.hpp"
 
 using namespace eatsbits;
 using namespace eatsbits::audio;
@@ -1126,6 +1128,182 @@ void testVirtualFrameTimeContext() {
     std::cout << "  [PASS] Virtual FrameTimeContext deterministic stepping validated." << std::endl;
 }
 
+void testInfiniteRotaryDeltaDragAndFineAdjustment() {
+    std::cout << "[Test 15/15] Infinite rotary delta drag, mouse capture, and gesture modifiers..." << std::endl;
+
+    // 1. Relative delta drag & mouse capture
+    ScalarDragPresenter presenter;
+    ScalarDragConfig cfg{};
+    cfg.dragMode = ui::DragMode::Knob;
+    cfg.direction = DragDirection::VerticalUpIncreases;
+    cfg.minValue = 0.0f;
+    cfg.maxValue = 1.0f;
+    cfg.defaultValue = 0.5f;
+    cfg.sensitivity = 1.0f / 200.0f; // 200px full range
+    cfg.fineRatio = 0.10f;
+    cfg.relativeMode = true;
+    cfg.captureMouse = true;
+
+    bool captureState = false;
+    float captureRestoredX = 0.0f;
+    float captureRestoredY = 0.0f;
+    presenter.setOnMouseCapture([&](bool captured, float rx, float ry) {
+        captureState = captured;
+        captureRestoredX = rx;
+        captureRestoredY = ry;
+    });
+
+    float val = 0.5f;
+    presenter.startDrag(300.0f, 400.0f, 0.5f, cfg, [&](float v) { val = v; });
+
+    REQUIRE(presenter.isDragging());
+    REQUIRE(presenter.isMouseCaptured());
+    REQUIRE(captureState == true);
+    REQUIRE_NEAR(captureRestoredX, 300.0f, 1e-4f);
+    REQUIRE_NEAR(captureRestoredY, 400.0f, 1e-4f);
+
+    // Simulate mouse move with relative dy = -50.0f (50px upward in screen space)
+    ui::PointerEvent ev{};
+    ev.type = PointerType::Mouse;
+    ev.action = PointerAction::Move;
+    ev.x = 300.0f;
+    ev.y = 350.0f;
+    ev.dx = 0.0f;
+    ev.dy = -50.0f;
+    presenter.onPointerMove(ev);
+
+    // -(-50.0f) * (1.0 / 200.0) = +0.25 -> 0.75
+    REQUIRE_NEAR(val, 0.75f, 1e-4f);
+    REQUIRE_NEAR(presenter.getCurrentValue(), 0.75f, 1e-4f);
+
+    // Test infinite drag without boundary clamping:
+    // Move another -200px upward (accumulated delta +1.0)
+    for (int step = 0; step < 4; ++step) {
+        ev.dy = -50.0f;
+        presenter.onPointerMove(ev);
+    }
+    // Clamped by parameter range to maxValue = 1.0f
+    REQUIRE_NEAR(presenter.getCurrentValue(), 1.0f, 1e-4f);
+
+    // Now drag downward continuously with relative deltas
+    for (int step = 0; step < 8; ++step) {
+        ev.dy = 50.0f; // 50px downward -> -0.25 per step
+        presenter.onPointerMove(ev);
+    }
+    // Clamped by parameter range to minValue = 0.0f
+    REQUIRE_NEAR(presenter.getCurrentValue(), 0.0f, 1e-4f);
+
+    // 2. Precision Shift modifier (0.10x multiplier)
+    // Drag upward with shift pressed
+    ev.dy = -100.0f; // normally +0.5, with 0.10x fineRatio should be +0.05
+    ev.mods.shift = true;
+    presenter.onPointerMove(ev);
+    REQUIRE_NEAR(presenter.getCurrentValue(), 0.05f, 1e-4f);
+
+    // Release pointer
+    presenter.onPointerUp(ev);
+    REQUIRE(!presenter.isDragging());
+    REQUIRE(!presenter.isMouseCaptured());
+    REQUIRE(captureState == false);
+    REQUIRE_NEAR(captureRestoredX, 300.0f, 1e-4f);
+    REQUIRE_NEAR(captureRestoredY, 400.0f, 1e-4f);
+
+    // 3. Ctrl / Cmd + Click Default Reset
+    presenter.startDrag(300.0f, 400.0f, 0.95f, cfg, [&](float v) { val = v; });
+    REQUIRE_NEAR(presenter.getCurrentValue(), 0.95f, 1e-4f);
+
+    ui::PointerEvent clickEv{};
+    clickEv.type = PointerType::Mouse;
+    clickEv.action = PointerAction::Down;
+    clickEv.x = 300.0f;
+    clickEv.y = 400.0f;
+    clickEv.mods.ctrl = true;
+    bool resetHandled = presenter.onPointerDown(clickEv);
+    REQUIRE(resetHandled);
+    REQUIRE_NEAR(presenter.getCurrentValue(), 0.5f, 1e-4f); // Reset to defaultValue (0.5f)
+    REQUIRE_NEAR(val, 0.5f, 1e-4f);
+
+    // Test with ParameterPresenter binding
+    ParameterDescriptor panDesc{};
+    panDesc.name = "Pan";
+    panDesc.minValue = -1.0f;
+    panDesc.maxValue = 1.0f;
+    panDesc.defaultValue = 0.0f;
+    ParameterPresenter panParam(panDesc);
+    panParam.setValue(0.8f);
+
+    cfg.direction = DragDirection::BidirectionalPan;
+    cfg.minValue = -1.0f;
+    cfg.maxValue = 1.0f;
+    cfg.defaultValue = 0.0f;
+    presenter.startDragWithPresenter(200.0f, 200.0f, panParam, cfg);
+    REQUIRE_NEAR(panParam.getValue(), 0.8f, 1e-4f);
+
+    clickEv.mods.ctrl = true;
+    presenter.onPointerDown(clickEv);
+    REQUIRE_NEAR(panParam.getValue(), 0.0f, 1e-4f); // Reset to parameter default 0.0f
+
+    // 4. Double-Click Detection
+    bool doubleClicked = false;
+    presenter.setOnDoubleClicked([&]() { doubleClicked = true; });
+
+    ui::PointerEvent dblEv{};
+    dblEv.type = PointerType::Mouse;
+    dblEv.action = PointerAction::Down;
+    dblEv.x = 100.0f;
+    dblEv.y = 100.0f;
+    dblEv.timestampMs = 1000.0;
+
+    // First click: should NOT trigger double-click
+    bool handled1 = presenter.onPointerDown(dblEv);
+    REQUIRE(!handled1);
+    REQUIRE(!doubleClicked);
+
+    // Second click 150ms later at same pos: SHOULD trigger double-click
+    dblEv.timestampMs = 1150.0;
+    bool handled2 = presenter.onPointerDown(dblEv);
+    REQUIRE(handled2);
+    REQUIRE(doubleClicked);
+
+    // Reset flag and test click too far in time (>350ms)
+    doubleClicked = false;
+    dblEv.timestampMs = 2000.0;
+    presenter.onPointerDown(dblEv);
+    REQUIRE(!doubleClicked);
+
+    // 5. SkeuomorphicKnob & SkeuomorphicSlider widgets
+    SkeuomorphicKnob knob(Rect(0, 0, 40, 40), "FREQ", 0.8f);
+    knob.defaultNormValue = 0.5f;
+    REQUIRE_NEAR(knob.normValue, 0.8f, 1e-4f);
+    knob.resetToDefault();
+    REQUIRE_NEAR(knob.normValue, 0.5f, 1e-4f);
+
+    // Test knob drag shift precision (0.1x multiplier)
+    knob.handleDrag(10.0f, false); // -10 * 0.005 = -0.05 -> 0.45
+    REQUIRE_NEAR(knob.normValue, 0.45f, 1e-4f);
+    knob.handleDrag(-10.0f, true); // +10 * 0.0005 = +0.005 -> 0.455
+    REQUIRE_NEAR(knob.normValue, 0.455f, 1e-4f);
+
+    SkeuomorphicSlider slider(Rect(0, 0, 40, 100), "GAIN", 0.5f);
+    slider.defaultNormValue = 1.0f; // 0 dB
+    slider.resetToDefault();
+    REQUIRE_NEAR(slider.normValue, 1.0f, 1e-4f);
+
+    // Test slider drag shift precision
+    float valBefore = slider.normValue;
+    slider.handleDragDelta(20.0f, false);
+    float normalDelta = valBefore - slider.normValue;
+
+    slider.resetToDefault();
+    valBefore = slider.normValue;
+    slider.handleDragDelta(20.0f, true);
+    float shiftDelta = valBefore - slider.normValue;
+
+    REQUIRE_NEAR(shiftDelta / normalDelta, 0.10f, 1e-4f);
+
+    std::cout << "  [PASS] Infinite rotary delta drag and gesture modifiers validated." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Presenter Core Unit Tests ===" << std::endl;
     testPresenterBase();
@@ -1142,6 +1320,7 @@ int main() {
     testScrollPhysicsPresenter();
     testZoomPanPresenter();
     testVirtualFrameTimeContext();
+    testInfiniteRotaryDeltaDragAndFineAdjustment();
     std::cout << "=== All Presenter Tests Passed Successfully! ===" << std::endl;
     return 0;
 }

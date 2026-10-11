@@ -72,15 +72,25 @@ public:
         return bounds.contains(px, py);
     }
 
+    float defaultNormValue{0.5f};
+    double lastClickTimeMs{0.0};
+    float lastClickX{0.0f};
+    float lastClickY{0.0f};
+
     /// Process mouse drag delta (positive dy = dragged down, negative dy = dragged up)
     void handleDrag(float deltaY, bool isShiftDown = false) noexcept {
         // Dragging upward increases value; dragging downward decreases value
-        float sensitivity = isShiftDown ? 0.001f : 0.005f;
+        // Shift modifier applies industry standard 0.1x sensitivity multiplier
+        float sensitivity = isShiftDown ? 0.0005f : 0.005f;
         normValue = std::clamp(normValue - deltaY * sensitivity, 0.0f, 1.0f);
     }
 
     void resetToCenter() noexcept {
         normValue = isBipolar ? 0.5f : 0.0f;
+    }
+
+    void resetToDefault() noexcept {
+        normValue = isBipolar ? 0.5f : defaultNormValue;
     }
 
     /// Outer knob angle in degrees: starts at -135 deg (bottom-left) to +135 deg (bottom-right)

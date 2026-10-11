@@ -5501,6 +5501,17 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     });
 #endif
 
+    scalarDragPresenter_.setOnMouseCapture([this](bool capture, float rx, float ry) {
+        if (window_) {
+            if (capture) {
+                glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            } else {
+                glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                glfwSetCursorPos(window_, static_cast<double>(rx * uiScale_), static_cast<double>(ry * uiScale_));
+            }
+        }
+    });
+
     return true;
 }
 
@@ -10245,6 +10256,12 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             setTrackFreezeState(tIdx, !trk.freeze);
             break;
         case TrackInspectorHitArea::VolumeSlider: {
+            if (isCtrlPressed()) {
+                if (tIdx < arrangerTracks_.size()) arrangerTracks_[tIdx].volume = 1.0f;
+                if (tIdx < mixerStrips_.size()) mixerStrips_[tIdx].volume = 1.0f;
+                if (engine_) engine_->setTrackVolume(tIdx, 1.0f);
+                break;
+            }
             dragMode_ = DragMode::TrackInspectorVolume;
             dragStartX_ = x;
             dragStartValGeneric_ = trk.volume;
@@ -10253,7 +10270,10 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
             cfg.minValue = 0.0f;
             cfg.maxValue = 1.5f;
+            cfg.defaultValue = 1.0f;
             cfg.sensitivity = 1.5f / 220.0f;
+            cfg.relativeMode = true;
+            cfg.captureMouse = true;
             scalarDragPresenter_.startDrag(x, y, trk.volume, cfg,
                 [this, t = tIdx](float v) {
                     if (t < arrangerTracks_.size()) arrangerTracks_[t].volume = v;
@@ -10264,6 +10284,12 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             break;
         }
         case TrackInspectorHitArea::PanKnob: {
+            if (isCtrlPressed()) {
+                if (tIdx < arrangerTracks_.size()) arrangerTracks_[tIdx].pan = 0.0f;
+                if (tIdx < mixerStrips_.size()) mixerStrips_[tIdx].pan = 0.0f;
+                if (engine_) engine_->setTrackPan(tIdx, 0.0f);
+                break;
+            }
             dragMode_ = DragMode::TrackInspectorPan;
             dragStartX_ = x;
             dragStartPan_ = trk.pan;
@@ -10272,7 +10298,10 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
             cfg.minValue = -1.0f;
             cfg.maxValue = 1.0f;
+            cfg.defaultValue = 0.0f;
             cfg.sensitivity = 2.0f / 180.0f;
+            cfg.relativeMode = true;
+            cfg.captureMouse = true;
             scalarDragPresenter_.startDrag(x, y, trk.pan, cfg,
                 [this, t = tIdx](float p) {
                     if (t < arrangerTracks_.size()) arrangerTracks_[t].pan = p;
@@ -12747,6 +12776,8 @@ void GuiWindow::onMouseMove(float x, float y) {
         }
     }
 
+    float mouseDx = x - mouseX_;
+    float mouseDy = y - mouseY_;
     mouseX_ = x;
     mouseY_ = y;
 
@@ -12756,8 +12787,8 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.action = PointerAction::Move;
         pev.x = x;
         pev.y = y;
-        pev.dx = x - mouseX_;
-        pev.dy = y - mouseY_;
+        pev.dx = mouseDx;
+        pev.dy = mouseDy;
         pev.mods.shift = isShiftPressed();
         pev.mods.ctrl = isCtrlPressed();
         pev.mods.alt = isAltPressed();
@@ -13592,6 +13623,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     break;
                 case TransportAction::Bpm:
                     if (engine_) {
+                        if (isCtrlPressed()) {
+                            engine_->getSequencer().setBpm(120.0f);
+                            break;
+                        }
                         dragStartY_ = y;
                         dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getBpm());
                         presenter::ScalarDragConfig cfg{};
@@ -13599,7 +13634,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         cfg.direction = presenter::DragDirection::VerticalUpIncreases;
                         cfg.minValue = 40.0f;
                         cfg.maxValue = 300.0f;
+                        cfg.defaultValue = 120.0f;
                         cfg.sensitivity = 0.5f;
+                        cfg.relativeMode = true;
+                        cfg.captureMouse = true;
                         scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
                             [this](float bpm) {
                                 if (engine_) engine_->getSequencer().setBpm(bpm);
@@ -13610,6 +13648,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     break;
                 case TransportAction::Swing:
                     if (engine_) {
+                        if (isCtrlPressed()) {
+                            engine_->getSequencer().setSwing(0.0f);
+                            break;
+                        }
                         dragStartY_ = y;
                         dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getSwing());
                         presenter::ScalarDragConfig cfg{};
@@ -13617,7 +13659,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         cfg.direction = presenter::DragDirection::VerticalUpIncreases;
                         cfg.minValue = 0.0f;
                         cfg.maxValue = 0.75f;
+                        cfg.defaultValue = 0.0f;
                         cfg.sensitivity = 0.005f;
+                        cfg.relativeMode = true;
+                        cfg.captureMouse = true;
                         scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
                             [this](float sw) {
                                 if (engine_) engine_->getSequencer().setSwing(sw);
@@ -13627,6 +13672,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     }
                     break;
                 case TransportAction::MasterVol: {
+                    if (isCtrlPressed()) {
+                        setMasterVolume(1.0f);
+                        break;
+                    }
                     dragStartY_ = y;
                     dragStartValGeneric_ = masterVolume_;
                     presenter::ScalarDragConfig cfg{};
@@ -13634,7 +13683,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     cfg.direction = presenter::DragDirection::VerticalUpIncreases;
                     cfg.minValue = 0.0f;
                     cfg.maxValue = 1.5f;
+                    cfg.defaultValue = 1.0f;
                     cfg.sensitivity = 1.5f / 280.0f;
+                    cfg.relativeMode = true;
+                    cfg.captureMouse = true;
                     scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
                         [this](float v) { setMasterVolume(v); });
                     activeDragHandler_ = &scalarDragPresenter_;
@@ -13824,6 +13876,12 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 } else if (arrHit.area == ArrangerHitArea::TrackVolume) {
                     setSelectedTrackIndex(arrHit.trackIndex);
                     activeArrangerTrack_ = arrHit.trackIndex;
+                    if (isCtrlPressed()) {
+                        if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) mixerStrips_[arrHit.trackIndex].volume = 1.0f;
+                        if (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) arrangerTracks_[arrHit.trackIndex].volume = 1.0f;
+                        if (engine_) engine_->setTrackVolume(arrHit.trackIndex, 1.0f);
+                        return;
+                    }
                     dragStartX_ = x;
                     if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) {
                         mixerStrips_[arrHit.trackIndex].volume = arrHit.normVal;
@@ -13836,7 +13894,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
                     cfg.minValue = 0.0f;
                     cfg.maxValue = 1.5f;
+                    cfg.defaultValue = 1.0f;
                     cfg.sensitivity = 1.5f / 114.0f;
+                    cfg.relativeMode = true;
+                    cfg.captureMouse = true;
                     scalarDragPresenter_.startDrag(x, y, arrHit.normVal, cfg,
                         [this, trk = activeArrangerTrack_](float v) {
                             if (trk < mixerStrips_.size()) mixerStrips_[trk].volume = v;
@@ -13848,6 +13909,12 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 } else if (arrHit.area == ArrangerHitArea::TrackPan) {
                     setSelectedTrackIndex(arrHit.trackIndex);
                     activeArrangerTrack_ = arrHit.trackIndex;
+                    if (isCtrlPressed()) {
+                        if (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) arrangerTracks_[arrHit.trackIndex].pan = 0.0f;
+                        if (static_cast<size_t>(arrHit.trackIndex) < mixerStrips_.size()) mixerStrips_[arrHit.trackIndex].pan = 0.0f;
+                        if (engine_) engine_->setTrackPan(arrHit.trackIndex, 0.0f);
+                        return;
+                    }
                     dragStartX_ = x;
                     dragStartY_ = y;
                     dragStartPan_ = (static_cast<size_t>(arrHit.trackIndex) < arrangerTracks_.size()) ? arrangerTracks_[arrHit.trackIndex].pan : 0.0f;
@@ -13856,7 +13923,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     cfg.direction = presenter::DragDirection::BidirectionalPan;
                     cfg.minValue = -1.0f;
                     cfg.maxValue = 1.0f;
+                    cfg.defaultValue = 0.0f;
                     cfg.sensitivity = 0.015f;
+                    cfg.relativeMode = true;
+                    cfg.captureMouse = true;
                     scalarDragPresenter_.startDrag(x, y, dragStartPan_, cfg,
                         [this, trk = activeArrangerTrack_](float p) {
                             if (trk < arrangerTracks_.size()) arrangerTracks_[trk].pan = p;
@@ -14710,6 +14780,11 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
             auto knob = hitTestKnob(x, y);
             if (knob.hit) {
+                if (isCtrlPressed()) {
+                    setKnobValue(knob.nodeId, knob.knobIndex, 0.5f);
+                    dispatchKnobParameter(knob.nodeId, knob.knobIndex, 0.5f);
+                    return;
+                }
                 activeKnobNode_ = knob.nodeId;
                 activeKnobIndex_ = knob.knobIndex;
                 dragStartY_ = y;
@@ -14719,7 +14794,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 cfg.direction = presenter::DragDirection::VerticalUpIncreases;
                 cfg.minValue = 0.0f;
                 cfg.maxValue = 1.0f;
+                cfg.defaultValue = 0.5f;
                 cfg.sensitivity = 1.0f / 160.0f;
+                cfg.relativeMode = true;
+                cfg.captureMouse = true;
                 scalarDragPresenter_.startDrag(x, y, dragStartValue_, cfg,
                     [this, n = knob.nodeId, idx = knob.knobIndex](float v) {
                         setKnobValue(n, idx, v);

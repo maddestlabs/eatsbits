@@ -755,6 +755,11 @@ private:
 
     PluginSearchDialog pluginDialog_;
     bool isInsideDrawer_{false};
+
+    std::chrono::steady_clock::time_point lastClickTime_{};
+    float lastClickX_{0.0f};
+    float lastClickY_{0.0f};
+    TrackPropertiesHitArea lastClickArea_{TrackPropertiesHitArea::None};
 };
 
 } // namespace eatsbits::ui

@@ -81,16 +81,20 @@ struct ScalarDragConfig {
     DragDirection direction{DragDirection::VerticalUpIncreases};
     float minValue{0.0f};
     float maxValue{1.0f};
+    float defaultValue{0.0f};   ///< Default value restored via Ctrl/Cmd+Click
     float sensitivity{1.0f / 160.0f};
-    float fineRatio{0.15f};
-    float stepSnap{0.0f};   ///< 0.0 means continuous smooth variation
+    float fineRatio{0.10f};     ///< 0.1x precision fine adjustment multiplier via Shift
+    float stepSnap{0.0f};       ///< 0.0 means continuous smooth variation
     bool isInteger{false};
-    bool useAudioTaper{false}; ///< True if fader follows authentic console dB taper
+    bool useAudioTaper{false};  ///< True if fader follows authentic console dB taper
+    bool relativeMode{false};   ///< Virtual relative delta drag without border clamping
+    bool captureMouse{false};   ///< Capture/lock mouse during drag and restore on release
 };
 
 /**
  * @brief Headless presenter encapsulating 1D continuous parameter dragging,
- * sensitivity scaling, fine control, bounds clamping, step snapping, commit, and cancel.
+ * infinite relative delta mode, sensitivity scaling, fine control, bounds clamping,
+ * step snapping, commit, and cancel.
  */
 class ScalarDragPresenter : public PresenterBase, public IDragHandler {
 public:
@@ -110,6 +114,17 @@ public:
                                 const ScalarDragConfig& config,
                                 std::function<void(float)> onDragCommitted = nullptr);
 
+    /**
+     * @brief Inspect pointer down for Ctrl/Cmd+click reset or double-click to edit.
+     * @return True if consumed (e.g. reset to default or double-click triggered).
+     */
+    bool onPointerDown(const ui::PointerEvent& ev) override;
+
+    /**
+     * @brief Restore control to its default value (e.g. center for pan, 0 dB for track faders).
+     */
+    void resetToDefault();
+
     // IDragHandler Implementation
     using IDragHandler::onPointerMove;
     using IDragHandler::onPointerUp;
@@ -122,24 +137,54 @@ public:
 
     [[nodiscard]] float getCurrentValue() const noexcept { return currentValue_; }
     [[nodiscard]] float getInitialValue() const noexcept { return initialValue_; }
+    [[nodiscard]] float getDefaultValue() const noexcept { return config_.defaultValue; }
+    void setDefaultValue(float defVal) noexcept { config_.defaultValue = defVal; }
     [[nodiscard]] const ScalarDragConfig& getConfig() const noexcept { return config_; }
 
     void setFineControl(bool fine) noexcept { fineControl_ = fine; }
     [[nodiscard]] bool isFineControl() const noexcept { return fineControl_; }
 
+    [[nodiscard]] bool isMouseCaptured() const noexcept { return isMouseCaptured_; }
+    [[nodiscard]] float getAccumulatedDelta() const noexcept { return accumulatedDelta_; }
+
+    /**
+     * @brief Hook for windowing shell to capture/lock mouse and restore cursor on release.
+     * Arguments: captured (true = start drag, false = release drag), restoreX, restoreY.
+     */
+    void setOnMouseCapture(std::function<void(bool captured, float restoreX, float restoreY)> cb) {
+        onMouseCapture_ = std::move(cb);
+    }
+
+    /**
+     * @brief Hook triggered when double-click gesture is detected on control.
+     */
+    void setOnDoubleClicked(std::function<void()> cb) {
+        onDoubleClicked_ = std::move(cb);
+    }
+
 private:
     bool isDragging_{false};
     bool fineControl_{false};
+    bool isMouseCaptured_{false};
     float startX_{0.0f};
     float startY_{0.0f};
+    float lastX_{0.0f};
+    float lastY_{0.0f};
+    float accumulatedDelta_{0.0f};
     float initialValue_{0.0f};
     float initialTravel_{0.75f};
     float currentValue_{0.0f};
     ScalarDragConfig config_{};
 
+    double lastClickTimeMs_{0.0};
+    float lastClickX_{0.0f};
+    float lastClickY_{0.0f};
+
     ParameterPresenter* boundParam_{nullptr};
     std::function<void(float)> onValueChanged_{nullptr};
     std::function<void(float)> onDragCommitted_{nullptr};
+    std::function<void(bool, float, float)> onMouseCapture_{nullptr};
+    std::function<void()> onDoubleClicked_{nullptr};
 };
 
 } // namespace eatsbits::presenter

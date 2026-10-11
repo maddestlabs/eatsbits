@@ -1331,6 +1331,11 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
             // Pan knob tap
             if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - 107.0f, ev.y - 215.0f) <= 18.0f) {
+                if (ev.mods.ctrl || ev.mods.meta) {
+                    masterChannel_.pan = 0.0f;
+                    if (onMasterPanChanged) onMasterPanChanged(0.0f);
+                    return true;
+                }
                 activePanIndex_ = -1;
                 dragStartX_ = ev.x;
                 dragStartY_ = ev.y;
@@ -1339,6 +1344,12 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
             // Master Fader tap
             if (hitTestMasterFader(ev.x, ev.y)) {
+                if (ev.mods.ctrl || ev.mods.meta) {
+                    masterChannel_.fader = 1.0f;
+                    if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(1.0f);
+                    if (onMasterVolumeChanged) onMasterVolumeChanged(1.0f);
+                    return true;
+                }
                 auto now = std::chrono::steady_clock::now();
                 auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFaderClickTime_).count();
                 if (lastFaderClickIndex_ == -1 && elapsedMs < 350) {
@@ -1373,7 +1384,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             if (it != activeFaderSessions_.end() && it->second.faderIndex == -1) {
                 auto geom = getMasterFaderGeometry();
                 float dy = it->second.dragStartY - ev.y;
-                float fineScale = ev.mods.shift ? 0.15f : 1.0f;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                 float deltaTravel = (dy / geom.wellH) * fineScale;
                 float newTravel = std::clamp(it->second.initialTravel + deltaTravel, 0.0f, 1.0f);
                 float newFader = presenter::audio_taper::travelToGain(newTravel);
@@ -1392,7 +1403,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             if (activeFaderIndex_ == -1) {
                 auto geom = getMasterFaderGeometry();
                 float dy = dragStartY_ - ev.y;
-                float fineScale = ev.mods.shift ? 0.15f : 1.0f;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                 float deltaTravel = (dy / geom.wellH) * fineScale;
                 float newTravel = std::clamp(initialFaderTravel_ + deltaTravel, 0.0f, 1.0f);
                 float newFader = presenter::audio_taper::travelToGain(newTravel);
@@ -1411,7 +1422,8 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             if (activePanIndex_ == -1) {
                 float dy = dragStartY_ - ev.y;
                 float dx = ev.x - dragStartX_;
-                float delta = (std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f);
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
                 masterChannel_.pan = std::clamp(initialPanVal_ + delta, -1.0f, 1.0f);
                 if (onMasterPanChanged) onMasterPanChanged(masterChannel_.pan);
                 return true;
@@ -1572,6 +1584,11 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 }
                 // Pan knob tap
                 if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - (cx + 65.0f), ev.y - 215.0f) <= 18.0f) {
+                    if (ev.mods.ctrl || ev.mods.meta) {
+                        channels_[i].pan = 0.0f;
+                        if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), 0.0f);
+                        return true;
+                    }
                     activePanIndex_ = static_cast<int>(i);
                     dragStartX_ = ev.x;
                     dragStartY_ = ev.y;
@@ -1594,6 +1611,12 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 }
                 // Fader slot tap
                 if (hitTestChannelFader(i, cx, ev.x, ev.y)) {
+                    if (ev.mods.ctrl || ev.mods.meta) {
+                        channels_[i].fader = 1.0f;
+                        if (ctx.audioEngine) ctx.audioEngine->setTrackVolume(static_cast<uint32_t>(i), 1.0f);
+                        if (onVolumeChanged) onVolumeChanged(static_cast<uint32_t>(i), 1.0f);
+                        return true;
+                    }
                     auto now = std::chrono::steady_clock::now();
                     auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFaderClickTime_).count();
                     if (lastFaderClickIndex_ == static_cast<int>(i) && elapsedMs < 350) {
@@ -1633,7 +1656,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if (sessionIt != activeFaderSessions_.end() && sessionIt->second.faderIndex == static_cast<int>(i)) {
                     auto geom = getChannelFaderGeometry(i, cx);
                     float dy = sessionIt->second.dragStartY - ev.y;
-                    float fineScale = ev.mods.shift ? 0.15f : 1.0f;
+                    float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                     float deltaTravel = (dy / geom.wellH) * fineScale;
                     float newTravel = std::clamp(sessionIt->second.initialTravel + deltaTravel, 0.0f, 1.0f);
                     float newFader = presenter::audio_taper::travelToGain(newTravel);
@@ -1652,7 +1675,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if (activeFaderIndex_ == static_cast<int>(i)) {
                     auto geom = getChannelFaderGeometry(i, cx);
                     float dy = dragStartY_ - ev.y;
-                    float fineScale = ev.mods.shift ? 0.15f : 1.0f;
+                    float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                     float deltaTravel = (dy / geom.wellH) * fineScale;
                     float newTravel = std::clamp(initialFaderTravel_ + deltaTravel, 0.0f, 1.0f);
                     float newFader = presenter::audio_taper::travelToGain(newTravel);
@@ -1671,7 +1694,8 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 if (activePanIndex_ == static_cast<int>(i)) {
                     float dy = dragStartY_ - ev.y;
                     float dx = ev.x - dragStartX_;
-                    float delta = (std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f);
+                    float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                    float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
                     channels_[i].pan = std::clamp(initialPanVal_ + delta, -1.0f, 1.0f);
                     if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), channels_[i].pan);
                     return true;

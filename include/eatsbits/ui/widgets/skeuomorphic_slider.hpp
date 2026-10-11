@@ -43,6 +43,22 @@ public:
         return getFaderCapBounds().contains(px, py);
     }
 
+    float defaultNormValue{1.0f}; // 1.0 = 0 dB unity gain
+    double lastClickTimeMs{0.0};
+    float lastClickX{0.0f};
+    float lastClickY{0.0f};
+
+    void resetToDefault() noexcept {
+        normValue = defaultNormValue;
+    }
+
+    /// Process mouse drag delta (positive dy = dragged down, negative dy = dragged up)
+    void handleDragDelta(float deltaY, bool isShiftDown = false) noexcept {
+        float travelH = std::max(1.0f, bounds.h - capHeight);
+        float sensitivity = (1.5f / travelH) * (isShiftDown ? 0.10f : 1.0f);
+        normValue = std::clamp(normValue - deltaY * sensitivity, 0.0f, 1.5f);
+    }
+
     /// Convert absolute mouse Y position along the fader travel into normalized gain
     void handleDragY(float mouseY) noexcept {
         float travelH = std::max(1.0f, bounds.h - capHeight);
