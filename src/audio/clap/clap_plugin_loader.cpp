@@ -426,12 +426,20 @@ void ClapPluginLoader::scanDirectoriesAsync(
     if (isScanning_.load()) {
         return; // Already actively scanning
     }
+#if !defined(__EMSCRIPTEN__)
     std::thread([this, customPaths, onComplete = std::move(onComplete)]() {
         auto plugins = this->scanDirectories(customPaths);
         if (onComplete) {
             onComplete(plugins);
         }
     }).detach();
+#else
+    // On Web/WASM, dynamic desktop libraries cannot be probed via dlopen/LoadLibrary
+    auto plugins = this->scanDirectories(customPaths);
+    if (onComplete) {
+        onComplete(plugins);
+    }
+#endif
 }
 
 std::vector<ClapPluginDescriptor> ClapPluginLoader::getDiscoveredPlugins() const {

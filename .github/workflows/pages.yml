@@ -23,10 +23,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Ninja
-        uses: ashutoshvarma/setup-ninja@master
-        with:
-          version: 1.11.1
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Setup Emscripten SDK
         uses: mymindstorm/setup-emsdk@v14
@@ -50,21 +48,15 @@ jobs:
       - name: Assemble GitHub Pages Distribution
         run: |
           mkdir -p dist
-          # Copy core WASM, preloaded assets, runtime bridge, and HTML hosts
+          # Copy all static web assets (manifest, icons, service worker, fallback pages)
+          cp -rf web/* dist/
+
+          # Copy compiled WASM, preloaded asset bundle, JS runtime bridge, and generated HTML hosts
           cp -f build-web/eatsbits.wasm dist/
           cp -f build-web/eatsbits.data dist/
           cp -f build-web/eatsbits.js dist/
           cp -f build-web/eatsbits.html dist/
           cp -f build-web/index.html dist/
-          
-          # Copy PWA & static assets
-          cp -f build-web/manifest.json dist/
-          cp -f build-web/sw.js dist/
-          cp -f build-web/app_icon.svg dist/
-          cp -f build-web/icon-*.png dist/
-          cp -f build-web/apple-touch-icon.png dist/
-          cp -f build-web/favicon.ico dist/
-          cp -f build-web/tui.html dist/
 
           # Custom domain configuration for eatsbits.app
           if [ -f "web/CNAME" ]; then

@@ -361,12 +361,19 @@ void GeminiClient::generateContentAsync(
     float temperature,
     int maxTokens
 ) {
+#if !defined(__EMSCRIPTEN__)
     std::thread([this, prompt, systemInstruction, onComplete = std::move(onComplete), temperature, maxTokens]() {
         GeminiResponse r = generateContent(prompt, systemInstruction, temperature, maxTokens);
         if (onComplete) {
             onComplete(r);
         }
     }).detach();
+#else
+    GeminiResponse r = generateContent(prompt, systemInstruction, temperature, maxTokens);
+    if (onComplete) {
+        onComplete(r);
+    }
+#endif
 }
 
 } // namespace eatsbits::ai
