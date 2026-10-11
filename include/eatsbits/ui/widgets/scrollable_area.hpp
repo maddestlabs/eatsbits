@@ -83,6 +83,14 @@ public:
         return Rect2D{track.x, thumbY, track.w, thumbH};
     }
 
+    // Scissoring / Viewport Clipping
+    [[nodiscard]] ScissorScope makeScissorScope(BatchRenderer2D& r) const {
+        return ScissorScope(r, viewportBounds_);
+    }
+    [[nodiscard]] ScissorScope makeScissorScope(BatchRenderer2D* r) const {
+        return ScissorScope(r, viewportBounds_);
+    }
+
     // Rendering
     void renderScrollbar(BatchRenderer2D& r, const ThemeTokens& theme, float alpha = 1.0f) const {
         if (!canScroll()) return;

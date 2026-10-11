@@ -1886,7 +1886,7 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     float rackBodyH = rect.h - topBarH;
     modularZoomPan_.setViewport(rect.x, rackBodyY, rect.w, rackBodyH);
 
-    r.pushScissor(rect.x, rackBodyY, rect.w, rackBodyH);
+    ScissorScope scissorScope(r, rect.x, rackBodyY, rect.w, rackBodyH);
 
     // Canvas background
     drawRect(r, rect.x, rackBodyY, rect.w, rackBodyH, 0.07f, 0.08f, 0.10f, 1.0f);
@@ -2133,8 +2133,6 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
         float y1 = modularZoomPan_.worldToScreenY(cordStartY_);
         renderCatenaryCable(r, x1, y1, cordCurrentX_, cordCurrentY_, dragCordR_, dragCordG_, dragCordB_);
     }
-
-    r.popScissor();
 }
 
 void DesignView::renderCatenaryCable(BatchRenderer2D& r, float x1, float y1, float x2, float y2,

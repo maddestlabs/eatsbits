@@ -249,67 +249,67 @@ void ThemeBrowserDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     }
 
     // 5. Cards Area (Scissored)
-    r.pushScissor(cardsAreaBounds_.x, cardsAreaBounds_.y, cardsAreaBounds_.w, cardsAreaBounds_.h);
+    {
+        BatchRenderer2D::ScissorScope cardsScissor(r, cardsAreaBounds_);
 
-    for (size_t rank = 0; rank < filteredIndices_.size(); ++rank) {
-        size_t idx = filteredIndices_[rank];
-        const auto& item = allItems_[idx];
-        Rect2D cb = item.bounds;
-        cb.y -= scrollY_;
+        for (size_t rank = 0; rank < filteredIndices_.size(); ++rank) {
+            size_t idx = filteredIndices_[rank];
+            const auto& item = allItems_[idx];
+            Rect2D cb = item.bounds;
+            cb.y -= scrollY_;
 
-        // Culling
-        if (cb.y + cb.h < cardsAreaBounds_.y || cb.y > cardsAreaBounds_.y + cardsAreaBounds_.h) {
-            continue;
+            // Culling
+            if (cb.y + cb.h < cardsAreaBounds_.y || cb.y > cardsAreaBounds_.y + cardsAreaBounds_.h) {
+                continue;
+            }
+
+            bool isSel = (selectedItemIndex_ == static_cast<int>(rank));
+            bool isCurrent = (Theme::getCurrentPreset() == item.preset);
+
+            Color cardBg = isSel ? theme.controlWell.lighten(0.04f) : theme.controlBackground;
+            drawRoundedRect(r, cb.x, cb.y, cb.w, cb.h, 6.0f, cardBg);
+
+            Color borderCol = isCurrent ? theme.primaryAccent : (isSel ? theme.borderFocus : theme.borderSubtle);
+            float borderW = (isCurrent || isSel) ? 1.5f : 1.0f;
+            drawRoundedRectOutline(r, cb.x, cb.y, cb.w, cb.h, 6.0f, borderCol, borderW);
+
+            // Header: Name & Category Badge
+            drawText(r, item.name, cb.x + 12.0f, cb.y + 10.0f, 12.0f, isSel ? theme.primaryAccent : theme.textPrimary);
+            drawText(r, item.subtitle, cb.x + 12.0f, cb.y + 26.0f, 9.0f, theme.textSecondary);
+
+            // Active indicator badge
+            if (isCurrent) {
+                float badgeW = 60.0f;
+                float badgeX = cb.x + cb.w - badgeW - 10.0f;
+                drawRoundedRect(r, badgeX, cb.y + 8.0f, badgeW, 16.0f, 3.0f, theme.primaryAccent.darken(0.3f));
+                drawCenteredText(r, "ACTIVE", Rect2D{badgeX, cb.y + 8.0f, badgeW, 16.0f}, 8.0f, Color{1.0f, 1.0f, 1.0f});
+            }
+
+            // Description
+            drawText(r, item.description, cb.x + 12.0f, cb.y + 42.0f, 8.5f, theme.textMuted);
+
+            // Swatch Palette (6 circular discs)
+            float swatchY = cb.y + cb.h - 18.0f;
+            float discRadius = 6.0f;
+            const Color swatches[6] = {
+                item.tokens.backgroundDark,
+                item.tokens.primaryAccent,
+                item.tokens.secondaryAccent,
+                item.tokens.syntaxKeyword,
+                item.tokens.syntaxString,
+                item.tokens.syntaxNumber
+            };
+
+            for (int s = 0; s < 6; ++s) {
+                float sx = cb.x + 18.0f + static_cast<float>(s) * 18.0f;
+                drawCircle(r, sx, swatchY, discRadius, swatches[s].r, swatches[s].g, swatches[s].b, 1.0f);
+                drawCircleOutline(r, sx, swatchY, discRadius, 0.4f, 0.4f, 0.4f, 0.8f, 0.8f);
+            }
+
+            // Author tag
+            drawText(r, item.author, cb.x + 140.0f, swatchY - 5.0f, 8.0f, theme.textMuted);
         }
-
-        bool isSel = (selectedItemIndex_ == static_cast<int>(rank));
-        bool isCurrent = (Theme::getCurrentPreset() == item.preset);
-
-        Color cardBg = isSel ? theme.controlWell.lighten(0.04f) : theme.controlBackground;
-        drawRoundedRect(r, cb.x, cb.y, cb.w, cb.h, 6.0f, cardBg);
-
-        Color borderCol = isCurrent ? theme.primaryAccent : (isSel ? theme.borderFocus : theme.borderSubtle);
-        float borderW = (isCurrent || isSel) ? 1.5f : 1.0f;
-        drawRoundedRectOutline(r, cb.x, cb.y, cb.w, cb.h, 6.0f, borderCol, borderW);
-
-        // Header: Name & Category Badge
-        drawText(r, item.name, cb.x + 12.0f, cb.y + 10.0f, 12.0f, isSel ? theme.primaryAccent : theme.textPrimary);
-        drawText(r, item.subtitle, cb.x + 12.0f, cb.y + 26.0f, 9.0f, theme.textSecondary);
-
-        // Active indicator badge
-        if (isCurrent) {
-            float badgeW = 60.0f;
-            float badgeX = cb.x + cb.w - badgeW - 10.0f;
-            drawRoundedRect(r, badgeX, cb.y + 8.0f, badgeW, 16.0f, 3.0f, theme.primaryAccent.darken(0.3f));
-            drawCenteredText(r, "ACTIVE", Rect2D{badgeX, cb.y + 8.0f, badgeW, 16.0f}, 8.0f, Color{1.0f, 1.0f, 1.0f});
-        }
-
-        // Description
-        drawText(r, item.description, cb.x + 12.0f, cb.y + 42.0f, 8.5f, theme.textMuted);
-
-        // Swatch Palette (6 circular discs)
-        float swatchY = cb.y + cb.h - 18.0f;
-        float discRadius = 6.0f;
-        const Color swatches[6] = {
-            item.tokens.backgroundDark,
-            item.tokens.primaryAccent,
-            item.tokens.secondaryAccent,
-            item.tokens.syntaxKeyword,
-            item.tokens.syntaxString,
-            item.tokens.syntaxNumber
-        };
-
-        for (int s = 0; s < 6; ++s) {
-            float sx = cb.x + 18.0f + static_cast<float>(s) * 18.0f;
-            drawCircle(r, sx, swatchY, discRadius, swatches[s].r, swatches[s].g, swatches[s].b, 1.0f);
-            drawCircleOutline(r, sx, swatchY, discRadius, 0.4f, 0.4f, 0.4f, 0.8f, 0.8f);
-        }
-
-        // Author tag
-        drawText(r, item.author, cb.x + 140.0f, swatchY - 5.0f, 8.0f, theme.textMuted);
     }
-
-    r.popScissor();
 
     // Scrollbar indicator
     if (maxScrollY_ > 0.0f) {

@@ -198,7 +198,7 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         }
     } else {
         // Multi-column Card Grid with GPU scissoring containment
-        r.pushScissor(gridBounds_.x, gridBounds_.y, gridBounds_.w, gridBounds_.h);
+        ScissorScope scissor(r, gridBounds_);
         auto icons = getFilteredIcons();
         float cardW = 86.0f;
         float cardH = 74.0f;
@@ -247,7 +247,6 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         if (icons.empty()) {
             drawCenteredText(r, "No matching icons found.", gridBounds_, 12.0f, theme.textMuted);
         }
-        r.popScissor();
     }
 
     // 6. Bottom Bar: Paste Button and Status Message

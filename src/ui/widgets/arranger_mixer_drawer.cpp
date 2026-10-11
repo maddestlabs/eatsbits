@@ -270,8 +270,7 @@ void ArrangerMixerDrawer::render(
     maxScrollX_ = (std::max)(0.0f, totalChannelsW - channelsViewportBounds_.w);
     scrollX_ = (std::clamp)(scrollX_, 0.0f, maxScrollX_);
 
-    r.pushScissor(channelsViewportBounds_.x, channelsViewportBounds_.y,
-                  channelsViewportBounds_.w, channelsViewportBounds_.h);
+    ScissorScope scissor(r, channelsViewportBounds_);
 
     const float stripH = channelsViewportBounds_.h;
 
@@ -432,8 +431,6 @@ void ArrangerMixerDrawer::render(
                          kChannelWidth - 4.0f, 14.0f, 8.5f,
                          isSelected ? trackCol : theme.textSecondary);
     }
-
-    r.popScissor();
 
     // 7. Horizontal Scrollbar (if content overflows viewport)
     if (maxScrollX_ > 0.0f && scrollBarBounds_.h > 2.0f) {

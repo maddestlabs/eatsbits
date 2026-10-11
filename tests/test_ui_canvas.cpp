@@ -6,6 +6,8 @@
 #include <cstdlib>
 
 #include "eatsbits/ui/canvas_renderer.hpp"
+#include "eatsbits/ui/batch_renderer_2d.hpp"
+#include "eatsbits/ui/widgets/scrollable_area.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/audio/graph/audio_graph.hpp"
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
@@ -252,6 +254,126 @@ void testEngineScopeIntegration() {
     std::cout << "  [PASS] Engine scope integration passed." << std::endl;
 }
 
+void testScissorScopeNestedClippingAndRaii() {
+    std::cout << "[Test] BatchRenderer2D::ScissorScope nested clipping, RAII, move semantics, and ScrollableArea..." << std::endl;
+    BatchRenderer2D renderer;
+
+    REQUIRE(!renderer.hasScissor());
+    REQUIRE(renderer.getScissorDepth() == 0);
+
+    // 1. Single ScissorScope test
+    {
+        BatchRenderer2D::ScissorScope scope1(renderer, 10.0f, 20.0f, 100.0f, 200.0f);
+        REQUIRE(scope1.isActive());
+        REQUIRE(renderer.hasScissor());
+        REQUIRE(renderer.getScissorDepth() == 1);
+        Rect2D s1 = renderer.getActiveScissor();
+        REQUIRE(s1.x == 10.0f && s1.y == 20.0f && s1.w == 100.0f && s1.h == 200.0f);
+    }
+    REQUIRE(!renderer.hasScissor());
+    REQUIRE(renderer.getScissorDepth() == 0);
+
+    // 2. Nested clipping rectangle calculation (intersection of parent & child)
+    {
+        // Parent: [50, 50, 200, 200]
+        BatchRenderer2D::ScissorScope parent(renderer, 50.0f, 50.0f, 200.0f, 200.0f);
+        REQUIRE(renderer.getScissorDepth() == 1);
+
+        {
+            // Child: [100, 100, 200, 200] -> intersection with [50, 50, 200, 200] is [100, 100, 150, 150]
+            BatchRenderer2D::ScissorScope child(renderer, 100.0f, 100.0f, 200.0f, 200.0f);
+            REQUIRE(renderer.getScissorDepth() == 2);
+            Rect2D act = renderer.getActiveScissor();
+            REQUIRE(act.x == 100.0f);
+            REQUIRE(act.y == 100.0f);
+            REQUIRE(act.w == 150.0f);
+            REQUIRE(act.h == 150.0f);
+
+            {
+                // Grandchild: [0, 0, 50, 50] (completely outside intersection [100, 100, 150, 150])
+                BatchRenderer2D::ScissorScope grandchild(renderer, 0.0f, 0.0f, 50.0f, 50.0f);
+                REQUIRE(renderer.getScissorDepth() == 3);
+                Rect2D actGc = renderer.getActiveScissor();
+                REQUIRE(actGc.w == 0.0f);
+                REQUIRE(actGc.h == 0.0f);
+            }
+            // After grandchild unrolls, child is restored
+            REQUIRE(renderer.getScissorDepth() == 2);
+            Rect2D restoredChild = renderer.getActiveScissor();
+            REQUIRE(restoredChild.x == 100.0f);
+            REQUIRE(restoredChild.y == 100.0f);
+            REQUIRE(restoredChild.w == 150.0f);
+            REQUIRE(restoredChild.h == 150.0f);
+        }
+        // After child unrolls, parent is restored
+        REQUIRE(renderer.getScissorDepth() == 1);
+        Rect2D restoredParent = renderer.getActiveScissor();
+        REQUIRE(restoredParent.x == 50.0f);
+        REQUIRE(restoredParent.y == 50.0f);
+        REQUIRE(restoredParent.w == 200.0f);
+        REQUIRE(restoredParent.h == 200.0f);
+    }
+    REQUIRE(!renderer.hasScissor());
+    REQUIRE(renderer.getScissorDepth() == 0);
+
+    // 3. Move semantics & early reset()
+    {
+        BatchRenderer2D::ScissorScope scopeA(renderer, 10.0f, 10.0f, 50.0f, 50.0f);
+        REQUIRE(scopeA.isActive());
+        REQUIRE(renderer.getScissorDepth() == 1);
+
+        // Move constructor
+        BatchRenderer2D::ScissorScope scopeB(std::move(scopeA));
+        REQUIRE(!scopeA.isActive());
+        REQUIRE(scopeB.isActive());
+        REQUIRE(renderer.getScissorDepth() == 1);
+
+        // Move assignment
+        BatchRenderer2D::ScissorScope scopeC;
+        scopeC = std::move(scopeB);
+        REQUIRE(!scopeB.isActive());
+        REQUIRE(scopeC.isActive());
+        REQUIRE(renderer.getScissorDepth() == 1);
+
+        // Early reset()
+        scopeC.reset();
+        REQUIRE(!scopeC.isActive());
+        REQUIRE(renderer.getScissorDepth() == 0);
+    }
+    REQUIRE(renderer.getScissorDepth() == 0);
+
+    // 4. ScrollableArea makeScissorScope integration
+    {
+        ScrollableArea scrollArea;
+        scrollArea.setViewport(30.0f, 40.0f, 300.0f, 400.0f);
+        {
+            auto scrollScope = scrollArea.makeScissorScope(renderer);
+            REQUIRE(scrollScope.isActive());
+            REQUIRE(renderer.hasScissor());
+            REQUIRE(renderer.getScissorDepth() == 1);
+            Rect2D act = renderer.getActiveScissor();
+            REQUIRE(act.x == 30.0f);
+            REQUIRE(act.y == 40.0f);
+            REQUIRE(act.w == 300.0f);
+            REQUIRE(act.h == 400.0f);
+        }
+        REQUIRE(!renderer.hasScissor());
+        REQUIRE(renderer.getScissorDepth() == 0);
+    }
+
+    // 5. BatchRenderer2D makeScissorScope helper
+    {
+        auto scope = renderer.makeScissorScope(Rect2D{12.0f, 34.0f, 56.0f, 78.0f});
+        REQUIRE(scope.isActive());
+        REQUIRE(renderer.getScissorDepth() == 1);
+        Rect2D act = renderer.getActiveScissor();
+        REQUIRE(act.x == 12.0f && act.y == 34.0f && act.w == 56.0f && act.h == 78.0f);
+    }
+    REQUIRE(renderer.getScissorDepth() == 0);
+
+    std::cout << "  [PASS] ScissorScope nested clipping and RAII passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 4 UI Canvas & Visualizer Suite Tests ===" << std::endl;
     testCanvasDimensionsAndResize();
@@ -261,6 +383,7 @@ int main() {
     testSvgExport();
     testAnsiVisualizer();
     testEngineScopeIntegration();
+    testScissorScopeNestedClippingAndRaii();
     std::cout << "=== All Phase 4 UI Canvas Tests Passed! ===" << std::endl;
     return 0;
 }

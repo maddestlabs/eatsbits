@@ -546,7 +546,7 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         }
     } else {
         // Scissor search text strictly within the search box boundaries
-        r.pushScissor(textStartX - 2.0f, searchBoxBounds_.y, textMaxW, searchBoxBounds_.h);
+        BatchRenderer2D::ScissorScope textScissor(r, textStartX - 2.0f, searchBoxBounds_.y, textMaxW, searchBoxBounds_.h);
         drawMonoText(r, searchQuery_, textStartX, searchBoxBounds_.y + 8.0f, 11.0f,
                      theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
@@ -558,7 +558,6 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                          theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f, 1.5f);
             }
         }
-        r.popScissor();
 
         // Clear [X] Button on Right of Search Box
         bool clearHov = searchClearBtnBounds_.contains(lastMouseX_, lastMouseY_);
@@ -588,107 +587,107 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     scrollY_ = scrollArea_.getScrollY();
 
     // STRICT SCISSOR CONTAINMENT: Completely confines scrolling within vertical layout bounds
-    r.pushScissor(dialogBounds_.x + 18.0f, listY, cardW + 4.0f, listH);
+    {
+        BatchRenderer2D::ScissorScope listScissor(r, dialogBounds_.x + 18.0f, listY, cardW + 4.0f, listH);
 
-    if (entries.empty()) {
-        float emptyY = listY + listH * 0.32f;
-        drawCenteredText(r, "NO MATCHING PRESETS OR PLUGINS FOUND",
-                         dialogBounds_.x + 20.0f, emptyY, cardW, 20.0f, 12.0f,
+        if (entries.empty()) {
+            float emptyY = listY + listH * 0.32f;
+            drawCenteredText(r, "NO MATCHING PRESETS OR PLUGINS FOUND",
+                             dialogBounds_.x + 20.0f, emptyY, cardW, 20.0f, 12.0f,
+                             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+
+            std::string queryHint = "No results matching \"" + searchQuery_ + "\"";
+            drawCenteredText(r, queryHint,
+                             dialogBounds_.x + 20.0f, emptyY + 24.0f, cardW, 16.0f, 10.0f,
+                             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f);
+
+            drawCenteredText(r, "Click [X] or press Esc to clear filter",
+                             dialogBounds_.x + 20.0f, emptyY + 44.0f, cardW, 16.0f, 9.5f,
+                             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f);
+        } else {
+            for (size_t i = 0; i < entries.size(); ++i) {
+                float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
+                if (!scrollArea_.isVisible(cy, cardH)) continue;
+
+                const auto& entry = entries[i];
+                bool isKeyboardHighlighted = (static_cast<int>(i) == selectedItemIndex_);
+                bool isHovered = Rect2D(dialogBounds_.x + 20.0f, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
+
+                // Card Container
+                drawRoundedRect(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                                isKeyboardHighlighted ? theme.controlBackground.r * 1.35f :
+                                (isHovered ? theme.controlBackground.r * 1.15f : theme.controlBackground.r),
+                                isKeyboardHighlighted ? theme.controlBackground.g * 1.35f :
+                                (isHovered ? theme.controlBackground.g * 1.15f : theme.controlBackground.g),
+                                isKeyboardHighlighted ? theme.controlBackground.b * 1.35f :
+                                (isHovered ? theme.controlBackground.b * 1.15f : theme.controlBackground.b), 0.96f);
+
+                if (isKeyboardHighlighted) {
+                    drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                                           theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
+                } else {
+                    drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, isHovered ? 0.9f : 0.6f, 1.0f);
+                }
+
+                // Color tag strip on left
+                drawRoundedRect(r, dialogBounds_.x + 22.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
+                                entry.r, entry.g, entry.b, 1.0f);
+
+                // Category Badge
+                std::string catBadge = toUpperStr(entry.category);
+                float catW = catBadge.length() * 6.0f + 10.0f;
+                drawRoundedRect(r, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 3.0f,
+                                entry.r * 0.25f, entry.g * 0.25f, entry.b * 0.25f, 0.9f);
+                drawCenteredText(r, catBadge, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 8.0f,
+                                 entry.r, entry.g, entry.b, 1.0f);
+
+                // Title
+                float titleX = dialogBounds_.x + 36.0f + catW + 8.0f;
+                drawText(r, entry.name, titleX, cy + 8.0f, 12.0f,
+                         theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
+
+                // Engine Tag
+                if (!entry.engineTag.empty()) {
+                    float engX = titleX + entry.name.length() * 7.5f + 10.0f;
+                    float engW = entry.engineTag.length() * 6.5f + 10.0f;
+                    drawRoundedRect(r, engX, cy + 8.0f, engW, 14.0f, 3.0f,
+                                    0.2f, 0.22f, 0.28f, 0.8f);
+                    drawText(r, entry.engineTag, engX + 5.0f, cy + 9.5f, 8.5f,
+                             theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.95f);
+                }
+
+                // Author (if provided)
+                if (!entry.author.empty() && entry.author != "Eatsbeats / Eatsbits") {
+                    drawText(r, "by " + entry.author, dialogBounds_.x + cardW - 190.0f, cy + 9.5f, 8.5f,
+                             theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
+                }
+
+                // Description
+                std::string desc = entry.description;
+                if (desc.length() > 95) desc = desc.substr(0, 92) + "...";
+                drawText(r, desc, dialogBounds_.x + 36.0f, cy + 29.0f, 9.5f,
                          theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
-        std::string queryHint = "No results matching \"" + searchQuery_ + "\"";
-        drawCenteredText(r, queryHint,
-                         dialogBounds_.x + 20.0f, emptyY + 24.0f, cardW, 16.0f, 10.0f,
-                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f);
+                // Action Button on Right (+ LOAD / + ADD)
+                float btnW = 68.0f;
+                float btnH = 26.0f;
+                float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
+                float btnY = cy + (cardH - btnH) * 0.5f;
 
-        drawCenteredText(r, "Click [X] or press Esc to clear filter",
-                         dialogBounds_.x + 20.0f, emptyY + 44.0f, cardW, 16.0f, 9.5f,
-                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f);
-    } else {
-        for (size_t i = 0; i < entries.size(); ++i) {
-            float cy = listY + static_cast<float>(i) * (cardH + cardSpacing) - scrollY_;
-            if (!scrollArea_.isVisible(cy, cardH)) continue;
+                bool btnHover = Rect2D(btnX, btnY, btnW, btnH).contains(lastMouseX_, lastMouseY_);
+                Color addBg{entry.r * (btnHover ? 0.38f : 0.20f),
+                            entry.g * (btnHover ? 0.38f : 0.20f),
+                            entry.b * (btnHover ? 0.38f : 0.20f), 0.95f};
+                Color addBorder{entry.r, entry.g, entry.b, btnHover ? 1.0f : 0.85f};
+                Color addText{entry.r, entry.g, entry.b, 1.0f};
 
-            const auto& entry = entries[i];
-            bool isKeyboardHighlighted = (static_cast<int>(i) == selectedItemIndex_);
-            bool isHovered = Rect2D(dialogBounds_.x + 20.0f, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
-
-            // Card Container
-            drawRoundedRect(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                            isKeyboardHighlighted ? theme.controlBackground.r * 1.35f :
-                            (isHovered ? theme.controlBackground.r * 1.15f : theme.controlBackground.r),
-                            isKeyboardHighlighted ? theme.controlBackground.g * 1.35f :
-                            (isHovered ? theme.controlBackground.g * 1.15f : theme.controlBackground.g),
-                            isKeyboardHighlighted ? theme.controlBackground.b * 1.35f :
-                            (isHovered ? theme.controlBackground.b * 1.15f : theme.controlBackground.b), 0.96f);
-
-            if (isKeyboardHighlighted) {
-                drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                                       theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
-            } else {
-                drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
-                                       theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, isHovered ? 0.9f : 0.6f, 1.0f);
+                std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" :
+                                       (mode_ == PluginDialogMode::AddModule) ? "+ ADD MODULE" : "+ ADD";
+                drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, btnLabel, addBg, addBorder, addText, 10.0f, 4.0f, 1.0f);
             }
-
-            // Color tag strip on left
-            drawRoundedRect(r, dialogBounds_.x + 22.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
-                            entry.r, entry.g, entry.b, 1.0f);
-
-            // Category Badge
-            std::string catBadge = toUpperStr(entry.category);
-            float catW = catBadge.length() * 6.0f + 10.0f;
-            drawRoundedRect(r, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 3.0f,
-                            entry.r * 0.25f, entry.g * 0.25f, entry.b * 0.25f, 0.9f);
-            drawCenteredText(r, catBadge, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 8.0f,
-                             entry.r, entry.g, entry.b, 1.0f);
-
-            // Title
-            float titleX = dialogBounds_.x + 36.0f + catW + 8.0f;
-            drawText(r, entry.name, titleX, cy + 8.0f, 12.0f,
-                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
-
-            // Engine Tag
-            if (!entry.engineTag.empty()) {
-                float engX = titleX + entry.name.length() * 7.5f + 10.0f;
-                float engW = entry.engineTag.length() * 6.5f + 10.0f;
-                drawRoundedRect(r, engX, cy + 8.0f, engW, 14.0f, 3.0f,
-                                0.2f, 0.22f, 0.28f, 0.8f);
-                drawText(r, entry.engineTag, engX + 5.0f, cy + 9.5f, 8.5f,
-                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.95f);
-            }
-
-            // Author (if provided)
-            if (!entry.author.empty() && entry.author != "Eatsbeats / Eatsbits") {
-                drawText(r, "by " + entry.author, dialogBounds_.x + cardW - 190.0f, cy + 9.5f, 8.5f,
-                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
-            }
-
-            // Description
-            std::string desc = entry.description;
-            if (desc.length() > 95) desc = desc.substr(0, 92) + "...";
-            drawText(r, desc, dialogBounds_.x + 36.0f, cy + 29.0f, 9.5f,
-                     theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
-
-            // Action Button on Right (+ LOAD / + ADD)
-            float btnW = 68.0f;
-            float btnH = 26.0f;
-            float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
-            float btnY = cy + (cardH - btnH) * 0.5f;
-
-            bool btnHover = Rect2D(btnX, btnY, btnW, btnH).contains(lastMouseX_, lastMouseY_);
-            Color addBg{entry.r * (btnHover ? 0.38f : 0.20f),
-                        entry.g * (btnHover ? 0.38f : 0.20f),
-                        entry.b * (btnHover ? 0.38f : 0.20f), 0.95f};
-            Color addBorder{entry.r, entry.g, entry.b, btnHover ? 1.0f : 0.85f};
-            Color addText{entry.r, entry.g, entry.b, 1.0f};
-
-            std::string btnLabel = (mode_ == PluginDialogMode::SelectPreset) ? "LOAD" :
-                                   (mode_ == PluginDialogMode::AddModule) ? "+ ADD MODULE" : "+ ADD";
-            drawButton(r, Rect2D{btnX, btnY, btnW, btnH}, btnLabel, addBg, addBorder, addText, 10.0f, 4.0f, 1.0f);
         }
     }
-
-    r.popScissor();
 
     // Scrollbar rendering
     if (scrollArea_.canScroll()) {

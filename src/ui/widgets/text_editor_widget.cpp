@@ -184,9 +184,8 @@ void TextEditorWidget::render(const ViewContext& ctx) {
     int curLine = presenter_.getCursor().line;
     float activeLineY = textAreaBounds_.y + static_cast<float>(curLine) * lineHeight_ - presenter_.getScrollY();
     if (activeLineY >= bounds_.y - lineHeight_ && activeLineY <= bounds_.y + bounds_.h) {
-        r.pushScissor(bounds_.x, bounds_.y, bounds_.w - minimapW_, bounds_.h);
+        BatchRenderer2D::ScissorScope activeLineScissor(r, bounds_.x, bounds_.y, bounds_.w - minimapW_, bounds_.h);
         drawRect(r, bounds_.x, activeLineY, bounds_.w - minimapW_, lineHeight_, 1.0f, 1.0f, 1.0f, 0.045f);
-        r.popScissor();
     }
 
     // 3. Render Gutter and Text Content
@@ -228,7 +227,7 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
     lastVisible = std::clamp(lastVisible, 0, std::max(0, totalLines - 1));
 
     // Scissor text area so nothing spills into gutter or minimap
-    r.pushScissor(textAreaBounds_.x, textAreaBounds_.y, textAreaBounds_.w, textAreaBounds_.h);
+    BatchRenderer2D::ScissorScope textScissor(r, textAreaBounds_.x, textAreaBounds_.y, textAreaBounds_.w, textAreaBounds_.h);
 
     static auto packColorU32 = [](float red, float green, float blue, float alpha = 1.0f) noexcept -> uint32_t {
         uint8_t cr = static_cast<uint8_t>(std::clamp(red, 0.0f, 1.0f) * 255.0f);
@@ -445,24 +444,25 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
         }
     }
 
-    r.popScissor();
+    textScissor.reset();
 
     // Render Gutter Line Numbers (scissored strictly within gutterBounds_)
-    r.pushScissor(gutterBounds_.x, gutterBounds_.y, gutterBounds_.w, gutterBounds_.h);
-    for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
-        float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
-        if (ly + charH < gutterBounds_.y || ly > gutterBounds_.y + gutterBounds_.h) {
-            continue;
-        }
-        std::string numStr = std::to_string(l + 1);
-        bool isActive = (l == presenter_.getCursor().line);
+    {
+        BatchRenderer2D::ScissorScope gutterScissor(r, gutterBounds_.x, gutterBounds_.y, gutterBounds_.w, gutterBounds_.h);
+        for (int l = firstVisible; l <= lastVisible && l < totalLines; ++l) {
+            float ly = textAreaBounds_.y + static_cast<float>(l) * lineHeight_ - presenter_.getScrollY() + textOffsetY;
+            if (ly + charH < gutterBounds_.y || ly > gutterBounds_.y + gutterBounds_.h) {
+                continue;
+            }
+            std::string numStr = std::to_string(l + 1);
+            bool isActive = (l == presenter_.getCursor().line);
 
-        float numX = gutterBounds_.x + gutterBounds_.w - 8.0f - static_cast<float>(numStr.length()) * charWidth_;
-        uint32_t numCol = isActive ? packColorU32(1.0f, 1.0f, 1.0f, 0.95f)
-                                   : packColorU32(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
-        r.drawMonospaceText(numX, ly, charWidth_, charH, numStr, numCol);
+            float numX = gutterBounds_.x + gutterBounds_.w - 8.0f - static_cast<float>(numStr.length()) * charWidth_;
+            uint32_t numCol = isActive ? packColorU32(1.0f, 1.0f, 1.0f, 0.95f)
+                                       : packColorU32(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
+            r.drawMonospaceText(numX, ly, charWidth_, charH, numStr, numCol);
+        }
     }
-    r.popScissor();
 }
 
 void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
@@ -853,7 +853,7 @@ void TextEditorWidget::renderAccessoryToolbar(const ViewContext& ctx) {
     const auto& items = getToolbarItems();
 
     // 1. Scissor to toolbar bounds
-    r.pushScissor(toolbarBounds_.x, toolbarBounds_.y, toolbarBounds_.w, toolbarBounds_.h);
+    BatchRenderer2D::ScissorScope toolbarScissor(r, toolbarBounds_.x, toolbarBounds_.y, toolbarBounds_.w, toolbarBounds_.h);
 
     // 2. Toolbar Background and Top Divider
     drawRect(r, toolbarBounds_.x, toolbarBounds_.y, toolbarBounds_.w, toolbarBounds_.h, 0.08f, 0.09f, 0.12f, 0.98f);
@@ -898,8 +898,6 @@ void TextEditorWidget::renderAccessoryToolbar(const ViewContext& ctx) {
 
         curX += item.width + 4.0f;
     }
-
-    r.popScissor();
 }
 
 bool TextEditorWidget::handleToolbarPointer(const PointerEvent& ev, const ViewContext& ctx) {

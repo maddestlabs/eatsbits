@@ -64,6 +64,40 @@ public:
     virtual void setCustomRenderTargetView(void* /*view*/) {}
 };
 
+class BatchRenderer2D;
+
+/**
+ * @brief RAII Scissor Scope for safe, exception-resilient nested clipping in BatchRenderer2D.
+ * Pushes a scissor rect on construction, automatically intersects with active scissor stack,
+ * and restores previous scissor state or clears it on destruction.
+ */
+class ScissorScope {
+public:
+    ScissorScope() noexcept = default;
+    ScissorScope(BatchRenderer2D* renderer, float x, float y, float w, float h);
+    ScissorScope(BatchRenderer2D* renderer, const Rect2D& r);
+    ScissorScope(BatchRenderer2D& renderer, float x, float y, float w, float h);
+    ScissorScope(BatchRenderer2D& renderer, const Rect2D& r);
+
+    ~ScissorScope();
+
+    // Non-copyable
+    ScissorScope(const ScissorScope&) = delete;
+    ScissorScope& operator=(const ScissorScope&) = delete;
+
+    // Movable
+    ScissorScope(ScissorScope&& other) noexcept;
+    ScissorScope& operator=(ScissorScope&& other) noexcept;
+
+    /// Early release of the scissor scope
+    void reset() noexcept;
+
+    [[nodiscard]] bool isActive() const noexcept { return renderer_ != nullptr; }
+
+private:
+    BatchRenderer2D* renderer_{nullptr};
+};
+
 /**
  * @brief High-performance batched 2D vector renderer.
  * Collects 2D quads, circles, lines, and textured font glyphs into a single vertex buffer,
@@ -71,6 +105,8 @@ public:
  */
 class BatchRenderer2D {
 public:
+    using ScissorScope = eatsbits::ui::ScissorScope;
+
     BatchRenderer2D();
     ~BatchRenderer2D();
 
@@ -134,9 +170,12 @@ public:
     void popScissor() noexcept;
 
     [[nodiscard]] bool hasScissor() const noexcept { return !scissorStack_.empty(); }
+    [[nodiscard]] size_t getScissorDepth() const noexcept { return scissorStack_.size(); }
     [[nodiscard]] Rect2D getActiveScissor() const noexcept {
         return scissorStack_.empty() ? Rect2D{0.0f, 0.0f, 0.0f, 0.0f} : scissorStack_.back();
     }
+    [[nodiscard]] ScissorScope makeScissorScope(float x, float y, float w, float h);
+    [[nodiscard]] ScissorScope makeScissorScope(const Rect2D& r);
 
     // --- Contextual Shadows & Lighting ---
     void drawCircleDropShadow(float cx, float cy, float radius, float elevation, const LightSource2D& light, float opacity = 0.45f);

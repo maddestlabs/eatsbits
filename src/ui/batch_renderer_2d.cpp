@@ -1893,6 +1893,58 @@ void BatchRenderer2D::popScissor() noexcept {
 }
 
 // ----------------------------------------------------------------------------
+// ScissorScope RAII Implementation
+// ----------------------------------------------------------------------------
+ScissorScope::ScissorScope(BatchRenderer2D* renderer, float x, float y, float w, float h)
+    : renderer_(renderer) {
+    if (renderer_) {
+        renderer_->pushScissor(x, y, w, h);
+    }
+}
+
+ScissorScope::ScissorScope(BatchRenderer2D* renderer, const Rect2D& r)
+    : ScissorScope(renderer, r.x, r.y, r.w, r.h) {}
+
+ScissorScope::ScissorScope(BatchRenderer2D& renderer, float x, float y, float w, float h)
+    : ScissorScope(&renderer, x, y, w, h) {}
+
+ScissorScope::ScissorScope(BatchRenderer2D& renderer, const Rect2D& r)
+    : ScissorScope(&renderer, r.x, r.y, r.w, r.h) {}
+
+ScissorScope::~ScissorScope() {
+    reset();
+}
+
+ScissorScope::ScissorScope(ScissorScope&& other) noexcept
+    : renderer_(other.renderer_) {
+    other.renderer_ = nullptr;
+}
+
+ScissorScope& ScissorScope::operator=(ScissorScope&& other) noexcept {
+    if (this != &other) {
+        reset();
+        renderer_ = other.renderer_;
+        other.renderer_ = nullptr;
+    }
+    return *this;
+}
+
+void ScissorScope::reset() noexcept {
+    if (renderer_) {
+        renderer_->popScissor();
+        renderer_ = nullptr;
+    }
+}
+
+ScissorScope BatchRenderer2D::makeScissorScope(float x, float y, float w, float h) {
+    return ScissorScope(this, x, y, w, h);
+}
+
+ScissorScope BatchRenderer2D::makeScissorScope(const Rect2D& r) {
+    return ScissorScope(this, r);
+}
+
+// ----------------------------------------------------------------------------
 // Primitive Tessellation
 // ----------------------------------------------------------------------------
 void BatchRenderer2D::drawTriangle(float x0, float y0, float x1, float y1, float x2, float y2, float r, float g, float b, float a) {

@@ -132,9 +132,10 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
     // Scissor strictly to content area below 36px header bar
     float contentY = drawerBounds_.y + 36.0f;
     float contentH = std::max(0.0f, drawerBounds_.h - 36.0f);
-    r.pushScissor(drawerBounds_.x, contentY, drawerBounds_.w, contentH);
-    panel_.render(r, theme, data, mouseX, mouseY);
-    r.popScissor();
+    {
+        BatchRenderer2D::ScissorScope contentScissor(r, drawerBounds_.x, contentY, drawerBounds_.w, contentH);
+        panel_.render(r, theme, data, mouseX, mouseY);
+    }
 
     // 4. Top Title Header Bar (36px high) - Rendered over content so scrolling never overwrites header
     drawRect(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, 36.0f,
