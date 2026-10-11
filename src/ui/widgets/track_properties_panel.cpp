@@ -12,8 +12,8 @@
 #include <cmath>
 #include <sstream>
 #include <iomanip>
-#include <string_view>
 #include "eatsbits/presenter/track_properties_presenter.hpp"
+#include <atomic>
 
 namespace {
 inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
@@ -141,15 +141,39 @@ TrackPropertiesPanel::TrackPropertiesPanel() {
 }
 
 void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data) {
-    guiPanel_.title = data.presetTitle.empty() ? data.instrument : data.presetTitle;
-    guiPanel_.subtitle = data.presetSubtitle.empty() ? (data.trackName + " • " + data.instrument) : data.presetSubtitle;
+    std::string_view desiredTitle = data.presetTitle.empty() ? std::string_view(data.instrument) : std::string_view(data.presetTitle);
+    if (guiPanel_.title != desiredTitle) {
+        guiPanel_.title = desiredTitle;
+    }
+
+    if (!data.presetSubtitle.empty()) {
+        if (guiPanel_.subtitle != data.presetSubtitle) {
+            guiPanel_.subtitle = data.presetSubtitle;
+        }
+    } else {
+        std::string_view tn = data.trackName;
+        std::string_view sep = " • ";
+        std::string_view inst = data.instrument;
+        size_t neededLen = tn.size() + sep.size() + inst.size();
+        bool matches = (guiPanel_.subtitle.size() == neededLen) &&
+                       (guiPanel_.subtitle.compare(0, tn.size(), tn) == 0) &&
+                       (guiPanel_.subtitle.compare(tn.size(), sep.size(), sep) == 0) &&
+                       (guiPanel_.subtitle.compare(tn.size() + sep.size(), inst.size(), inst) == 0);
+        if (!matches) {
+            guiPanel_.subtitle.clear();
+            guiPanel_.subtitle.reserve(neededLen);
+            guiPanel_.subtitle.append(tn);
+            guiPanel_.subtitle.append(sep);
+            guiPanel_.subtitle.append(inst);
+        }
+    }
     guiPanel_.accentColor = Color(data.r, data.g, data.b, 1.0f);
 
     const std::string& eng = data.instrumentEngine;
     bool is303 = (eng == "tb303" || data.instrument.find("303") != std::string::npos ||
                   guiPanel_.title.find("303") != std::string::npos);
 
-    auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
+    auto findKnobVal = [&](std::string_view p1, std::string_view p2, float def) -> float {
         for (const auto& k : data.knobs) {
             if (stringEqualsIgnoreCase(k.name, p1) || stringEqualsIgnoreCase(k.label, p1) ||
                 (!p2.empty() && (stringEqualsIgnoreCase(k.name, p2) || stringEqualsIgnoreCase(k.label, p2)))) {
@@ -267,8 +291,12 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
     } else {
         for (size_t i = 0; i < displayKnobs && i < guiPanel_.rows[0].widgets.size(); ++i) {
             guiPanel_.rows[0].widgets[i].currentVal = data.knobs[i].value;
-            guiPanel_.rows[0].widgets[i].label = data.knobs[i].label;
-            guiPanel_.rows[0].widgets[i].param = data.knobs[i].name;
+            if (guiPanel_.rows[0].widgets[i].label != data.knobs[i].label) {
+                guiPanel_.rows[0].widgets[i].label = data.knobs[i].label;
+            }
+            if (guiPanel_.rows[0].widgets[i].param != data.knobs[i].name) {
+                guiPanel_.rows[0].widgets[i].param = data.knobs[i].name;
+            }
             guiPanel_.rows[0].widgets[i].accentColor = guiPanel_.accentColor;
         }
     }
@@ -399,11 +427,6 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
         return;
     }
 
-    // Top Track Navigation Ribbon
-    if (showTrackRibbon_) {
-        renderTrackSelectorRibbon(r, theme, data);
-    }
-
     float curCardY = bounds_.y + 8.0f - scrollY_;
     if (showTrackRibbon_) {
         renderTrackSelectorRibbon(r, theme, data);
@@ -479,7 +502,14 @@ void TrackPropertiesPanel::renderTrackSelectorRibbon(BatchRenderer2D& r, const T
         if (tx + tabW > ribbonBounds_.x + ribbonBounds_.w) break;
 
         bool isActive = (i == data.trackIndex);
-        std::string tName = (i < data.allTrackNames.size()) ? data.allTrackNames[i] : ("Track " + std::to_string(i + 1));
+        char fallbackName[32];
+        std::string_view tName;
+        if (i < data.allTrackNames.size()) {
+            tName = data.allTrackNames[i];
+        } else {
+            std::snprintf(fallbackName, sizeof(fallbackName), "Track %zu", i + 1);
+            tName = fallbackName;
+        }
         Color tCol = (i < data.allTrackColors.size()) ? data.allTrackColors[i] : Color(data.r, data.g, data.b);
 
         drawRoundedRect(r, tx, ribbonBounds_.y + 2.0f, tabW, tabH, 4.0f,
@@ -524,8 +554,8 @@ void TrackPropertiesPanel::renderHeaderCard(BatchRenderer2D& r, const ThemeToken
     float iconSize = 16.0f;
     float iconX = iconBtnX + (iconBtnW - iconSize) * 0.5f;
     float iconY = iconBtnY + (iconBtnH - iconSize) * 0.5f;
-    IconRegistry::instance().renderIcon(r, data.iconRef.empty() ? "preset:inst_synth" : data.iconRef,
-                                        iconX, iconY, iconSize, Color(data.r, data.g, data.b, 1.0f));
+    std::string_view iconRef = data.iconRef.empty() ? std::string_view("preset:inst_synth") : std::string_view(data.iconRef);
+    IconRegistry::instance().renderIcon(r, iconRef, iconX, iconY, iconSize, Color(data.r, data.g, data.b, 1.0f));
 
     // Right-aligned Edit icon (pencil icon, same size as title text 10.0f, NO border around it)
     float editSize = 10.0f;
@@ -610,7 +640,9 @@ void TrackPropertiesPanel::renderMixerControlsCard(BatchRenderer2D& r, const The
     float volThumbX = vTrackX + normVol * vTrackW;
     drawRoundedRect(r, volThumbX - 4.0f, sY - 2.0f, 8.0f, sH + 4.0f, 2.0f, 0.80f, 0.82f, 0.88f, 1.0f);
     int volPct = static_cast<int>(std::round(data.volume * 100.0f));
-    drawText(r, std::to_string(volPct) + "%", vTrackX + vTrackW + 8.0f, sY + 3.0f, 10.0f,
+    char volBuf[16];
+    std::snprintf(volBuf, sizeof(volBuf), "%d%%", volPct);
+    drawText(r, std::string_view(volBuf), vTrackX + vTrackW + 8.0f, sY + 3.0f, 10.0f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
     // 2. Rotary Pan Knob (right side)
@@ -648,8 +680,15 @@ void TrackPropertiesPanel::renderMixerControlsCard(BatchRenderer2D& r, const The
                      theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.9f);
 
     // Readout below knob ("C", "L25", "R40")
-    std::string panStr = (std::abs(data.pan) < 0.04f) ? "C" : ((data.pan < 0.0f) ? "L" + std::to_string(static_cast<int>(std::round(-data.pan * 100.0f))) : "R" + std::to_string(static_cast<int>(std::round(data.pan * 100.0f))));
-    drawCenteredText(r, panStr, panKcx - 24.0f, panKcy + kPanRadius + 3.0f, 48.0f, 10.0f, 8.0f,
+    char panBuf[16];
+    if (std::abs(data.pan) < 0.04f) {
+        std::snprintf(panBuf, sizeof(panBuf), "C");
+    } else if (data.pan < 0.0f) {
+        std::snprintf(panBuf, sizeof(panBuf), "L%d", static_cast<int>(std::round(-data.pan * 100.0f)));
+    } else {
+        std::snprintf(panBuf, sizeof(panBuf), "R%d", static_cast<int>(std::round(data.pan * 100.0f)));
+    }
+    drawCenteredText(r, std::string_view(panBuf), panKcx - 24.0f, panKcy + kPanRadius + 3.0f, 48.0f, 10.0f, 8.0f,
                      isDraggingPan ? theme.highlight.r : theme.primaryAccent.r,
                      isDraggingPan ? theme.highlight.g : theme.primaryAccent.g,
                      isDraggingPan ? theme.highlight.b : theme.primaryAccent.b, 1.0f);
@@ -677,7 +716,7 @@ void TrackPropertiesPanel::renderEqCard(BatchRenderer2D& r, const ThemeTokens& t
                data.eqEnabled ? "ACTIVE" : "BYPASS", eqBg, eqBorder, eqText, 8.5f, 3.0f, 1.0f);
 
     float kw3 = cw / 3.0f;
-    auto drawEqKnob = [&](float kx, float ky, const std::string& label, const std::string& valStr, float normVal) {
+    auto drawEqKnob = [&](float kx, float ky, std::string_view label, std::string_view valStr, float normVal) {
         drawCircle(r, kx, ky, 13.0f, 0.14f, 0.16f, 0.20f, 1.0f);
         drawCircleOutline(r, kx, ky, 13.0f, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
         float ang = -2.35f + normVal * 4.71f;
@@ -689,29 +728,36 @@ void TrackPropertiesPanel::renderEqCard(BatchRenderer2D& r, const ThemeTokens& t
                  theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 1.0f);
     };
 
+    char eqBuf[32];
     float eqRow1Y = cy + 45.0f;
     float normHpf = std::clamp((data.eqHpf - 20.0f) / 480.0f, 0.0f, 1.0f);
-    drawEqKnob(cx + kw3 * 0.5f, eqRow1Y, "HPF CUT", std::to_string(static_cast<int>(data.eqHpf)) + "Hz", normHpf);
+    std::snprintf(eqBuf, sizeof(eqBuf), "%dHz", static_cast<int>(data.eqHpf));
+    drawEqKnob(cx + kw3 * 0.5f, eqRow1Y, "HPF CUT", eqBuf, normHpf);
 
     float normLow = std::clamp((data.eqLowGain + 18.0f) / 36.0f, 0.0f, 1.0f);
-    std::string lowStr = (data.eqLowGain >= 0.0f ? "+" : "") + std::to_string(static_cast<int>(data.eqLowGain)) + "dB";
-    drawEqKnob(cx + kw3 * 1.5f, eqRow1Y, "LOW GAIN", lowStr, normLow);
+    std::snprintf(eqBuf, sizeof(eqBuf), "%s%ddB", data.eqLowGain >= 0.0f ? "+" : "", static_cast<int>(data.eqLowGain));
+    drawEqKnob(cx + kw3 * 1.5f, eqRow1Y, "LOW GAIN", eqBuf, normLow);
 
     float normHigh = std::clamp((data.eqHighGain + 18.0f) / 36.0f, 0.0f, 1.0f);
-    std::string highStr = (data.eqHighGain >= 0.0f ? "+" : "") + std::to_string(static_cast<int>(data.eqHighGain)) + "dB";
-    drawEqKnob(cx + kw3 * 2.5f, eqRow1Y, "HIGH GAIN", highStr, normHigh);
+    std::snprintf(eqBuf, sizeof(eqBuf), "%s%ddB", data.eqHighGain >= 0.0f ? "+" : "", static_cast<int>(data.eqHighGain));
+    drawEqKnob(cx + kw3 * 2.5f, eqRow1Y, "HIGH GAIN", eqBuf, normHigh);
 
     float eqRow2Y = cy + 98.0f;
     float normMidF = std::clamp((data.eqMidFreq - 200.0f) / 7800.0f, 0.0f, 1.0f);
-    std::string midFStr = data.eqMidFreq >= 1000.0f ? (std::to_string(static_cast<int>(data.eqMidFreq / 1000.0f)) + "kHz") : (std::to_string(static_cast<int>(data.eqMidFreq)) + "Hz");
-    drawEqKnob(cx + kw3 * 0.5f, eqRow2Y, "MID FREQ", midFStr, normMidF);
+    if (data.eqMidFreq >= 1000.0f) {
+        std::snprintf(eqBuf, sizeof(eqBuf), "%dkHz", static_cast<int>(data.eqMidFreq / 1000.0f));
+    } else {
+        std::snprintf(eqBuf, sizeof(eqBuf), "%dHz", static_cast<int>(data.eqMidFreq));
+    }
+    drawEqKnob(cx + kw3 * 0.5f, eqRow2Y, "MID FREQ", eqBuf, normMidF);
 
     float normMidG = std::clamp((data.eqMidGain + 18.0f) / 36.0f, 0.0f, 1.0f);
-    std::string midGStr = (data.eqMidGain >= 0.0f ? "+" : "") + std::to_string(static_cast<int>(data.eqMidGain)) + "dB";
-    drawEqKnob(cx + kw3 * 1.5f, eqRow2Y, "MID GAIN", midGStr, normMidG);
+    std::snprintf(eqBuf, sizeof(eqBuf), "%s%ddB", data.eqMidGain >= 0.0f ? "+" : "", static_cast<int>(data.eqMidGain));
+    drawEqKnob(cx + kw3 * 1.5f, eqRow2Y, "MID GAIN", eqBuf, normMidG);
 
     float normMidQ = std::clamp((data.eqMidQ - 0.3f) / 9.7f, 0.0f, 1.0f);
-    drawEqKnob(cx + kw3 * 2.5f, eqRow2Y, "MID Q", "Q=" + std::to_string(static_cast<int>(data.eqMidQ)), normMidQ);
+    std::snprintf(eqBuf, sizeof(eqBuf), "Q=%d", static_cast<int>(data.eqMidQ));
+    drawEqKnob(cx + kw3 * 2.5f, eqRow2Y, "MID Q", eqBuf, normMidQ);
 }
 
 void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTokens& theme,
@@ -777,17 +823,27 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.5f, 9.0f, fullGold);
 
     // Instrument Title in uppercase bold with dropdown chevron
-    std::string instTitle = data.presetTitle.empty() ? data.instrument : data.presetTitle;
-    for (char& ch : instTitle) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    char instTitleBuf[64];
+    std::string_view rawTitle = data.presetTitle.empty() ? std::string_view(data.instrument) : std::string_view(data.presetTitle);
+    size_t copyLen = std::min(rawTitle.size(), sizeof(instTitleBuf) - 1);
+    for (size_t i = 0; i < copyLen; ++i) {
+        instTitleBuf[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(rawTitle[i])));
+    }
+    instTitleBuf[copyLen] = '\0';
     float availTitleW = designBtnX - (dotX + 13.0f) - 22.0f;
     int maxChars = std::max(6, static_cast<int>(availTitleW / 7.2f));
-    if (static_cast<int>(instTitle.length()) > maxChars) {
-        instTitle = instTitle.substr(0, maxChars - 3) + "...";
+    if (static_cast<int>(copyLen) > maxChars && maxChars >= 3 && static_cast<size_t>(maxChars) < sizeof(instTitleBuf)) {
+        instTitleBuf[maxChars - 3] = '.';
+        instTitleBuf[maxChars - 2] = '.';
+        instTitleBuf[maxChars - 1] = '.';
+        instTitleBuf[maxChars] = '\0';
+        copyLen = maxChars;
     }
+    std::string_view instTitle(instTitleBuf, copyLen);
     float titleX = dotX + 13.0f;
     drawText(r, instTitle, titleX, cy + 12.0f, 11.5f, 0.96f, 0.97f, 0.99f, 1.0f);
 
-    float chevX = titleX + static_cast<float>(instTitle.length()) * 6.5f + 8.0f;
+    float chevX = titleX + static_cast<float>(copyLen) * 6.5f + 8.0f;
     float chevY = cy + 18.0f;
     Color trackAccent(data.r, data.g, data.b, 1.0f);
     if (data.instrumentExpanded) {
@@ -871,7 +927,7 @@ void TrackPropertiesPanel::renderChordFollowCard(BatchRenderer2D& r, const Theme
                Color(0.16f, 0.20f, 0.28f, 1.0f), theme.borderSubtle, theme.secondaryAccent, 8.5f, 3.5f, 1.0f);
 
     // Explanatory dynamic caption
-    std::string desc = "Track notes play freely without chord progression transposition.";
+    const char* desc = "Track notes play freely without chord progression transposition.";
     if (data.chordFollowMode == ChordFollowMode::Bass) {
         desc = "Follows root/bass harmonic voice leading with octave constraint.";
     } else if (data.chordFollowMode == ChordFollowMode::Chord) {
@@ -906,7 +962,9 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
     drawLine(r, iconX + 8.0f, iconY + 6.0f, iconX + 8.0f, iconY + 12.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
 
     // Header Title
-    drawText(r, "MIDI FX RACK (" + std::to_string(data.midiFx.size()) + ")", cx + 28.0f, cy + 11.0f, 10.5f,
+    char midiRackBuf[32];
+    std::snprintf(midiRackBuf, sizeof(midiRackBuf), "MIDI FX RACK (%zu)", data.midiFx.size());
+    drawText(r, std::string_view(midiRackBuf), cx + 28.0f, cy + 11.0f, 10.5f,
              accent.r, accent.g, accent.b, 1.0f);
 
     // + ADD MIDI FX Button
@@ -1074,7 +1132,9 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
     drawLine(r, iconX + 8.0f, iconY + 6.0f, iconX + 8.0f, iconY + 12.0f, accent.r, accent.g, accent.b, 1.0f, 2.0f);
 
     // Header Title
-    drawText(r, "AUDIO FX RACK (" + std::to_string(data.audioFx.size()) + ")", cx + 28.0f, cy + 11.0f, 10.5f,
+    char audioRackBuf[32];
+    std::snprintf(audioRackBuf, sizeof(audioRackBuf), "AUDIO FX RACK (%zu)", data.audioFx.size());
+    drawText(r, std::string_view(audioRackBuf), cx + 28.0f, cy + 11.0f, 10.5f,
              accent.r, accent.g, accent.b, 1.0f);
 
     // + ADD FX Button

@@ -477,14 +477,70 @@ void drawKnurledRing(float cx, float cy, float rInner, float rOuter, int numTeet
     }
 }
 
-void drawSvgLayers(const std::vector<SvgLayerDef>& layers, float x, float y, float w, float h, float opacity = 1.0f) {
-    if (layers.empty() || w <= 0.0f || h <= 0.0f || !g_activeBatchRenderer) return;
+struct VectorMeshStringHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view sv) const noexcept {
+        return std::hash<std::string_view>{}(sv);
+    }
+    size_t operator()(const std::string& s) const noexcept {
+        return std::hash<std::string_view>{}(s);
+    }
+};
 
-    struct CachedPathMesh {
-        std::vector<SvgPoint> triangles;
-        SvgRect bounds;
-    };
-    static std::unordered_map<std::string, CachedPathMesh> s_vectorMeshCache;
+struct CachedPathMesh {
+    std::vector<SvgPoint> triangles;
+    SvgRect bounds;
+};
+static std::unordered_map<std::string, CachedPathMesh, VectorMeshStringHash, std::equal_to<>> s_vectorMeshCache;
+
+void drawSvgPath(std::string_view path, float x, float y, float w, float h, uint32_t color, float opacity = 1.0f) {
+    if (path.empty() || w <= 0.0f || h <= 0.0f || !g_activeBatchRenderer) return;
+
+    auto it = s_vectorMeshCache.find(path);
+    if (it == s_vectorMeshCache.end()) {
+        SvgPath p = SvgPath::parse(path);
+        CachedPathMesh mesh;
+        mesh.triangles = p.triangulate();
+        mesh.bounds = p.getBounds();
+        it = s_vectorMeshCache.emplace(std::string(path), std::move(mesh)).first;
+    }
+
+    const auto& mesh = it->second;
+    const auto& b = mesh.bounds;
+    if (b.isEmpty() || mesh.triangles.empty()) return;
+
+    float ubW = std::max(0.001f, b.width());
+    float ubH = std::max(0.001f, b.height());
+    float scale = std::min(w / ubW, h / ubH);
+    float offsetX = x + (w - ubW * scale) * 0.5f - b.minX * scale;
+    float offsetY = y + (h - ubH * scale) * 0.5f - b.minY * scale;
+
+    uint8_t r = static_cast<uint8_t>(color & 0xFF);
+    uint8_t g = static_cast<uint8_t>((color >> 8) & 0xFF);
+    uint8_t b_col = static_cast<uint8_t>((color >> 16) & 0xFF);
+    uint8_t a = static_cast<uint8_t>((color >> 24) & 0xFF);
+    float alpha = (static_cast<float>(a) / 255.0f) * opacity;
+
+    const auto& tris = mesh.triangles;
+    const size_t numTris = tris.size() / 3;
+    for (size_t t = 0; t < numTris; ++t) {
+        const auto& p0 = tris[t * 3 + 0];
+        const auto& p1 = tris[t * 3 + 1];
+        const auto& p2 = tris[t * 3 + 2];
+        g_activeBatchRenderer->drawTriangle(
+            p0.x * scale + offsetX, p0.y * scale + offsetY,
+            p1.x * scale + offsetX, p1.y * scale + offsetY,
+            p2.x * scale + offsetX, p2.y * scale + offsetY,
+            static_cast<float>(r) / 255.0f,
+            static_cast<float>(g) / 255.0f,
+            static_cast<float>(b_col) / 255.0f,
+            alpha
+        );
+    }
+}
+
+void drawSvgLayers(std::span<const SvgLayerDef> layers, float x, float y, float w, float h, float opacity = 1.0f) {
+    if (layers.empty() || w <= 0.0f || h <= 0.0f || !g_activeBatchRenderer) return;
 
     SvgRect unionBounds{};
     for (const auto& layer : layers) {
@@ -625,17 +681,11 @@ void drawPlainEatsbitsLogo(float x, float y, float w, float h, const Color& colo
     if (!inverted) {
         // Subtle drop shadow / stamped depth edge for realistic faceplate silkscreen
         uint32_t shadowCol = packSvgColor(Color(0.0f, 0.0f, 0.0f, 0.50f));
-        std::vector<SvgLayerDef> shadowLayers = {
-            SvgLayerDef(SvgLogo::kPlainLogoPath, shadowCol, 0.40f * opacity, true)
-        };
-        drawSvgLayers(shadowLayers, x + 0.65f, y + 0.85f, w, h, opacity);
+        drawSvgPath(SvgLogo::kPlainLogoPath, x + 0.65f, y + 0.85f, w, h, shadowCol, 0.40f * opacity);
 
         // Stamped silkscreen emblem with theme accent color
         uint32_t emblemCol = packSvgColor(color);
-        std::vector<SvgLayerDef> emblemLayers = {
-            SvgLayerDef(SvgLogo::kPlainLogoPath, emblemCol, opacity, true)
-        };
-        drawSvgLayers(emblemLayers, x, y, w, h, opacity);
+        drawSvgPath(SvgLogo::kPlainLogoPath, x, y, w, h, emblemCol, opacity);
     } else {
         // Inverted state on hover: dark creature body with illuminated accent outline, eye, and eating bits
         uint32_t accentCol = packSvgColor(color);
@@ -5861,7 +5911,9 @@ void GuiWindow::drawTopTransportBar() {
     drawReadoutPodBase(bpmPodX, bpmPodY, bpmPodW, bpmPodH);
 
     int bpmVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getBpm())) : 120;
-    std::string bpmStr = std::to_string(bpmVal) + " BPM";
+    char bpmBuf[32];
+    std::snprintf(bpmBuf, sizeof(bpmBuf), "%d BPM", bpmVal);
+    std::string_view bpmStr(bpmBuf);
 
     float bpmTextX = bpmPodX + (bpmPodW - static_cast<float>(bpmStr.size()) * 11.5f) * 0.5f;
     float bpmTextY = bpmPodY + 8.5f;

@@ -2,10 +2,9 @@
 #include "eatsbits/ui/draw_utils.hpp"
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 
 namespace eatsbits::ui {
-
-
 TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.setShowTrackRibbon(false);
     panel_.setIsInsideDrawer(true);
@@ -181,7 +180,7 @@ void TrackPropertiesDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
     } else {
         // Mixer View Context: Fixed Header Title
         drawCircle(r, drawerBounds_.x + 18.0f, drawerBounds_.y + 18.0f, 4.0f, dotColR, dotColG, dotColB, 1.0f);
-        std::string titleText = data.isMasterSelected ? "MASTER BUS CONSOLE" : "TRACK PROPERTIES";
+        const char* titleText = data.isMasterSelected ? "MASTER BUS CONSOLE" : "TRACK PROPERTIES";
         drawText(r, titleText, drawerBounds_.x + 28.0f, drawerBounds_.y + 12.0f, 11.5f,
                  theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
     }

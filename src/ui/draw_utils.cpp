@@ -94,13 +94,13 @@ void drawPropertiesIcon(BatchRenderer2D& r, float x, float y, float w, float h, 
     drawKnob(x + w * 0.45f, lineY2);
 }
 
-void drawMonoText(BatchRenderer2D& /*r*/, const std::string& str, float x, float y, float size,
+void drawMonoText(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
                   float red, float green, float blue, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     drawMonoString(str, x, y, scale, red, green, blue, alpha);
 }
 
-void drawMonoTextClipped(BatchRenderer2D& /*r*/, const std::string& str, float x, float y, float size,
+void drawMonoTextClipped(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
                          float clipMinX, float clipMaxX,
                          float red, float green, float blue, float alpha) {
     if (clipMaxX <= clipMinX || str.empty()) return;
@@ -110,7 +110,7 @@ void drawMonoTextClipped(BatchRenderer2D& /*r*/, const std::string& str, float x
     for (size_t i = 0; i < str.length(); ++i) {
         float charX = x + static_cast<float>(i) * charW;
         if (charX + charW > clipMinX && charX < clipMaxX) {
-            std::string singleChar(1, str[i]);
+            std::string_view singleChar = str.substr(i, 1);
             drawMonoString(singleChar, charX, y, scale, red, green, blue, alpha);
         }
     }
@@ -337,7 +337,7 @@ void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Col
     drawLine(r, midX2, canTopY + 2.0f, midX2, canBotY - 2.0f, c, 0.75f, t * 0.85f);
 }
 
-void drawTooltipBadge(BatchRenderer2D& r, const std::string& text, float targetX, float targetY,
+void drawTooltipBadge(BatchRenderer2D& r, std::string_view text, float targetX, float targetY,
                       const ThemeTokens& theme, bool placeBelow, float screenW) {
     if (text.empty()) return;
 

@@ -38,9 +38,19 @@ class IconRegistry {
 public:
     static IconRegistry& instance();
 
+    struct StringHash {
+        using is_transparent = void;
+        size_t operator()(std::string_view sv) const noexcept {
+            return std::hash<std::string_view>{}(sv);
+        }
+        size_t operator()(const std::string& s) const noexcept {
+            return std::hash<std::string_view>{}(s);
+        }
+    };
+
     // Icon query and lookup
     void registerIcon(IconDef def);
-    [[nodiscard]] const IconDef* findIcon(const std::string& id) const;
+    [[nodiscard]] const IconDef* findIcon(std::string_view id) const;
     [[nodiscard]] std::vector<const IconDef*> getAllIcons() const;
     [[nodiscard]] std::vector<std::string> getCategories() const;
     [[nodiscard]] std::vector<const IconDef*> query(std::string_view searchTerm, 
@@ -53,10 +63,10 @@ public:
 
     // Renders an icon into the given bounding box with tint color.
     // Supports "preset:<id>", plain "<id>", or "svg:<path_data>".
-    void renderIcon(BatchRenderer2D& r, const std::string& iconRef, 
+    void renderIcon(BatchRenderer2D& r, std::string_view iconRef, 
                     const Rect2D& bounds, const Color& tint);
 
-    void renderIcon(BatchRenderer2D& r, const std::string& iconRef,
+    void renderIcon(BatchRenderer2D& r, std::string_view iconRef,
                     float x, float y, float size, const Color& tint) {
         renderIcon(r, iconRef, Rect2D{x, y, size, size}, tint);
     }
@@ -65,7 +75,7 @@ private:
     IconRegistry();
     void initStockLibrary();
 
-    std::unordered_map<std::string, IconDef> icons_;
+    std::unordered_map<std::string, IconDef, StringHash, std::equal_to<>> icons_;
     std::vector<std::string> order_; // Preservation of insertion order
 
     // Cached triangulated vector geometry for zero-allocation rendering
@@ -73,7 +83,7 @@ private:
         std::vector<SvgPoint> triangles;
         SvgRect bounds;
     };
-    mutable std::unordered_map<std::string, CachedMesh> meshCache_;
+    mutable std::unordered_map<std::string, CachedMesh, StringHash, std::equal_to<>> meshCache_;
 };
 
 } // namespace eatsbits::ui

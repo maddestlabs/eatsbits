@@ -78,22 +78,22 @@ void drawChevronDown(BatchRenderer2D& r, float cx, float cy, float size, const C
 
 void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Color& c, float thickness = 1.4f);
 
-void drawTooltipBadge(BatchRenderer2D& r, const std::string& text, float targetX, float targetY,
+void drawTooltipBadge(BatchRenderer2D& r, std::string_view text, float targetX, float targetY,
                       const ThemeTokens& theme, bool placeBelow = false, float screenW = 0.0f);
 
-void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+void drawMonoText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                   float red, float green, float blue, float alpha = 1.0f);
 
-inline void drawMonoText(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+inline void drawMonoText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                          const Color& col, float alpha = 1.0f) {
     drawMonoText(r, str, x, y, size, col.r, col.g, col.b, alpha * col.a);
 }
 
-void drawMonoTextClipped(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+void drawMonoTextClipped(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                          float clipMinX, float clipMaxX,
                          float red, float green, float blue, float alpha = 1.0f);
 
-inline void drawMonoTextClipped(BatchRenderer2D& r, const std::string& str, float x, float y, float size,
+inline void drawMonoTextClipped(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                                 float clipMinX, float clipMaxX,
                                 const Color& col, float alpha = 1.0f) {
     drawMonoTextClipped(r, str, x, y, size, clipMinX, clipMaxX, col.r, col.g, col.b, alpha * col.a);

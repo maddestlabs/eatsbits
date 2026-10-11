@@ -659,10 +659,12 @@ void MixerView::render(const ViewContext& ctx) {
         size_t chIdx = (selectedChannel_ >= 0 && static_cast<size_t>(selectedChannel_) < channels_.size())
             ? static_cast<size_t>(selectedChannel_) : 0;
         const auto& selCh = channels_[chIdx];
+        bool chChanged = (drawerData_.trackIndex != static_cast<uint32_t>(chIdx) ||
+                          drawerData_.instrument != selCh.instrument);
         drawerData_.trackIndex = static_cast<uint32_t>(chIdx);
         drawerData_.totalTracks = static_cast<uint32_t>(channels_.size());
-        drawerData_.trackName = selCh.name;
-        drawerData_.trackType = selCh.type;
+        if (drawerData_.trackName != selCh.name) drawerData_.trackName = selCh.name;
+        if (drawerData_.trackType != selCh.type) drawerData_.trackType = selCh.type;
         drawerData_.r = selCh.r;
         drawerData_.g = selCh.g;
         drawerData_.b = selCh.b;
@@ -680,24 +682,39 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.eqMidQ = selCh.eqMidQ;
         drawerData_.eqHighGain = selCh.eqHighGain;
 
-        std::string newEngine = "synth";
+        std::string_view newEngine = "synth";
         if (selCh.instrument.find("303") != std::string::npos || selCh.name.find("303") != std::string::npos) newEngine = "tb303";
         else if (selCh.instrument.find("808") != std::string::npos || selCh.name.find("808") != std::string::npos) newEngine = "tr808";
         else if (selCh.instrument.find("909") != std::string::npos || selCh.name.find("909") != std::string::npos) newEngine = "tr909";
         else if (selCh.instrument.find("DX7") != std::string::npos || selCh.name.find("DX7") != std::string::npos) newEngine = "dx7";
         else if (selCh.instrument.find("Piano") != std::string::npos || selCh.name.find("Piano") != std::string::npos || selCh.name.find("Grand") != std::string::npos) newEngine = "piano";
 
-        bool chChanged = (drawerData_.trackIndex != static_cast<uint32_t>(chIdx) ||
-                          drawerData_.instrument != selCh.instrument ||
-                          drawerData_.instrumentEngine != newEngine);
+        if (drawerData_.instrumentEngine != newEngine) {
+            chChanged = true;
+            drawerData_.instrumentEngine = newEngine;
+        }
         if (chChanged) {
             drawerData_.knobs.clear();
         }
 
-        drawerData_.instrument = selCh.instrument;
-        drawerData_.instrumentEngine = newEngine;
-        drawerData_.presetTitle = selCh.instrument.empty() ? selCh.name : selCh.instrument;
-        drawerData_.presetSubtitle = selCh.name + " • " + (selCh.instrument.empty() ? "Channel" : selCh.instrument);
+        if (drawerData_.instrument != selCh.instrument) drawerData_.instrument = selCh.instrument;
+        std::string_view desiredTitle = selCh.instrument.empty() ? std::string_view(selCh.name) : std::string_view(selCh.instrument);
+        if (drawerData_.presetTitle != desiredTitle) drawerData_.presetTitle = desiredTitle;
+
+        std::string_view chInst = selCh.instrument.empty() ? std::string_view("Channel") : std::string_view(selCh.instrument);
+        std::string_view sep = " • ";
+        size_t neededSubLen = selCh.name.size() + sep.size() + chInst.size();
+        bool subMatches = (drawerData_.presetSubtitle.size() == neededSubLen) &&
+                          (drawerData_.presetSubtitle.compare(0, selCh.name.size(), selCh.name) == 0) &&
+                          (drawerData_.presetSubtitle.compare(selCh.name.size(), sep.size(), sep) == 0) &&
+                          (drawerData_.presetSubtitle.compare(selCh.name.size() + sep.size(), chInst.size(), chInst) == 0);
+        if (!subMatches) {
+            drawerData_.presetSubtitle.clear();
+            drawerData_.presetSubtitle.reserve(neededSubLen);
+            drawerData_.presetSubtitle.append(selCh.name);
+            drawerData_.presetSubtitle.append(sep);
+            drawerData_.presetSubtitle.append(chInst);
+        }
 
         drawerData_.knob1 = selCh.knob1;
         drawerData_.knob2 = selCh.knob2;

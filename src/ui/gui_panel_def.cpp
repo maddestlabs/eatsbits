@@ -172,12 +172,13 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     float numBoxW = numFontSize * 1.8f;
                     float numBoxH = numFontSize * 1.4f;
 
+                    static constexpr const char* kStepStrings[11] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
                     // 0-10 stepped selector dial ticks and numbers around perimeter
                     for (int step = 0; step <= 10; ++step) {
                         float sAng = minA + (static_cast<float>(step) / 10.0f) * (maxA - minA);
                         float nx = cx + std::sin(sAng) * numDist;
                         float ny = cy - std::cos(sAng) * numDist;
-                        drawCenteredText(r, std::to_string(step), nx - numBoxW * 0.5f, ny - numBoxH * 0.5f, numBoxW, numBoxH, numFontSize,
+                        drawCenteredText(r, kStepStrings[step], nx - numBoxW * 0.5f, ny - numBoxH * 0.5f, numBoxW, numBoxH, numFontSize,
                                          isLightChassis ? 0.25f : 0.80f,
                                          isLightChassis ? 0.28f : 0.82f,
                                          isLightChassis ? 0.32f : 0.86f, 0.95f);

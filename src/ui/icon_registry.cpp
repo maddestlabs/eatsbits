@@ -37,7 +37,7 @@ void IconRegistry::registerIcon(IconDef def) {
     icons_[id] = std::move(def);
 }
 
-const IconDef* IconRegistry::findIcon(const std::string& id) const {
+const IconDef* IconRegistry::findIcon(std::string_view id) const {
     auto it = icons_.find(id);
     if (it != icons_.end()) {
         return &it->second;
@@ -199,21 +199,21 @@ std::optional<IconDef> IconRegistry::parsePastedSvg(std::string_view text,
     return def;
 }
 
-void IconRegistry::renderIcon(BatchRenderer2D& r, const std::string& iconRef, 
+void IconRegistry::renderIcon(BatchRenderer2D& r, std::string_view iconRef, 
                               const Rect2D& bounds, const Color& tint) {
     if (iconRef.empty() || bounds.w <= 0.0f || bounds.h <= 0.0f) {
         return;
     }
 
-    std::string pathData;
+    std::string_view pathData;
     SvgRect viewBox{0.0f, 0.0f, 24.0f, 24.0f};
 
-    if (iconRef.rfind("svg:", 0) == 0) {
+    if (iconRef.starts_with("svg:")) {
         pathData = iconRef.substr(4);
     } else {
-        std::string iconId = iconRef;
-        if (iconId.rfind("preset:", 0) == 0) {
-            iconId = iconId.substr(7);
+        std::string_view iconId = iconRef;
+        if (iconId.starts_with("preset:")) {
+            iconId.remove_prefix(7);
         }
         const auto* def = findIcon(iconId);
         if (def) {
@@ -231,9 +231,8 @@ void IconRegistry::renderIcon(BatchRenderer2D& r, const std::string& iconRef,
 
     if (pathData.empty()) return;
 
-    // Cache key for triangulated geometry
-    const std::string& cacheKey = pathData;
-    auto it = meshCache_.find(cacheKey);
+    // Cache key for triangulated geometry (transparent string_view lookup)
+    auto it = meshCache_.find(pathData);
     if (it == meshCache_.end()) {
         SvgPath path = SvgPath::parse(pathData);
         CachedMesh mesh;
@@ -242,7 +241,7 @@ void IconRegistry::renderIcon(BatchRenderer2D& r, const std::string& iconRef,
         if (mesh.bounds.isEmpty()) {
             mesh.bounds = viewBox;
         }
-        it = meshCache_.emplace(cacheKey, std::move(mesh)).first;
+        it = meshCache_.emplace(std::string(pathData), std::move(mesh)).first;
     }
 
     const auto& mesh = it->second;

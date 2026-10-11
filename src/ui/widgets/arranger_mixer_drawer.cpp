@@ -345,7 +345,7 @@ void ArrangerMixerDrawer::render(
         drawLine(r, panNeedleX, panPillBounds.y + 1.0f, panNeedleX, panPillBounds.y + panPillBounds.h - 1.0f,
                  trackCol, 1.0f, 1.5f);
 
-        drawCenteredText(r, panStr, panPillBounds.x, panPillBounds.y, panPillBounds.w, panPillBounds.h,
+        drawCenteredText(r, std::string_view(panBuf), panPillBounds.x, panPillBounds.y, panPillBounds.w, panPillBounds.h,
                          8.5f, isSelected ? theme.textPrimary : theme.textSecondary);
 
         // Mute / Solo Buttons Row

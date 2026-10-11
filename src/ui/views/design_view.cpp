@@ -1476,7 +1476,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
     drawText(r, "v", targetDropdownBtn_.x + targetDropdownBtn_.w - 14.0f, targetDropdownBtn_.y + 9.0f, 8.0f,
              activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
 
-    auto drawModeBtn = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {
+    auto drawModeBtn = [&](const Rect2D& b, std::string_view label, bool active, const Color& accent) {
         if (active) {
             Color bg{accent.r * 0.35f, accent.g * 0.35f, accent.b * 0.35f, 0.95f};
             drawButton(r, b, label, bg, accent, accent, 10.0f, 3.0f, 1.2f);
@@ -1520,7 +1520,8 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     drawRoundedRectOutline(r, badgeX, ey - 1.0f, badgeW, badgeH, 3.0f,
                            0.0f, 0.95f, 0.45f, 0.70f, 1.0f);
     drawCircle(r, badgeX + 7.0f, ey + 7.0f, 2.5f, 0.0f, 1.0f, 0.55f, 1.0f);
-    std::string badgeLabel = std::to_string(allTargets_.size()) + " LOADED";
+    char badgeLabel[32];
+    std::snprintf(badgeLabel, sizeof(badgeLabel), "%zu LOADED", allTargets_.size());
     drawText(r, badgeLabel, badgeX + 13.0f, ey + 2.0f, 8.0f, 0.0f, 1.0f, 0.55f, 1.0f);
 
     ey += 22.0f;
@@ -1537,15 +1538,15 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     btnFilterFx_ = Rect2D(px + (pillW + pillGap) * 2.0f, ey, pillW, pillH);
     btnFilterMidi_ = Rect2D(px + (pillW + pillGap) * 3.0f, ey, pillW, pillH);
 
-    auto drawPill = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {
+    auto drawPill = [&](const Rect2D& b, std::string_view label, bool active, const Color& accent) {
         if (active) {
             drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, accent.r * 0.25f, accent.g * 0.25f, accent.b * 0.25f, 0.95f);
             drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, accent.r, accent.g, accent.b, 0.90f, 1.0f);
-            drawText(r, label, b.x + (b.w - label.length() * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, accent.r, accent.g, accent.b, 1.0f);
+            drawText(r, label, b.x + (b.w - static_cast<float>(label.length()) * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, accent.r, accent.g, accent.b, 1.0f);
         } else {
             drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, 0.12f, 0.13f, 0.17f, 0.85f);
             drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, 0.20f, 0.22f, 0.28f, 0.60f, 1.0f);
-            drawText(r, label, b.x + (b.w - label.length() * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
+            drawText(r, label, b.x + (b.w - static_cast<float>(label.length()) * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
         }
     };
 
@@ -1564,7 +1565,8 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     drawRoundedRectOutline(r, explorerSearchBoxBounds_.x, explorerSearchBoxBounds_.y,
                            explorerSearchBoxBounds_.w, explorerSearchBoxBounds_.h, 3.0f,
                            0.18f, 0.20f, 0.25f, 0.60f, 1.0f);
-    drawMonoText(r, scriptFilterQuery_.empty() ? "Filter loaded scripts..." : scriptFilterQuery_,
+    std::string_view searchPlaceholder = scriptFilterQuery_.empty() ? std::string_view("Filter loaded scripts...") : std::string_view(scriptFilterQuery_);
+    drawMonoText(r, searchPlaceholder,
                  explorerSearchBoxBounds_.x + 8.0f, explorerSearchBoxBounds_.y + 5.0f, 9.0f,
                  scriptFilterQuery_.empty() ? theme.textMuted.r : 0.95f,
                  scriptFilterQuery_.empty() ? theme.textMuted.g : 0.95f,
@@ -1589,15 +1591,15 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     }
 
     struct GroupInfo {
-        std::string title;
-        std::string shortTag;
+        std::string_view title;
+        std::string_view shortTag;
         Color accent;
         ScriptTargetType type;
         size_t count;
         bool visible;
     };
 
-    std::vector<GroupInfo> groups = {
+    const GroupInfo groups[] = {
         {"INSTRUMENTS & DSP", "SYNTH", Color{0.0f, 0.95f, 1.0f}, ScriptTargetType::TrackDsp, countDsp,
          (explorerFilter_ == ExplorerFilterMode::All || explorerFilter_ == ExplorerFilterMode::Instruments)},
         {"AUDIO FX INSERTS", "FX", Color{1.0f, 0.16f, 0.55f}, ScriptTargetType::AudioFx, countAfx,
@@ -1608,14 +1610,16 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
 
     float currentContentY = listTopY;
 
-    for (size_t g = 0; g < groups.size(); ++g) {
+    for (size_t g = 0; g < 3; ++g) {
         const auto& grp = groups[g];
         if (!grp.visible) continue;
 
         // Group header
         float headerY = currentContentY - explorerScrollY_;
         if (headerY + 16.0f >= listTopY && headerY <= listBottomY) {
-            std::string grpHeader = grp.title + " (" + std::to_string(grp.count) + ")";
+            char grpHeader[64];
+            std::snprintf(grpHeader, sizeof(grpHeader), "%.*s (%zu)",
+                          static_cast<int>(grp.title.size()), grp.title.data(), grp.count);
             drawText(r, grpHeader, explorerBounds_.x + 10.0f, headerY, 9.0f,
                      grp.accent.r, grp.accent.g, grp.accent.b, 1.0f);
         }
@@ -1686,7 +1690,10 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
         if (itemsRendered == 0) {
             float emptyY = currentContentY - explorerScrollY_;
             if (emptyY + 16.0f >= listTopY && emptyY <= listBottomY) {
-                drawText(r, "No " + grp.title + " in project", explorerBounds_.x + 16.0f, emptyY, 8.5f,
+                char emptyMsg[64];
+                std::snprintf(emptyMsg, sizeof(emptyMsg), "No %.*s in project",
+                              static_cast<int>(grp.title.size()), grp.title.data());
+                drawText(r, emptyMsg, explorerBounds_.x + 16.0f, emptyY, 8.5f,
                          theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.55f);
             }
             currentContentY += 16.0f;
@@ -1836,7 +1843,10 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
              modularToolbarBounds_.x + modularToolbarBounds_.w, modularToolbarBounds_.y + modularToolbarBounds_.h,
              0.18f, 0.20f, 0.26f, 1.0f, 1.2f);
 
-    std::string rackTitle = "MODULAR RACK: " + getActiveTarget().title;
+    char rackTitle[96];
+    std::string_view activeTTitle = getActiveTarget().title;
+    std::snprintf(rackTitle, sizeof(rackTitle), "MODULAR RACK: %.*s",
+                  static_cast<int>(activeTTitle.size()), activeTTitle.data());
     drawText(r, rackTitle, modularToolbarBounds_.x + 14.0f, modularToolbarBounds_.y + 10.0f, 10.5f,
              1.0f, 0.55f, 0.0f, 1.0f);
 
@@ -1856,7 +1866,8 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     btnModularZoomReset_ = Rect2D(btnModularZoomOut_.x - 60.0f, modularToolbarBounds_.y + 6.0f, 54.0f, 22.0f);
 
     // Draw Zoom buttons
-    std::string zoomPct = std::to_string(static_cast<int>(std::round(modularZoomPan_.getZoomX() * 100.0f))) + "%";
+    char zoomPct[16];
+    std::snprintf(zoomPct, sizeof(zoomPct), "%d%%", static_cast<int>(std::round(modularZoomPan_.getZoomX() * 100.0f)));
     drawButton(r, btnModularZoomReset_, zoomPct,
                Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 9.0f, 3.0f, 1.0f);
     drawButton(r, btnModularZoomOut_, "-",
@@ -2035,9 +2046,9 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
 
             drawText(r, mod.knobs[k].label, skx - 16.0f * zoom, sky + 18.0f * zoom, 8.5f * zoom, 0.8f, 0.85f, 0.9f, 0.9f);
 
-            std::ostringstream ss;
-            ss << std::fixed << std::setprecision(2) << mod.knobs[k].value;
-            drawText(r, ss.str(), skx - 12.0f * zoom, sky + 29.0f * zoom, 7.5f * zoom, 0.6f, 0.7f, 0.8f, 0.8f);
+            char valBuf[16];
+            std::snprintf(valBuf, sizeof(valBuf), "%.2f", mod.knobs[k].value);
+            drawText(r, valBuf, skx - 12.0f * zoom, sky + 29.0f * zoom, 7.5f * zoom, 0.6f, 0.7f, 0.8f, 0.8f);
         }
 
         // Jacks: Inputs (Cyan) on Left, Outputs (Gold) on Right

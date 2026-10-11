@@ -474,23 +474,25 @@ void TrackInspectorView::updateDrawerData() {
 
     if (selectedTrackIndex_ < tracks_.size()) {
         const auto& trk = tracks_[selectedTrackIndex_];
-        drawerData_.trackName = trk.name;
-        drawerData_.trackType = trk.type;
+        if (drawerData_.trackName != trk.name) drawerData_.trackName = trk.name;
+        if (drawerData_.trackType != trk.type) drawerData_.trackType = trk.type;
         drawerData_.r = trk.r; drawerData_.g = trk.g; drawerData_.b = trk.b;
         drawerData_.volume = trk.volume;
         drawerData_.pan = trk.pan;
         drawerData_.mute = trk.mute;
         drawerData_.solo = trk.solo;
         drawerData_.freeze = trk.freeze;
-        drawerData_.instrument = trk.instrument;
-        drawerData_.instrumentEngine = trk.instrumentEngine;
+        if (drawerData_.instrument != trk.instrument) drawerData_.instrument = trk.instrument;
+        if (drawerData_.instrumentEngine != trk.instrumentEngine) drawerData_.instrumentEngine = trk.instrumentEngine;
         drawerData_.chordFollowMode = trk.chordFollowMode;
         if (drawerData_.knobs.size() != trk.knobs.size()) {
             drawerData_.knobs = trk.knobs;
         } else {
             for (size_t k = 0; k < trk.knobs.size(); ++k) {
                 drawerData_.knobs[k].value = trk.knobs[k].value;
-                drawerData_.knobs[k].display = trk.knobs[k].display;
+                if (drawerData_.knobs[k].display != trk.knobs[k].display) {
+                    drawerData_.knobs[k].display = trk.knobs[k].display;
+                }
             }
         }
         drawerData_.midiFxData = trk.midiFx;
@@ -501,11 +503,28 @@ void TrackInspectorView::updateDrawerData() {
         if (drawerData_.audioFx.size() != trk.audioFxList.size()) {
             drawerData_.audioFx = trk.audioFxList;
         }
-        drawerData_.presetTitle = trk.instrument.empty() ? trk.name : trk.instrument;
-        drawerData_.presetSubtitle = trk.name + " • " + (trk.instrument.empty() ? "Track" : trk.instrument);
+        std::string_view desiredTitle = trk.instrument.empty() ? std::string_view(trk.name) : std::string_view(trk.instrument);
+        if (drawerData_.presetTitle != desiredTitle) {
+            drawerData_.presetTitle = desiredTitle;
+        }
+
+        std::string_view trkInst = trk.instrument.empty() ? std::string_view("Track") : std::string_view(trk.instrument);
+        std::string_view sep = " • ";
+        size_t neededLen = trk.name.size() + sep.size() + trkInst.size();
+        bool matches = (drawerData_.presetSubtitle.size() == neededLen) &&
+                       (drawerData_.presetSubtitle.compare(0, trk.name.size(), trk.name) == 0) &&
+                       (drawerData_.presetSubtitle.compare(trk.name.size(), sep.size(), sep) == 0) &&
+                       (drawerData_.presetSubtitle.compare(trk.name.size() + sep.size(), trkInst.size(), trkInst) == 0);
+        if (!matches) {
+            drawerData_.presetSubtitle.clear();
+            drawerData_.presetSubtitle.reserve(neededLen);
+            drawerData_.presetSubtitle.append(trk.name);
+            drawerData_.presetSubtitle.append(sep);
+            drawerData_.presetSubtitle.append(trkInst);
+        }
     } else {
-        drawerData_.presetTitle = presetTitle_;
-        drawerData_.presetSubtitle = presetSubtitle_;
+        if (drawerData_.presetTitle != presetTitle_) drawerData_.presetTitle = presetTitle_;
+        if (drawerData_.presetSubtitle != presetSubtitle_) drawerData_.presetSubtitle = presetSubtitle_;
     }
 
     drawerData_.activePresetIdx = activePresetIdx_;
@@ -538,9 +557,19 @@ void TrackInspectorView::syncBackFromDrawerData(const TrackPropertiesDrawerData&
 
 void TrackInspectorView::setActiveTrack(uint32_t idx) noexcept {
     if (idx < tracks_.size()) {
-        selectedTrackIndex_ = idx;
-        presetTitle_ = tracks_[idx].instrument.empty() ? tracks_[idx].name : tracks_[idx].instrument;
-        presetSubtitle_ = tracks_[idx].name + " • " + (tracks_[idx].instrument.empty() ? "Track" : tracks_[idx].instrument);
+        if (selectedTrackIndex_ != idx) {
+            selectedTrackIndex_ = idx;
+            std::string_view title = tracks_[idx].instrument.empty() ? std::string_view(tracks_[idx].name) : std::string_view(tracks_[idx].instrument);
+            if (presetTitle_ != title) presetTitle_ = title;
+            std::string_view trkInst = tracks_[idx].instrument.empty() ? std::string_view("Track") : std::string_view(tracks_[idx].instrument);
+            std::string_view sep = " • ";
+            size_t neededLen = tracks_[idx].name.size() + sep.size() + trkInst.size();
+            presetSubtitle_.clear();
+            presetSubtitle_.reserve(neededLen);
+            presetSubtitle_.append(tracks_[idx].name);
+            presetSubtitle_.append(sep);
+            presetSubtitle_.append(trkInst);
+        }
     }
 }
 

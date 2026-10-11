@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <atomic>
 
 namespace eatsbits::ui {
 
@@ -1381,8 +1382,8 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
         float iconBoxY = rowY + 7.5f;
         float iconBoxSize = 15.0f;
         Color iconCol = isActive ? theme.primaryAccent : Color{track.r, track.g, track.b, 1.0f};
-        IconRegistry::instance().renderIcon(r, track.iconRef.empty() ? "preset:inst_synth" : track.iconRef,
-                                            iconBoxX, iconBoxY, iconBoxSize, iconCol);
+        std::string_view iconRef = track.iconRef.empty() ? std::string_view("preset:inst_synth") : std::string_view(track.iconRef);
+        IconRegistry::instance().renderIcon(r, iconRef, iconBoxX, iconBoxY, iconBoxSize, iconCol);
 
         // Track Name (size 10.0f matching clip title text)
         drawText(r, track.name, iconBoxX + iconBoxSize + 6.0f, rowY + 9.5f, 10.0f,

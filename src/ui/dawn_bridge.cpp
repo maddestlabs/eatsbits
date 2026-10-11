@@ -9,6 +9,9 @@
 #include <vector>
 #include "stb_image.h"
 #include "crt_reflection_data.hpp"
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 #include <webgpu/webgpu.h>
 #if !defined(__EMSCRIPTEN__)
@@ -541,7 +544,7 @@ struct DawnBridge::Impl {
     WGPUTextureFormat surfaceFormat{WGPUTextureFormat_BGRA8Unorm};
     bool gpuReady{false};
 
-    std::filesystem::file_time_type lastShaderModTime{};
+    uint64_t lastShaderModTime{0};
     uint32_t shaderCheckCounter{0};
 
     void checkAndReloadShader() {
@@ -549,10 +552,21 @@ struct DawnBridge::Impl {
         shaderCheckCounter++;
         if (shaderCheckCounter % 30 != 0) return; // poll filesystem every ~0.5 sec
 
-        std::error_code ec;
-        auto ftime = std::filesystem::last_write_time("assets/shaders/crt_screen.wgsl", ec);
-        if (ec) return;
-        if (lastShaderModTime == std::filesystem::file_time_type{}) {
+        uint64_t ftime = 0;
+#if defined(_WIN32)
+        WIN32_FILE_ATTRIBUTE_DATA fileInfo{};
+        if (!GetFileAttributesExA("assets/shaders/crt_screen.wgsl", GetFileExInfoStandard, &fileInfo)) {
+            return;
+        }
+        ftime = (static_cast<uint64_t>(fileInfo.ftLastWriteTime.dwHighDateTime) << 32) |
+                static_cast<uint64_t>(fileInfo.ftLastWriteTime.dwLowDateTime);
+#else
+        struct stat st{};
+        if (stat("assets/shaders/crt_screen.wgsl", &st) != 0) return;
+        ftime = static_cast<uint64_t>(st.st_mtime);
+#endif
+
+        if (lastShaderModTime == 0) {
             lastShaderModTime = ftime;
             return;
         }
