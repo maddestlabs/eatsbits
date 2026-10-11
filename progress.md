@@ -1265,6 +1265,22 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
       - Invalidation wired to `setActiveThemePreset()`, `setActiveView()`, `onWindowResize()`, `toggleBrowser()`, and `toggleProjectHub()`.
     - **Automated Verification**:
       - Added `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone recording, cache validation metrics, visual parity (`std::memcmp == 0`), sub-region blitting, and lifecycle invalidation across resize, view, theme, and drawer events.
+- **Item Completed**: "Separate Tooltip Optical Domains and Render Top Panel Tooltips Above Elements" (commit `67357a7`, 2026-10-11)
+  - **Summary**:
+    - Resolved the visual boundary split where top panel tooltips were rendering downwards into the CRT cavity and workspace tooltips were projecting upwards across the 56px metal faceplate seam.
+    - Top transport bar tooltips now render floating directly *above* the transport elements, strictly within the 56px metal faceplate ($y \in [3.0, 54.0]$), with zero CRT distortion or scanline slicing.
+    - Implemented automatic domain boundary clamping and auto-flipping in `drawTooltipBadge` and `MixerView::renderTooltip`, ensuring DAW workspace tooltips flip below when near the top seam ($y < 58.0$) and flip above when near the bottom chin ($y > \text{height} - 51.0$).
+  - **Key Changes Implemented**:
+    - **`drawTooltipBadge` (`src/ui/draw_utils.cpp`, `include/eatsbits/ui/draw_utils.hpp`)**:
+      - Added support for optical domain separation and explicit/implicit `minY`/`maxY` bounds.
+      - If `targetY < 50.0f` (Top Transport Bar domain): tooltips are clamped within `[3.0f, 54.0f - th]`, sitting cleanly above the buttons/dials.
+      - If `targetY >= 50.0f` (Central DAW Workspace domain): if `placeBelow = false` would cause `ty < 58.0f`, automatically flips downward to `targetY + 22.0f`. If `ty + th > maxY`, automatically flips upward.
+    - **`MixerView` (`src/ui/views/mixer_view.cpp`)**:
+      - Clamped and auto-flipped fader and pan tooltips inside $[58.0f, \text{effH} - 51.0f]$.
+    - **`GuiWindow` & `TransportHeader`**:
+      - Configured `drawTopTransportBar()` and `TransportHeader` to render tooltips with `placeBelow = false` and `targetY = 10.0f` inside the top metal faceplate.
+    - **Automated Verification**:
+      - Added unit test `testTooltipDomainClampingAndAutoFlipping()` in `tests/test_ui_canvas.cpp` verifying vertex bounds for top panel tooltips, top seam downward auto-flipping, and bottom chin upward auto-flipping.
       - 100% test pass across all 48 test suites in `ctest`.
 
 ---
