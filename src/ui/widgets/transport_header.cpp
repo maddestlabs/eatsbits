@@ -102,7 +102,7 @@ void TransportHeader::render(BatchRenderer2D& r, const ThemeTokens& theme, audio
     if (hoverX_ >= 0.0f && hoverY_ >= 0.0f) {
         std::string tip = getTooltip(hoverX_, hoverY_);
         if (!tip.empty()) {
-            drawTooltipBadge(r, tip, hoverX_, bounds_.y + bounds_.h, theme, true, bounds_.w);
+            drawTooltipBadge(r, tip, hoverX_, bounds_.y + 10.0f, theme, false, bounds_.w, 0.0f, bounds_.y, bounds_.y + bounds_.h - 2.0f);
         }
     }
 }

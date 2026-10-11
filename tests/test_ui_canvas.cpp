@@ -15,6 +15,8 @@
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
+#include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/theme.hpp"
 
 #define REQUIRE(expr) do { \
     if (!(expr)) { \
@@ -374,6 +376,92 @@ void testScissorScopeNestedClippingAndRaii() {
     std::cout << "  [PASS] ScissorScope nested clipping and RAII passed." << std::endl;
 }
 
+void testTooltipDomainClampingAndAutoFlipping() {
+    std::cout << "[Test] Tooltip domain optical separation, top panel element positioning, and auto-flipping..." << std::endl;
+
+    BatchRenderer2D renderer;
+    renderer.initialize(nullptr, 1280, 800);
+    ThemeTokens theme = Theme::current();
+
+    // 1. Top Transport Bar domain: tooltip must render ABOVE elements and strictly inside the top panel (y in [0, 56])
+    {
+        renderer.beginFrame(1280.0f, 800.0f);
+        size_t vStart = renderer.getVertexCount();
+
+        // Hover Play button: targetY = 10.0f, placeBelow = false
+        drawTooltipBadge(renderer, "Play / Pause (Space)", 73.0f, 10.0f, theme, false, 1280.0f, 800.0f, 0.0f, 54.0f);
+
+        size_t vEnd = renderer.getVertexCount();
+        REQUIRE(vEnd > vStart);
+
+        const auto& verts = renderer.getVertices();
+        float minY = 9999.0f;
+        float maxY = -9999.0f;
+        for (size_t i = vStart; i < vEnd; ++i) {
+            minY = std::min(minY, verts[i].y);
+            maxY = std::max(maxY, verts[i].y);
+        }
+
+        // Must sit strictly above elements inside top panel: maxY <= 54.0f and minY >= 2.0f
+        REQUIRE(minY >= 2.0f);
+        REQUIRE(maxY <= 54.0f);
+        renderer.endFrame();
+    }
+
+    // 2. Central DAW Workspace domain near top seam: must auto-flip downwards so it NEVER bleeds into top transport bar (y < 56)
+    {
+        renderer.beginFrame(1280.0f, 800.0f);
+        size_t vStart = renderer.getVertexCount();
+
+        // Control near top of track/mixer: targetY = 65.0f, placeBelow = false
+        // Normally targetY - th - 8 = 37px which would breach the 56px metal faceplate!
+        drawTooltipBadge(renderer, "Master Fader: 0.0 dB", 200.0f, 65.0f, theme, false, 1280.0f, 800.0f);
+
+        size_t vEnd = renderer.getVertexCount();
+        REQUIRE(vEnd > vStart);
+
+        const auto& verts = renderer.getVertices();
+        float minY = 9999.0f;
+        float maxY = -9999.0f;
+        for (size_t i = vStart; i < vEnd; ++i) {
+            minY = std::min(minY, verts[i].y);
+            maxY = std::max(maxY, verts[i].y);
+        }
+
+        // Must auto-flip below target so minY >= 58.0f (strictly inside CRT workspace cavity)
+        REQUIRE(minY >= 58.0f);
+        renderer.endFrame();
+    }
+
+    // 3. Central DAW Workspace domain near bottom chin: must auto-flip upwards so it NEVER bleeds into bottom chin (y > 752)
+    {
+        renderer.beginFrame(1280.0f, 800.0f);
+        size_t vStart = renderer.getVertexCount();
+
+        // Control near bottom chin: targetY = 740.0f, placeBelow = true
+        // Normally targetY + 14 + 20 = 774px which would breach bottom chin (752px)!
+        drawTooltipBadge(renderer, "Pan: Center", 300.0f, 740.0f, theme, true, 1280.0f, 800.0f);
+
+        size_t vEnd = renderer.getVertexCount();
+        REQUIRE(vEnd > vStart);
+
+        const auto& verts = renderer.getVertices();
+        float minY = 9999.0f;
+        float maxY = -9999.0f;
+        for (size_t i = vStart; i < vEnd; ++i) {
+            minY = std::min(minY, verts[i].y);
+            maxY = std::max(maxY, verts[i].y);
+        }
+
+        // Must auto-flip above target so maxY <= 749.0f (strictly above 752px bottom chin)
+        REQUIRE(maxY <= 749.0f);
+        REQUIRE(minY >= 58.0f);
+        renderer.endFrame();
+    }
+
+    std::cout << "  [PASS] Tooltip domain optical separation and auto-flipping passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 4 UI Canvas & Visualizer Suite Tests ===" << std::endl;
     testCanvasDimensionsAndResize();
@@ -384,6 +472,7 @@ int main() {
     testAnsiVisualizer();
     testEngineScopeIntegration();
     testScissorScopeNestedClippingAndRaii();
+    testTooltipDomainClampingAndAutoFlipping();
     std::cout << "=== All Phase 4 UI Canvas Tests Passed! ===" << std::endl;
     return 0;
 }

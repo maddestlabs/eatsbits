@@ -338,35 +338,74 @@ void drawTrashIcon(BatchRenderer2D& r, float cx, float cy, float size, const Col
 }
 
 void drawTooltipBadge(BatchRenderer2D& r, std::string_view text, float targetX, float targetY,
-                      const ThemeTokens& theme, bool placeBelow, float screenW) {
+                      const ThemeTokens& theme, bool placeBelow, float screenW,
+                      float screenH, float minY, float maxY) {
     if (text.empty()) return;
 
     float tw = static_cast<float>(text.length()) * 6.5f + 18.0f;
-    float th = 22.0f;
+    float th = 20.0f;
     float tx = targetX - tw * 0.5f;
 
-    // Boundary constraints
-    if (screenW > 0.0f) {
-        tx = std::clamp(tx, 8.0f, std::max(8.0f, screenW - tw - 8.0f));
+    const float effW = (screenW > 0.0f) ? screenW : r.getCurrentWidth();
+    const float effH = (screenH > 0.0f) ? screenH : r.getCurrentHeight();
+
+    // Boundary constraints for X
+    if (effW > 0.0f) {
+        tx = std::clamp(tx, 8.0f, std::max(8.0f, effW - tw - 8.0f));
     }
 
-    float ty = placeBelow ? (targetY + 12.0f) : (targetY - th - 8.0f);
+    float ty = 0.0f;
+
+    // Optical Domain Separation:
+    // 1. Top Transport Bar domain: targetY < 50.0f or explicitly bounded (maxY <= 56.0f)
+    // Tooltips remain strictly within the top panel (above the elements, y in [3.0, 53.0])
+    // and NEVER enter the DAW / CRT region (y >= 56.0f).
+    if (targetY < 50.0f || (maxY > 0.0f && maxY <= 56.0f)) {
+        float topMin = (minY >= 0.0f) ? minY : 0.0f;
+        float topMax = (maxY > 0.0f) ? maxY : 54.0f;
+        float desiredY = targetY - th - 3.0f;
+        ty = std::clamp(desiredY, topMin + 3.0f, std::max(topMin + 3.0f, topMax - th));
+    }
+    // 2. Central DAW Workspace domain: targetY >= 50.0f
+    // Tooltips remain strictly within the DAW workspace (y in [58.0, effH - 51.0])
+    // and NEVER cross into the top transport faceplate (y < 56.0f) or bottom chin (y > effH - 48.0f).
+    else {
+        float dawMinY = (minY >= 0.0f) ? minY : 58.0f;
+        float dawMaxY = (maxY > 0.0f) ? maxY : ((effH > 0.0f) ? (effH - 51.0f) : 9999.0f);
+
+        if (!placeBelow) {
+            ty = targetY - th - 8.0f;
+            // If placing above would breach the top transport bar (56px) or CRT aperture bezel,
+            // automatically flip below the target
+            if (ty < dawMinY) {
+                ty = targetY + 22.0f;
+            }
+        } else {
+            ty = targetY + 14.0f;
+            // If placing below would breach the bottom chin, flip above the target
+            if (ty + th > dawMaxY) {
+                ty = targetY - th - 8.0f;
+            }
+        }
+
+        ty = std::clamp(ty, dawMinY, std::max(dawMinY, dawMaxY - th));
+    }
 
     // Drop shadow
-    drawRoundedRect(r, tx + 1.0f, ty + 2.5f, tw, th, 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
+    drawRoundedRect(r, tx + 1.0f, ty + 2.0f, tw, th, 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
 
     if (theme.isLight) {
         // High-contrast tactile dark badge in light mode
         drawRoundedRect(r, tx, ty, tw, th, 4.0f, 0.12f, 0.13f, 0.16f, 0.96f);
         drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, 0.30f, 0.32f, 0.38f, 0.8f, 1.0f);
-        drawText(r, text, tx + 9.0f, ty + 5.0f, 9.5f, 0.95f, 0.96f, 0.98f, 1.0f);
+        drawText(r, text, tx + 9.0f, ty + 4.0f, 9.5f, 0.95f, 0.96f, 0.98f, 1.0f);
     } else {
         // Creamy studio label badge in dark mode (Eatsbeats analog hardware tape aesthetic)
         drawRoundedRect(r, tx, ty, tw, th, 4.0f, 0.94f, 0.95f, 0.96f, 0.98f);
         drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, 0.60f, 0.64f, 0.70f, 0.85f, 1.0f);
         drawLine(r, tx + 2.0f, ty + 1.0f, tx + tw - 2.0f, ty + 1.0f,
                  theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.6f, 1.0f);
-        drawText(r, text, tx + 9.0f, ty + 5.0f, 9.5f, 0.10f, 0.12f, 0.15f, 1.0f);
+        drawText(r, text, tx + 9.0f, ty + 4.0f, 9.5f, 0.10f, 0.12f, 0.15f, 1.0f);
     }
 }
 

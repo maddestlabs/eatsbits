@@ -168,6 +168,8 @@ public:
     }
     [[nodiscard]] float getRenderScaleX() const noexcept { return renderScaleX_; }
     [[nodiscard]] float getRenderScaleY() const noexcept { return renderScaleY_; }
+    [[nodiscard]] float getCurrentWidth() const noexcept { return currentWidth_; }
+    [[nodiscard]] float getCurrentHeight() const noexcept { return currentHeight_; }
 
     // --- 2D Rotation Transform ---
     void setRotation(float angleDegrees, float originX, float originY);
@@ -243,6 +245,7 @@ public:
     [[nodiscard]] const MonospaceGlyphHook& getMonospaceGlyphHook() const noexcept { return monospaceGlyphHook_; }
 
     [[nodiscard]] size_t getVertexCount() const noexcept { return vertices_.size(); }
+    [[nodiscard]] const std::vector<Vertex2D>& getVertices() const noexcept { return vertices_; }
     [[nodiscard]] RenderBackendType getBackendType() const noexcept;
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
     void setDirectPresent(bool enable) noexcept { if (backend_) backend_->setDirectPresent(enable); }

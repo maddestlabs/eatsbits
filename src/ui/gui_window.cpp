@@ -6145,7 +6145,8 @@ void GuiWindow::drawTopTransportBar() {
         else if (mouseX_ >= (rW - 96.0f) && mouseX_ < (rW - 66.0f)) tipX = rW - 63.0f;
         else if (mouseX_ >= (rW - 66.0f) && mouseX_ <= (rW - 4.0f)) tipX = rW - 23.0f;
 
-        drawTooltipBadge(*batchRenderer_, tip, tipX, 56.0f, theme, true, rW);
+        // Render tooltip badge directly ABOVE the elements, strictly within the top panel faceplate (y <= 54px)
+        drawTooltipBadge(*batchRenderer_, tip, tipX, 10.0f, theme, false, rW, static_cast<float>(height_), 0.0f, 54.0f);
     }
 #endif
 }

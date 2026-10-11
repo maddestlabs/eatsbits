@@ -851,7 +851,25 @@ void MixerView::renderTooltip(BatchRenderer2D& r, const ThemeTokens& theme) {
     float tw = static_cast<float>(tooltipText_.length()) * 6.5f + 16.0f;
     float th = 20.0f;
     float tx = tooltipX_ - tw * 0.5f;
+
+    const float effW = r.getCurrentWidth();
+    const float effH = r.getCurrentHeight();
+
+    if (effW > 0.0f) {
+        tx = std::clamp(tx, 8.0f, std::max(8.0f, effW - tw - 8.0f));
+    }
+
     float ty = tooltipY_ - 26.0f;
+    // Auto-flip and clamp within the Mixer DAW workspace (y in [58.0, effH - 51.0])
+    // Never crosses into the top transport faceplate (y < 56.0f) or bottom chin (y > effH - 48.0f)
+    if (ty < 58.0f) {
+        ty = tooltipY_ + 14.0f; // Flip below cursor when fader is near top
+    }
+    if (effH > 0.0f && ty + th > (effH - 51.0f)) {
+        ty = tooltipY_ - 26.0f; // Flip above cursor when fader is near bottom chin
+    }
+    const float maxDawY = (effH > 0.0f) ? (effH - 48.0f - th - 3.0f) : 9999.0f;
+    ty = std::clamp(ty, 58.0f, std::max(58.0f, maxDawY));
 
     // Drop shadow
     drawRoundedRect(r, tx + 1.0f, ty + 2.0f, tw, th, 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
