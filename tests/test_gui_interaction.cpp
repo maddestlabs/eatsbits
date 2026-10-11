@@ -3560,6 +3560,131 @@ void testZeroAllocationGuiRenderLoop() {
     std::cout << "  [PASS] Zero-allocation GUI render loop verified across Mixer, Track Inspector, Arranger, and Design." << std::endl;
 }
 
+void testStaticChromeFboCachingAndVisualParity() {
+    std::cout << "[Test] Static Chrome Offscreen Texture (FBO) Caching and Invalidation Lifecycle..." << std::endl;
+
+    // 1. Direct BatchRenderer2D standalone chrome recording & cache verification
+    {
+        BatchRenderer2D renderer;
+        renderer.initialize(nullptr, 800, 600);
+
+        REQUIRE(renderer.isChromeCachingEnabled());
+        REQUIRE(!renderer.isChromeCacheValid());
+        REQUIRE(renderer.getChromeDrawCallsAvoided() == 0);
+
+        renderer.beginFrame(800.0f, 600.0f);
+
+        // Recording pass
+        bool recording = renderer.beginChromeRecording();
+        REQUIRE(recording);
+        renderer.drawRect(0.0f, 0.0f, 800.0f, 56.0f, 0.2f, 0.2f, 0.2f, 1.0f);
+        renderer.drawRect(0.0f, 552.0f, 800.0f, 48.0f, 0.15f, 0.15f, 0.15f, 1.0f);
+        renderer.endChromeRecording();
+
+        REQUIRE(renderer.isChromeCacheValid());
+        REQUIRE(renderer.getChromeCacheWidth() == 800);
+        REQUIRE(renderer.getChromeCacheHeight() == 600);
+        REQUIRE(renderer.getChromeCachePixelCount() == 800 * 600);
+
+        const uint32_t* snapshot1 = renderer.getChromeCachePixels();
+        REQUIRE(snapshot1 != nullptr);
+        std::vector<uint32_t> snapshotCopy(snapshot1, snapshot1 + (800 * 600));
+
+        // Blit full cached chrome
+        renderer.drawCachedChrome();
+        REQUIRE(renderer.getChromeDrawCallsAvoided() == 1);
+
+        // Blit cached chrome sub-region (top transport bar)
+        renderer.drawCachedChromeRegion(0.0f, 0.0f, 0.0f, 0.0f, 800.0f, 56.0f);
+        REQUIRE(renderer.getChromeDrawCallsAvoided() == 2);
+
+        // Verify visual parity: re-recording identical chrome yields bit-for-bit identical cached pixels
+        renderer.invalidateChromeCache();
+        REQUIRE(!renderer.isChromeCacheValid());
+
+        bool rec2 = renderer.beginChromeRecording();
+        REQUIRE(rec2);
+        renderer.drawRect(0.0f, 0.0f, 800.0f, 56.0f, 0.2f, 0.2f, 0.2f, 1.0f);
+        renderer.drawRect(0.0f, 552.0f, 800.0f, 48.0f, 0.15f, 0.15f, 0.15f, 1.0f);
+        renderer.endChromeRecording();
+        REQUIRE(renderer.isChromeCacheValid());
+
+        const uint32_t* snapshot2 = renderer.getChromeCachePixels();
+        REQUIRE(snapshot2 != nullptr);
+        int cmp = std::memcmp(snapshotCopy.data(), snapshot2, 800 * 600 * sizeof(uint32_t));
+        REQUIRE(cmp == 0);
+
+        // Invalidation upon resize
+        renderer.resize(1024, 768);
+        REQUIRE(!renderer.isChromeCacheValid());
+
+        // Enable / disable toggling
+        renderer.setChromeCachingEnabled(false);
+        REQUIRE(!renderer.isChromeCachingEnabled());
+        renderer.setChromeCachingEnabled(true);
+        REQUIRE(renderer.isChromeCachingEnabled());
+
+        renderer.endFrame();
+        renderer.shutdown();
+        REQUIRE(!renderer.isChromeCacheValid());
+    }
+
+    // 2. GuiWindow integration and event lifecycle invalidation
+    {
+        AudioEngine engine;
+        GuiWindow window(1280, 800, "Chrome Cache Invalidation Test");
+        bool initOk = window.initialize(engine);
+        REQUIRE(initOk);
+
+        REQUIRE(window.isChromeCachingEnabled());
+        REQUIRE(!window.isChromeCacheValid());
+
+        // 1st frame: records static chrome and caches it
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // 2nd frame: blits cached chrome
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Invalidation: Theme preset change
+        window.setActiveThemePreset(1);
+        REQUIRE(!window.isChromeCacheValid());
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Invalidation: Workspace view change
+        window.setActiveView(WorkspaceView::Mixer);
+        REQUIRE(!window.isChromeCacheValid());
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Invalidation: Side browser toggle
+        window.toggleBrowser();
+        REQUIRE(!window.isChromeCacheValid());
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Invalidation: Project hub toggle
+        window.toggleProjectHub();
+        REQUIRE(!window.isChromeCacheValid());
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Invalidation: Window resize
+        window.onWindowResize(1440, 900);
+        REQUIRE(!window.isChromeCacheValid());
+        window.renderFrame();
+        REQUIRE(window.isChromeCacheValid());
+
+        // Manual invalidation
+        window.invalidateChromeCache();
+        REQUIRE(!window.isChromeCacheValid());
+    }
+
+    std::cout << "  [PASS] Static Chrome Offscreen Texture (FBO) Caching and Invalidation passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 6 GUI Interaction Tests ===" << std::endl;
     testDawnBridgeLifecycle();
@@ -3591,7 +3716,9 @@ int main() {
     testFullscreenAndLiveResize();
     testFullscreenDeviceModal();
     testZeroAllocationGuiRenderLoop();
+    testStaticChromeFboCachingAndVisualParity();
     std::cout << "=== All Phase 6 GUI Interaction Tests Passed! ===" << std::endl;
     return 0;
 }
+
 

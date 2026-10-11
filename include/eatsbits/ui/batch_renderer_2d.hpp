@@ -62,6 +62,15 @@ public:
     virtual void* getNativeDevice() const noexcept { return nullptr; }
     virtual void* getNativeSurface() const noexcept { return nullptr; }
     virtual void setCustomRenderTargetView(void* /*view*/) {}
+    virtual void snapshotFramebuffer(std::vector<uint32_t>& outPixels, uint32_t& outW, uint32_t& outH) const {
+        const uint32_t* fb = getFramebuffer();
+        if (fb && outW > 0 && outH > 0) {
+            outPixels.assign(fb, fb + (static_cast<size_t>(outW) * outH));
+        }
+    }
+    virtual void restoreFramebuffer(const uint32_t* /*srcPixels*/, uint32_t /*w*/, uint32_t /*h*/, float /*opacity*/ = 1.0f) {}
+    virtual void restoreFramebufferRegion(const uint32_t* /*srcPixels*/, uint32_t /*srcW*/, uint32_t /*srcH*/,
+                                          float /*dstX*/, float /*dstY*/, float /*srcX*/, float /*srcY*/, float /*w*/, float /*h*/, float /*opacity*/ = 1.0f) {}
 };
 
 class BatchRenderer2D;
@@ -177,6 +186,21 @@ public:
     [[nodiscard]] ScissorScope makeScissorScope(float x, float y, float w, float h);
     [[nodiscard]] ScissorScope makeScissorScope(const Rect2D& r);
 
+    // --- Static Chrome Offscreen Texture (FBO) Caching ---
+    void setChromeCachingEnabled(bool enable) noexcept { chromeCacheEnabled_ = enable; }
+    [[nodiscard]] bool isChromeCachingEnabled() const noexcept { return chromeCacheEnabled_; }
+    [[nodiscard]] bool isChromeCacheValid() const noexcept { return chromeCacheValid_; }
+    void invalidateChromeCache() noexcept;
+    bool beginChromeRecording();
+    void endChromeRecording();
+    void drawCachedChrome(float opacity = 1.0f);
+    void drawCachedChromeRegion(float dstX, float dstY, float srcX, float srcY, float w, float h, float opacity = 1.0f);
+    [[nodiscard]] const uint32_t* getChromeCachePixels() const noexcept { return chromeCachePixels_.data(); }
+    [[nodiscard]] size_t getChromeCachePixelCount() const noexcept { return chromeCachePixels_.size(); }
+    [[nodiscard]] uint32_t getChromeCacheWidth() const noexcept { return chromeCacheWidth_; }
+    [[nodiscard]] uint32_t getChromeCacheHeight() const noexcept { return chromeCacheHeight_; }
+    [[nodiscard]] uint64_t getChromeDrawCallsAvoided() const noexcept { return chromeDrawCallsAvoided_; }
+
     // --- Contextual Shadows & Lighting ---
     void drawCircleDropShadow(float cx, float cy, float radius, float elevation, const LightSource2D& light, float opacity = 0.45f);
     void drawRectDropShadow(float x, float y, float w, float h, float cornerRadius, float elevation, const LightSource2D& light, float opacity = 0.40f);
@@ -261,6 +285,15 @@ private:
 
     std::vector<Rect2D> scissorStack_{};
     MonospaceGlyphHook monospaceGlyphHook_{nullptr};
+
+    // Static Chrome Caching State
+    bool chromeCacheEnabled_{true};
+    bool chromeCacheValid_{false};
+    bool inChromeRecording_{false};
+    uint32_t chromeCacheWidth_{0};
+    uint32_t chromeCacheHeight_{0};
+    std::vector<uint32_t> chromeCachePixels_{};
+    uint64_t chromeDrawCallsAvoided_{0};
 
     inline void applyTransform(float& x, float& y) const noexcept {
         if (transformActive_) {

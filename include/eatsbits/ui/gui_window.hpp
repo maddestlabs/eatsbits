@@ -586,6 +586,13 @@ public:
     [[nodiscard]] GLFWwindow* getWindowHandle() const noexcept { return window_; }
     [[nodiscard]] BatchRenderer2D* getBatchRenderer() noexcept { return batchRenderer_.get(); }
 
+    // Static Chrome Offscreen Texture (FBO) Caching
+    void invalidateChromeCache() noexcept;
+    [[nodiscard]] bool isChromeCacheValid() const noexcept;
+    void setChromeCachingEnabled(bool enable) noexcept;
+    [[nodiscard]] bool isChromeCachingEnabled() const noexcept;
+    void renderStaticChrome(const ThemeTokens& theme, float width, float height);
+
     [[nodiscard]] float windowToLogicalX(double winX) const noexcept;
     [[nodiscard]] float windowToLogicalY(double winY) const noexcept;
 
@@ -627,12 +634,12 @@ public:
     void toggleMetronome() noexcept { metronomeEnabled_ = !metronomeEnabled_; }
 
     [[nodiscard]] bool isBrowserOpen() const noexcept { return browserOpen_; }
-    void toggleBrowser() noexcept { browserOpen_ = !browserOpen_; }
-    void setBrowserOpen(bool open) noexcept { browserOpen_ = open; }
+    void toggleBrowser() noexcept { browserOpen_ = !browserOpen_; invalidateChromeCache(); }
+    void setBrowserOpen(bool open) noexcept { browserOpen_ = open; invalidateChromeCache(); }
 
     [[nodiscard]] bool isProjectHubOpen() const noexcept { return projectHubOpen_; }
-    void toggleProjectHub() noexcept { projectHubOpen_ = !projectHubOpen_; }
-    void setProjectHubOpen(bool open) noexcept { projectHubOpen_ = open; }
+    void toggleProjectHub() noexcept { projectHubOpen_ = !projectHubOpen_; invalidateChromeCache(); }
+    void setProjectHubOpen(bool open) noexcept { projectHubOpen_ = open; invalidateChromeCache(); }
     [[nodiscard]] const std::string& getProjectName() const noexcept { return projectName_; }
     void setProjectName(const std::string& name) { projectName_ = name; }
     [[nodiscard]] const std::string& getAuthorName() const noexcept { return authorName_; }
@@ -664,6 +671,7 @@ public:
         activeThemePreset_ = preset;
         userThemeBankOverride_ = -1;
         Theme::setPreset(static_cast<Theme::Preset>(preset));
+        invalidateChromeCache();
     }
     [[nodiscard]] int getThemeBank() const noexcept {
         if (userThemeBankOverride_ >= 0) return userThemeBankOverride_;

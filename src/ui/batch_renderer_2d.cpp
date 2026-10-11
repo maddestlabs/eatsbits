@@ -265,6 +265,54 @@ public:
     void setBlendMode(BlendMode mode) override { blendMode_ = mode; }
     size_t getTotalVerticesRendered() const noexcept { return totalVerticesRendered_; }
 
+    void snapshotFramebuffer(std::vector<uint32_t>& outPixels, uint32_t& outW, uint32_t& outH) const override {
+        outW = viewportWidth_;
+        outH = viewportHeight_;
+        if (!framebuffer_.empty() && outW > 0 && outH > 0) {
+            outPixels = framebuffer_;
+        } else {
+            outPixels.clear();
+        }
+    }
+
+    void restoreFramebuffer(const uint32_t* srcPixels, uint32_t w, uint32_t h, float opacity = 1.0f) override {
+        if (!srcPixels || w == 0 || h == 0 || framebuffer_.empty()) return;
+        if (w == viewportWidth_ && h == viewportHeight_ && opacity >= 0.999f) {
+            std::memcpy(framebuffer_.data(), srcPixels, framebuffer_.size() * sizeof(uint32_t));
+        } else {
+            renderRgba(0.0f, 0.0f, static_cast<float>(viewportWidth_), static_cast<float>(viewportHeight_),
+                       reinterpret_cast<const uint8_t*>(srcPixels), static_cast<int>(w), static_cast<int>(h), opacity);
+        }
+    }
+
+    void restoreFramebufferRegion(const uint32_t* srcPixels, uint32_t srcW, uint32_t srcH,
+                                  float dstX, float dstY, float srcX, float srcY, float w, float h, float opacity = 1.0f) override {
+        if (!srcPixels || srcW == 0 || srcH == 0 || framebuffer_.empty() || w <= 0.0f || h <= 0.0f) return;
+
+        int dx = static_cast<int>(std::round(dstX));
+        int dy = static_cast<int>(std::round(dstY));
+        int sx = static_cast<int>(std::round(srcX));
+        int sy = static_cast<int>(std::round(srcY));
+        int rw = static_cast<int>(std::round(w));
+        int rh = static_cast<int>(std::round(h));
+
+        if (dx < 0) { rw += dx; sx -= dx; dx = 0; }
+        if (dy < 0) { rh += dy; sy -= dy; dy = 0; }
+        if (dx + rw > static_cast<int>(viewportWidth_)) rw = static_cast<int>(viewportWidth_) - dx;
+        if (dy + rh > static_cast<int>(viewportHeight_)) rh = static_cast<int>(viewportHeight_) - dy;
+        if (sx < 0 || sy < 0 || sx + rw > static_cast<int>(srcW) || sy + rh > static_cast<int>(srcH) || rw <= 0 || rh <= 0) return;
+
+        if (opacity >= 0.999f) {
+            for (int row = 0; row < rh; ++row) {
+                std::memcpy(&framebuffer_[(dy + row) * viewportWidth_ + dx],
+                            &srcPixels[(sy + row) * srcW + sx],
+                            static_cast<size_t>(rw) * sizeof(uint32_t));
+            }
+        } else {
+            renderRgba(dstX, dstY, w, h, reinterpret_cast<const uint8_t*>(srcPixels), static_cast<int>(srcW), static_cast<int>(srcH), opacity);
+        }
+    }
+
     void setScissorRect(float x, float y, float w, float h) override {
         scissorEnabled_ = true;
         scissor_ = Rect2D{x, y, w, h};
@@ -1742,6 +1790,8 @@ bool BatchRenderer2D::initialize(void* windowHandle, uint32_t width, uint32_t he
 }
 
 void BatchRenderer2D::shutdown() {
+    invalidateChromeCache();
+    chromeCachePixels_.clear();
     if (backend_) {
         backend_->shutdown();
         backend_.reset();
@@ -1752,6 +1802,9 @@ void BatchRenderer2D::shutdown() {
 void BatchRenderer2D::resize(uint32_t width, uint32_t height) {
     currentWidth_ = static_cast<float>(width);
     currentHeight_ = static_cast<float>(height);
+    invalidateChromeCache();
+    chromeCacheWidth_ = width;
+    chromeCacheHeight_ = height;
     if (backend_) {
         backend_->resize(width, height);
     }
@@ -1942,6 +1995,63 @@ ScissorScope BatchRenderer2D::makeScissorScope(float x, float y, float w, float 
 
 ScissorScope BatchRenderer2D::makeScissorScope(const Rect2D& r) {
     return ScissorScope(this, r);
+}
+
+// ----------------------------------------------------------------------------
+// Static Chrome Offscreen Texture (FBO) Caching
+// ----------------------------------------------------------------------------
+void BatchRenderer2D::invalidateChromeCache() noexcept {
+    chromeCacheValid_ = false;
+    inChromeRecording_ = false;
+}
+
+bool BatchRenderer2D::beginChromeRecording() {
+    if (!chromeCacheEnabled_) return false;
+    flush();
+    inChromeRecording_ = true;
+    return true;
+}
+
+void BatchRenderer2D::endChromeRecording() {
+    if (!inChromeRecording_) return;
+    flush();
+    inChromeRecording_ = false;
+
+    if (backend_) {
+        backend_->snapshotFramebuffer(chromeCachePixels_, chromeCacheWidth_, chromeCacheHeight_);
+        if (!chromeCachePixels_.empty() && chromeCacheWidth_ > 0 && chromeCacheHeight_ > 0) {
+            chromeCacheValid_ = true;
+        } else {
+            chromeCacheValid_ = false;
+        }
+    } else {
+        // Headless testing when no hardware/software backend is attached
+        chromeCacheWidth_ = static_cast<uint32_t>(currentWidth_);
+        chromeCacheHeight_ = static_cast<uint32_t>(currentHeight_);
+        if (chromeCacheWidth_ > 0 && chromeCacheHeight_ > 0) {
+            chromeCachePixels_.assign(static_cast<size_t>(chromeCacheWidth_) * chromeCacheHeight_, 0xFF14171E);
+            chromeCacheValid_ = true;
+        }
+    }
+}
+
+void BatchRenderer2D::drawCachedChrome(float opacity) {
+    if (!chromeCacheValid_ || !chromeCacheEnabled_ || chromeCachePixels_.empty()) return;
+
+    if (backend_) {
+        backend_->restoreFramebuffer(chromeCachePixels_.data(), chromeCacheWidth_, chromeCacheHeight_, opacity);
+    }
+    chromeDrawCallsAvoided_++;
+}
+
+void BatchRenderer2D::drawCachedChromeRegion(float dstX, float dstY, float srcX, float srcY, float w, float h, float opacity) {
+    if (!chromeCacheValid_ || !chromeCacheEnabled_ || chromeCachePixels_.empty()) return;
+
+    if (backend_) {
+        backend_->restoreFramebufferRegion(chromeCachePixels_.data(), chromeCacheWidth_, chromeCacheHeight_,
+                                           dstX, dstY, srcX, srcY, w, h, opacity);
+    }
+    chromeDrawCallsAvoided_++;
 }
 
 // ----------------------------------------------------------------------------

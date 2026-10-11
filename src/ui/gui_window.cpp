@@ -1825,6 +1825,7 @@ void GuiWindow::updateLogicalDimensions() noexcept {
         batchRenderer_->setRenderScale(renderScale_, renderScale_);
     }
     dawnBridge_.setRenderScale(renderScale_);
+    invalidateChromeCache();
 }
 
 void GuiWindow::toggleFullscreen() noexcept {
@@ -5723,16 +5724,38 @@ bool GuiWindow::isOpen() const noexcept {
     return false;
 }
 
-void GuiWindow::drawTopTransportBar() {
-#if EATS_HAS_GLFW
-    const auto& theme = getTheme();
-    const float r = static_cast<float>(width_);
+void GuiWindow::invalidateChromeCache() noexcept {
+    if (batchRenderer_) {
+        batchRenderer_->invalidateChromeCache();
+    }
+}
 
-    // =========================================================================
-    // =========================================================================
-    // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
-    // =========================================================================
-    // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
+bool GuiWindow::isChromeCacheValid() const noexcept {
+    return batchRenderer_ ? batchRenderer_->isChromeCacheValid() : false;
+}
+
+void GuiWindow::setChromeCachingEnabled(bool enable) noexcept {
+    if (batchRenderer_) {
+        batchRenderer_->setChromeCachingEnabled(enable);
+    }
+}
+
+bool GuiWindow::isChromeCachingEnabled() const noexcept {
+    return batchRenderer_ ? batchRenderer_->isChromeCachingEnabled() : false;
+}
+
+void GuiWindow::renderStaticChrome(const ThemeTokens& theme, float width, float height) {
+    if (!batchRenderer_) return;
+    const float r = width;
+    const bool is3d = is3dConsoleEnabled();
+    const float bPanelY = height - 48.0f;
+    const float bPanelH = 48.0f;
+
+    // 1. Overall window background gradient
+    drawRectGradient(0.0f, 0.0f, width, height,
+                     theme.backgroundDark, theme.backgroundDark.darken(0.04f));
+
+    // 2. TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
     drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTint_);
 
     // Top specular rim highlight & uniform bottom machined bevel
@@ -5750,6 +5773,64 @@ void GuiWindow::drawTopTransportBar() {
     };
     drawRivet(r - 8.0f, 8.0f);
 
+    // Deep recessed perimeter trench housing clustered transport keys
+    const float tX = 54.0f;
+    const float tY = 10.0f;
+    const float btnW = 38.0f;
+    const float btnH = 36.0f;
+    const float clusterW = btnW * 3.0f;
+    drawRoundedRect(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.controlWell.darken(0.20f));
+    drawRoundedRectOutline(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.borderSubtle.darken(0.20f), 1.0f);
+
+    // 3. BOTTOM HARDWARE NAVIGATION CONTROL STRIP
+    const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
+    const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
+    drawChassisPlate(0.0f, chinTopY, width, chinTotalH, false, theme, panelChassisTint_);
+    drawLine(0.0f, chinTopY, width, chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
+    drawLine(0.0f, chinTopY + 1.5f, width, chinTopY + 1.5f, theme.backgroundDark, 1.0f);
+}
+
+void GuiWindow::drawTopTransportBar() {
+#if EATS_HAS_GLFW
+    const auto& theme = getTheme();
+    const float r = static_cast<float>(width_);
+
+    // =========================================================================
+    // =========================================================================
+    // TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
+    // =========================================================================
+    const float tX = 54.0f;
+    const float tY = 10.0f;
+    const float btnW = 38.0f;
+    const float btnH = 36.0f;
+    const float clusterW = btnW * 3.0f; // 114px
+
+    if (batchRenderer_ && batchRenderer_->isChromeCacheValid()) {
+        batchRenderer_->drawCachedChromeRegion(0.0f, 0.0f, 0.0f, 0.0f, r, 56.0f);
+    } else {
+        // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
+        drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTint_);
+
+        // Top specular rim highlight & uniform bottom machined bevel
+        drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
+        drawLine(0.0f, 1.5f, r, 1.5f, theme.borderSubtle, 1.0f);
+        drawLine(0.0f, 54.5f, r, 54.5f, theme.borderSubtle.darken(0.10f), 1.0f);
+        drawLine(0.0f, 56.0f, r, 56.0f, theme.backgroundDark, 1.5f);
+
+        // Industrial Hex Corner Fasteners
+        auto drawRivet = [&](float rx, float ry) {
+            drawCircle(rx, ry, 5.0f, theme.backgroundDark.darken(0.15f));
+            drawCircle(rx, ry, 3.5f, theme.borderSubtle);
+            drawLine(rx - 2.0f, ry, rx + 2.0f, ry, theme.backgroundDark, 1.2f);
+            drawLine(rx, ry - 2.0f, rx, ry + 2.0f, theme.backgroundDark, 1.2f);
+        };
+        drawRivet(r - 8.0f, 8.0f);
+
+        // Deep recessed perimeter trench housing the clustered transport keys
+        drawRoundedRect(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.controlWell.darken(0.20f));
+        drawRoundedRectOutline(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.borderSubtle.darken(0.20f), 1.0f);
+    }
+
     const bool isPlaying = engine_ ? engine_->getSequencer().isPlaying() : false;
 
     // 1. EATSBITS BRAND EMBLEM LOGO (Unboxed plain silkscreen logo directly on metal faceplate)
@@ -5761,19 +5842,6 @@ void GuiWindow::drawTopTransportBar() {
                               mouseY_ >= 8.0f && mouseY_ <= 48.0f);
     Color logoColor = logoHovered ? theme.primaryAccent.lighten(0.18f) : theme.primaryAccent;
     drawPlainEatsbitsLogo(logoX, logoY, logoW, logoH, logoColor, 1.0f, logoHovered, theme.backgroundDark);
-
-    // =========================================================================
-    // 2. CLUSTERED TACTILE TRANSPORT KEYBANK (Play, Stop, Record)
-    // =========================================================================
-    const float tX = 54.0f;
-    const float tY = 10.0f;
-    const float btnW = 38.0f;
-    const float btnH = 36.0f;
-    const float clusterW = btnW * 3.0f; // 114px
-
-    // Deep recessed perimeter trench housing the clustered transport keys
-    drawRoundedRect(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.controlWell.darken(0.20f));
-    drawRoundedRectOutline(tX - 2.5f, tY - 2.5f, clusterW + 5.0f, btnH + 5.0f, 4.0f, theme.borderSubtle.darken(0.20f), 1.0f);
 
     // Keycap base colors derived dynamically from theme primary accent
     Color baseCapTop = theme.isLight ? theme.primaryAccent : theme.primaryAccent.darken(0.16f);
@@ -6157,9 +6225,19 @@ void GuiWindow::renderFrame() {
         const float bPanelY = static_cast<float>(height_) - 48.0f;
         const float bPanelH = 48.0f;
 
-        // Background dark gradient
-        drawRectGradient(0, 0, static_cast<float>(width_), static_cast<float>(height_),
-                         theme.backgroundDark, theme.backgroundDark.darken(0.04f));
+        // Static Chrome Offscreen Texture (FBO) Caching
+        if (batchRenderer_ && batchRenderer_->isChromeCachingEnabled()) {
+            if (batchRenderer_->isChromeCacheValid()) {
+                batchRenderer_->drawCachedChrome();
+            } else {
+                batchRenderer_->beginChromeRecording();
+                renderStaticChrome(theme, static_cast<float>(width_), static_cast<float>(height_));
+                batchRenderer_->endChromeRecording();
+                batchRenderer_->drawCachedChrome();
+            }
+        } else {
+            renderStaticChrome(theme, static_cast<float>(width_), static_cast<float>(height_));
+        }
 
         lampTime_ += (1.0f / 60.0f);
 
@@ -6293,12 +6371,17 @@ void GuiWindow::renderFrame() {
         // =========================================================================
         const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
         const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
-        // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
-        drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTint_);
 
-        // Top lip specular highlight line & crevice
-        drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
-        drawLine(0.0f, chinTopY + 1.5f, static_cast<float>(width_), chinTopY + 1.5f, theme.backgroundDark, 1.0f);
+        if (batchRenderer_ && batchRenderer_->isChromeCacheValid()) {
+            batchRenderer_->drawCachedChromeRegion(0.0f, chinTopY, 0.0f, chinTopY, static_cast<float>(width_), chinTotalH);
+        } else {
+            // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
+            drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTint_);
+
+            // Top lip specular highlight line & crevice
+            drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
+            drawLine(0.0f, chinTopY + 1.5f, static_cast<float>(width_), chinTopY + 1.5f, theme.backgroundDark, 1.0f);
+        }
 
         // 5 Primary Navigation Buttons: ARRANGER, EDIT, TRACK, MIXER, DESIGN
         const float totalNavW = static_cast<float>(width_) - 24.0f;
@@ -9563,6 +9646,9 @@ void GuiWindow::setEditSubView(EditSubView subView) noexcept {
 }
 
 void GuiWindow::setActiveView(WorkspaceView view) noexcept {
+    if (activeView_ != view) {
+        invalidateChromeCache();
+    }
     activeView_ = view;
     if (view == WorkspaceView::Design) {
         syncDesignViewToProject();
