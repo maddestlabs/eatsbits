@@ -7,6 +7,62 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **DaisySP Integration: Permissive (MIT), WebAssembly-Ready Modular DSP Engine & FX Suite** (commit `14329da`, 2026-10-09)
+  - **Context/Files**: `third_party/daisysp/`, `include/eatsbits/audio/graph/nodes/daisy/`, `src/audio/graph/nodes/daisy/`, `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/eatscript/api_manifest.hpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
+  - **Acceptance Criteria**:
+    1. **Vendored DaisySP Suite**:
+       - Vendored official `DaisySP` core (MIT) and `DaisySP-LGPL` into `third_party/daisysp/`.
+       - Configured `eats_daisysp` static library in `CMakeLists.txt` linked into `eats_audio`, passing MSVC, Clang, GCC, and Emscripten (WebAssembly) with zero warnings or undefined symbols.
+    2. **Implemented 6 Modular GraphNode Wrappers**:
+       - `DaisyOscillatorNode`: `daisysp::Oscillator` (Saw, Square, Triangle, Sine, Variable Saw) with 1V/Oct CV and phase modulation.
+       - `DaisyFilterNode`: Dual stereo `daisysp::MoogLadder` (24dB/oct resonant ladder) and `daisysp::Svf` (State Variable Filter).
+       - `DaisyReverbNode`: Stereo `daisysp::ReverbSc` algorithmic plate/hall reverb with feedback/decay and LP damping.
+       - `DaisyDelayNode`: Stereo `daisysp::DelayLine` with high-frequency damping tone filter and feedback.
+       - `DaisyModulationNode`: Multi-FX processor wrapping `daisysp::Chorus`, `daisysp::Flanger`, and `daisysp::Overdrive`.
+       - `DaisyCompressorNode`: Dual stereo dynamic range compressor wrapping `daisysp::Compressor` with attack, release, ratio, threshold, and makeup gain.
+    3. **AudioEngine & Track FX Rack Integration**:
+       - Fully integrated in `AudioEngine::rebuildTrackAudioFx` and `AudioEngine::setTrackAudioFxParam`, mapping UI knob values to normalized parameters across Reverb, Delay, Chorus, Flanger, Moog Filter, and Compressor effect inserts.
+    4. **Eatscript & API Manifest Binding**:
+       - Bound all 6 nodes into `include/eatsbits/eatscript/api_manifest.hpp` under `eats.dsp.*` and `eats.fx.*` for AST dependency scanning and AOT export.
+    5. **Automated Verification**:
+       - Added `tests/test_daisysp_nodes.cpp` validating parameter sweeps, impulse responses, and zero runtime heap allocations.
+       - 100% test pass on native desktop (49/49 test suites) and clean WebAssembly compilation via `.\build-web.ps1 -NoServe`.
+
+- [x] **Fix Desktop CLAP Host GUI Lifecycle & Window Compatibility (Cardinal & DPF Plugins)** (commit `e84ef3e`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/audio/graph/nodes/clap_audio_node.hpp`, `src/audio/graph/nodes/clap_audio_node.cpp`, `src/ui/gui_window.cpp`, `src/gui_main.cpp`, `tests/test_clap_host.cpp`
+  - **Acceptance Criteria**:
+    1. **Strict Window API & Mode Negotiation**:
+       - Query `clap_plugin_gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, false)` (embedded) and `true` (floating).
+       - Create dedicated Win32 host window configured with `WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS`, `CS_OWNDC`, and valid double-buffered pixel format attributes for embedded DPF/OpenGL child windows.
+       - Support both floating native `WS_OVERLAPPEDWINDOW` shell and embedded docking.
+    2. **Main-Thread Affinity & Message Pump Isolation**:
+       - Guaranteed all `gui->create()`, `gui->set_parent()`, `gui->show()`, `gui->hide()`, and `gui->destroy()` calls happen strictly on the designated main thread (`ClapAudioNode::getMainThreadId()`).
+       - Drained Win32 message queue in `pollAllMainThreadCallbacks()`, providing plugin UI timer dispatch via `CLAP_EXT_TIMER_SUPPORT` without deadlocking GLFW or the WebGPU render loop.
+    3. **Dimension Negotiation & HiDPI Scaling**:
+       - Initialized GUI with `gui->create()` prior to size queries, honoring DPF requirements (`gui != nullptr`).
+       - Handled plugin dynamic resizing and dimension queries via `clap_host_gui::request_resize` and `resize_hints_changed`.
+    4. **Safety Wrappers & Generic Parameter Inspector Fallback**:
+       - Implemented SEH safe wrappers (`SafeClapGuiCreate`, `SafeClapGuiSetParent`, `SafeClapGuiShow`, `SafeClapGuiHide`, `SafeClapGuiDestroy`) to protect host stability.
+       - In `GuiWindow`, gracefully catch windowing or runtime failures and fall back to generic parameter slider UI in `TrackPropertiesPanel`.
+    5. **Automated Verification**:
+       - Comprehensive testing in `tests/test_clap_host.cpp` verifying full Cardinal floating and embedded GUI lifecycle (`create` -> `show` -> `hide` -> `destroy`, bounds resizing, and child window destruction). Verified 100% pass across all 47 test suites.
+
+- [x] **Remove Eatsbeats Settings & Project Hub Texture Options** (commit `e3d4d8a`, 2026-10-09)
+  - **Context/Files**: `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_gui_interaction.cpp`, `tests/test_vector_surfaces.cpp`
+  - **Acceptance Criteria**:
+    1. **Eliminated Obsolete Texture Settings from Project Hub**:
+       - Removed legacy texture options in Project Hub (Section 3), including 9 material texture chips (Dark Chassis, Brushed Metal, Powder Coat, Crinkle, Bakelite, Walnut, Rosewood, PCB Green, Carbon), Chassis Rotation (0° vs 90° Vertical), and Surface Wear & Patina levels (Pristine, Mint, Patina, Vintage).
+       - Streamlined Section 3 into a clean `"CHASSIS COLOR ACCENTS & TINTS"` drawer with 8 anodized harmonic color swatches and a live vector chassis plate preview, updating drawer height calculations (from 268.0f to 100.0f) and section header icons.
+    2. **Purged Texture Action Enums & State**:
+       - Removed obsolete enum values from `ProjectHubAction` (`SetPanelTexture`, `SetPanelWear`, `SetPanelRotation`).
+       - Removed unused chassis texture state variables from `GuiWindow` (`panelChassisTexture_`, `panelChassisWear_`, `panelChassisRotation_`) and their setters (`setPanelChassisTexture`, `setPanelChassisWear`, `setPanelChassisRotation`). Kept `panelChassisTint_` and `setPanelChassisTint()`.
+    3. **Simplified Chassis Plate Rendering**:
+       - Streamlined `drawChassisPlate` signatures in `GuiWindow` to eliminate unused style, wear, and rotation parameters, rendering crisp resolution-independent vector gradients and specular bevels directly.
+    4. **Cleaned Up Hit Testing & Event Handlers**:
+       - Excised all material chip, rotation toggle, and patina level hit-testing loops and click-action handling in `hitTestProjectHub()` and `onMouseDown()`.
+    5. **Test Suite Verification**:
+       - Updated `tests/test_gui_interaction.cpp` to verify the streamlined Chassis Color Accents & Tints swatch selection. Verified 100% pass across all 48 test suites with `.\build.ps1 -Test -NoRun`.
+
 - [x] **Audio FX Engine Overhaul: Multi-Insert Routing, Distortion Calibration & Node Restoration** (commit `7648c86`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/audio/audio_engine.hpp`, `src/audio/audio_engine.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `include/eatsbits/ui/views/track_inspector_view.hpp`, `src/ui/views/track_inspector_view.cpp`, `include/eatsbits/ui/views/arranger_view.hpp`, `src/ui/views/arranger_view.cpp`, `include/eatsbits/ui/widgets/track_properties_panel.hpp`, `src/ui/widgets/track_properties_panel.cpp`, `include/eatsbits/ui/widgets/track_properties_drawer.hpp`, `src/ui/widgets/track_properties_drawer.cpp`, `include/eatsbits/ui/widgets/fullscreen_device_modal.hpp`, `src/ui/widgets/fullscreen_device_modal.cpp`, `include/eatsbits/audio/graph/nodes/waveshaper_node.hpp`, `tests/test_studio_fx.cpp`
   - **Acceptance Criteria**:

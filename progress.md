@@ -1176,6 +1176,25 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
 
 ---
 
+### [2026-10-11] Zero Per-Frame Heap Allocations in GUI Render Loop (commit `39deacb`)
+- **Architectural Context**:
+  - Eliminated all heap memory churn and dynamic allocations during live playback across all main workspace views (`Arranger`, `Mixer`, `Track Inspector`, `Design`).
+  - Replaced vector copying with lightweight `std::span` and non-owning views, transparent hash/equality `std::string_view` lookup for icon registries, and stack-buffered string formatters.
+- **Key Changes Implemented**:
+  - **`std::span` Model Passing**:
+    - Refactored `MixerView::syncFromWindow` and `TrackInspectorView::syncFromWindow` to accept `std::span<const ArrangerTrackData>` and `std::span<const float>` for audio peak meters, replacing per-frame vector copies.
+    - Updated audio scope buffer passing in `FullscreenDeviceModal`, `ModularDesignView`, and `ModularTrackInspectorView` to pass `std::span<const float>` directly into canvas rendering.
+  - **Zero-Allocation String & Text Rendering**:
+    - Updated `drawMonoText`, `drawMonoTextClipped`, and `drawTooltipBadge` in `include/eatsbits/ui/draw_utils.hpp` and `src/ui/draw_utils.cpp` to take `std::string_view` parameters, eliminating temporary string construction across character clipping loops and label badges.
+    - Optimized `IconRegistry::renderIcon` with transparent hash/equality (`StringHash`) supporting `std::string_view` icon queries and mesh caching without constructing `std::string` keys.
+    - Replaced `std::filesystem::last_write_time` shader file polling in `DawnBridge` with Win32 `GetFileAttributesExA` / POSIX `stat` to eliminate CRT heap allocations during render loops.
+    - Converted dynamic string formatting (e.g. knobs, search placeholders, mode buttons, zoom percentages) in `DesignView`, `MixerView`, and `TrackPropertiesPanel` to `snprintf` with local stack buffers and `std::string_view`.
+  - **Automated Verification**:
+    - Added comprehensive regression test in `tests/test_gui_interaction.cpp` instrumenting global `operator new`/`delete` and verifying **0 heap allocations** over 20 consecutive rendered frames during live audio playback across Arranger, Mixer, Track Inspector, and Design views.
+    - 100% test pass across all 48 test suites in `ctest` with 0 memory churn.
+
+---
+
 ## 5. Cruft Prevention & Code Hygiene Checklist
 
 - **No Monolithic Inlining**: Never add raw OpenGL/GLFW rendering blocks directly into `gui_window.cpp`. All view-specific rendering belongs in its respective `ViewBase` subclass.
