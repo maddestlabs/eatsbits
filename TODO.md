@@ -17,17 +17,6 @@ To execute items automatically, run in Antigravity:
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
 
-- [ ] **Add RAII Scissor Scope Management to `BatchRenderer2D`**
-  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
-  - **Acceptance Criteria**:
-    1. **RAII `ScissorScope`**:
-       - Implement `ScissorScope` struct that pushes a scissor rect on construction and automatically clears or restores previous scissor state on scope exit.
-       - Support nested clipping rects by calculating the intersection of parent and child clip rectangles.
-    2. **Refactor Existing Scissor Calls**:
-       - Replace manual, error-prone `setScissorRect` and `clearScissorRect` calls in [`ScrollableArea`](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), inspector panels, and modal dialogs with `ScissorScope`.
-    3. **Automated Verification**:
-       - Add unit test in [`tests/test_ui_canvas.cpp`](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp) testing nested clipping rectangle calculation and automatic RAII unwinding.
-
 - [ ] **Implement Static Chrome Offscreen Texture (FBO) Caching**
   - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp)
   - **Acceptance Criteria**:
@@ -44,6 +33,19 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
+  - **Acceptance Criteria**:
+    1. **RAII `ScissorScope`**:
+       - Implemented `ScissorScope` class in `BatchRenderer2D` with move semantics, `reset()`, and constructor variants taking `(x, y, w, h)` or `const Rect2D&`.
+       - ScissorScope pushes scissor clipping rectangle on construction, computes hardware intersection with parent rectangles in the scissor stack, and automatically pops/restores previous scissor state on scope destruction or early `reset()`.
+    2. **Refactored Scissor Calls Across Views and Dialogs**:
+       - Added `makeScissorScope(BatchRenderer2D&)` helper to `ScrollableArea` to bind viewport clipping directly into RAII scopes.
+       - Refactored manual `pushScissor`/`popScissor` calls across `DesignView`, `ArrangerMixerDrawer`, `IconSearchDialog`, `PluginSearchDialog`, `ThemeBrowserDialog`, `TrackPropertiesDrawer`, and `TextEditorWidget` to use `ScissorScope`.
+    3. **Automated Verification**:
+       - Added comprehensive unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 - [x] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers** (commit `a8ef98c`, 2026-10-11)
   - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/presenter/drag_handler.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/drag_handler.hpp), [include/eatsbits/ui/widgets/track_properties_panel.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/track_properties_panel.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [src/ui/widgets/track_properties_panel.cpp](file:///c:/git/eatsbits/src/ui/widgets/track_properties_panel.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
@@ -110,29 +112,6 @@ To execute items automatically, run in Antigravity:
        - Maintained an in-memory cache of non-CLAP libraries (`nonClapLibraries_`) so failed DLLs are never repeatedly inspected with `LoadLibraryA`.
     5. **Automated Verification**:
        - Added tests in `tests/test_clap_host.cpp` verifying portable path toggle, in-memory cache retrieval, and async scanning. Verified 100% pass across all 48 test suites.
-
-- [x] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog** (commits `560db9d`, `a2884de`, 2026-10-10)
-  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
-  - **Acceptance Criteria**:
-    1. **Infinite 2D Zoom & Pan Engine**:
-       - Integrated `ZoomPanPresenter` (`modularZoomPan_`) into `DesignView::renderModularRack` and input event handlers (`handlePointer`, `handleWheel`, `handleKey`).
-       - Supported desktop middle-mouse button drag in `GuiWindow::onMouseDown` (`button == 2`) and right-mouse drag for smooth 2D canvas panning across the modular workspace.
-       - Implemented `Ctrl+mousewheel` anchored zoom in/out with smooth bounds ($0.40\times$ to $2.0\times$ zoom) and bare mousewheel canvas panning (vertical / horizontal with Shift).
-    2. **Eurorack Multi-Row Mounting Rails & Visual Structure**:
-       - Rendered multi-row horizontal Eurorack rows with standard 3U height (380px), power distribution bus bar channel with red stripe & 16-pin gold headers, brushed metal mounting strips with discrete 1 HP (15px) screw/rivet holes, and knurled corner thumbscrews aligned to rivet pitch.
-       - Implemented viewport culling and scissor clipping (`pushScissor`/`popScissor`) to ensure infinite canvas elements remain neatly framed within the rack body.
-    3. **Discrete 1 HP Rivet Snapping, Reversible Module Bumping & Cable Physics**:
-       - Implemented physical hardware feel: module movement strictly occurs in discrete 1 HP increments (15px) derived from rivet hole intervals, ignoring sub-HP movements to maintain hardware rack lock.
-       - Snapshot initial module positions upon drag start: moving a module over a neighbor automatically bumps the neighbor left or right based on approach trajectory and non-overlapping interval packing. Moving the dragged module back to its starting location restores all neighboring modules to their exact initial positions.
-       - Dynamically transformed patch cable endpoints to follow dragged and bumped modules in real-time with catenary physics droop and jack halo highlights.
-    4. **Module Search & Add Dialog Integration**:
-       - Connected `+ ADD MODULE` button, hotkeys (`Space`, `Enter`), and cursor click positions to open `PluginSearchDialog` in `PluginDialogMode::AddModule` mode.
-       - Populated 22 Eurorack modules across 5 categories (`VCO / Synths`, `Filters`, `Effects`, `Modulation & Dynamics`, `Utilities`).
-       - Instant module instantiation with matching knobs, inputs, and outputs placed under the cursor or in open rail slots.
-    5. **Automated Verification**:
-       - Added regression tests in `tests/test_modular_ui.cpp` (`testDesignView`) verifying coordinate transforms, middle-drag panning, bare wheel panning, Ctrl+wheel zooming, sub-HP deadband, 1 HP discrete step dragging, neighbor bumping on collision, and complete initial position restoration upon return.
-       - Verified 100% test pass on native desktop (49/49 test suites via `.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation (`.\build-web.ps1 -NoServe`).
-
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

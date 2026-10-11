@@ -7,6 +7,28 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Modular Canvas VCV Rack & Cardinal Alignment: Open 2D Canvas, Freeform Drag & Drop, Zoom/Pan & Module Search Dialog** (commits `560db9d`, `a2884de`, 2026-10-10)
+  - **Context/Files**: `include/eatsbits/ui/views/design_view.hpp`, `src/ui/views/design_view.cpp`, `include/eatsbits/presenter/zoom_pan_presenter.hpp`, `src/presenter/zoom_pan_presenter.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `src/ui/gui_window.cpp`, `tests/test_modular_ui.cpp`
+  - **Acceptance Criteria**:
+    1. **Infinite 2D Zoom & Pan Engine**:
+       - Integrated `ZoomPanPresenter` (`modularZoomPan_`) into `DesignView::renderModularRack` and input event handlers (`handlePointer`, `handleWheel`, `handleKey`).
+       - Supported desktop middle-mouse button drag in `GuiWindow::onMouseDown` (`button == 2`) and right-mouse drag for smooth 2D canvas panning across the modular workspace.
+       - Implemented `Ctrl+mousewheel` anchored zoom in/out with smooth bounds ($0.40\times$ to $2.0\times$ zoom) and bare mousewheel canvas panning (vertical / horizontal with Shift).
+    2. **Eurorack Multi-Row Mounting Rails & Visual Structure**:
+       - Rendered multi-row horizontal Eurorack rows with standard 3U height (380px), power distribution bus bar channel with red stripe & 16-pin gold headers, brushed metal mounting strips with discrete 1 HP (15px) screw/rivet holes, and knurled corner thumbscrews aligned to rivet pitch.
+       - Implemented viewport culling and scissor clipping (`pushScissor`/`popScissor`) to ensure infinite canvas elements remain neatly framed within the rack body.
+    3. **Discrete 1 HP Rivet Snapping, Reversible Module Bumping & Cable Physics**:
+       - Implemented physical hardware feel: module movement strictly occurs in discrete 1 HP increments (15px) derived from rivet hole intervals, ignoring sub-HP movements to maintain hardware rack lock.
+       - Snapshot initial module positions upon drag start: moving a module over a neighbor automatically bumps the neighbor left or right based on approach trajectory and non-overlapping interval packing. Moving the dragged module back to its starting location restores all neighboring modules to their exact initial positions.
+       - Dynamically transformed patch cable endpoints to follow dragged and bumped modules in real-time with catenary physics droop and jack halo highlights.
+    4. **Module Search & Add Dialog Integration**:
+       - Connected `+ ADD MODULE` button, hotkeys (`Space`, `Enter`), and cursor click positions to open `PluginSearchDialog` in `PluginDialogMode::AddModule` mode.
+       - Populated 22 Eurorack modules across 5 categories (`VCO / Synths`, `Filters`, `Effects`, `Modulation & Dynamics`, `Utilities`).
+       - Instant module instantiation with matching knobs, inputs, and outputs placed under the cursor or in open rail slots.
+    5. **Automated Verification**:
+       - Added regression tests in `tests/test_modular_ui.cpp` (`testDesignView`) verifying coordinate transforms, middle-drag panning, bare wheel panning, Ctrl+wheel zooming, sub-HP deadband, 1 HP discrete step dragging, neighbor bumping on collision, and complete initial position restoration upon return.
+       - Verified 100% test pass on native desktop (49/49 test suites via `.\build.ps1 -Test -NoRun`) and clean WebAssembly compilation (`.\build-web.ps1 -NoServe`).
+
 - [x] **Consolidate Modular Nodes: Drop 'Daisy' Brand Prefix, Power Core Nodes with DaisySP & Unify Eatscript API** (commit `7f81637`, 2026-10-09)
   - **Context/Files**: `include/eatsbits/audio/graph/nodes/`, `src/audio/graph/nodes/`, `include/eatsbits/eatscript/api_manifest.hpp`, `src/audio/audio_engine.cpp`, `CMakeLists.txt`, `tests/test_daisysp_nodes.cpp`
   - **Acceptance Criteria**:

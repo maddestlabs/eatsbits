@@ -1220,6 +1220,31 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - Added unit test `testInfiniteRotaryDeltaDragAndFineAdjustment()` in `tests/test_presenters.cpp` verifying relative deltas, unbounded motion, GLFW capture callbacks, shift modifier $0.10\times$ scaling, Ctrl+click reset, and double-click dispatch.
     - 100% test pass across all 48 test suites in `ctest`.
 
+- **Item Completed**: "Add RAII Scissor Scope Management to `BatchRenderer2D`" (commit `f6d3139`, 2026-10-11)
+  - **Summary**:
+    - Implemented RAII `ScissorScope` within `BatchRenderer2D` providing automatic scope unwinding, nested clipping rectangle intersection, and exception safety.
+    - Eliminated manual, error-prone `pushScissor`/`popScissor` calls across views, drawers, dialogs, and text editor.
+    - Added helper `makeScissorScope(BatchRenderer2D&)` to `ScrollableArea` for concise RAII viewport clipping.
+  - **Key Changes Implemented**:
+    - **`BatchRenderer2D::ScissorScope`**:
+      - Supports constructors from `(BatchRenderer2D*, float, float, float, float)`, `(BatchRenderer2D*, const Rect2D&)`, and reference variants `(BatchRenderer2D&, ...)`.
+      - Provides full move semantics (`operator=`, move constructor) and early `reset()` capability.
+      - Integrated intersection computation in `pushScissor` ensuring child clip rectangles are bounded by parent scissor rectangles.
+      - Added `hasScissor()`, `getScissorDepth()`, `getActiveScissor()`, and `makeScissorScope` helper methods to `BatchRenderer2D`.
+    - **`ScrollableArea` Integration**:
+      - Added `makeScissorScope(BatchRenderer2D&)` returning `ScissorScope(r, viewportBounds_)`.
+    - **Refactored Scissor Call Sites**:
+      - `DesignView`: rack body infinite canvas clipping scoped via `ScissorScope`.
+      - `ArrangerMixerDrawer`: channels viewport scoped via `ScissorScope`.
+      - `IconSearchDialog`: icon grid bounds scoped via `ScissorScope`.
+      - `PluginSearchDialog`: search box query text and scrollable card list scoped via `ScissorScope`.
+      - `ThemeBrowserDialog`: theme cards area scoped via `ScissorScope`.
+      - `TrackPropertiesDrawer`: drawer content area scoped via `ScissorScope`.
+      - `TextEditorWidget`: active line highlight, text area, line number gutter, and accessory toolbar scoped via `ScissorScope`.
+    - **Automated Verification**:
+      - Added unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
+      - 100% test pass across all 48 test suites in `ctest`.
+
 ---
 
 ## 5. Cruft Prevention & Code Hygiene Checklist
