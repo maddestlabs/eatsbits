@@ -25,6 +25,7 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onOpenDesign = [this](uint32_t idx) { if (onOpenDesign) onOpenDesign(idx); };
     panel_.onOpenPresets = [this](uint32_t idx) { if (onOpenPresets) onOpenPresets(idx); };
     panel_.onOpenFullscreenDevice = [this](uint32_t idx) { if (onOpenFullscreenDevice) onOpenFullscreenDevice(idx); };
+    panel_.onOpenDetachedWindow = [this](uint32_t idx) { if (onOpenDetachedWindow) onOpenDetachedWindow(idx); };
     panel_.onPrevPreset = [this]() { if (onPrevPreset) onPrevPreset(); };
     panel_.onNextPreset = [this]() { if (onNextPreset) onNextPreset(); };
     panel_.onTabSelected = [this](TrackPropertiesTab t) { if (onTabSelected) onTabSelected(t); };
@@ -49,6 +50,8 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onDuplicateTrack = [this](uint32_t idx) { if (onDuplicateTrack) onDuplicateTrack(idx); };
     panel_.onDuplicateClip = [this](uint32_t tIdx, int cIdx) { if (onDuplicateClip) onDuplicateClip(tIdx, cIdx); };
     panel_.onDeleteClip = [this](uint32_t tIdx, int cIdx) { if (onDeleteClip) onDeleteClip(tIdx, cIdx); };
+    panel_.onChordFollowChanged = [this](uint32_t idx, ChordFollowMode mode) { if (onChordFollowChanged) onChordFollowChanged(idx, mode); };
+    panel_.onBakeChords = [this](uint32_t idx) { if (onBakeChords) onBakeChords(idx); };
 }
 
 void TrackPropertiesDrawer::update(float dt) noexcept {

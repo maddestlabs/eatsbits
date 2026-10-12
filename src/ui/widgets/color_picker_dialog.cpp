@@ -179,12 +179,19 @@ void ColorPickerDialog::layout(float screenW, float screenH) {
     const float x = (screenW - w) * 0.5f;
     const float y = (screenH - h) * 0.5f;
 
+    if (dialogBounds_.x == x && dialogBounds_.y == y &&
+        dialogBounds_.w == w && dialogBounds_.h == h &&
+        !swatchBounds_.empty()) {
+        return;
+    }
+
     dialogBounds_ = Rect2D(x, y, w, h);
 
     // Calculate layout for palette swatches
     float curY = y + 54.0f;
-    swatchBounds_.clear();
-    swatchBounds_.resize(categories_.size());
+    if (swatchBounds_.size() != categories_.size()) {
+        swatchBounds_.resize(categories_.size());
+    }
 
     for (size_t c = 0; c < categories_.size(); ++c) {
         const auto& cat = categories_[c];
@@ -193,12 +200,16 @@ void ColorPickerDialog::layout(float screenW, float screenH) {
         size_t numCols = cat.colors.size() > 8 ? 8 : cat.colors.size();
         const float swatchSize = (w - 48.0f - (numCols - 1) * 6.0f) / static_cast<float>(numCols);
 
+        if (swatchBounds_[c].size() != cat.colors.size()) {
+            swatchBounds_[c].resize(cat.colors.size());
+        }
+
         for (size_t i = 0; i < cat.colors.size(); ++i) {
             size_t col = i % numCols;
             size_t row = i / numCols;
             float sx = x + 24.0f + col * (swatchSize + 6.0f);
             float sy = curY + row * (swatchSize + 6.0f);
-            swatchBounds_[c].push_back(Rect2D(sx, sy, swatchSize, swatchSize));
+            swatchBounds_[c][i] = Rect2D(sx, sy, swatchSize, swatchSize);
         }
 
         size_t totalRows = (cat.colors.size() + numCols - 1) / numCols;

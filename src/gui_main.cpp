@@ -4,6 +4,7 @@
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/ui/gui_window.hpp"
 
 #if defined(_WIN32)
@@ -74,177 +75,173 @@ int main(int /*argc*/, char** /*argv*/) {
         std::cerr << "[Audio] Warning: Failed to open hardware audio output. Running in headless audio mode." << std::endl;
     }
 
-    std::cout << "[Modular] Configuring TB-303 Acid + TR-808 Drums base song..." << std::endl;
-    engine.setupDefaultAcidBeatGraph();
-    std::cout << "[Modular] TB-303 + TR-808 Acid Beat graph configured." << std::endl;
+    std::cout << "[Modular] Configuring DX7 Rhodes + Concert Grand base song..." << std::endl;
+    engine.setupDefaultRhodesGrandGraph();
+    std::cout << "[Modular] DX7 Rhodes + Concert Grand graph configured." << std::endl;
 
     auto& seq = engine.getSequencer();
-    seq.setBpm(132.0);
-    seq.setSwing(0.55);
+    seq.setBpm(116.0);
+    seq.setSwing(0.52);
+
+    // 16-bar project chord progression: C - G - Am - F - C - G - Am - F
+    std::vector<theory::ChordEvent> chords = {
+        {"chord_0",  0,  2.0f, 0, theory::ChordQuality::Major, -1},  // Bar 1-2: C Major
+        {"chord_2",  2,  2.0f, 7, theory::ChordQuality::Major, -1},  // Bar 3-4: G Major
+        {"chord_4",  4,  2.0f, 9, theory::ChordQuality::Minor, -1},  // Bar 5-6: A Minor
+        {"chord_6",  6,  2.0f, 5, theory::ChordQuality::Major, -1},  // Bar 7-8: F Major
+        {"chord_8",  8,  2.0f, 0, theory::ChordQuality::Major, -1},  // Bar 9-10: C Major
+        {"chord_10", 10, 2.0f, 7, theory::ChordQuality::Major, -1},  // Bar 11-12: G Major
+        {"chord_12", 12, 2.0f, 9, theory::ChordQuality::Minor, -1},  // Bar 13-14: A Minor
+        {"chord_14", 14, 2.0f, 5, theory::ChordQuality::Major, -1}   // Bar 15-16: F Major
+    };
+    seq.setChordTrack(chords);
 
     // Locate node IDs
     const auto& nodes = engine.getGraph().getNodes();
-    audio::NodeId tbId = 0;
-    audio::NodeId drums808Id = 0;
-    audio::NodeId drums909Id = 0;
     audio::NodeId dx7Id = 0;
     audio::NodeId grandId = 0;
     for (const auto& [id, n] : nodes) {
         if (!n) continue;
-        if (n->getName() == "Tb303") tbId = id;
-        else if (n->getName() == "Drums808") drums808Id = id;
-        else if (n->getName() == "Drums909") drums909Id = id;
-        else if (n->getName() == "Dx7Rhodes") dx7Id = id;
+        if (n->getName() == "Dx7Rhodes") dx7Id = id;
         else if (n->getName() == "ConcertGrand") grandId = id;
-        else if (drums808Id == 0 && dynamic_cast<audio::DrumKitNode*>(n.get())) drums808Id = id;
-        else if (dx7Id == 0 && dynamic_cast<audio::PolySynthNode*>(n.get())) dx7Id = id;
     }
 
-    // Track 1: TB-303 Acid Bass
-    if (tbId != 0) {
-        size_t t1 = seq.addTrack("303 Acid Bass", tbId, 64);
-        auto* tr1 = seq.getTrack(t1);
-        const uint8_t bassNotes[16] = {36, 36, 48, 36, 39, 41, 36, 46, 48, 36, 39, 43, 36, 41, 39, 36};
-        for (uint32_t s = 0; s < 64; ++s) {
-            uint32_t patIdx = s % 16;
-            sequencer::StepData st{};
-            st.active = true;
-            st.note = bassNotes[patIdx];
-            st.velocity = (patIdx % 4 == 0) ? 1.0f : 0.78f;
-            st.gateLength = 0.65f;
-            st.slide = (patIdx == 5 || patIdx == 13);
-            st.accent = (patIdx == 0 || patIdx == 7);
-            tr1->setStep(s, st);
-        }
-    }
-
-    // Track 2: TR-808 Kit
-    if (drums808Id != 0) {
-        size_t t2 = seq.addTrack("TR-808 Kit", drums808Id, 64);
-        auto* tr2 = seq.getTrack(t2);
-        for (uint32_t s = 0; s < 64; ++s) {
-            uint32_t patIdx = s % 16;
-            sequencer::StepData st{};
-            if (patIdx == 0 || patIdx == 8) {
-                st.active = true;
-                st.note = 36; // 808 Kick
-                st.velocity = 0.95f;
-                st.gateLength = 0.8f;
-                st.accent = (patIdx == 0);
-                st.extraNotes = {42}; // Kick + Hat
-            } else if (patIdx == 7 || patIdx == 10) {
-                st.active = true;
-                st.note = 36; // Syncopated kick
-                st.velocity = 0.85f;
-                st.gateLength = 0.7f;
-            } else if (patIdx == 4 || patIdx == 12) {
-                st.active = true;
-                st.note = 38; // 808 Snare
-                st.velocity = 0.90f;
-                st.gateLength = 0.6f;
-                st.extraNotes = {42}; // Snare + Hat
-            } else if (patIdx == 15) {
-                st.active = true;
-                st.note = 46; // Open Hat
-                st.velocity = 0.75f;
-                st.gateLength = 0.8f;
-            } else if (patIdx % 2 == 1 || patIdx % 2 == 0) {
-                st.active = true;
-                st.note = 42; // Closed Hat
-                st.velocity = 0.60f;
-                st.gateLength = 0.3f;
-            }
-            if (st.active) {
-                tr2->setStep(s, st);
-            }
-        }
-    }
-
-    // Track 3: TR-909 Drive
-    if (drums909Id != 0) {
-        size_t t3 = seq.addTrack("TR-909 Drive", drums909Id, 64);
-        auto* tr3 = seq.getTrack(t3);
-        for (uint32_t s = 0; s < 64; ++s) {
-            uint32_t patIdx = s % 16;
-            sequencer::StepData st{};
-            if (patIdx % 4 == 0) { // 909 four-on-the-floor
-                st.active = true;
-                st.note = 36;
-                st.velocity = 1.0f;
-                st.gateLength = 0.8f;
-            } else if (patIdx == 4 || patIdx == 12) {
-                st.active = true;
-                st.note = 38; // 909 Snare
-                st.velocity = 0.95f;
-                st.gateLength = 0.7f;
-            } else if (patIdx % 2 == 1) {
-                st.active = true;
-                st.note = 42; // 909 Hat
-                st.velocity = 0.70f;
-                st.gateLength = 0.35f;
-            }
-            if (st.active) tr3->setStep(s, st);
-        }
-    }
-
-    // Track 4: DX7 Rhodes (Polyphonic 4-Chord Progression: Cm7, Bbmaj7, Abmaj7, Bb7)
+    // Track 1: DX7 Rhodes (128 steps / 8 bars, polyphonic comping chords synced to chord track)
     if (dx7Id != 0) {
-        size_t t4 = seq.addTrack("DX7 Rhodes", dx7Id, 128);
-        auto* tr4 = seq.getTrack(t4);
-        // Bar 1..2 (steps 0..31): Cm7 {60, 63, 67, 70}
-        sequencer::StepData c0{};
-        c0.active = true;
-        c0.note = 60;
-        c0.extraNotes = {63, 67, 70};
-        c0.velocity = 0.75f;
-        c0.gateLength = 0.95f;
-        tr4->setStep(0, c0);
+        size_t t0 = seq.addTrack("DX7 Rhodes", dx7Id, 128);
+        auto* tr0 = seq.getTrack(t0);
+        tr0->setChordFollowMode(theory::ChordFollowMode::Chord);
 
-        // Bar 3..4 (steps 32..63): Bbmaj7 {58, 62, 65, 69}
-        sequencer::StepData c1{};
-        c1.active = true;
-        c1.note = 58;
-        c1.extraNotes = {62, 65, 69};
-        c1.velocity = 0.75f;
-        c1.gateLength = 0.95f;
-        tr4->setStep(32, c1);
+        // 8 bars of lush comping chords (16 steps per bar)
+        // Bar 1 (steps 0..15): Comping hits on steps 0, 6, 10
+        sequencer::StepData h0{};
+        h0.active = true; h0.note = 48; h0.extraNotes = {60, 64, 67, 71}; h0.velocity = 0.85f; h0.gateLength = 5.5f;
+        tr0->setStep(0, h0);
+        sequencer::StepData h1{};
+        h1.active = true; h1.note = 60; h1.extraNotes = {64, 67, 71}; h1.velocity = 0.70f; h1.gateLength = 3.5f;
+        tr0->setStep(6, h1);
+        sequencer::StepData h2{};
+        h2.active = true; h2.note = 60; h2.extraNotes = {64, 67}; h2.velocity = 0.75f; h2.gateLength = 5.5f;
+        tr0->setStep(10, h2);
 
-        // Bar 5..6 (steps 64..95): Abmaj7 {56, 60, 63, 67}
-        sequencer::StepData c2{};
-        c2.active = true;
-        c2.note = 56;
-        c2.extraNotes = {60, 63, 67};
-        c2.velocity = 0.75f;
-        c2.gateLength = 0.95f;
-        tr4->setStep(64, c2);
+        // Bar 2 (steps 16..31): Comping hits on steps 16, 22, 28
+        sequencer::StepData h3{};
+        h3.active = true; h3.note = 48; h3.extraNotes = {60, 64, 67}; h3.velocity = 0.80f; h3.gateLength = 5.5f;
+        tr0->setStep(16, h3);
+        sequencer::StepData h4{};
+        h4.active = true; h4.note = 64; h4.extraNotes = {67, 71}; h4.velocity = 0.70f; h4.gateLength = 5.5f;
+        tr0->setStep(22, h4);
+        sequencer::StepData h5{};
+        h5.active = true; h5.note = 60; h5.extraNotes = {64, 67, 71}; h5.velocity = 0.75f; h5.gateLength = 3.5f;
+        tr0->setStep(28, h5);
 
-        // Bar 7..8 (steps 96..127): Bb7 {58, 62, 65, 68}
-        sequencer::StepData c3{};
-        c3.active = true;
-        c3.note = 58;
-        c3.extraNotes = {62, 65, 68};
-        c3.velocity = 0.80f;
-        c3.gateLength = 0.95f;
-        tr4->setStep(96, c3);
+        // Bar 3 (steps 32..47)
+        sequencer::StepData h6{};
+        h6.active = true; h6.note = 48; h6.extraNotes = {60, 64, 67, 71}; h6.velocity = 0.85f; h6.gateLength = 5.5f;
+        tr0->setStep(32, h6);
+        sequencer::StepData h7{};
+        h7.active = true; h7.note = 60; h7.extraNotes = {64, 67, 71}; h7.velocity = 0.72f; h7.gateLength = 3.5f;
+        tr0->setStep(38, h7);
+        sequencer::StepData h8{};
+        h8.active = true; h8.note = 60; h8.extraNotes = {64, 67}; h8.velocity = 0.78f; h8.gateLength = 5.5f;
+        tr0->setStep(42, h8);
+
+        // Bar 4 (steps 48..63)
+        sequencer::StepData h9{};
+        h9.active = true; h9.note = 48; h9.extraNotes = {60, 64, 67}; h9.velocity = 0.80f; h9.gateLength = 5.5f;
+        tr0->setStep(48, h9);
+        sequencer::StepData h10{};
+        h10.active = true; h10.note = 64; h10.extraNotes = {67, 71}; h10.velocity = 0.70f; h10.gateLength = 5.5f;
+        tr0->setStep(54, h10);
+        sequencer::StepData h11{};
+        h11.active = true; h11.note = 60; h11.extraNotes = {64, 67, 71}; h11.velocity = 0.76f; h11.gateLength = 3.5f;
+        tr0->setStep(60, h11);
+
+        // Bar 5 (steps 64..79)
+        sequencer::StepData h12{};
+        h12.active = true; h12.note = 48; h12.extraNotes = {60, 64, 67, 71}; h12.velocity = 0.85f; h12.gateLength = 5.5f;
+        tr0->setStep(64, h12);
+        sequencer::StepData h13{};
+        h13.active = true; h13.note = 60; h13.extraNotes = {64, 67, 71}; h13.velocity = 0.70f; h13.gateLength = 3.5f;
+        tr0->setStep(70, h13);
+        sequencer::StepData h14{};
+        h14.active = true; h14.note = 60; h14.extraNotes = {64, 67}; h14.velocity = 0.75f; h14.gateLength = 5.5f;
+        tr0->setStep(74, h14);
+
+        // Bar 6 (steps 80..95)
+        sequencer::StepData h15{};
+        h15.active = true; h15.note = 48; h15.extraNotes = {60, 64, 67}; h15.velocity = 0.80f; h15.gateLength = 5.5f;
+        tr0->setStep(80, h15);
+        sequencer::StepData h16{};
+        h16.active = true; h16.note = 64; h16.extraNotes = {67, 71}; h16.velocity = 0.70f; h16.gateLength = 5.5f;
+        tr0->setStep(86, h16);
+        sequencer::StepData h17{};
+        h17.active = true; h17.note = 60; h17.extraNotes = {64, 67, 71}; h17.velocity = 0.75f; h17.gateLength = 3.5f;
+        tr0->setStep(92, h17);
+
+        // Bar 7 (steps 96..111)
+        sequencer::StepData h18{};
+        h18.active = true; h18.note = 48; h18.extraNotes = {60, 64, 67, 71}; h18.velocity = 0.85f; h18.gateLength = 5.5f;
+        tr0->setStep(96, h18);
+        sequencer::StepData h19{};
+        h19.active = true; h19.note = 60; h19.extraNotes = {64, 67, 71}; h19.velocity = 0.72f; h19.gateLength = 3.5f;
+        tr0->setStep(102, h19);
+        sequencer::StepData h20{};
+        h20.active = true; h20.note = 60; h20.extraNotes = {64, 67}; h20.velocity = 0.78f; h20.gateLength = 5.5f;
+        tr0->setStep(106, h20);
+
+        // Bar 8 (steps 112..127)
+        sequencer::StepData h21{};
+        h21.active = true; h21.note = 48; h21.extraNotes = {60, 64, 67}; h21.velocity = 0.80f; h21.gateLength = 5.5f;
+        tr0->setStep(112, h21);
+        sequencer::StepData h22{};
+        h22.active = true; h22.note = 64; h22.extraNotes = {67, 71}; h22.velocity = 0.70f; h22.gateLength = 5.5f;
+        tr0->setStep(118, h22);
+        sequencer::StepData h23{};
+        h23.active = true; h23.note = 60; h23.extraNotes = {64, 67, 71}; h23.velocity = 0.80f; h23.gateLength = 3.5f;
+        tr0->setStep(124, h23);
     }
 
-    // Track 5: Concert Grand (Melodic Piano Solo)
+    // Track 2: Concert Grand (128 steps / 8 bars, expressive arpeggios and piano accompaniment)
     if (grandId != 0) {
-        size_t t5 = seq.addTrack("Concert Grand", grandId, 128);
-        auto* tr5 = seq.getTrack(t5);
-        // Bar 5..8 melodic solo
-        const struct { uint32_t s; uint8_t n; float v; } grandNotes[] = {
-            {64, 60, 0.85f}, {72, 64, 0.75f}, {80, 67, 0.90f},
-            {88, 65, 0.70f}, {96, 64, 0.65f}, {104, 62, 0.80f},
-            {112, 67, 0.95f}, {120, 71, 0.85f}
+        size_t t1 = seq.addTrack("Concert Grand", grandId, 128);
+        auto* tr1 = seq.getTrack(t1);
+        tr1->setChordFollowMode(theory::ChordFollowMode::Chord);
+
+        // Broken chord arpeggiated accompaniment pattern across 8 bars
+        const struct { uint32_t s; uint8_t n; float v; float g; } grandSteps[] = {
+            // Bar 1
+            {0, 36, 0.85f, 1.9f}, {2, 60, 0.70f, 1.8f}, {4, 64, 0.75f, 1.8f}, {6, 67, 0.78f, 1.8f},
+            {8, 72, 0.80f, 1.8f}, {10, 67, 0.72f, 1.8f}, {12, 64, 0.74f, 1.8f}, {14, 60, 0.70f, 1.8f},
+            // Bar 2
+            {16, 36, 0.82f, 1.9f}, {18, 64, 0.72f, 1.8f}, {20, 67, 0.76f, 1.8f}, {22, 71, 0.82f, 1.8f},
+            {24, 76, 0.85f, 1.8f}, {26, 72, 0.75f, 1.8f}, {28, 67, 0.72f, 1.8f}, {30, 64, 0.68f, 1.8f},
+            // Bar 3
+            {32, 36, 0.88f, 1.9f}, {34, 60, 0.70f, 1.8f}, {36, 64, 0.75f, 1.8f}, {38, 67, 0.78f, 1.8f},
+            {40, 72, 0.82f, 1.8f}, {42, 67, 0.74f, 1.8f}, {44, 64, 0.72f, 1.8f}, {46, 60, 0.70f, 1.8f},
+            // Bar 4
+            {48, 36, 0.84f, 1.9f}, {50, 64, 0.72f, 1.8f}, {52, 67, 0.76f, 1.8f}, {54, 71, 0.80f, 1.8f},
+            {56, 76, 0.86f, 1.8f}, {58, 72, 0.75f, 1.8f}, {60, 67, 0.74f, 1.8f}, {62, 64, 0.70f, 1.8f},
+            // Bar 5
+            {64, 36, 0.88f, 1.9f}, {66, 60, 0.72f, 1.8f}, {68, 64, 0.76f, 1.8f}, {70, 67, 0.80f, 1.8f},
+            {72, 72, 0.85f, 1.8f}, {74, 67, 0.75f, 1.8f}, {76, 64, 0.72f, 1.8f}, {78, 60, 0.70f, 1.8f},
+            // Bar 6
+            {80, 36, 0.85f, 1.9f}, {82, 64, 0.74f, 1.8f}, {84, 67, 0.78f, 1.8f}, {86, 71, 0.82f, 1.8f},
+            {88, 76, 0.88f, 1.8f}, {90, 72, 0.76f, 1.8f}, {92, 67, 0.74f, 1.8f}, {94, 64, 0.70f, 1.8f},
+            // Bar 7
+            {96, 36, 0.90f, 1.9f}, {98, 60, 0.72f, 1.8f}, {100, 64, 0.76f, 1.8f}, {102, 67, 0.80f, 1.8f},
+            {104, 72, 0.86f, 1.8f}, {106, 67, 0.75f, 1.8f}, {108, 64, 0.72f, 1.8f}, {110, 60, 0.70f, 1.8f},
+            // Bar 8
+            {112, 36, 0.86f, 1.9f}, {114, 64, 0.74f, 1.8f}, {116, 67, 0.78f, 1.8f}, {118, 71, 0.84f, 1.8f},
+            {120, 76, 0.90f, 1.8f}, {122, 72, 0.78f, 1.8f}, {124, 67, 0.75f, 1.8f}, {126, 64, 0.72f, 1.8f}
         };
-        for (const auto& gn : grandNotes) {
+        for (const auto& gs : grandSteps) {
             sequencer::StepData st{};
             st.active = true;
-            st.note = gn.n;
-            st.velocity = gn.v;
-            st.gateLength = 0.85f;
-            tr5->setStep(gn.s, st);
+            st.note = gs.n;
+            st.velocity = gs.v;
+            st.gateLength = gs.g;
+            tr1->setStep(gs.s, st);
         }
     }
 

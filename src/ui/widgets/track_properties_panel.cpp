@@ -56,15 +56,13 @@ inline eatsbits::ui::ValueEditRequest toValueEditRequest(const eatsbits::present
 
 namespace eatsbits::ui {
 
-static const float kQuickPalette[8][3] = {
-    {0.13f, 0.96f, 0.91f}, // Neon Cyan
-    {1.0f,  0.55f, 0.0f }, // Neon Amber
-    {0.0f,  1.0f,  0.40f}, // Acid Green
-    {1.0f,  0.0f,  0.48f}, // Hot Pink
-    {0.74f, 0.0f,  1.0f }, // Electric Purple
-    {1.0f,  0.20f, 0.20f}, // Crimson Red
-    {1.0f,  0.90f, 0.0f }, // Gold Yellow
-    {0.20f, 0.60f, 1.0f }  // Sky Blue
+static const float kQuickPalette[6][3] = {
+    {0.55f, 0.57f, 0.62f}, // Gray
+    {0.13f, 0.96f, 0.91f}, // Cyan
+    {0.15f, 0.90f, 0.40f}, // Green
+    {0.95f, 0.15f, 0.85f}, // Magenta
+    {0.95f, 0.22f, 0.22f}, // Red
+    {1.0f,  0.88f, 0.10f}  // Yellow
 };
 
 static float computeMidiFxRackHeight(const TrackPropertiesDrawerData& data) {
@@ -138,9 +136,18 @@ TrackPropertiesPanel::TrackPropertiesPanel() {
             if (onAddAudioFx) onAddAudioFx(trackIndex);
         }
     };
+
+    // Configure embedded ColorPickerDialog
+    colorPickerDialog_.onColorSelected = [this](const Color& col, size_t trkIdx) {
+        if (onColorChanged) onColorChanged(static_cast<uint32_t>(trkIdx), col.r, col.g, col.b);
+    };
 }
 
 void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data) {
+    if (data.knobs.empty()) {
+        const_cast<TrackPropertiesDrawerData&>(data).syncKnobsIfEmpty();
+    }
+
     std::string_view desiredTitle = data.presetTitle.empty() ? std::string_view(data.instrument) : std::string_view(data.presetTitle);
     if (guiPanel_.title != desiredTitle) {
         guiPanel_.title = desiredTitle;
@@ -170,8 +177,20 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
     guiPanel_.accentColor = Color(data.r, data.g, data.b, 1.0f);
 
     const std::string& eng = data.instrumentEngine;
-    bool is303 = (eng == "tb303" || data.instrument.find("303") != std::string::npos ||
-                  guiPanel_.title.find("303") != std::string::npos);
+    auto contains303 = [](std::string_view s) noexcept -> bool {
+        return s.find("303") != std::string_view::npos;
+    };
+    bool is303 = (stringEqualsIgnoreCase(eng, "tb303") || contains303(data.instrument));
+
+    bool trackOrEngineChanged = (lastTrackIndex_ != data.trackIndex ||
+                                 lastInstrumentEngine_ != eng ||
+                                 lastInstrument_ != data.instrument);
+    if (trackOrEngineChanged) {
+        lastTrackIndex_ = data.trackIndex;
+        lastInstrumentEngine_ = eng;
+        lastInstrument_ = data.instrument;
+        guiPanel_.rows.clear();
+    }
 
     auto findKnobVal = [&](std::string_view p1, std::string_view p2, float def) -> float {
         for (const auto& k : data.knobs) {
@@ -189,7 +208,7 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
         guiPanel_.hideHeader = true;
         guiPanel_.cornerRadius = 6.0f;
 
-        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 8) {
+        if (trackOrEngineChanged || guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 8) {
             guiPanel_.rows.clear();
 
             GuiRowDef r1;
@@ -249,7 +268,7 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
     if (numKnobs == 0) return;
     size_t displayKnobs = std::min(numKnobs, size_t{6});
 
-    if (guiPanel_.rows.size() != 1 || guiPanel_.rows[0].widgets.size() != displayKnobs) {
+    if (trackOrEngineChanged || guiPanel_.rows.size() != 1 || guiPanel_.rows[0].widgets.size() != displayKnobs) {
         guiPanel_.rows.clear();
         GuiRowDef r1;
         for (size_t i = 0; i < displayKnobs; ++i) {
@@ -359,16 +378,26 @@ void TrackPropertiesPanel::layout(const Rect2D& bounds, const ViewContext& ctx) 
     audioFxBounds_ = Rect2D(bounds_.x + padding, curY, contentW, audioFxH);
     curY += audioFxH + 8.0f;
 
+    // 9. Track Actions Card
+    float actionsH = 68.0f;
+    trackActionsBounds_ = Rect2D(bounds_.x + padding, curY, contentW, actionsH);
+    curY += actionsH + 12.0f;
+
     colorPaletteBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
 
-    curY += 12.0f;
     totalContentHeight_ = (curY + scrollY_) - startY;
     needScrollbar_ = (totalContentHeight_ > bounds_.h);
     scrollbarBounds_ = Rect2D(bounds_.x + bounds_.w - 7.0f, bounds_.y + 2.0f, 5.0f, bounds_.h - 4.0f);
 
-    // Layout embedded plugin search dialog
-    pluginDialog_.layout(ctx.logicalWidth > 0.0f ? ctx.logicalWidth : 1280.0f,
-                         ctx.logicalHeight > 0.0f ? ctx.logicalHeight : 800.0f);
+    // Layout embedded dialogs only when open or uninitialized
+    if (pluginDialog_.isOpen() || pluginDialog_.getBounds().w <= 0.0f) {
+        pluginDialog_.layout(ctx.logicalWidth > 0.0f ? ctx.logicalWidth : 1280.0f,
+                             ctx.logicalHeight > 0.0f ? ctx.logicalHeight : 800.0f);
+    }
+    if (colorPickerDialog_.isOpen() || colorPickerDialog_.getBounds().w <= 0.0f) {
+        colorPickerDialog_.layout(ctx.logicalWidth > 0.0f ? ctx.logicalWidth : 1280.0f,
+                                  ctx.logicalHeight > 0.0f ? ctx.logicalHeight : 800.0f);
+    }
 }
 
 void TrackPropertiesPanel::update(float dt) noexcept {
@@ -568,38 +597,9 @@ void TrackPropertiesPanel::renderHeaderCard(BatchRenderer2D& r, const ThemeToken
     Color editColor = editHov ? theme.primaryAccent : theme.textSecondary;
     drawIconEdit(r, editBtnX + (editBtnW - editSize) * 0.5f, editBtnY + (editBtnH - editSize) * 0.5f, editSize, editColor);
 
-    // Mute and Solo Buttons on header card
-    float btnW = 20.0f;
-    float btnH = 20.0f;
-    float btnY = cy + (h - btnH) * 0.5f;
-    float soloX = editBtnX - 4.0f - btnW;
-    float muteX = soloX - 4.0f - btnW;
-    headerMuteBounds_ = Rect2D(muteX, btnY, btnW, btnH);
-    headerSoloBounds_ = Rect2D(soloX, btnY, btnW, btnH);
-
-    bool muteHov = (mouseX >= muteX && mouseX <= muteX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
-    drawRoundedRect(r, muteX, btnY, btnW, btnH, 3.0f,
-                    data.mute ? 0.90f : (muteHov ? 0.28f : 0.18f),
-                    data.mute ? 0.22f : (muteHov ? 0.26f : 0.20f),
-                    data.mute ? 0.22f : (muteHov ? 0.28f : 0.24f), 0.95f);
-    drawRoundedRectOutline(r, muteX, btnY, btnW, btnH, 3.0f,
-                           data.mute ? 1.0f : (muteHov ? 0.55f : 0.30f),
-                           data.mute ? 0.35f : (muteHov ? 0.52f : 0.32f),
-                           data.mute ? 0.35f : (muteHov ? 0.55f : 0.36f), 0.8f, 1.0f);
-    drawCenteredText(r, "M", muteX, btnY + 2.0f, btnW, 14.0f, 9.5f,
-                     1.0f, 1.0f, 1.0f, 1.0f);
-
-    bool soloHov = (mouseX >= soloX && mouseX <= soloX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
-    drawRoundedRect(r, soloX, btnY, btnW, btnH, 3.0f,
-                    data.solo ? 0.95f : (soloHov ? 0.28f : 0.18f),
-                    data.solo ? 0.80f : (soloHov ? 0.26f : 0.20f),
-                    data.solo ? 0.10f : (soloHov ? 0.28f : 0.24f), 0.95f);
-    drawRoundedRectOutline(r, soloX, btnY, btnW, btnH, 3.0f,
-                           data.solo ? 1.0f : (soloHov ? 0.55f : 0.30f),
-                           data.solo ? 0.85f : (soloHov ? 0.52f : 0.32f),
-                           data.solo ? 0.20f : (soloHov ? 0.55f : 0.36f), 0.8f, 1.0f);
-    drawCenteredText(r, "S", soloX, btnY + 2.0f, btnW, 14.0f, 9.5f,
-                     data.solo ? 0.05f : 1.0f, data.solo ? 0.05f : 1.0f, data.solo ? 0.05f : 1.0f, 1.0f);
+    // Mute and Solo removed from Track Properties sidebar header card
+    headerMuteBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
+    headerSoloBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Track Title (vertically centered on single line, size 10.0f matching clip title text)
     float titleX = iconBtnX + iconBtnW + 6.0f;
@@ -776,51 +776,51 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     drawCircle(r, dotX, dotY, dotR + 3.0f, data.r, data.g, data.b, 0.30f);
     drawCircle(r, dotX, dotY, dotR, data.r, data.g, data.b, 1.0f);
 
-    float fullBtnW = 54.0f;
+    float fullBtnW = 46.0f;
     float fullBtnH = 22.0f;
     float fullBtnX = cx + cw - 10.0f - fullBtnW;
     float fullBtnY = cy + 7.0f;
 
-    float guiBtnW = 46.0f;
-    float guiBtnH = 22.0f;
-    float guiBtnX = fullBtnX - 6.0f - guiBtnW;
-    float guiBtnY = cy + 7.0f;
+    float detachBtnW = 28.0f;
+    float detachBtnH = 22.0f;
+    float detachBtnX = fullBtnX - 5.0f - detachBtnW;
+    float detachBtnY = cy + 7.0f;
 
-    float presetBtnW = 76.0f;
+    float presetBtnW = 68.0f;
     float presetBtnH = 22.0f;
-    float presetBtnX = (data.hasNativeGui ? guiBtnX : fullBtnX) - 6.0f - presetBtnW;
+    float presetBtnX = detachBtnX - 5.0f - presetBtnW;
     float presetBtnY = cy + 7.0f;
 
-    float designBtnW = 26.0f;
+    float designBtnW = 24.0f;
     float designBtnH = 22.0f;
-    float designBtnX = presetBtnX - 6.0f - designBtnW;
+    float designBtnX = presetBtnX - 5.0f - designBtnW;
     float designBtnY = cy + 7.0f;
 
     // Design icon button (links to Design section)
     drawRoundedRect(r, designBtnX, designBtnY, designBtnW, designBtnH, 4.0f, 0.13f, 0.14f, 0.18f, 0.95f);
     drawRoundedRectOutline(r, designBtnX, designBtnY, designBtnW, designBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
-    drawDesignChipIcon(r, designBtnX + 5.0f, designBtnY + 3.0f, 16.0f, Color(0.95f, 0.65f, 0.15f, 1.0f));
+    drawDesignChipIcon(r, designBtnX + 4.0f, designBtnY + 3.0f, 16.0f, Color(0.95f, 0.65f, 0.15f, 1.0f));
 
     // Preset button (opens Preset dialog)
     drawRoundedRect(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.13f, 0.14f, 0.18f, 0.95f);
     drawRoundedRectOutline(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
-    drawSlidersTuneIcon(r, presetBtnX + 7.0f, presetBtnY + 5.0f, 12.0f, theme.textSecondary);
-    drawText(r, "PRESETS", presetBtnX + 23.0f, presetBtnY + 6.0f, 9.0f, theme.textSecondary);
+    drawSlidersTuneIcon(r, presetBtnX + 5.0f, presetBtnY + 5.0f, 12.0f, theme.textSecondary);
+    drawText(r, "PRESETS", presetBtnX + 19.0f, presetBtnY + 6.0f, 8.5f, theme.textSecondary);
 
-    // Native CLAP Plugin GUI button (if plugin supports native GUI)
-    if (data.hasNativeGui) {
-        Color cyanGui(0.15f, 0.88f, 0.95f, 1.0f);
-        drawRoundedRect(r, guiBtnX, guiBtnY, guiBtnW, guiBtnH, 4.0f, 0.10f, 0.16f, 0.22f, 0.95f);
-        drawRoundedRectOutline(r, guiBtnX, guiBtnY, guiBtnW, guiBtnH, 4.0f, cyanGui.r, cyanGui.g, cyanGui.b, 0.85f, 1.2f);
-        drawText(r, "GUI", guiBtnX + 13.0f, guiBtnY + 5.5f, 9.5f, cyanGui);
-    }
+    // Detached / Floating Window button (spawns or focuses native OS floating window)
+    Color detachCol(0.20f, 0.85f, 0.95f, 1.0f);
+    drawRoundedRect(r, detachBtnX, detachBtnY, detachBtnW, detachBtnH, 4.0f, 0.12f, 0.15f, 0.20f, 0.95f);
+    drawRoundedRectOutline(r, detachBtnX, detachBtnY, detachBtnW, detachBtnH, 4.0f, detachCol.r, detachCol.g, detachCol.b, 0.85f, 1.2f);
+    drawRoundedRectOutline(r, detachBtnX + 7.0f, detachBtnY + 8.0f, 10.0f, 8.0f, 1.0f, detachCol.r, detachCol.g, detachCol.b, 0.9f, 1.2f);
+    drawRect(r, detachBtnX + 12.0f, detachBtnY + 5.0f, 6.0f, 6.0f, 0.12f, 0.15f, 0.20f, 1.0f);
+    drawRoundedRectOutline(r, detachBtnX + 12.0f, detachBtnY + 5.0f, 6.0f, 6.0f, 1.0f, detachCol.r, detachCol.g, detachCol.b, 0.9f, 1.2f);
 
     // Fullscreen icon button (triggers Fullscreen Device modal)
     Color fullGold(0.95f, 0.62f, 0.10f, 1.0f);
     drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, 0.14f, 0.12f, 0.10f, 0.95f);
     drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, fullGold.r, fullGold.g, fullGold.b, 0.85f, 1.2f);
-    drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 5.0f, 11.0f, fullGold, 1.4f);
-    drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.5f, 9.0f, fullGold);
+    drawFullscreenIcon(r, fullBtnX + 5.0f, fullBtnY + 5.0f, 10.0f, fullGold, 1.4f);
+    drawText(r, "FULL", fullBtnX + 18.0f, fullBtnY + 5.5f, 8.5f, fullGold);
 
     // Instrument Title in uppercase bold with dropdown chevron
     char instTitleBuf[64];
@@ -870,7 +870,7 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
         float chgBtnY = guiY + guiH + 7.0f;
         drawRoundedRect(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.12f, 0.14f, 0.18f, 0.95f);
         drawRoundedRectOutline(r, chgBtnX, chgBtnY, chgBtnW, chgBtnH, 4.0f, 0.28f, 0.32f, 0.40f, 0.85f, 1.0f);
-        drawText(r, "⇄  CHANGE INSTRUMENT", chgBtnX + 11.0f, chgBtnY + 7.0f, 8.5f, theme.textSecondary);
+        drawText(r, "⇆  CHANGE INSTRUMENT", chgBtnX + 11.0f, chgBtnY + 7.0f, 8.5f, theme.textSecondary);
 
         if (data.hasNativeGui) {
             float openGuiBtnW = 150.0f;
@@ -1011,8 +1011,13 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
         drawModernPillSwitch(r, swX, swY, fx.enabled, accent);
 
         // 2. Uppercase title
-        std::string upperName = fx.name;
-        for (char& c : upperName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        char upperNameBuf[64];
+        size_t cLen = std::min(fx.name.size(), sizeof(upperNameBuf) - 1);
+        for (size_t ci = 0; ci < cLen; ++ci) {
+            upperNameBuf[ci] = static_cast<char>(std::toupper(static_cast<unsigned char>(fx.name[ci])));
+        }
+        upperNameBuf[cLen] = '\0';
+        std::string_view upperName(upperNameBuf, cLen);
         float titleX = itemX + 32.0f;
         float titleY = itemY + 13.0f;
         drawText(r, upperName, titleX, titleY, 11.0f,
@@ -1021,7 +1026,7 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
                  fx.enabled ? 0.99f : 0.65f, 1.0f);
 
         // 3. Chevron next to title
-        float textW = static_cast<float>(upperName.length()) * 6.8f;
+        float textW = static_cast<float>(cLen) * 6.8f;
         float chevX = titleX + textW + 8.0f;
         float chevY = itemY + 20.0f;
         if (fx.isExpanded) {
@@ -1181,8 +1186,13 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
         drawModernPillSwitch(r, swX, swY, fx.enabled, accent);
 
         // 2. Uppercase title
-        std::string upperName = fx.name;
-        for (char& c : upperName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        char upperNameBuf[64];
+        size_t cLen = std::min(fx.name.size(), sizeof(upperNameBuf) - 1);
+        for (size_t ci = 0; ci < cLen; ++ci) {
+            upperNameBuf[ci] = static_cast<char>(std::toupper(static_cast<unsigned char>(fx.name[ci])));
+        }
+        upperNameBuf[cLen] = '\0';
+        std::string_view upperName(upperNameBuf, cLen);
         float titleX = itemX + 32.0f;
         float titleY = itemY + 13.0f;
         drawText(r, upperName, titleX, titleY, 11.0f,
@@ -1191,7 +1201,7 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
                  fx.enabled ? 0.99f : 0.65f, 1.0f);
 
         // 3. Chevron next to title
-        float textW = static_cast<float>(upperName.length()) * 6.8f;
+        float textW = static_cast<float>(cLen) * 6.8f;
         float chevX = titleX + textW + 8.0f;
         float chevY = itemY + 20.0f;
         if (fx.isExpanded) {
@@ -1324,10 +1334,11 @@ void TrackPropertiesPanel::renderColorPalette(BatchRenderer2D& r, const ThemeTok
 
     float startX = cx + (cw >= 560.0f ? 120.0f : 95.0f);
     float availW = (cx + cw - 14.0f) - startX;
-    float swatchSpacing = availW / 8.0f;
+    float swatchSpacing = availW / 7.0f;
     float scy = cy + h * 0.5f;
 
-    for (int p = 0; p < 8; ++p) {
+    // 6 Color Swatches: Gray, Cyan, Green, Magenta, Red, Yellow
+    for (int p = 0; p < 6; ++p) {
         float scx = startX + static_cast<float>(p) * swatchSpacing + swatchSpacing * 0.5f;
         float cr = kQuickPalette[p][0];
         float cg = kQuickPalette[p][1];
@@ -1339,6 +1350,13 @@ void TrackPropertiesPanel::renderColorPalette(BatchRenderer2D& r, const ThemeTok
             drawCircleOutline(r, scx, scy, 12.5f, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f);
         }
     }
+
+    // 7th slot: Circle with '+' option to open custom color selection dialog
+    float plusX = startX + 6.0f * swatchSpacing + swatchSpacing * 0.5f;
+    drawCircle(r, plusX, scy, 9.0f, theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 1.0f);
+    drawCircleOutline(r, plusX, scy, 9.0f, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.8f, 1.0f);
+    drawLine(r, plusX - 4.5f, scy, plusX + 4.5f, scy, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f, 1.5f);
+    drawLine(r, plusX, scy - 4.5f, plusX, scy + 4.5f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.95f, 1.5f);
 }
 
 void TrackPropertiesPanel::renderTrackActionsCard(BatchRenderer2D& r, const ThemeTokens& theme,
@@ -1660,6 +1678,8 @@ std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackProp
             }
             return "Audio FX Parameter";
         }
+        case TrackPropertiesHitArea::CustomColorPicker:
+            return "Open Color Selection Dialog";
         case TrackPropertiesHitArea::EqToggle:
             return "Toggle 3-Band Parametric EQ";
         case TrackPropertiesHitArea::MuteButton:
@@ -1802,18 +1822,6 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         float editBtnX = cx + cw - 12.0f - editBtnW;
         float editBtnY = cy + (h - editBtnH) * 0.5f;
 
-        // Check Mute & Solo buttons on header card
-        if (headerMuteBounds_.contains(mx, my)) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::MuteButton;
-            return res;
-        }
-        if (headerSoloBounds_.contains(mx, my)) {
-            res.hit = true;
-            res.area = TrackPropertiesHitArea::SoloButton;
-            return res;
-        }
-
         if (mx >= editBtnX - 4.0f && mx <= editBtnX + editBtnW + 4.0f && my >= cy && my <= cy + h) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::RenameButton;
@@ -1833,9 +1841,9 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         float cw = colorCardBounds_.w;
         float startX = cx + (cw >= 560.0f ? 120.0f : 95.0f);
         float availW = (cx + cw - 14.0f) - startX;
-        float swatchSpacing = availW / 8.0f;
+        float swatchSpacing = availW / 7.0f;
         float scy = cy + 18.0f;
-        for (int p = 0; p < 8; ++p) {
+        for (int p = 0; p < 6; ++p) {
             float scx = startX + static_cast<float>(p) * swatchSpacing + swatchSpacing * 0.5f;
             if (std::hypot(mx - scx, my - scy) <= 12.0f) {
                 res.hit = true;
@@ -1843,6 +1851,13 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 res.index = p;
                 return res;
             }
+        }
+        // Circle + Custom Color Picker
+        float plusX = startX + 6.0f * swatchSpacing + swatchSpacing * 0.5f;
+        if (std::hypot(mx - plusX, my - scy) <= 12.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::CustomColorPicker;
+            return res;
         }
     }
 
@@ -1854,30 +1869,30 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         bool isWide = (bounds_.w >= 560.0f);
         float faceH = isWide ? 260.0f : 240.0f;
 
-        float fullBtnW = 54.0f;
+        float fullBtnW = 46.0f;
         float fullBtnH = 22.0f;
         float fullBtnX = cx + cw - 10.0f - fullBtnW;
         float fullBtnY = cy + 7.0f;
 
-        float guiBtnW = 46.0f;
-        float guiBtnH = 22.0f;
-        float guiBtnX = fullBtnX - 6.0f - guiBtnW;
-        float guiBtnY = cy + 7.0f;
+        float detachBtnW = 28.0f;
+        float detachBtnH = 22.0f;
+        float detachBtnX = fullBtnX - 5.0f - detachBtnW;
+        float detachBtnY = cy + 7.0f;
 
-        float presetBtnW = 76.0f;
+        float presetBtnW = 68.0f;
         float presetBtnH = 22.0f;
-        float presetBtnX = (data.hasNativeGui ? guiBtnX : fullBtnX) - 6.0f - presetBtnW;
+        float presetBtnX = detachBtnX - 5.0f - presetBtnW;
         float presetBtnY = cy + 7.0f;
 
-        float designBtnW = 26.0f;
+        float designBtnW = 24.0f;
         float designBtnH = 22.0f;
-        float designBtnX = presetBtnX - 6.0f - designBtnW;
+        float designBtnX = presetBtnX - 5.0f - designBtnW;
         float designBtnY = cy + 7.0f;
 
-        // Native CLAP Plugin GUI button in header
-        if (data.hasNativeGui && mx >= guiBtnX && mx <= guiBtnX + guiBtnW && my >= guiBtnY && my <= guiBtnY + guiBtnH) {
+        // Detached Window button
+        if (mx >= detachBtnX && mx <= detachBtnX + detachBtnW && my >= detachBtnY && my <= detachBtnY + detachBtnH) {
             res.hit = true;
-            res.area = TrackPropertiesHitArea::OpenPluginGui;
+            res.area = TrackPropertiesHitArea::DetachInstrumentWindow;
             return res;
         }
 
@@ -2301,12 +2316,17 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
     }
 
     if (hit.area == TrackPropertiesHitArea::ColorSwatch) {
-        if (hit.index >= 0 && hit.index < 8) {
+        if (hit.index >= 0 && hit.index < 6) {
             data.r = kQuickPalette[hit.index][0];
             data.g = kQuickPalette[hit.index][1];
             data.b = kQuickPalette[hit.index][2];
             if (onColorChanged) onColorChanged(data.trackIndex, data.r, data.g, data.b);
         }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::CustomColorPicker) {
+        colorPickerDialog_.open(Color(data.r, data.g, data.b), "SELECT TRACK COLOR", data.trackIndex);
         return true;
     }
 
@@ -2400,6 +2420,11 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
         } else if (onOpenPluginGui) {
             onOpenPluginGui(data.trackIndex);
         }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::DetachInstrumentWindow) {
+        if (onOpenDetachedWindow) onOpenDetachedWindow(data.trackIndex);
         return true;
     }
 
@@ -2886,7 +2911,11 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                                          const ViewContext& ctx) {
     data.syncKnobsIfEmpty();
 
-    // 0. Forward to embedded PluginSearchDialog if open
+    // 0. Forward to embedded dialogs if open
+    if (colorPickerDialog_.isOpen()) {
+        if (colorPickerDialog_.handlePointer(ev)) return true;
+        return true;
+    }
     if (pluginDialog_.isOpen()) {
         if (pluginDialog_.handlePointer(ev)) return true;
         return true;
@@ -3342,6 +3371,10 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
 bool TrackPropertiesPanel::handleKey(int key, int scancode, int action, int mods,
                                      [[maybe_unused]] const ViewContext& ctx) {
+    if (colorPickerDialog_.isOpen()) {
+        if (colorPickerDialog_.handleKey(key, scancode, action, mods)) return true;
+        return true;
+    }
     if (pluginDialog_.isOpen()) {
         if (pluginDialog_.handleKey(key, scancode, action, mods)) return true;
     }

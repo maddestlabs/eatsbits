@@ -36,7 +36,6 @@ enum class DragMode {
     PianoRollScrollbarH,
     VirtualKeyboardGlissando,
     ProjectHubScroll,
-    CrtTweakerSlider,
     UiScaleSlider
 };
 

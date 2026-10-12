@@ -93,7 +93,7 @@ void testSkeuomorphicKnob() {
     knob.handleDrag(40.0f, false);
     assert(knob.normValue < 0.5f);
 
-    // Shift drag (fine tune) should move 5x slower
+    // Shift drag (fine tune) should move 10x slower (0.1x standard sensitivity)
     float beforeShift = knob.normValue;
     knob.handleDrag(10.0f, true);
     float shiftDelta = std::abs(knob.normValue - beforeShift);
@@ -101,7 +101,7 @@ void testSkeuomorphicKnob() {
     knob.normValue = beforeShift;
     knob.handleDrag(10.0f, false);
     float normalDelta = std::abs(knob.normValue - beforeShift);
-    assertNear(normalDelta / shiftDelta, 5.0f, 0.1f);
+    assertNear(normalDelta / shiftDelta, 10.0f, 0.1f);
 
     // Angle calculation: 0.5 norm should be 0 deg (12 o'clock)
     knob.normValue = 0.5f;

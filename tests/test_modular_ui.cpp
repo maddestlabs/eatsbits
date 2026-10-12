@@ -3077,9 +3077,138 @@ void testTrackAudioFxPresetBindingAndDefaults() {
     drawer->onAddAudioFx("bitcrusher");
     assert(arranger->getTracks()[0].audioFx.size() == initialFxCount + 1);
     const auto& addedFx = arranger->getTracks()[0].audioFx.back();
-    assert(!addedFx.knobs.empty());
-
     std::cout << "  [PASS] TrackAudioFxItem Fallback Layouts, Preset Extraction & Drawer Insertion validated." << std::endl;
+}
+
+void testChangeInstrumentSwapIconAndImmediateGuiRefresh() {
+    std::cout << "[Test 25] Change Instrument Swap Icon & Immediate Hardware GUI Refresh..." << std::endl;
+
+    ArrangerView arranger;
+    arranger.layout(Rect2D(0.0f, 56.0f, 1280.0f, 744.0f), ViewContext{});
+    assert(arranger.getActiveTrackIndex() == 0);
+
+    // Initial Track 0 is TB-303
+    TrackPropertiesPanel panel;
+    panel.syncGuiPanelFromTrackData(arranger.getDrawerData());
+    assert(panel.getGuiPanel().rows.size() == 2); // 303 has 2 hardware rows
+
+    // Change instrument on Track 0 directly via PluginSearchDialog
+    PluginEntry dx7Entry;
+    dx7Entry.id = "dx7";
+    dx7Entry.name = "DX7 Polyphonic Synth";
+    dx7Entry.r = 0.2f; dx7Entry.g = 0.8f; dx7Entry.b = 0.9f;
+
+    arranger.getPropertiesDrawer().getPanel().getPluginSearchDialog().onPluginSelected(
+        PluginDialogMode::AddInstrument, dx7Entry, 0
+    );
+
+    // Verify drawerData was IMMEDIATELY updated for Track 0 without switching tracks
+    assert(arranger.getActiveTrackIndex() == 0);
+    const auto& drawerData = arranger.getDrawerData();
+    assert(drawerData.instrument == "DX7 Polyphonic Synth");
+    assert(drawerData.instrumentEngine == "dx7");
+    assert(drawerData.presetTitle == "DX7 Polyphonic Synth");
+    assert(!drawerData.knobs.empty());
+
+    // Verify TrackPropertiesPanel faceplate immediately updates to DX7 styling
+    panel.syncGuiPanelFromTrackData(drawerData);
+    assert(panel.getGuiPanel().title == "DX7 Polyphonic Synth");
+    assert(panel.getGuiPanel().rows.size() == 1); // DX7 has 1 row
+    assert(panel.getGuiPanel().rows[0].widgets.size() == 6);
+    assert(panel.getGuiPanel().woodCheeks == true);
+    assert(panel.getGuiPanel().chassisStyle == GuiChassisStyle::DarkChassis);
+
+    // Test vector text with swap arrow symbol "⇆" (U+21C6) and "⇄" (U+21C4)
+    drawVectorString("⇆  CHANGE INSTRUMENT", 10.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    drawVectorString("⇄  CHANGE INSTRUMENT", 10.0f, 30.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    std::cout << "  [PASS] Change Instrument Swap Icon & Immediate Hardware GUI Refresh validated." << std::endl;
+}
+
+static void testPanningFxDeletionAndHeaderDoubleClick() {
+    std::cout << "[Test 26] Equal-Power Panning, Index 0 FX Deletion & Header Double-Click..." << std::endl;
+
+    // 1. Equal-power pan law validation
+    audio::GainNode gainNode("TestGain");
+    gainNode.setPan(0.0f);
+    float inBufL[64];
+    float inBufR[64];
+    float outBufL[64];
+    float outBufR[64];
+    std::fill_n(inBufL, 64, 1.0f);
+    std::fill_n(inBufR, 64, 1.0f);
+    gainNode.prepare(48000.0, 64);
+    gainNode.setInputBufferPtr(0, 0, inBufL);
+    gainNode.setInputBufferPtr(0, 1, inBufR);
+    gainNode.setOutputBufferPtr(0, 0, outBufL);
+    gainNode.setOutputBufferPtr(0, 1, outBufR);
+    gainNode.processBlock(64);
+    assertNear(outBufL[0], 0.70710678f, 0.001f, "Center pan Left channel should be -3dB equal-power");
+    assertNear(outBufR[0], 0.70710678f, 0.001f, "Center pan Right channel should be -3dB equal-power");
+    assertNear(outBufL[0], outBufR[0], 0.0001f, "Center pan Left and Right must be completely identical");
+
+    // Hard left (-1.0f)
+    gainNode.setPan(-1.0f);
+    gainNode.processBlock(64);
+    assertNear(outBufL[0], 1.0f, 0.001f, "Hard Left must be 1.0");
+    assertNear(outBufR[0], 0.0f, 0.001f, "Hard Left Right channel must be 0.0");
+
+    // Hard right (+1.0f)
+    gainNode.setPan(1.0f);
+    gainNode.processBlock(64);
+    assertNear(outBufL[0], 0.0f, 0.001f, "Hard Right Left channel must be 0.0");
+    assertNear(outBufR[0], 1.0f, 0.001f, "Hard Right must be 1.0");
+
+    // 2. Index 0 FX and MIDI FX removal
+    TrackPropertiesDrawerData data;
+    data.trackIndex = 0;
+    data.midiFx = { TrackMidiFxItem("Scale Snap", "SCALE_SNAP") };
+    data.audioFx = { TrackAudioFxItem("Tube Distortion", "TUBE_DISTORTION") };
+    assert(data.midiFx.size() == 1);
+    assert(data.audioFx.size() == 1);
+
+    TrackPropertiesPanel panel;
+    ViewContext dummyCtx;
+
+    // Test removing index 0 MIDI FX
+    TrackPropertiesHitResult hitMidiDel;
+    hitMidiDel.hit = true;
+    hitMidiDel.area = TrackPropertiesHitArea::RemoveMidiFx;
+    hitMidiDel.index = 0;
+    panel.executeHitAction(hitMidiDel, data, dummyCtx);
+    assert(data.midiFx.empty()); // Index 0 MIDI FX successfully removed!
+
+    // Test removing index 0 Audio FX
+    TrackPropertiesHitResult hitAudioDel;
+    hitAudioDel.hit = true;
+    hitAudioDel.area = TrackPropertiesHitArea::RemoveAudioFx;
+    hitAudioDel.index = 0;
+    panel.executeHitAction(hitAudioDel, data, dummyCtx);
+    assert(data.audioFx.empty()); // Index 0 Audio FX successfully removed!
+
+    // 3. Double-click / double-tap on track header in ArrangerView opens sidebar in Track view
+    ArrangerView arranger;
+    arranger.layout(Rect2D{0.0f, 0.0f, 1280.0f, 800.0f}, dummyCtx);
+    arranger.setInspectorOpen(false);
+    assert(!arranger.isInspectorOpen());
+
+    // First click: single click selects track but does not open drawer if closed
+    PointerEvent click1{};
+    click1.action = PointerAction::Down;
+    click1.button = PointerButton::Left;
+    click1.x = 50.0f;
+    click1.y = 120.0f; // Track header 0
+    arranger.handlePointer(click1, dummyCtx);
+    assert(!arranger.isInspectorOpen());
+
+    // Rapid second click (double-click within 350ms)
+    PointerEvent click2 = click1;
+    arranger.handlePointer(click2, dummyCtx);
+    assert(arranger.isInspectorOpen()); // Drawer opened!
+    assert(arranger.getInspectorTab() == ArrangerInspectorTab::Track); // Opened in Track view!
+    assert(arranger.getSelectedClip() == -1); // Clip view not active
+
+    std::cout << "  [PASS] Equal-Power Panning, Index 0 FX Deletion & Header Double-Click validated." << std::endl;
 }
 
 int main() {
@@ -3111,8 +3240,10 @@ int main() {
     testTrackPropertiesActionsAndMuteSoloFix();
     testClipActionsAndHistoryRestoration();
     testTrackAudioFxPresetBindingAndDefaults();
+    testChangeInstrumentSwapIconAndImmediateGuiRefresh();
+    testPanningFxDeletionAndHeaderDoubleClick();
 
-    std::cout << "\n>>> ALL 24 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 26 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

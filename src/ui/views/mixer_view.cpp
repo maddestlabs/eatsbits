@@ -113,9 +113,13 @@ MixerView::MixerView() {
                 }
                 drawerData_.instrument = entry.name;
                 drawerData_.instrumentEngine = entry.id.empty() ? entry.engineTag : entry.id;
+                drawerData_.presetTitle = entry.name;
+                drawerData_.presetSubtitle = (targetIdx < channels_.size() ? channels_[targetIdx].name : "Track") + " • " + entry.name;
                 drawerData_.r = entry.r;
                 drawerData_.g = entry.g;
                 drawerData_.b = entry.b;
+                drawerData_.knobs.clear();
+                drawerData_.syncKnobsIfEmpty();
                 if (onInstrumentChanged) {
                     onInstrumentChanged(targetIdx, drawerData_.instrumentEngine, entry.name);
                 }
@@ -226,6 +230,20 @@ MixerView::MixerView() {
     };
     propertiesDrawer_.onDuplicateTrack = [this](uint32_t trackIdx) {
         if (onDuplicateTrack) onDuplicateTrack(trackIdx);
+    };
+    propertiesDrawer_.onChordFollowChanged = [this](uint32_t trackIdx, theory::ChordFollowMode mode) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].chordFollowMode = mode;
+            drawerData_.chordFollowMode = mode;
+        }
+        if (onTrackChordFollowChanged) onTrackChordFollowChanged(trackIdx, mode);
+    };
+    propertiesDrawer_.onBakeChords = [this](uint32_t trackIdx) {
+        drawerData_.chordFollowMode = theory::ChordFollowMode::Off;
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].chordFollowMode = theory::ChordFollowMode::Off;
+        }
+        if (onBakeChords) onBakeChords(trackIdx);
     };
 
     ViewContext defaultCtx;
@@ -481,6 +499,7 @@ void MixerView::syncFromWindow(
         if (channels_[i].instrument != trk.instrument) {
             channels_[i].instrument = trk.instrument;
         }
+        channels_[i].chordFollowMode = trk.chordFollowMode;
 
         if (i < chPeaksL.size()) {
             channels_[i].peakL = chPeaksL[i];
@@ -673,6 +692,7 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.mute = selCh.mute;
         drawerData_.solo = selCh.solo;
         drawerData_.freeze = selCh.freeze;
+        drawerData_.chordFollowMode = selCh.chordFollowMode;
 
         drawerData_.eqEnabled = selCh.eqEnabled;
         drawerData_.eqHpf = selCh.eqHpf;

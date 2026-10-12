@@ -6,6 +6,9 @@
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
 #include "eatsbits/audio/graph/nodes/eatscript_node.hpp"
+#include "eatsbits/audio/graph/nodes/dx7_node.hpp"
+#include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/theory/chord_model.hpp"
 #include <sstream>
 #include <iomanip>
 #include <regex>
@@ -50,10 +53,23 @@ std::string EatsProjectSerializer::serialize(
     ss << "    title = \"" << escapeStr(title) << "\",\n";
     ss << "    bpm = " << bpm << ",\n";
     ss << "    swing = " << swing << ",\n";
-    ss << "    masterVolume = 0.85,\n";
     ss << "    isSongMode = false,\n";
     ss << "    isLooping = false,\n";
     ss << "  },\n\n";
+
+    // Chord Track (Eatsbeats parity)
+    const auto& chordTrack = sequencer.getChordTrack();
+    if (!chordTrack.empty()) {
+        ss << "  chordTrack = {\n";
+        for (const auto& ch : chordTrack) {
+            ss << "    { bar = " << ch.startBar
+               << ", length = " << ch.barLength
+               << ", root = " << ch.rootPitchClass
+               << ", quality = \"" << theory::getChordQualityDisplayName(ch.quality) << "\""
+               << ", bass = " << ch.bassPitchClass << " },\n";
+        }
+        ss << "  },\n\n";
+    }
 
     // Graph
     if (graph.getNodeCount() > 0) {
@@ -87,6 +103,10 @@ std::string EatsProjectSerializer::serialize(
             } else if (auto* es = dynamic_cast<audio::EatscriptNode*>(node.get())) {
                 ss << "        type = \"eatscript\",\n";
                 ss << "        script = [[\n" << es->getScript() << "\n        ]],\n";
+            } else if (dynamic_cast<audio::Dx7Node*>(node.get())) {
+                ss << "        type = \"dx7\",\n";
+            } else if (dynamic_cast<audio::PhysicalInstrumentNode*>(node.get())) {
+                ss << "        type = \"piano\",\n";
             } else {
                 ss << "        type = \"generic\",\n";
             }
@@ -123,6 +143,7 @@ std::string EatsProjectSerializer::serialize(
             ss << "          pan = 0.000,\n";
             ss << "          isMuted = " << (track.isMuted() ? "true" : "false") << ",\n";
             ss << "          isSoloed = " << (track.isSolo() ? "true" : "false") << ",\n";
+            ss << "          chordFollowMode = \"" << theory::getChordFollowModeName(track.getChordFollowMode()) << "\",\n";
 
             // Embed Eatscript code
             const std::string& code = track.getEatscriptCode();
@@ -261,6 +282,10 @@ bool EatsProjectSerializer::deserialize(
                         }
                     }
                     newNode = es;
+                } else if (nType == "dx7") {
+                    newNode = std::make_shared<audio::Dx7Node>(nName.empty() ? "Dx7Rhodes" : nName);
+                } else if (nType == "piano" || nType == "concert_grand" || nType == "physical") {
+                    newNode = std::make_shared<audio::PhysicalInstrumentNode>(audio::PhysicalModelType::ConcertGrandPiano, nName.empty() ? "ConcertGrand" : nName);
                 }
 
                 if (newNode) {
@@ -377,6 +402,37 @@ bool EatsProjectSerializer::deserialize(
     sequencer.setBpm(outBpm);
     sequencer.setSwing(outSwing);
     sequencer.clearPatterns();
+
+    // Parse chordTrack block if present
+    size_t chordTrackPos = eatsScript.find("chordTrack = {");
+    if (chordTrackPos != std::string::npos) {
+        size_t blockEnd = eatsScript.find("  },", chordTrackPos);
+        if (blockEnd == std::string::npos) blockEnd = eatsScript.find("patterns = {", chordTrackPos);
+        std::string chordChunk = eatsScript.substr(chordTrackPos, (blockEnd != std::string::npos ? blockEnd : eatsScript.size()) - chordTrackPos);
+
+        std::vector<theory::ChordEvent> parsedChords;
+        static const std::regex chordEntryRegex(R"(\{\s*bar\s*=\s*(\d+(?:\.\d+)?)\s*,\s*length\s*=\s*(\d+(?:\.\d+)?)\s*,\s*root\s*=\s*(\d+)\s*,\s*quality\s*=\s*["']([^"']*)["'](?:\s*,\s*bass\s*=\s*([-\d]+))?\s*\})");
+        std::sregex_iterator cit(chordChunk.begin(), chordChunk.end(), chordEntryRegex);
+        std::sregex_iterator cEnd;
+        int chordIdx = 0;
+        for (; cit != cEnd; ++cit) {
+            theory::ChordEvent ev;
+            ev.id = "chord_" + std::to_string(chordIdx++);
+            ev.startBar = static_cast<int>(std::round(std::stof((*cit)[1].str())));
+            ev.barLength = std::stof((*cit)[2].str());
+            ev.rootPitchClass = std::stoi((*cit)[3].str());
+            ev.quality = theory::parseChordQuality((*cit)[4].str());
+            if ((*cit)[5].matched) {
+                ev.bassPitchClass = std::stoi((*cit)[5].str());
+            } else {
+                ev.bassPitchClass = -1;
+            }
+            parsedChords.push_back(ev);
+        }
+        if (!parsedChords.empty()) {
+            sequencer.setChordTrack(parsedChords);
+        }
+    }
 
     // Find all pattern blocks (e.g. "Pattern A", "Pattern B", "Pattern 1")
     std::vector<std::pair<std::string, size_t>> patternsFound;
@@ -534,6 +590,12 @@ bool EatsProjectSerializer::deserialize(
                 trk.setSolo(match[1].str() == "true");
             }
 
+            // Chord Follow Mode
+            static const std::regex cfRegex(R"(chordFollowMode\s*=\s*["']([^"']*)["'])");
+            if (std::regex_search(trkChunk, match, cfRegex)) {
+                trk.setChordFollowMode(theory::parseChordFollowMode(match[1].str()));
+            }
+
             // EatScript Code / LuaScript Code
             static const std::regex scriptCodeRegex(R"((?:eatScriptCode|luaScriptCode)\s*=\s*\[\[([\s\S]*?)\]\])");
             if (std::regex_search(trkChunk, match, scriptCodeRegex)) {
@@ -618,7 +680,7 @@ bool EatsProjectSerializer::deserialize(
                             sd.velocity = std::clamp(vel, 0.05f, 1.0f);
                             sd.slide = slide;
                             sd.accent = accent;
-                            sd.gateLength = (dur >= 1.0f) ? 0.95f : std::clamp(dur, 0.1f, 0.95f);
+                            sd.gateLength = std::clamp(dur, 0.1f, 128.0f);
                             trk.setStep(sIdx, sd);
                         }
                         if (sIdx + 1 > maxStep) maxStep = sIdx + 1;

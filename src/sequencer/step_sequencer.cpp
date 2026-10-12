@@ -277,7 +277,7 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
 
             // Schedule NoteOff
             if (track.getTargetNodeId() != 0 && (!step.slide || step.gateLength < 1.0f)) {
-                double duration = std::clamp(step.gateLength, 0.05f, 1.0f) * tick.stepDurationSamples;
+                double duration = std::clamp(step.gateLength, 0.05f, 128.0f) * tick.stepDurationSamples;
                 uint32_t framesUntilOff = tick.frameOffset + static_cast<uint32_t>(duration);
                 scheduleNoteOff(track.getTargetNodeId(), noteEvent.note, framesUntilOff);
                 for (uint8_t exNote : exNotes) {
@@ -298,7 +298,15 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
 }
 
 void StepSequencer::scheduleNoteOff(audio::NodeId targetNodeId, uint8_t note, uint32_t framesUntilOff) noexcept {
-    // Find free slot
+    // 1. If this exact note on this targetNodeId already has a pending NoteOff, update its duration
+    for (size_t i = 0; i < MAX_ACTIVE_VOICES; ++i) {
+        if (activeVoices_[i].active && activeVoices_[i].targetNodeId == targetNodeId && activeVoices_[i].note == note) {
+            activeVoices_[i].framesRemaining = framesUntilOff;
+            return;
+        }
+    }
+
+    // 2. Find free slot
     for (size_t i = 0; i < MAX_ACTIVE_VOICES; ++i) {
         if (!activeVoices_[i].active) {
             activeVoices_[i].active = true;
@@ -308,11 +316,20 @@ void StepSequencer::scheduleNoteOff(audio::NodeId targetNodeId, uint8_t note, ui
             return;
         }
     }
-    // If full, replace slot 0
-    activeVoices_[0].active = true;
-    activeVoices_[0].targetNodeId = targetNodeId;
-    activeVoices_[0].note = note;
-    activeVoices_[0].framesRemaining = framesUntilOff;
+
+    // 3. If full, steal slot with smallest remaining time
+    size_t minIdx = 0;
+    uint32_t minFrames = activeVoices_[0].framesRemaining;
+    for (size_t i = 1; i < MAX_ACTIVE_VOICES; ++i) {
+        if (activeVoices_[i].framesRemaining < minFrames) {
+            minFrames = activeVoices_[i].framesRemaining;
+            minIdx = i;
+        }
+    }
+    activeVoices_[minIdx].active = true;
+    activeVoices_[minIdx].targetNodeId = targetNodeId;
+    activeVoices_[minIdx].note = note;
+    activeVoices_[minIdx].framesRemaining = framesUntilOff;
 }
 
 void StepSequencer::dispatchNoteOff(audio::AudioGraph& graph, const ActiveVoice& voice) noexcept {
@@ -426,7 +443,7 @@ void SequencerTrack::changeSelectedNotesDuration(float deltaDuration) noexcept {
     if (std::abs(deltaDuration) < 0.001f || selectedSteps_.empty()) return;
     for (uint32_t s : selectedSteps_) {
         if (s < numSteps_ && steps_[s].active) {
-            steps_[s].gateLength = std::clamp(steps_[s].gateLength + deltaDuration, 0.05f, 4.0f);
+            steps_[s].gateLength = std::clamp(steps_[s].gateLength + deltaDuration, 0.05f, 64.0f);
         }
     }
 }

@@ -45,7 +45,7 @@ public:
     void setPan(float pan) noexcept {
         pan_ = std::clamp(pan, -1.0f, 1.0f);
         constexpr float piOver4 = 0.78539816339f;
-        const float angle = (pan_ + 1.0f) * 0.5f * piOver4;
+        const float angle = (pan_ + 1.0f) * piOver4;
         panGainL_ = std::cos(angle);
         panGainR_ = std::sin(angle);
     }

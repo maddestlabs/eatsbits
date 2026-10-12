@@ -44,6 +44,7 @@ enum class ChordFollowMode {
 [[nodiscard]] std::vector<int> getChordQualityIntervals(ChordQuality q);
 [[nodiscard]] const char* getChordFollowModeName(ChordFollowMode m) noexcept;
 [[nodiscard]] ChordFollowMode parseChordFollowMode(const std::string& name) noexcept;
+[[nodiscard]] ChordQuality parseChordQuality(const std::string& name) noexcept;
 
 /// A chord event positioned on the Chord Track timeline.
 struct ChordEvent {

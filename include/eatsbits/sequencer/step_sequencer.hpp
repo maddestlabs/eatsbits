@@ -23,7 +23,7 @@ struct StepData {
     bool active{false};
     uint8_t note{60};           // MIDI note number (0 - 127, 60 = Middle C)
     float velocity{0.8f};       // Velocity (0.0 - 1.0)
-    float gateLength{0.75f};    // Gate duration as fraction of step (0.1 - 1.0)
+    float gateLength{0.75f};    // Note duration in steps (e.g. 0.75 = 75% of step, 1.0 = 1 step, 4.0 = 1 bar)
     bool slide{false};          // Portamento slide (TB-303)
     bool accent{false};         // Dynamic accent (TB-303 / 808)
     float probability{1.0f};    // Trigger probability (0.0 - 1.0)

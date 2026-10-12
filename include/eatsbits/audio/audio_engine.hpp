@@ -60,8 +60,8 @@ public:
     void setActiveTrack(uint32_t trackIndex) noexcept { activeTrackIndex_.store(trackIndex, std::memory_order_relaxed); }
     [[nodiscard]] uint32_t getActiveTrack() const noexcept { return activeTrackIndex_.load(std::memory_order_relaxed); }
 
-    bool postNoteOn(uint8_t note, float velocity, bool isSlide = false, bool isAccent = false, int trackIndex = -1) noexcept;
-    bool postNoteOff(uint8_t note, int trackIndex = -1) noexcept;
+    bool postNoteOn(uint8_t note, float velocity, bool isSlide = false, bool isAccent = false, int trackIndex = -1, bool applyMidiFx = true) noexcept;
+    bool postNoteOff(uint8_t note, int trackIndex = -1, bool applyMidiFx = true) noexcept;
     bool postTrackNoteOn(uint32_t trackIndex, uint8_t note, float velocity, bool isSlide = false, bool isAccent = false) noexcept;
     bool postTrackNoteOff(uint32_t trackIndex, uint8_t note) noexcept;
     bool postParameter(uint32_t paramId, float value) noexcept;
@@ -99,6 +99,7 @@ public:
     void setupDefaultAcidGraph();
     void setupDefaultPolyGraph();
     void setupDefaultAcidBeatGraph();
+    void setupDefaultRhodesGrandGraph();
 
     // Track Audio FX Inserts
     struct TrackAudioFxItem {

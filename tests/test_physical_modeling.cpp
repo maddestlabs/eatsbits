@@ -12,6 +12,8 @@
 #include "eatsbits/audio/graph/nodes/waveguide_node.hpp"
 #include "eatsbits/audio/graph/nodes/modal_resonator_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/project/preset_loader.hpp"
 
 using namespace eatsbits;
@@ -124,11 +126,21 @@ void testBankBensaCommutedPiano() {
     std::vector<float> pcm(kBlockSize, 0.0f);
 
     CommutedSoundboardExciter::generate(pcm.data(), kBlockSize, kSr, 60, 0.9f, 0.85f, 0.55f, 1.0f);
+    float pExc = 0.0f;
+    for (float s : pcm) pExc = std::max(pExc, std::abs(s));
+    std::cout << "    [Step A Exciter] Peak: " << pExc << std::endl;
+
     CommutedHammerFilterCascade hammer;
     hammer.process(pcm.data(), kBlockSize, 60, 0.9f, 0.5f, 1.0f);
+    float pHammer = 0.0f;
+    for (float s : pcm) pHammer = std::max(pHammer, std::abs(s));
+    std::cout << "    [Step B Hammer] Peak: " << pHammer << std::endl;
 
     CommutedStrikeComb comb;
     comb.process(pcm.data(), kBlockSize, kSr, 60, 261.63f);
+    float pComb = 0.0f;
+    for (float s : pcm) pComb = std::max(pComb, std::abs(s));
+    std::cout << "    [Step C Comb] Peak: " << pComb << std::endl;
 
     CommutedPianoWaveguideCore pianoWg;
     pianoWg.process(pcm.data(), kBlockSize, kSr, 60, 261.63f, 1.0f, 1.0f, 1.0f, false);
@@ -139,6 +151,7 @@ void testBankBensaCommutedPiano() {
         peakVal = std::max(peakVal, std::abs(s));
         sumEnergy += s * s;
     }
+    std::cout << "    [Step D Waveguide in 2048 block] Peak: " << peakVal << std::endl;
 
     assert(peakVal > 0.05f);
     assert(sumEnergy > 0.1f);
@@ -276,6 +289,83 @@ void testPhysicalModelingBenchmark() {
     std::cout << "  -> PASSED: Physical modeling engine comfortably exceeds real-time budget." << std::endl;
 }
 
+void testDawScenarioGrandPiano() {
+    std::cout << "[Test 9] Testing DAW Sequencer Playback with AudioEngine..." << std::endl;
+
+    AudioEngine engine;
+    AudioEngineConfig config;
+    config.sampleRate = 48000;
+    config.bufferFrameSize = 128;
+    config.numChannels = 2;
+    bool audioOk = engine.initialize(config);
+    assert(audioOk);
+    (void)audioOk;
+
+    engine.setupDefaultRhodesGrandGraph();
+
+    auto& seq = engine.getSequencer();
+    seq.setBpm(116.0);
+    seq.setSwing(0.52);
+
+    std::vector<theory::ChordEvent> chords = {
+        {"chord_0",  0,  2.0f, 0, theory::ChordQuality::Major, -1},  // Bar 1-2: C Major
+        {"chord_2",  2,  2.0f, 7, theory::ChordQuality::Major, -1},  // Bar 3-4: G Major
+    };
+    seq.setChordTrack(chords);
+
+    const auto& nodes = engine.getGraph().getNodes();
+    audio::NodeId dx7Id = 0;
+    audio::NodeId grandId = 0;
+    for (const auto& [id, n] : nodes) {
+        if (!n) continue;
+        if (n->getName() == "Dx7Rhodes") dx7Id = id;
+        else if (n->getName() == "ConcertGrand") grandId = id;
+    }
+    assert(grandId != 0);
+
+    // Track 2: Concert Grand
+    size_t t1 = seq.addTrack("Concert Grand", grandId, 128);
+    auto* tr1 = seq.getTrack(t1);
+    tr1->setChordFollowMode(theory::ChordFollowMode::Chord);
+
+    // Set step 0: note 36, velocity 0.85f, gateLength 1.9f
+    sequencer::StepData st0{};
+    st0.active = true; st0.note = 36; st0.velocity = 0.85f; st0.gateLength = 1.9f;
+    tr1->setStep(0, st0);
+
+    seq.start();
+
+    // Now process blocks through engine.renderOfflineBlock
+    std::vector<float> pcmL(128, 0.0f);
+    std::vector<float> pcmR(128, 0.0f);
+
+    float maxTrack2Peak = 0.0f;
+    for (int b = 0; b < 20; ++b) {
+        engine.renderOfflineBlock(pcmL.data(), pcmR.data(), 128);
+        float pcmPeak = 0.0f;
+        for (float s : pcmL) pcmPeak = std::max(pcmPeak, std::abs(s));
+        maxTrack2Peak = std::max(maxTrack2Peak, pcmPeak);
+    }
+    std::cout << "  Testing live auditioning via postNoteOn on Track 1 (Grand Piano)..." << std::endl;
+    seq.stop();
+    engine.postNoteOn(60, 0.85f, false, false, 1);
+
+    float postNotePeak = 0.0f;
+    for (int k = 0; k < 20; ++k) {
+        engine.renderOfflineBlock(pcmL.data(), pcmR.data(), 128);
+        float pcmPeak = 0.0f;
+        for (float s : pcmL) pcmPeak = std::max(pcmPeak, std::abs(s));
+        postNotePeak = std::max(postNotePeak, pcmPeak);
+        if (k < 10) {
+            std::cout << "    Live Audition Block " << k << " pcmL peak: " << pcmPeak << std::endl;
+        }
+    }
+    std::cout << "  Live audition peak: " << postNotePeak << std::endl;
+    assert(maxTrack2Peak > 0.05f);
+    assert(postNotePeak > 0.20f);
+    std::cout << "  DAW Grand Piano live audition and sequencer playback verified -> PASSED" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   Eatsbits Acoustic Physical Modeling Suite      " << std::endl;
@@ -290,6 +380,7 @@ int main() {
         testModalResonatorBank();
         testAudioGraphPhysicalInstruments();
         testPhysicalModelingBenchmark();
+        testDawScenarioGrandPiano();
 
         std::cout << "==================================================" << std::endl;
         std::cout << "  100% PHYSICAL MODELING SUITE TESTS PASSED!     " << std::endl;

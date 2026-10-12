@@ -85,6 +85,25 @@ ChordFollowMode parseChordFollowMode(const std::string& name) noexcept {
     return ChordFollowMode::Off;
 }
 
+ChordQuality parseChordQuality(const std::string& name) noexcept {
+    std::string lower;
+    for (char c : name) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "minor" || lower == "m" || lower == "min") return ChordQuality::Minor;
+    if (lower == "major7" || lower == "maj7" || lower == "major 7") return ChordQuality::Major7;
+    if (lower == "minor7" || lower == "m7" || lower == "min7" || lower == "minor 7") return ChordQuality::Minor7;
+    if (lower == "dominant7" || lower == "7" || lower == "dom7" || lower == "dominant 7") return ChordQuality::Dominant7;
+    if (lower == "diminished" || lower == "dim") return ChordQuality::Diminished;
+    if (lower == "augmented" || lower == "aug") return ChordQuality::Augmented;
+    if (lower == "halfdiminished7" || lower == "m7b5" || lower == "half-diminished" || lower == "half diminished 7") return ChordQuality::HalfDiminished7;
+    if (lower == "sus2" || lower == "suspended2") return ChordQuality::Sus2;
+    if (lower == "sus4" || lower == "suspended4" || lower == "sus") return ChordQuality::Sus4;
+    if (lower == "add9") return ChordQuality::Add9;
+    if (lower == "min9" || lower == "m9" || lower == "minor9" || lower == "minor 9") return ChordQuality::Min9;
+    if (lower == "maj9" || lower == "major9" || lower == "major 9") return ChordQuality::Maj9;
+    if (lower == "dom9" || lower == "9" || lower == "9 (dom)" || lower == "dominant9" || lower == "dominant 9") return ChordQuality::Dom9;
+    return ChordQuality::Major;
+}
+
 std::string ChordEvent::getDisplayName() const {
     return ChordTheory::formatChordName(rootPitchClass, quality, bassPitchClass);
 }

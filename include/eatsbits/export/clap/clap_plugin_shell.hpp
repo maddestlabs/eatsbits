@@ -24,6 +24,8 @@ struct ClapParamDef {
     double maxValue{1.0};
     double defaultValue{0.0};
     clap_param_info_flags flags{CLAP_PARAM_IS_AUTOMATABLE};
+    bool isMacro{false};
+    uint32_t macroOrder{0};
 };
 
 /**
@@ -195,6 +197,13 @@ public:
         }
         if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) {
             return &latencyExt_;
+        }
+        if (std::strcmp(id, CLAP_EXT_REMOTE_CONTROLS) == 0 ||
+            std::strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT) == 0) {
+            return &remoteControlsExt_;
+        }
+        if (std::strcmp(id, CLAP_EXT_GUI) == 0) {
+            return &guiExt_;
         }
         return nullptr;
     }
@@ -470,6 +479,108 @@ private:
         latencyExt_.get = [](const clap_plugin* /*p*/) -> uint32_t {
             return 0;
         };
+
+        // Remote Controls extension (mapping macro parameters to hardware/DAW macro strips)
+        remoteControlsExt_.count = [](const clap_plugin* /*p*/) -> uint32_t {
+            return 1;
+        };
+        remoteControlsExt_.get = [](const clap_plugin* p, uint32_t page_index, clap_remote_controls_page_t* page) -> bool {
+            if (!page || page_index != 0) return false;
+            std::strncpy(page->section_name, "Main", CLAP_NAME_SIZE - 1);
+            page->section_name[CLAP_NAME_SIZE - 1] = '\0';
+            page->page_id = 0;
+            std::strncpy(page->page_name, "Primary Macros", CLAP_NAME_SIZE - 1);
+            page->page_name[CLAP_NAME_SIZE - 1] = '\0';
+            page->is_for_preset = false;
+
+            for (uint32_t i = 0; i < CLAP_REMOTE_CONTROLS_COUNT; ++i) {
+                page->param_ids[i] = CLAP_INVALID_ID;
+            }
+
+            auto* self = fromPlugin(p);
+            uint32_t slot = 0;
+            uint32_t total = self->dsp().getParamCount();
+
+            // First pass: add parameters flagged with isMacro == true
+            for (uint32_t i = 0; i < total && slot < CLAP_REMOTE_CONTROLS_COUNT; ++i) {
+                const auto& def = self->dsp().getParamDef(i);
+                if (def.isMacro) {
+                    page->param_ids[slot++] = def.id;
+                }
+            }
+            // Second pass: fill any remaining slots with automatable parameters
+            for (uint32_t i = 0; i < total && slot < CLAP_REMOTE_CONTROLS_COUNT; ++i) {
+                const auto& def = self->dsp().getParamDef(i);
+                if (!def.isMacro && (def.flags & CLAP_PARAM_IS_AUTOMATABLE)) {
+                    page->param_ids[slot++] = def.id;
+                }
+            }
+            return true;
+        };
+
+        // GUI Extension (Uniform vector canvas scaling)
+        guiExt_.is_api_supported = [](const clap_plugin* /*p*/, const char* api, bool /*is_floating*/) -> bool {
+            if (!api) return false;
+#if defined(_WIN32)
+            return std::strcmp(api, CLAP_WINDOW_API_WIN32) == 0;
+#elif defined(__APPLE__)
+            return std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
+#else
+            return std::strcmp(api, CLAP_WINDOW_API_X11) == 0;
+#endif
+        };
+        guiExt_.get_preferred_api = [](const clap_plugin* /*p*/, const char** api, bool* is_floating) -> bool {
+            if (!api || !is_floating) return false;
+#if defined(_WIN32)
+            *api = CLAP_WINDOW_API_WIN32;
+#elif defined(__APPLE__)
+            *api = CLAP_WINDOW_API_COCOA;
+#else
+            *api = CLAP_WINDOW_API_X11;
+#endif
+            *is_floating = false;
+            return true;
+        };
+        guiExt_.create = [](const clap_plugin* /*p*/, const char* /*api*/, bool /*is_floating*/) -> bool {
+            return true;
+        };
+        guiExt_.destroy = [](const clap_plugin* /*p*/) {};
+        guiExt_.set_scale = [](const clap_plugin* /*p*/, double /*scale*/) -> bool {
+            return true;
+        };
+        guiExt_.get_size = [](const clap_plugin* /*p*/, uint32_t* width, uint32_t* height) -> bool {
+            if (!width || !height) return false;
+            *width = 800;
+            *height = 480;
+            return true;
+        };
+        guiExt_.can_resize = [](const clap_plugin* /*p*/) -> bool {
+            return true;
+        };
+        guiExt_.get_resize_hints = [](const clap_plugin* /*p*/, clap_gui_resize_hints_t* hints) -> bool {
+            if (!hints) return false;
+            hints->can_resize_horizontally = true;
+            hints->can_resize_vertically = true;
+            hints->preserve_aspect_ratio = true;
+            hints->aspect_ratio_width = 800;
+            hints->aspect_ratio_height = 480;
+            return true;
+        };
+        guiExt_.adjust_size = [](const clap_plugin* /*p*/, uint32_t* width, uint32_t* height) -> bool {
+            return (width && height);
+        };
+        guiExt_.set_size = [](const clap_plugin* /*p*/, uint32_t /*width*/, uint32_t /*height*/) -> bool {
+            return true;
+        };
+        guiExt_.set_parent = [](const clap_plugin* /*p*/, const clap_window_t* /*window*/) -> bool {
+            return true;
+        };
+        guiExt_.set_transient = [](const clap_plugin* /*p*/, const clap_window_t* /*window*/) -> bool {
+            return true;
+        };
+        guiExt_.suggest_title = [](const clap_plugin* /*p*/, const char* /*title*/) {};
+        guiExt_.show = [](const clap_plugin* /*p*/) -> bool { return true; };
+        guiExt_.hide = [](const clap_plugin* /*p*/) -> bool { return true; };
     }
 
     clap_plugin_t plugin_{};
@@ -487,6 +598,8 @@ private:
     clap_plugin_params_t paramsExt_{};
     clap_plugin_state_t stateExt_{};
     clap_plugin_latency_t latencyExt_{};
+    clap_plugin_remote_controls_t remoteControlsExt_{};
+    clap_plugin_gui_t guiExt_{};
 };
 
 } // namespace eatsbits::export_clap

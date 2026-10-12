@@ -27,6 +27,7 @@ namespace eatsbits::ui {
 #include "../widgets/circle_of_fifths_dialog.hpp"
 #include "../widgets/text_editor_widget.hpp"
 #include "eatsbits/theory/chord_model.hpp"
+#include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 
 namespace eatsbits::ui {
 
@@ -141,10 +142,32 @@ public:
     void loadFromArrangerClip(const ArrangerTimelineClip& clip,
                               const std::string& trackName,
                               const Color& trackColor,
-                              const std::vector<ArrangerTimelineTrack>& allTracks);
+                              const std::vector<ArrangerTimelineTrack>& allTracks,
+                              theory::ChordFollowMode chordFollowMode = theory::ChordFollowMode::Off,
+                              const std::vector<eatscript::MidiFxInsert>& midiFxRack = {},
+                              const std::vector<theory::ChordEvent>& chordTrack = {});
     void writeBackToArrangerClip(ArrangerTimelineClip& clip) const;
 
+    // Harmonic Chord Follow & MIDI FX Integration (Eatsbeats parity)
+    void setChordFollowMode(theory::ChordFollowMode mode) noexcept;
+    [[nodiscard]] theory::ChordFollowMode getChordFollowMode() const noexcept { return chordFollowMode_; }
+
+    void setMidiFxRack(std::vector<eatscript::MidiFxInsert> rack);
+    [[nodiscard]] const std::vector<eatscript::MidiFxInsert>& getMidiFxRack() const noexcept { return midiFxRack_; }
+
+    void setChordTrack(std::vector<theory::ChordEvent> chords);
+    [[nodiscard]] const std::vector<theory::ChordEvent>& getChordTrack() const noexcept { return chordTrack_; }
+
+    [[nodiscard]] const std::vector<PianoRollNote>& getEvaluatedFxNotes() const noexcept { return evaluatedFxNotes_; }
+    [[nodiscard]] bool hasActiveChordFollowOrMidiFx() const noexcept;
+
+    void updateEvaluatedNotes();
+    void bakeChordFollowAndMidiFx();
+
+    [[nodiscard]] const Rect2D& getBtnBake() const noexcept { return btnBake_; }
+
     std::function<void(uint32_t trackIdx, int clipIdx)> onNotesChanged;
+    std::function<void(uint32_t trackIdx, int clipIdx)> onBakeRequested;
     std::function<void(EditSubViewMode mode)> onSubViewChanged;
 
     // Auto-center viewport vertically on existing notes (Eatsbeats parity)
@@ -166,8 +189,8 @@ private:
     // Helpers
     void formatEatscriptFromNotes();
     void parseNotesFromEatscript();
-    void auditionPitch(int pitch, float velocity, const ViewContext& ctx);
-    void stopAuditionPitch(int pitch, const ViewContext& ctx);
+    void auditionPitch(int pitch, float velocity, const ViewContext& ctx, bool isPreEvaluated = false);
+    void stopAuditionPitch(int pitch, const ViewContext& ctx, bool isPreEvaluated = false);
 
     // State
     EditSubViewMode subView_{EditSubViewMode::PianoRoll};
@@ -254,6 +277,13 @@ private:
     Rect2D btnScript_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D ghostToggleBtn_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D ghostSliderBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnBake_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    // Harmonic Chord Follow & MIDI FX state
+    theory::ChordFollowMode chordFollowMode_{theory::ChordFollowMode::Off};
+    std::vector<eatscript::MidiFxInsert> midiFxRack_;
+    std::vector<theory::ChordEvent> chordTrack_;
+    std::vector<PianoRollNote> evaluatedFxNotes_;
 
     // Score toolbar buttons
     Rect2D btnClefAuto_{0.0f, 0.0f, 0.0f, 0.0f};

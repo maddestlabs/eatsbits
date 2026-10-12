@@ -96,8 +96,11 @@ public:
     void destroyEmbeddedGui();
     [[nodiscard]] bool isEmbeddedGuiOpen() const noexcept { return isEmbeddedGuiOpen_; }
     [[nodiscard]] void* getEmbeddedContainerHwnd() const noexcept { return embeddedContainerHwnd_; }
+    [[nodiscard]] void* getGuiHwnd() const noexcept { return guiHwnd_; }
     [[nodiscard]] const clap_plugin_gui_t* getGuiExtension() const noexcept { return extGui_; }
     [[nodiscard]] static bool isAnyGuiOpen();
+
+    std::function<void()> onGuiClosed;
 
     // Main Thread Callbacks & Verification
     static void setMainThreadId(std::thread::id id) noexcept;

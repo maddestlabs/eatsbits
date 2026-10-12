@@ -76,6 +76,143 @@ void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
     }
 }
 
+void EditView::setChordFollowMode(theory::ChordFollowMode mode) noexcept {
+    chordFollowMode_ = mode;
+    updateEvaluatedNotes();
+}
+
+void EditView::setMidiFxRack(std::vector<eatscript::MidiFxInsert> rack) {
+    midiFxRack_ = std::move(rack);
+    updateEvaluatedNotes();
+}
+
+void EditView::setChordTrack(std::vector<theory::ChordEvent> chords) {
+    chordTrack_ = std::move(chords);
+    updateEvaluatedNotes();
+}
+
+bool EditView::hasActiveChordFollowOrMidiFx() const noexcept {
+    if (chordFollowMode_ != theory::ChordFollowMode::Off) return true;
+    for (const auto& fx : midiFxRack_) {
+        if (fx.enabled) return true;
+    }
+    return false;
+}
+
+void EditView::updateEvaluatedNotes() {
+    evaluatedFxNotes_.clear();
+    if (!hasActiveChordFollowOrMidiFx() || notes_.empty()) {
+        return;
+    }
+
+    std::vector<eatscript::MidiNote> baseMidiNotes;
+    baseMidiNotes.reserve(notes_.size());
+    for (size_t i = 0; i < notes_.size(); ++i) {
+        const auto& n = notes_[i];
+        eatscript::MidiNote mn;
+        mn.id = n.id.empty() ? ("n" + std::to_string(i)) : n.id;
+        mn.pitch = n.pitch;
+        mn.startStep = n.startStep;
+        mn.durationSteps = n.durationSteps;
+        mn.velocity = n.velocity;
+        baseMidiNotes.push_back(mn);
+    }
+
+    eatscript::TimeContext timeCtx{};
+    timeCtx.bpm = 120.0;
+    timeCtx.songKeyRoot = 0;
+    timeCtx.isSongKeyMinor = false;
+    if (!chordTrack_.empty()) {
+        const auto& ch = chordTrack_.front();
+        timeCtx.activeChordRoot = ch.rootPitchClass;
+        timeCtx.activeChordQuality = theory::getChordQualityDisplayName(ch.quality);
+        timeCtx.chordPitchClasses = ch.getPitchClasses();
+        timeCtx.bassPitchClass = (ch.bassPitchClass >= 0) ? ch.bassPitchClass : ch.rootPitchClass;
+    }
+
+    std::vector<eatscript::MidiNote> transformed = baseMidiNotes;
+
+    // 1. Evaluate Chord Track Follow Mode
+    if (chordFollowMode_ != theory::ChordFollowMode::Off) {
+        for (auto& mn : transformed) {
+            float noteBar = static_cast<float>(mn.startStep) / 16.0f;
+            const theory::ChordEvent* chord = nullptr;
+            for (const auto& ch : chordTrack_) {
+                float chStart = static_cast<float>(ch.startBar);
+                float chEnd = chStart + static_cast<float>(ch.barLength);
+                if (noteBar >= chStart && noteBar < chEnd) {
+                    chord = &ch;
+                    break;
+                }
+            }
+            if (!chord && !chordTrack_.empty()) {
+                chord = &chordTrack_.front();
+            }
+            if (chord) {
+                int remapped = theory::ChordTheory::remapPitchForChord(mn.pitch, *chord, chordFollowMode_);
+                mn.pitch = static_cast<uint8_t>(std::clamp(remapped, 0, 127));
+            }
+        }
+    }
+
+    // 2. Evaluate active MIDI FX chain
+    bool anyMidiFx = false;
+    for (const auto& fx : midiFxRack_) {
+        if (fx.enabled) {
+            anyMidiFx = true;
+            break;
+        }
+    }
+    if (anyMidiFx) {
+        transformed = eatscript::MidiPipelineEngine::processPipeline(midiFxRack_, transformed, timeCtx);
+    }
+
+    evaluatedFxNotes_.reserve(transformed.size());
+    for (size_t i = 0; i < transformed.size(); ++i) {
+        const auto& mn = transformed[i];
+        PianoRollNote pn;
+        pn.id = mn.id.empty() ? ("ev_" + std::to_string(i)) : mn.id;
+        pn.pitch = mn.pitch;
+        pn.startStep = static_cast<float>(mn.startStep);
+        pn.durationSteps = static_cast<float>(mn.durationSteps);
+        pn.velocity = static_cast<float>(mn.velocity);
+        pn.isSelected = false;
+        pn.isSlide = false;
+        pn.isAccent = false;
+        evaluatedFxNotes_.push_back(pn);
+    }
+}
+
+void EditView::bakeChordFollowAndMidiFx() {
+    if (!hasActiveChordFollowOrMidiFx()) return;
+
+    updateEvaluatedNotes();
+
+    if (!evaluatedFxNotes_.empty()) {
+        notes_.clear();
+        for (size_t i = 0; i < evaluatedFxNotes_.size(); ++i) {
+            PianoRollNote pn = evaluatedFxNotes_[i];
+            pn.id = "n" + std::to_string(i);
+            pn.isSelected = false;
+            notes_.push_back(pn);
+        }
+    }
+
+    chordFollowMode_ = theory::ChordFollowMode::Off;
+    for (auto& fx : midiFxRack_) {
+        fx.enabled = false;
+    }
+    evaluatedFxNotes_.clear();
+
+    formatEatscriptFromNotes();
+
+    if (onBakeRequested) {
+        onBakeRequested(activeTrackIndex_, activeClipIndex_);
+    } else if (onNotesChanged) {
+        onNotesChanged(activeTrackIndex_, activeClipIndex_);
+    }
+}
+
 void EditView::toggleGhostNotes() noexcept {
     if (ghostOpacity_ > 0.001f) {
         lastNonZeroGhostOpacity_ = ghostOpacity_;
@@ -151,7 +288,7 @@ void EditView::nudgeSelectedNotes(float deltaSteps) noexcept {
 void EditView::changeSelectedNotesDuration(float deltaDuration) noexcept {
     for (auto& n : notes_) {
         if (n.isSelected) {
-            n.durationSteps = std::clamp(n.durationSteps + deltaDuration, 0.25f, 16.0f);
+            n.durationSteps = std::clamp(n.durationSteps + deltaDuration, 0.25f, 64.0f);
         }
     }
     formatEatscriptFromNotes();
@@ -343,12 +480,18 @@ void EditView::syncFromSequencer(const sequencer::StepSequencer& seq) {
 void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
                                     const std::string& trackName,
                                     const Color& trackColor,
-                                    const std::vector<ArrangerTimelineTrack>& allTracks) {
+                                    const std::vector<ArrangerTimelineTrack>& allTracks,
+                                    theory::ChordFollowMode chordFollowMode,
+                                    const std::vector<eatscript::MidiFxInsert>& midiFxRack,
+                                    const std::vector<theory::ChordEvent>& chordTrack) {
     isSyncing_ = true;
     activeTrackIndex_ = clip.trackIndex;
     activeClipName_ = clip.name;
     activeTrackName_ = trackName;
     trackColor_ = trackColor;
+    chordFollowMode_ = chordFollowMode;
+    midiFxRack_ = midiFxRack;
+    chordTrack_ = chordTrack;
 
     notes_.clear();
     for (size_t i = 0; i < clip.notes.size(); ++i) {
@@ -389,6 +532,7 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
     }
 
     formatEatscriptFromNotes();
+    updateEvaluatedNotes();
     scrollX_ = 0.0f;
     autoCenterOnNotesOrDefault();
     isSyncing_ = false;
@@ -456,7 +600,11 @@ void EditView::syncToSequencer(sequencer::StepSequencer& seq) {
         sd.active = true;
         sd.note = noteList[0].pitch;
         sd.velocity = noteList[0].velocity;
-        sd.gateLength = noteList[0].durationSteps;
+        float maxDur = 0.0f;
+        for (const auto& n : noteList) {
+            maxDur = std::max(maxDur, n.durationSteps);
+        }
+        sd.gateLength = std::clamp(maxDur, 0.1f, 128.0f);
         sd.slide = noteList[0].isSlide;
         sd.accent = noteList[0].isAccent;
         for (size_t i = 1; i < noteList.size(); ++i) {
@@ -467,6 +615,7 @@ void EditView::syncToSequencer(sequencer::StepSequencer& seq) {
 }
 
 void EditView::formatEatscriptFromNotes() {
+    updateEvaluatedNotes();
     std::ostringstream ss;
     ss << "-- Clip: \"" << activeTrackName_ << "\" | Events: " << notes_.size() << "\n";
     ss << "-- Syntax: { pitch = \"C4\", step = 0.0, dur = 1.0, vel = 0.85, slide = true }\n\n";
@@ -575,19 +724,19 @@ void EditView::parseNotesFromEatscript() {
     }
 }
 
-void EditView::auditionPitch(int pitch, float velocity, const ViewContext& ctx) {
+void EditView::auditionPitch(int pitch, float velocity, const ViewContext& ctx, bool isPreEvaluated) {
     auditioningPitch_ = pitch;
     if (ctx.audioEngine) {
-        ctx.audioEngine->postNoteOn(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), velocity, false, false, static_cast<int>(activeTrackIndex_));
+        ctx.audioEngine->postNoteOn(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), velocity, false, false, static_cast<int>(activeTrackIndex_), !isPreEvaluated);
     }
 }
 
-void EditView::stopAuditionPitch(int pitch, const ViewContext& ctx) {
+void EditView::stopAuditionPitch(int pitch, const ViewContext& ctx, bool isPreEvaluated) {
     if (auditioningPitch_ == pitch) {
         auditioningPitch_ = -1;
     }
     if (ctx.audioEngine) {
-        ctx.audioEngine->postNoteOff(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), static_cast<int>(activeTrackIndex_));
+        ctx.audioEngine->postNoteOff(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), static_cast<int>(activeTrackIndex_), !isPreEvaluated);
     }
 }
 
@@ -617,6 +766,9 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     float ghostW = (bounds_.w < 850.0f) ? 54.0f : 65.0f;
     ghostSliderBounds_ = Rect2D(btnPianoRoll_.x - sliderW - 8.0f, btnY, sliderW, btnH);
     ghostToggleBtn_ = Rect2D(ghostSliderBounds_.x - ghostW - 6.0f, btnY, ghostW, btnH);
+
+    float bakeW = ctx.isMobile ? 60.0f : 92.0f;
+    btnBake_ = Rect2D(ghostToggleBtn_.x - bakeW - 8.0f, btnY, bakeW, btnH);
 
     float gutterW = 80.0f;
     float velocityH = 72.0f;
@@ -714,6 +866,12 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
     drawText(r, editTitle, headerBounds_.x + 28.0f, headerBounds_.y + 10.0f, 11.5f, theme.textPrimary);
 
     if (subView_ == EditSubViewMode::PianoRoll || subView_ == EditSubViewMode::Score) {
+        if (hasActiveChordFollowOrMidiFx()) {
+            drawRoundedRect(r, btnBake_.x, btnBake_.y, btnBake_.w, btnBake_.h, 4.0f, Color(0.24f, 0.18f, 0.06f, 0.95f), 0.95f);
+            drawRoundedRectOutline(r, btnBake_.x, btnBake_.y, btnBake_.w, btnBake_.h, 4.0f, Color(1.0f, 0.82f, 0.20f, 0.90f), 1.0f, 1.5f);
+            drawCenteredText(r, "[ ⚡ BAKE ]", btnBake_, 9.5f, Color(1.0f, 0.88f, 0.30f));
+        }
+
         bool isGhostActive = (ghostOpacity_ > 0.001f);
         drawRoundedRect(r, ghostToggleBtn_.x, ghostToggleBtn_.y, ghostToggleBtn_.w, ghostToggleBtn_.h, 4.0f,
                         isGhostActive ? (theme.primaryAccent * 0.25f) : theme.controlBackground, 0.85f);
@@ -818,6 +976,41 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
         }
     }
 
+    // 3.5 Real-Time Harmonic Chord Follow & MIDI FX Evaluated Notes Layer (Eatsbeats parity)
+    if (hasActiveChordFollowOrMidiFx()) {
+        for (const auto& ev : evaluatedFxNotes_) {
+            bool matchesBase = false;
+            for (const auto& bn : notes_) {
+                if (std::abs(bn.startStep - ev.startStep) < 0.05f && bn.pitch == ev.pitch) {
+                    matchesBase = true;
+                    break;
+                }
+            }
+            if (matchesBase) continue; // Unchanged base note
+
+            float ex = gridBounds_.x + ev.startStep * stepWidth_ - scrollX_;
+            float ew = std::max(6.0f, ev.durationSteps * stepWidth_ - 2.0f);
+            float ey = gridBounds_.y + static_cast<float>(maxPitch_ - ev.pitch) * semitoneHeight_ - scrollY_ + 1.5f;
+            float eh = semitoneHeight_ - 3.0f;
+
+            if (ex + ew < gridBounds_.x || ex > gridBounds_.x + gridBounds_.w) continue;
+            if (ey + eh < gridBounds_.y || ey > gridBounds_.y + gridBounds_.h) continue;
+
+            bool isChordMode = (chordFollowMode_ != theory::ChordFollowMode::Off);
+            Color fxBodyCol = isChordMode ? Color(0.95f, 0.72f, 0.12f, 0.28f) : Color(0.0f, 0.88f, 0.98f, 0.25f);
+            Color fxOutlineCol = isChordMode ? Color(1.0f, 0.85f, 0.25f, 0.92f) : Color(0.0f, 0.95f, 1.0f, 0.92f);
+
+            drawRoundedRect(r, ex, ey, ew, eh, 3.5f, fxBodyCol, 0.90f);
+            drawRoundedRectOutline(r, ex, ey, ew, eh, 3.5f, fxOutlineCol, 0.95f, 1.5f);
+
+            std::string evLabel = PianoKeyboard::getNoteName(ev.pitch);
+            if (isChordMode) evLabel += " ~CHORD";
+            else evLabel += " ~FX";
+
+            drawText(r, evLabel, ex + 4.0f, ey + 3.5f, 9.0f, fxOutlineCol, 0.95f);
+        }
+    }
+
     // 4. Interactive Note Blocks
     for (const auto& n : notes_) {
         float nx = gridBounds_.x + n.startStep * stepWidth_ - scrollX_;
@@ -827,6 +1020,21 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
 
         if (nx + nw < gridBounds_.x || nx > gridBounds_.x + gridBounds_.w) continue;
         if (ny + nh < gridBounds_.y || ny > gridBounds_.y + gridBounds_.h) continue;
+
+        // Check if pitch was harmonized/remapped by Chord Follow or MIDI FX
+        int harmonizedPitch = n.pitch;
+        bool isPitchRemapped = false;
+        if (hasActiveChordFollowOrMidiFx()) {
+            for (const auto& ev : evaluatedFxNotes_) {
+                if (std::abs(ev.startStep - n.startStep) < 0.05f) {
+                    harmonizedPitch = ev.pitch;
+                    if (harmonizedPitch != n.pitch) {
+                        isPitchRemapped = true;
+                    }
+                    break;
+                }
+            }
+        }
 
         float alpha = n.isSelected ? 1.0f : 0.88f;
         Color baseCol = n.isSlide ? theme.highlight : trackColor_;
@@ -842,11 +1050,27 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
 
         if (n.isSelected) {
             drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, Color(1.0f, 1.0f, 1.0f), 1.0f, 2.0f);
+        } else if (isPitchRemapped) {
+            // Distinct glowing gold/cyan border for notes affected by Chord Follow / MIDI FX
+            Color harmCol = (chordFollowMode_ != theory::ChordFollowMode::Off)
+                ? Color(1.0f, 0.84f, 0.20f, 0.95f)
+                : Color(0.0f, 0.95f, 1.0f, 0.95f);
+            drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, harmCol, 1.0f, 1.8f);
+
+            // Connect base note to harmonized pitch location with subtle guide line
+            float targetY = gridBounds_.y + static_cast<float>(maxPitch_ - harmonizedPitch) * semitoneHeight_ - scrollY_ + 1.5f;
+            drawLine(r, nx + nw * 0.5f, ny + nh * 0.5f, nx + nw * 0.5f, targetY + nh * 0.5f,
+                     harmCol * 0.7f, 0.55f, 1.0f);
         } else {
             drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, noteCol * 1.3f, 0.5f + 0.4f * v, 1.0f);
         }
 
         std::string nName = PianoKeyboard::getNoteName(n.pitch);
+        if (isPitchRemapped) {
+            nName += " -> " + PianoKeyboard::getNoteName(harmonizedPitch);
+        } else if (chordFollowMode_ != theory::ChordFollowMode::Off) {
+            nName += " [H]";
+        }
         if (n.isSlide) nName += " ~SLD";
         drawText(r, nName, nx + 4.0f, ny + 3.5f, 9.5f, Color(0.1f, 0.1f, 0.1f), 0.95f);
 
@@ -1453,6 +1677,12 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     lastMouseY_ = ev.y;
 
     if (ev.action == PointerAction::Down) {
+        // Bake Chord Follow & MIDI FX button
+        if (hasActiveChordFollowOrMidiFx() && btnBake_.contains(ev.x, ev.y)) {
+            bakeChordFollowAndMidiFx();
+            return true;
+        }
+
         // 1. Sub-View Switcher buttons
         if (btnPianoRoll_.contains(ev.x, ev.y)) { setSubView(EditSubViewMode::PianoRoll); return true; }
         if (btnTracker_.contains(ev.x, ev.y)) { setSubView(EditSubViewMode::Tracker); return true; }
@@ -1503,8 +1733,13 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 
             float audBtnX = sidebarBounds_.x + sidebarBounds_.w - 42.0f;
             if (Rect2D(audBtnX, durY + 44.0f, 26.0f, 22.0f).contains(ev.x, ev.y)) {
-                for (const auto& n : notes_) {
-                    if (n.isSelected) { auditionPitch(n.pitch, n.velocity, ctx); break; }
+                for (size_t ni = 0; ni < notes_.size(); ++ni) {
+                    const auto& n = notes_[ni];
+                    if (n.isSelected) {
+                        int audPitch = (hasActiveChordFollowOrMidiFx() && ni < evaluatedFxNotes_.size()) ? evaluatedFxNotes_[ni].pitch : n.pitch;
+                        auditionPitch(audPitch, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                        break;
+                    }
                 }
                 return true;
             }
@@ -1610,7 +1845,7 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                             if (sel.isSelected) batchDragOrigins_.push_back({sel.startStep, sel.pitch});
                         }
 
-                        auditionPitch(n.pitch, n.velocity, ctx);
+                        auditionPitch((hasActiveChordFollowOrMidiFx() && i < evaluatedFxNotes_.size()) ? evaluatedFxNotes_[i].pitch : n.pitch, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
                         return true;
                     }
                 }
@@ -1643,7 +1878,9 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     if (std::abs(ev.x - sx) < 8.0f) {
                         float v = 1.0f - ((ev.y - velocityLaneBounds_.y) / velocityLaneBounds_.h);
                         n.velocity = std::clamp(v, 0.05f, 1.0f);
-                        auditionPitch(n.pitch, n.velocity, ctx);
+                        int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                            ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                        auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
                         return true;
                     }
                 }
@@ -1667,7 +1904,9 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     for (auto& n : notes_) {
                         if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
                             n.isSelected = true;
-                            auditionPitch(n.pitch, n.velocity, ctx);
+                            int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                                ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                            auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
                             break;
                         }
                     }
@@ -1856,7 +2095,7 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         if (dragMode_ == DragMode::ResizeNotes && activeDragNoteIdx_ >= 0 && activeDragNoteIdx_ < static_cast<int>(notes_.size())) {
             float deltaX = ev.x - dragStartPoint_.x;
             float durDelta = deltaX / stepWidth_;
-            notes_[activeDragNoteIdx_].durationSteps = std::clamp(activeDragInitialDur_ + durDelta, 0.25f, 16.0f);
+            notes_[activeDragNoteIdx_].durationSteps = std::clamp(activeDragInitialDur_ + durDelta, 0.25f, 64.0f);
             return true;
         }
     } else if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {

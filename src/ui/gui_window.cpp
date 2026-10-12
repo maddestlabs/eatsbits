@@ -20,6 +20,7 @@
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/floating_window_manager.hpp"
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -28,6 +29,10 @@
 #include <chrono>
 #include <thread>
 #include "eatsbits/ui/app_icon_data.hpp"
+#include "eatsbits/project/json_parser.hpp"
+#include "eatsbits/ui/widgets/color_picker_dialog.hpp"
+#include <fstream>
+#include <filesystem>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -38,6 +43,7 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <shellapi.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -605,18 +611,11 @@ void drawSvgLayers(std::span<const SvgLayerDef> layers, float x, float y, float 
 
 namespace {
 
-inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
-                             const std::optional<Color>& tint = std::nullopt) {
+inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
     if (!g_activeBatchRenderer || w <= 0.0f || h <= 0.0f) return;
 
-    Color gradTop, gradBot;
-    if (tint.has_value()) {
-        gradTop = tint->lighten(0.06f);
-        gradBot = tint->darken(0.08f);
-    } else {
-        gradTop = isTopPanel ? theme.panelHeaderGradientTop : theme.panelHeaderGradientTop.darken(0.04f);
-        gradBot = isTopPanel ? theme.panelHeaderGradientBottom : theme.panelHeaderGradientBottom.darken(0.08f);
-    }
+    Color gradTop = isTopPanel ? theme.panelHeaderGradientTop : theme.panelHeaderGradientTop.darken(0.04f);
+    Color gradBot = isTopPanel ? theme.panelHeaderGradientBottom : theme.panelHeaderGradientBottom.darken(0.08f);
 
     g_activeBatchRenderer->drawRectGradient(x, y, w, h,
                                            gradTop.r, gradTop.g, gradTop.b,
@@ -1041,6 +1040,43 @@ void drawVectorGlyph(uint32_t c, float x, float y, float scale, float r, float g
             seg(x, y + 4.0f * scale, x + 7.0f * scale, y + 4.0f * scale);
             seg(x + 3.5f * scale, y, x + 3.5f * scale, y + 8.0f * scale);
             break;
+        case 0x21C6: // ⇆ Left arrow over right arrow (swap)
+            // Top arrow (points left)
+            seg(x + 6.2f * scale, y + 2.4f * scale, x + 1.0f * scale, y + 2.4f * scale);
+            seg(x + 1.0f * scale, y + 2.4f * scale, x + 2.8f * scale, y + 1.0f * scale);
+            seg(x + 1.0f * scale, y + 2.4f * scale, x + 2.8f * scale, y + 3.8f * scale);
+            // Bottom arrow (points right)
+            seg(x + 1.0f * scale, y + 5.6f * scale, x + 6.2f * scale, y + 5.6f * scale);
+            seg(x + 6.2f * scale, y + 5.6f * scale, x + 4.4f * scale, y + 4.2f * scale);
+            seg(x + 6.2f * scale, y + 5.6f * scale, x + 4.4f * scale, y + 7.0f * scale);
+            break;
+        case 0x21C4: // ⇄ Right arrow over left arrow (swap)
+            // Top arrow (points right)
+            seg(x + 1.0f * scale, y + 2.4f * scale, x + 6.2f * scale, y + 2.4f * scale);
+            seg(x + 6.2f * scale, y + 2.4f * scale, x + 4.4f * scale, y + 1.0f * scale);
+            seg(x + 6.2f * scale, y + 2.4f * scale, x + 4.4f * scale, y + 3.8f * scale);
+            // Bottom arrow (points left)
+            seg(x + 6.2f * scale, y + 5.6f * scale, x + 1.0f * scale, y + 5.6f * scale);
+            seg(x + 1.0f * scale, y + 5.6f * scale, x + 2.8f * scale, y + 4.2f * scale);
+            seg(x + 1.0f * scale, y + 5.6f * scale, x + 2.8f * scale, y + 7.0f * scale);
+            break;
+        case 0x2190: // ← Left arrow
+            seg(x + 6.5f * scale, y + 4.0f * scale, x + 0.8f * scale, y + 4.0f * scale);
+            seg(x + 0.8f * scale, y + 4.0f * scale, x + 3.0f * scale, y + 1.6f * scale);
+            seg(x + 0.8f * scale, y + 4.0f * scale, x + 3.0f * scale, y + 6.4f * scale);
+            break;
+        case 0x2192: // → Right arrow
+            seg(x + 0.8f * scale, y + 4.0f * scale, x + 6.5f * scale, y + 4.0f * scale);
+            seg(x + 6.5f * scale, y + 4.0f * scale, x + 4.3f * scale, y + 1.6f * scale);
+            seg(x + 6.5f * scale, y + 4.0f * scale, x + 4.3f * scale, y + 6.4f * scale);
+            break;
+        case 0x2194: // ↔ Left right arrow
+            seg(x + 1.0f * scale, y + 4.0f * scale, x + 6.2f * scale, y + 4.0f * scale);
+            seg(x + 1.0f * scale, y + 4.0f * scale, x + 2.8f * scale, y + 2.2f * scale);
+            seg(x + 1.0f * scale, y + 4.0f * scale, x + 2.8f * scale, y + 5.8f * scale);
+            seg(x + 6.2f * scale, y + 4.0f * scale, x + 4.4f * scale, y + 2.2f * scale);
+            seg(x + 6.2f * scale, y + 4.0f * scale, x + 4.4f * scale, y + 5.8f * scale);
+            break;
         default:
             break;
     }
@@ -1074,7 +1110,8 @@ inline uint32_t decodeNextUtf8(const char*& p, const char* end) {
 inline bool isSpecialSymbol(uint32_t cp) {
     return (cp >= 0x2500 && cp <= 0x257F) || // Box drawing
            (cp >= 0x2660 && cp <= 0x266F) || // Music notes
-           (cp >= 0x25A0 && cp <= 0x25FF);   // Geometric shapes
+           (cp >= 0x25A0 && cp <= 0x25FF) || // Geometric shapes
+           (cp >= 0x2190 && cp <= 0x21FF);   // Arrows and swap symbols (⇄, ⇆, etc.)
 }
 
 void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
@@ -1596,6 +1633,7 @@ GuiWindow::GuiWindow(uint32_t width, uint32_t height, const std::string& title)
     initNoteScriptEditor();
     initArrangerTracks();
     audio::ClapPluginLoader::instance().scanDirectoriesAsync();
+    loadSettings();
 }
 
 GuiWindow::~GuiWindow() {
@@ -2277,6 +2315,110 @@ void GuiWindow::toggleFullscreenDevice() noexcept {
             openFullscreenDevice(selectedTrackIndex_);
         }
     }
+}
+
+void GuiWindow::openDetachedInstrument(uint32_t trackIndex) {
+#if !defined(__EMSCRIPTEN__)
+    uint32_t tIdx = (trackIndex < arrangerTracks_.size()) ? trackIndex : selectedTrackIndex_;
+    selectedTrackIndex_ = tIdx;
+
+    auto clapNode = engine_ ? engine_->getTrackClapNode(tIdx) : nullptr;
+    if (clapNode && clapNode->hasGui()) {
+        if (fullscreenDeviceModal_.isOpen() && fullscreenDeviceModal_.getTarget().trackIndex == tIdx) {
+            clapNode->destroyEmbeddedGui();
+            fullscreenDeviceModal_.setIsGuiEmbedded(false);
+            fullscreenDeviceModal_.close();
+        } else if (clapNode->isEmbeddedGuiOpen()) {
+            clapNode->destroyEmbeddedGui();
+        }
+        clapNode->onGuiClosed = [tIdx]() {
+            FloatingWindowManager::instance().closeDetachedInstrument(tIdx);
+        };
+        bool ok = clapNode->openGuiWindow();
+        if (ok) {
+            FloatingWindowManager::instance().openDetachedInstrument(tIdx, clapNode->getPluginName(), GuiPanelDef{}, window_, true, clapNode->getGuiHwnd());
+            setStatusMessage("Popped out plugin window: " + clapNode->getPluginName());
+        } else {
+            setStatusMessage("Could not open native window for " + clapNode->getPluginName());
+        }
+        return;
+    }
+
+    syncTrackToPreset(tIdx);
+    std::string instName = (tIdx < arrangerTracks_.size() && !arrangerTracks_[tIdx].instrument.empty())
+        ? arrangerTracks_[tIdx].instrument
+        : "Instrument " + std::to_string(tIdx + 1);
+
+    if (fullscreenDeviceModal_.isOpen() && fullscreenDeviceModal_.getTarget().trackIndex == tIdx) {
+        fullscreenDeviceModal_.close();
+    }
+
+    TrackPropertiesDrawerData data;
+    data.trackIndex = tIdx;
+    if (tIdx < arrangerTracks_.size()) {
+        const auto& at = arrangerTracks_[tIdx];
+        data.trackName = at.name;
+        data.r = at.r;
+        data.g = at.g;
+        data.b = at.b;
+        data.volume = at.volume;
+        data.pan = at.pan;
+        data.mute = at.mute;
+        data.solo = at.solo;
+        data.freeze = at.freeze;
+        data.midiFxData = at.midiFx;
+        data.audioFxData = at.audioFx;
+        data.instrument = at.instrument;
+        data.instrumentEngine = at.instrumentEngine;
+        data.presetTitle = at.instrument.empty() ? at.name : at.instrument;
+        data.presetSubtitle = at.name + " • " + (at.instrument.empty() ? "Track" : at.instrument);
+    }
+    data.syncKnobsIfEmpty();
+
+    DeviceTarget target;
+    target.type = DeviceTargetType::Instrument;
+    target.trackIndex = tIdx;
+    target.fxIndex = -1;
+    target.deviceName = instName;
+
+    fullscreenDeviceModal_.open(target);
+    fullscreenDeviceModal_.syncData(data);
+    GuiPanelDef panel = fullscreenDeviceModal_.getGuiPanel();
+    fullscreenDeviceModal_.close();
+
+    FloatingWindowManager::instance().onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        if (idx != selectedTrackIndex_) {
+            setSelectedTrackIndex(idx);
+        }
+        syncTrackToPreset(idx);
+        dispatchHardwareParam(paramName, normVal);
+    };
+
+    bool spawned = FloatingWindowManager::instance().openDetachedInstrument(tIdx, instName, panel, window_, false);
+    if (spawned) {
+        setStatusMessage("Opened detached floating window: " + instName);
+    }
+#else
+    (void)trackIndex;
+    setStatusMessage("Detached windows are not supported in Web build.");
+#endif
+}
+
+void GuiWindow::closeDetachedInstrument(uint32_t trackIndex) {
+#if !defined(__EMSCRIPTEN__)
+    FloatingWindowManager::instance().closeDetachedInstrument(trackIndex);
+#else
+    (void)trackIndex;
+#endif
+}
+
+bool GuiWindow::isDetachedInstrumentOpen(uint32_t trackIndex) const noexcept {
+#if !defined(__EMSCRIPTEN__)
+    return FloatingWindowManager::instance().isDetached(trackIndex);
+#else
+    (void)trackIndex;
+    return false;
+#endif
 }
 
 void GuiWindow::initDefaultKnobValues() {
@@ -3036,11 +3178,29 @@ void GuiWindow::syncActiveClipToEditView(uint32_t trackIdx, int clipIdx) {
 
     if (!trk.clips.empty() && static_cast<size_t>(cIdx) < trk.clips.size()) {
         modularArrangerView_->setSelectedClip(cIdx);
+
+        // Build MIDI FX rack for EditView
+        std::vector<eatscript::MidiFxInsert> mfxRack;
+        for (const auto& fx : trk.midiFx) {
+            if (!fx.enabled) continue;
+            eatscript::MidiFxInsert ins;
+            ins.name = fx.name;
+            ins.type = eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+            ins.enabled = fx.enabled;
+            ins.params["rootKey"] = static_cast<float>(fx.rootKey);
+            ins.params["scaleMode"] = static_cast<float>(fx.scaleMode);
+            for (const auto& k : fx.knobs) ins.params[k.name] = k.value;
+            mfxRack.push_back(ins);
+        }
+
         modularEditView_->loadFromArrangerClip(
             trk.clips[cIdx],
             trk.name,
             Color(trk.r, trk.g, trk.b),
-            tracks
+            tracks,
+            trk.chordFollowMode,
+            mfxRack,
+            modularArrangerView_->getChordTrack()
         );
     }
 }
@@ -3111,9 +3271,11 @@ void GuiWindow::syncArrangerToSequencer() {
             sd.active = true;
             sd.note = noteList[0].pitch;
             sd.velocity = std::clamp(noteList[0].velocity, 0.05f, 1.0f);
-            sd.gateLength = (noteList[0].lengthBeats <= 0.25f)
-                ? std::clamp(noteList[0].lengthBeats * 4.0f, 0.2f, 0.85f)
-                : 0.95f;
+            float maxBeats = 0.0f;
+            for (const auto& n : noteList) {
+                maxBeats = std::max(maxBeats, n.lengthBeats);
+            }
+            sd.gateLength = std::clamp(maxBeats * 4.0f, 0.1f, 128.0f);
             for (size_t i = 1; i < noteList.size(); ++i) {
                 sd.extraNotes.push_back(noteList[i].pitch);
             }
@@ -3121,6 +3283,7 @@ void GuiWindow::syncArrangerToSequencer() {
         }
 
         seqTrack->setChordFollowMode(arrTrack.chordFollowMode);
+        syncTrackMidiFxToEngine(t);
     }
     seq.setChordTrack(modularArrangerView_->getChordTrack());
 }
@@ -3227,7 +3390,7 @@ void GuiWindow::syncArrangerFromSequencer() {
             ArrangerClipNote note;
             note.pitch = step.note;
             note.startBeat = static_cast<float>(s) * 0.25f; // 16 steps = 4 beats = 1 bar
-            note.lengthBeats = std::clamp(step.gateLength * 0.25f, 0.05f, 1.0f);
+            note.lengthBeats = std::clamp(step.gateLength * 0.25f, 0.05f, 64.0f);
             note.velocity = std::clamp(step.velocity, 0.05f, 1.0f);
             clip.notes.push_back(note);
 
@@ -3251,6 +3414,7 @@ void GuiWindow::syncArrangerFromSequencer() {
         legTrk.mute = tArr.mute;
         legTrk.solo = tArr.solo;
         legTrk.freeze = tArr.freeze;
+        legTrk.chordFollowMode = tArr.chordFollowMode;
 
         ArrangerClip legClip;
         legClip.name = clip.name;
@@ -3282,13 +3446,12 @@ void GuiWindow::syncArrangerFromSequencer() {
 void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
     if (!engine_ || !modularArrangerView_) return;
 
-    // Bridge Inspector and Arranger Audio FX lists
+    // Bridge Inspector, Mixer, and Arranger Audio FX lists
     if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size() && trackIdx < modularArrangerView_->getTracks().size()) {
-        if (!modularArrangerView_->getTracks()[trackIdx].audioFx.empty()) {
-            modularTrackInspectorView_->getTracks()[trackIdx].audioFxList = modularArrangerView_->getTracks()[trackIdx].audioFx;
-        } else if (!modularTrackInspectorView_->getTracks()[trackIdx].audioFxList.empty()) {
-            modularArrangerView_->getTracks()[trackIdx].audioFx = modularTrackInspectorView_->getTracks()[trackIdx].audioFxList;
-        }
+        modularTrackInspectorView_->getTracks()[trackIdx].audioFxList = modularArrangerView_->getTracks()[trackIdx].audioFx;
+    }
+    if (modularMixerView_ && trackIdx < modularMixerView_->getChannels().size() && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularMixerView_->getChannels()[trackIdx].audioFx = modularArrangerView_->getTracks()[trackIdx].audioFx;
     }
 
     const auto& tracks = modularArrangerView_->getTracks();
@@ -3313,13 +3476,12 @@ void GuiWindow::syncTrackAudioFxToEngine(uint32_t trackIdx) {
 void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
     if (!engine_ || !modularArrangerView_) return;
 
-    // Bridge Inspector and Arranger MIDI FX lists
+    // Bridge Inspector, Mixer, and Arranger MIDI FX lists
     if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size() && trackIdx < modularArrangerView_->getTracks().size()) {
-        if (!modularArrangerView_->getTracks()[trackIdx].midiFx.empty()) {
-            modularTrackInspectorView_->getTracks()[trackIdx].midiFxList = modularArrangerView_->getTracks()[trackIdx].midiFx;
-        } else if (!modularTrackInspectorView_->getTracks()[trackIdx].midiFxList.empty()) {
-            modularArrangerView_->getTracks()[trackIdx].midiFx = modularTrackInspectorView_->getTracks()[trackIdx].midiFxList;
-        }
+        modularTrackInspectorView_->getTracks()[trackIdx].midiFxList = modularArrangerView_->getTracks()[trackIdx].midiFx;
+    }
+    if (modularMixerView_ && trackIdx < modularMixerView_->getChannels().size() && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularMixerView_->getChannels()[trackIdx].midiFx = modularArrangerView_->getTracks()[trackIdx].midiFx;
     }
 
     const auto& tracks = modularArrangerView_->getTracks();
@@ -3329,37 +3491,11 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
     if (!seqTrack) return;
 
     auto& trk = modularArrangerView_->getTracks()[trackIdx];
-
-    // If the list is empty, bridge from arrangerTracks_[trackIdx].midiFx flags if present
-    if (trk.midiFx.empty() && trackIdx < arrangerTracks_.size()) {
-        const auto& legacyFx = arrangerTracks_[trackIdx].midiFx;
-        if (legacyFx.scaleSnapEnabled) {
-            TrackMidiFxItem snap("Scale Snap", "SCALE_SNAP", legacyFx.scaleRoot, legacyFx.scaleMinor ? 1 : 0, true);
-            trk.midiFx.push_back(snap);
-        }
-        if (legacyFx.arpEnabled) {
-            TrackMidiFxItem arp("Arpeggiator", "ARPEGGIATOR", true);
-            arp.knobs = {
-                {"rate", "RATE", legacyFx.arpRate, "1/16", ""},
-                {"pattern", "PATTERN", static_cast<float>(legacyFx.arpPattern) / 4.0f, "UP", ""},
-                {"octaves", "OCTAVES", static_cast<float>(legacyFx.arpOctaves - 1) / 3.0f, std::to_string(legacyFx.arpOctaves), "oct"},
-                {"gate", "GATE", legacyFx.arpGate, "75%", ""},
-                {"swing", "SWING", legacyFx.arpSwing, "0%", "%"}
-            };
-            trk.midiFx.push_back(arp);
-        }
-        if (legacyFx.humanizeEnabled) {
-            TrackMidiFxItem hum("Humanize", "HUMANIZE", true);
-            hum.knobs = {
-                {"timing", "TIMING", legacyFx.humanizeTiming, "15 ms", "ms"},
-                {"velocity", "VELOCITY", legacyFx.humanizeVelocity, "20%", "%"},
-                {"swing", "SWING", 0.50f, "50%", "%"}
-            };
-            trk.midiFx.push_back(hum);
-        }
-        if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
-            modularTrackInspectorView_->getTracks()[trackIdx].midiFxList = trk.midiFx;
-        }
+    if (trackIdx < arrangerTracks_.size()) {
+        auto& legacyFx = arrangerTracks_[trackIdx].midiFx;
+        legacyFx.scaleSnapEnabled = false;
+        legacyFx.arpEnabled = false;
+        legacyFx.humanizeEnabled = false;
     }
 
     std::vector<eatsbits::eatscript::MidiFxInsert> rack;
@@ -3371,6 +3507,16 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
         insert.name = fx.name;
         insert.enabled = fx.enabled;
         insert.type = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+        if (trackIdx < arrangerTracks_.size()) {
+            auto& legacyFx = arrangerTracks_[trackIdx].midiFx;
+            if (insert.type == eatsbits::eatscript::MidiFxType::Arpeggiator && fx.enabled) {
+                legacyFx.arpEnabled = true;
+            } else if (insert.type == eatsbits::eatscript::MidiFxType::ScaleSnap && fx.enabled) {
+                legacyFx.scaleSnapEnabled = true;
+            } else if (insert.type == eatsbits::eatscript::MidiFxType::Humanize && fx.enabled) {
+                legacyFx.humanizeEnabled = true;
+            }
+        }
         insert.params["rootKey"] = static_cast<float>(fx.rootKey);
         insert.params["scaleMode"] = static_cast<float>(fx.scaleMode);
 
@@ -3411,6 +3557,10 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
         rack.push_back(std::move(insert));
     }
     seqTrack->setMidiFxRack(std::move(rack));
+
+    if (modularEditView_ && selectedTrackIndex_ == trackIdx) {
+        modularEditView_->setMidiFxRack(seqTrack->getMidiFxRack());
+    }
 }
 
 void GuiWindow::syncAllTracksFxToEngine() {
@@ -3420,6 +3570,125 @@ void GuiWindow::syncAllTracksFxToEngine() {
         syncTrackAudioFxToEngine(i);
         syncTrackMidiFxToEngine(i);
     }
+}
+
+void GuiWindow::bakeTrackChordsAndFx(uint32_t trackIdx) {
+    if (!engine_ || !modularArrangerView_) return;
+    auto& arrTracks = modularArrangerView_->getTracks();
+    if (trackIdx >= arrTracks.size()) return;
+
+    auto& arrTrk = arrTracks[trackIdx];
+    auto* seqTrk = engine_->getSequencer().getTrack(trackIdx);
+
+    // 1. If modularEditView_ is viewing this track, bake its notes
+    if (modularEditView_ && selectedTrackIndex_ == trackIdx) {
+        modularEditView_->setChordFollowMode(arrTrk.chordFollowMode);
+        modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+        modularEditView_->bakeChordFollowAndMidiFx();
+
+        int cIdx = modularArrangerView_->getSelectedClipIndex();
+        if (cIdx >= 0 && static_cast<size_t>(cIdx) < arrTrk.clips.size()) {
+            modularEditView_->writeBackToArrangerClip(arrTrk.clips[cIdx]);
+            modularArrangerView_->updateClipDetectedChords(arrTrk.clips[cIdx]);
+        }
+    } else {
+        // Bake across all clips on the track using ArrangerView & MidiPipelineEngine
+        if (arrTrk.chordFollowMode != theory::ChordFollowMode::Off) {
+            modularArrangerView_->bakeChordsToTrack(trackIdx);
+        }
+        bool hasMidiFx = false;
+        for (const auto& fx : arrTrk.midiFx) {
+            if (fx.enabled) { hasMidiFx = true; break; }
+        }
+        if (hasMidiFx) {
+            eatscript::TimeContext timeCtx{};
+            timeCtx.bpm = engine_->getSequencer().getTransport().getBpm();
+            if (!modularArrangerView_->getChordTrack().empty()) {
+                const auto& ch = modularArrangerView_->getChordTrack().front();
+                timeCtx.activeChordRoot = ch.rootPitchClass;
+                timeCtx.activeChordQuality = theory::getChordQualityDisplayName(ch.quality);
+                timeCtx.chordPitchClasses = ch.getPitchClasses();
+                timeCtx.bassPitchClass = ch.bassPitchClass >= 0 ? ch.bassPitchClass : ch.rootPitchClass;
+            }
+            std::vector<eatscript::MidiFxInsert> rack;
+            for (const auto& fx : arrTrk.midiFx) {
+                if (!fx.enabled) continue;
+                eatscript::MidiFxInsert ins;
+                ins.name = fx.name;
+                ins.type = eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+                ins.enabled = true;
+                ins.params["rootKey"] = static_cast<float>(fx.rootKey);
+                ins.params["scaleMode"] = static_cast<float>(fx.scaleMode);
+                for (const auto& k : fx.knobs) ins.params[k.name] = k.value;
+                rack.push_back(ins);
+            }
+            for (auto& clip : arrTrk.clips) {
+                std::vector<eatscript::MidiNote> mNotes;
+                for (size_t ci = 0; ci < clip.notes.size(); ++ci) {
+                    eatscript::MidiNote mn;
+                    mn.id = "c_" + std::to_string(ci);
+                    mn.pitch = clip.notes[ci].pitch;
+                    mn.startStep = clip.notes[ci].startBeat * 4.0f;
+                    mn.durationSteps = clip.notes[ci].lengthBeats * 4.0f;
+                    mn.velocity = clip.notes[ci].velocity;
+                    mNotes.push_back(mn);
+                }
+                auto transformed = eatscript::MidiPipelineEngine::processPipeline(rack, mNotes, timeCtx);
+                clip.notes.clear();
+                for (const auto& tn : transformed) {
+                    ArrangerClipNote an;
+                    an.pitch = tn.pitch;
+                    an.startBeat = static_cast<float>(tn.startStep) / 4.0f;
+                    an.lengthBeats = static_cast<float>(tn.durationSteps) / 4.0f;
+                    an.velocity = static_cast<float>(tn.velocity);
+                    clip.notes.push_back(an);
+                }
+                modularArrangerView_->updateClipDetectedChords(clip);
+            }
+        }
+    }
+
+    // 2. Reset Chord Follow Mode to Off
+    arrTrk.chordFollowMode = theory::ChordFollowMode::Off;
+    if (trackIdx < arrangerTracks_.size()) {
+        arrangerTracks_[trackIdx].chordFollowMode = theory::ChordFollowMode::Off;
+    }
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
+        modularTrackInspectorView_->getTracks()[trackIdx].chordFollowMode = theory::ChordFollowMode::Off;
+    }
+    if (seqTrk) {
+        seqTrk->setChordFollowMode(theory::ChordFollowMode::Off);
+    }
+
+    // 3. Disable MIDI FX rack units
+    for (auto& fx : arrTrk.midiFx) fx.enabled = false;
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
+        for (auto& fx : modularTrackInspectorView_->getTracks()[trackIdx].midiFxList) fx.enabled = false;
+    }
+    if (modularMixerView_ && trackIdx < modularMixerView_->getChannels().size()) {
+        for (auto& fx : modularMixerView_->getChannels()[trackIdx].midiFx) fx.enabled = false;
+    }
+    syncTrackMidiFxToEngine(trackIdx);
+
+    // 4. Sync Arranger to Sequencer to update playback steps
+    syncArrangerToSequencer();
+
+    // 5. Update Track's Script content (the source of truth for note data)
+    if (seqTrk) {
+        std::string script = eatscript::NoteScriptEngine::serializeTrackNotes(*seqTrk);
+        seqTrk->setEatscriptCode(script);
+        if (selectedTrackIndex_ == trackIdx) {
+            setScriptCode(script);
+        }
+    }
+
+    // 6. Refresh EditView with baked notes if active
+    if (modularEditView_ && selectedTrackIndex_ == trackIdx) {
+        syncActiveClipToEditView(trackIdx, modularArrangerView_->getSelectedClipIndex());
+    }
+
+    recordProjectHistory("Bake Chords & MIDI FX on Track " + std::to_string(trackIdx + 1), "CHORD");
+    setStatusMessage("Harmonic chords & MIDI FX baked into Track " + std::to_string(trackIdx + 1) + " Script");
 }
 
 void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
@@ -3790,13 +4059,15 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     initDefaultKnobValues();
     initHistory();
     updateMixerStrips();
-    while (mixerStrips_.size() < 5) {
-        MixerStrip strip;
-        size_t idx = mixerStrips_.size();
-        strip.name = (idx == 0) ? "303 Acid Bass" : ((idx == 1) ? "TR-808 Kit" : ((idx == 2) ? "TR-909 Drive" : ((idx == 3) ? "DX7 Rhodes" : "Concert Grand")));
-        strip.nodeId = static_cast<audio::NodeId>(idx + 1);
-        strip.volume = 0.8f;
-        mixerStrips_.push_back(strip);
+    if (engine_->getSequencer().getNumTracks() != 2) {
+        while (mixerStrips_.size() < 5) {
+            MixerStrip strip;
+            size_t idx = mixerStrips_.size();
+            strip.name = (idx == 0) ? "303 Acid Bass" : ((idx == 1) ? "TR-808 Kit" : ((idx == 2) ? "TR-909 Drive" : ((idx == 3) ? "DX7 Rhodes" : "Concert Grand")));
+            strip.nodeId = static_cast<audio::NodeId>(idx + 1);
+            strip.volume = 0.8f;
+            mixerStrips_.push_back(strip);
+        }
     }
     dawnBridge_.initialize(width_, height_);
 
@@ -3999,7 +4270,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                         step.active = true;
                         step.note = tn.pitch;
                         step.velocity = tn.velocity;
-                        step.gateLength = std::clamp(tn.durationSteps / 2.0f, 0.2f, 1.0f);
+                        step.gateLength = std::clamp(tn.durationSteps, 0.1f, 64.0f);
                     }
                 }
             }
@@ -4069,6 +4340,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 trk.r = entry.r;
                 trk.g = entry.g;
                 trk.b = entry.b;
+                modularArrangerView_->syncDrawerDataForTrack(targetIdx);
             }
             if (modularTrackInspectorView_ && targetIdx < modularTrackInspectorView_->getTracks().size()) {
                 auto& trk = modularTrackInspectorView_->getTracks()[targetIdx];
@@ -4078,6 +4350,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 trk.r = entry.r;
                 trk.g = entry.g;
                 trk.b = entry.b;
+                modularTrackInspectorView_->syncKnobsForTrack(trk);
+                modularTrackInspectorView_->updateDrawerData();
+            }
+            if (modularMixerView_ && targetIdx < modularMixerView_->getChannels().size()) {
+                auto& ch = modularMixerView_->getChannels()[targetIdx];
+                ch.name = entry.name;
+                ch.instrument = entry.name;
+                ch.r = entry.r; ch.g = entry.g; ch.b = entry.b;
             }
             if (engine_) {
                 engine_->assignTrackInstrument(targetIdx, entry.id.empty() ? entry.name : entry.id);
@@ -4323,16 +4603,26 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
                 modularTrackInspectorView_->getTracks()[idx].chordFollowMode = mode;
             }
+            if (modularMixerView_ && idx < modularMixerView_->getChannels().size()) {
+                modularMixerView_->getChannels()[idx].chordFollowMode = mode;
+            }
             if (engine_) {
                 auto& seq = engine_->getSequencer();
                 if (auto* trk = seq.getTrack(idx)) {
                     trk->setChordFollowMode(mode);
                 }
             }
+            if (modularEditView_ && selectedTrackIndex_ == idx) {
+                modularEditView_->setChordFollowMode(mode);
+                modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+            }
         };
         modularArrangerView_->onChordTrackChanged = [this]() {
             if (engine_ && modularArrangerView_) {
                 engine_->getSequencer().setChordTrack(modularArrangerView_->getChordTrack());
+                if (modularEditView_) {
+                    modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+                }
             }
         };
         modularArrangerView_->onAuditionChord = [this](const theory::ChordEvent& chord) {
@@ -4442,6 +4732,23 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (tIdx < mixerStrips_.size()) {
                 mixerStrips_[tIdx].name = instName;
             }
+            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                auto& trk = modularArrangerView_->getTracks()[tIdx];
+                trk.instrument = instName;
+                trk.instrumentEngine = instId;
+                modularArrangerView_->syncDrawerDataForTrack(tIdx);
+            }
+            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+                auto& trk = modularTrackInspectorView_->getTracks()[tIdx];
+                trk.instrument = instName;
+                trk.instrumentEngine = instId;
+                modularTrackInspectorView_->syncKnobsForTrack(trk);
+                modularTrackInspectorView_->updateDrawerData();
+            }
+            if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+                auto& ch = modularMixerView_->getChannels()[tIdx];
+                ch.instrument = instName;
+            }
             if (engine_) {
                 engine_->assignTrackInstrument(tIdx, instId.empty() ? instName : instId);
             }
@@ -4529,6 +4836,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
             if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[idx].chordFollowMode = mode;
+                modularArrangerView_->syncDrawerDataForTrack(idx);
+            }
+            if (modularMixerView_ && idx < modularMixerView_->getChannels().size()) {
+                modularMixerView_->getChannels()[idx].chordFollowMode = mode;
             }
             if (engine_) {
                 auto& seq = engine_->getSequencer();
@@ -4536,10 +4847,13 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                     trk->setChordFollowMode(mode);
                 }
             }
+            if (modularEditView_ && selectedTrackIndex_ == idx) {
+                modularEditView_->setChordFollowMode(mode);
+                modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+            }
         };
         modularTrackInspectorView_->onBakeChords = [this](uint32_t idx) {
-            recordProjectHistory("Bake Chords on Track " + std::to_string(idx + 1), "CHORD");
-            setStatusMessage("Harmonic chords baked into track " + std::to_string(idx + 1));
+            bakeTrackChordsAndFx(idx);
         };
         modularTrackInspectorView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
             if (idx != selectedTrackIndex_) {
@@ -4661,7 +4975,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             openFullscreenDevice(idx);
         };
         modularTrackInspectorView_->onOpenPluginGui = [this](uint32_t idx) {
-            openFullscreenDevice(idx);
+            openDetachedInstrument(idx);
         };
         modularTrackInspectorView_->onPopulateClapData = [this](uint32_t tIdx, TrackPropertiesDrawerData& d) {
             if (!engine_) return;
@@ -4699,11 +5013,17 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularTrackInspectorView_->onOpenFullscreenMidiFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenMidiFx(idx, static_cast<int>(fxIdx));
         };
+        modularTrackInspectorView_->onOpenDetachedWindow = [this](uint32_t idx) {
+            openDetachedInstrument(idx);
+        };
         modularTrackInspectorView_->getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularTrackInspectorView_->getPanel().onOpenDetachedWindow = [this](uint32_t idx) {
+            openDetachedInstrument(idx);
+        };
         modularTrackInspectorView_->getPanel().onOpenPluginGui = [this](uint32_t idx) {
-            openFullscreenDevice(idx);
+            openDetachedInstrument(idx);
         };
         modularTrackInspectorView_->getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
@@ -4737,6 +5057,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[idx].instrument = instName;
                 modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
+                modularArrangerView_->syncDrawerDataForTrack(idx);
+            }
+            if (modularMixerView_ && idx < modularMixerView_->getChannels().size()) {
+                auto& ch = modularMixerView_->getChannels()[idx];
+                ch.instrument = instName;
             }
             if (engine_) {
                 engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
@@ -4752,6 +5077,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularArrangerView_->onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularArrangerView_->onOpenDetachedWindow = [this](uint32_t idx) {
+            openDetachedInstrument(idx);
+        };
         modularArrangerView_->onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
         };
@@ -4760,6 +5088,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularArrangerView_->getPropertiesDrawer().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
+        };
+        modularArrangerView_->getPropertiesDrawer().onOpenDetachedWindow = [this](uint32_t idx) {
+            openDetachedInstrument(idx);
         };
         modularArrangerView_->getPropertiesDrawer().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
@@ -4770,8 +5101,11 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
         };
+        modularArrangerView_->getPropertiesDrawer().getPanel().onOpenDetachedWindow = [this](uint32_t idx) {
+            openDetachedInstrument(idx);
+        };
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenPluginGui = [this](uint32_t idx) {
-            openFullscreenDevice(idx);
+            openDetachedInstrument(idx);
         };
         modularArrangerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
@@ -4809,11 +5143,15 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (!clapNode || !clapNode->hasGui()) return;
 
         if (fullscreenDeviceModal_.isGuiEmbedded()) {
-            // User clicked DETACH -> Hide embedded child, open floating window
-            clapNode->hideEmbeddedGui();
+            // User clicked DETACH -> Destroy embedded child, open floating window
+            clapNode->destroyEmbeddedGui();
+            clapNode->onGuiClosed = [idx]() {
+                FloatingWindowManager::instance().closeDetachedInstrument(idx);
+            };
             bool floatOk = clapNode->openGuiWindow();
             fullscreenDeviceModal_.setIsGuiEmbedded(false);
             if (floatOk) {
+                FloatingWindowManager::instance().openDetachedInstrument(idx, clapNode->getPluginName(), GuiPanelDef{}, window_, true, clapNode->getGuiHwnd());
                 setStatusMessage("Popped out plugin window: " + clapNode->getPluginName());
             } else {
                 setStatusMessage("Could not float plugin window; keeping generic parameter inspector for " + clapNode->getPluginName());
@@ -4836,6 +5174,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
 #endif
         }
+    };
+    fullscreenDeviceModal_.onOpenDetachedWindow = [this](uint32_t idx) {
+        openDetachedInstrument(idx);
     };
     fullscreenDeviceModal_.onPrevPreset = [this]() {
         prevPreset();
@@ -5085,7 +5426,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             openFullscreenDevice(idx);
         };
         modularMixerView_->getPropertiesDrawer().getPanel().onOpenPluginGui = [this](uint32_t idx) {
-            openFullscreenDevice(idx);
+            openDetachedInstrument(idx);
         };
         modularMixerView_->getPropertiesDrawer().getPanel().onOpenFullscreenAudioFx = [this](uint32_t idx, size_t fxIdx) {
             openFullscreenFx(idx, static_cast<int>(fxIdx));
@@ -5128,6 +5469,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[idx].instrument = instName;
                 modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
+                modularArrangerView_->syncDrawerDataForTrack(idx);
+            }
+            if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
+                auto& trk = modularTrackInspectorView_->getTracks()[idx];
+                trk.instrument = instName;
+                trk.instrumentEngine = instId;
+                modularTrackInspectorView_->syncKnobsForTrack(trk);
+                modularTrackInspectorView_->updateDrawerData();
             }
             if (engine_) {
                 engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
@@ -5136,6 +5485,34 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             syncTrackToPreset(idx);
             recordProjectHistory("Change Track " + std::to_string(idx + 1) + " Instrument to " + instName, "INSTRUMENT");
             setStatusMessage("Changed Track " + std::to_string(idx + 1) + " Instrument: " + instName);
+        };
+        modularMixerView_->onTrackChordFollowChanged = [this](uint32_t idx, theory::ChordFollowMode mode) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].chordFollowMode = mode;
+                recordProjectHistory("Set Chord Follow on Track " + std::to_string(idx + 1), "CHORD");
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].chordFollowMode = mode;
+                modularArrangerView_->syncDrawerDataForTrack(idx);
+            }
+            if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
+                modularTrackInspectorView_->getTracks()[idx].chordFollowMode = mode;
+            }
+            if (engine_) {
+                auto& seq = engine_->getSequencer();
+                if (auto* trk = seq.getTrack(idx)) {
+                    trk->setChordFollowMode(mode);
+                }
+            }
+            if (modularEditView_ && selectedTrackIndex_ == idx) {
+                modularEditView_->setChordFollowMode(mode);
+                if (modularArrangerView_) {
+                    modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+                }
+            }
+        };
+        modularMixerView_->onBakeChords = [this](uint32_t idx) {
+            bakeTrackChordsAndFx(idx);
         };
     }
 
@@ -5168,9 +5545,26 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 syncArrangerToSequencer();
             }
         };
+        modularEditView_->onBakeRequested = [this](uint32_t tIdx, int cIdx) {
+            (void)cIdx;
+            bakeTrackChordsAndFx(tIdx);
+        };
     }
 
-    syncArrangerToSequencer();
+    if (engine_->getSequencer().getNumTracks() == 2) {
+        if (!engine_->getSequencer().getChordTrack().empty()) {
+            modularArrangerView_->setChordTrack(engine_->getSequencer().getChordTrack());
+        }
+        syncArrangerFromSequencer();
+    } else {
+        syncArrangerToSequencer();
+    }
+    if (modularArrangerView_) {
+        engine_->getSequencer().setChordTrack(modularArrangerView_->getChordTrack());
+        if (modularEditView_) {
+            modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+        }
+    }
     syncAllTracksFxToEngine();
     syncActiveClipToEditView(0, 0);
 
@@ -5637,6 +6031,7 @@ bool GuiWindow::isIdle() const noexcept {
     if (!telemetryPresenter_.isSettled()) return false;
     if (activeDragHandler_ != nullptr) return false;
     if (fullscreenDeviceModal_.isOpen()) return false;
+    if (FloatingWindowManager::instance().getOpenCount() > 0) return false;
     if (valueEditDialog_.isOpen()) return false;
     if (commandPaletteDialog_.isOpen()) return false;
     if (audioToMidiDialog_.isOpen()) return false;
@@ -5756,7 +6151,7 @@ void GuiWindow::renderStaticChrome(const ThemeTokens& theme, float width, float 
                      theme.backgroundDark, theme.backgroundDark.darken(0.04f));
 
     // 2. TOP TRANSPORT HEADER BAR (Height = 56px) - Heavy Machined Metal Faceplate
-    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTint_);
+    drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme);
 
     // Top specular rim highlight & uniform bottom machined bevel
     drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -5785,7 +6180,7 @@ void GuiWindow::renderStaticChrome(const ThemeTokens& theme, float width, float 
     // 3. BOTTOM HARDWARE NAVIGATION CONTROL STRIP
     const float chinTopY = is3d ? (bPanelY - 14.0f) : bPanelY;
     const float chinTotalH = is3d ? (bPanelH + 14.0f) : bPanelH;
-    drawChassisPlate(0.0f, chinTopY, width, chinTotalH, false, theme, panelChassisTint_);
+    drawChassisPlate(0.0f, chinTopY, width, chinTotalH, false, theme);
     drawLine(0.0f, chinTopY, width, chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
     drawLine(0.0f, chinTopY + 1.5f, width, chinTopY + 1.5f, theme.backgroundDark, 1.0f);
 }
@@ -5809,7 +6204,7 @@ void GuiWindow::drawTopTransportBar() {
         batchRenderer_->drawCachedChromeRegion(0.0f, 0.0f, 0.0f, 0.0f, r, 56.0f);
     } else {
         // Procedural Theme-Tinted Grungy Metal Chassis Faceplate (Shader-Off & Base)
-        drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme, panelChassisTint_);
+        drawChassisPlate(0.0f, 0.0f, r, 56.0f, true, theme);
 
         // Top specular rim highlight & uniform bottom machined bevel
         drawLine(0.0f, 0.0f, r, 0.0f, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -6377,7 +6772,7 @@ void GuiWindow::renderFrame() {
             batchRenderer_->drawCachedChromeRegion(0.0f, chinTopY, 0.0f, chinTopY, static_cast<float>(width_), chinTotalH);
         } else {
             // Procedural Theme-Tinted Grungy Metal Chin Chassis (matching top panel)
-            drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme, panelChassisTint_);
+            drawChassisPlate(0.0f, chinTopY, static_cast<float>(width_), chinTotalH, false, theme);
 
             // Top lip specular highlight line & crevice
             drawLine(0.0f, chinTopY, static_cast<float>(width_), chinTopY, theme.borderSubtle.lighten(0.15f), 1.5f);
@@ -6562,19 +6957,18 @@ void GuiWindow::renderFrame() {
             const float headerH = 30.0f;
             const float headerGap = 6.0f;
             const float headerStep = headerH + headerGap; // 36.0f
-            const int numSections = 7;
+            const int numSections = 6;
             // Maximum height available for any expanded drawer inside the dialog
             const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap;
 
             float curDrawerH = 0.0f;
             if (projectHubSection_ >= 0) {
                 if (projectHubSection_ == 0) curDrawerH = 190.0f;
-                else if (projectHubSection_ == 1) curDrawerH = 114.0f;
+                else if (projectHubSection_ == 1) curDrawerH = 186.0f;
                 else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-                else if (projectHubSection_ == 3) curDrawerH = 100.0f;
-                else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
-                else if (projectHubSection_ == 5) curDrawerH = 176.0f;
-                else if (projectHubSection_ == 6) curDrawerH = 100.0f;
+                else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
+                else if (projectHubSection_ == 4) curDrawerH = 176.0f;
+                else if (projectHubSection_ == 5) curDrawerH = 100.0f;
             }
 
             const float drawerX = hubX + 16.0f;
@@ -6583,7 +6977,7 @@ void GuiWindow::renderFrame() {
             const float drawerH = curDrawerH;
 
             // Configure scrollable area constrained to the CRT Shader drawer
-            if (projectHubSection_ == 4) {
+            if (projectHubSection_ == 3) {
                 projectHubScrollArea_.setViewport(drawerX, drawerY, drawerW, drawerH);
                 projectHubScrollArea_.setContentHeight(586.0f);
                 projectHubScrollArea_.setScrollY(projectHubScrollY_);
@@ -6595,17 +6989,16 @@ void GuiWindow::renderFrame() {
                 projectHubScrollY_ = 0.0f;
             }
 
-            const char* secTitles[7] = {
+            const char* secTitles[6] = {
                 "PROJECT HUB",
                 "SESSION PERSISTENCE & AUTO-RESTORE",
                 "DISPLAY & WORKSPACE",
-                "CHASSIS COLOR ACCENTS & TINTS",
                 "CRT SHADER",
                 "AUDIO & CLAP PLUGINS",
                 "CREDITS & ACKNOWLEDGMENTS"
             };
 
-            for (int s = 0; s < 7; ++s) {
+            for (int s = 0; s < 6; ++s) {
                 bool isExp = (projectHubSection_ == s);
                 float curY = 0.0f;
                 if (projectHubSection_ == -1 || s <= projectHubSection_) {
@@ -6648,17 +7041,13 @@ void GuiWindow::renderFrame() {
                 } else if (s == 2) {
                     drawIconEdit(hubX + 22.0f, curY + 10.0f, 10.0f, isExp ? theme.primaryAccent : theme.textSecondary);
                 } else if (s == 3) {
-                    // Section 3: Chassis Color Accents & Tints icon (color swatch palette / circle)
-                    drawCircleOutline(hubX + 28.0f, curY + 15.0f, 5.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                    drawCircle(hubX + 28.0f, curY + 15.0f, 2.5f, isExp ? theme.primaryAccent : theme.textSecondary);
-                } else if (s == 4) {
                     drawRoundedRectOutline(hubX + 22.0f, curY + 10.0f, 12.0f, 9.0f, 2.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 19.0f, hubX + 31.0f, curY + 19.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                } else if (s == 5) {
+                } else if (s == 4) {
                     drawLine(hubX + 22.0f, curY + 15.0f, hubX + 32.0f, curY + 15.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 25.0f, curY + 12.0f, hubX + 25.0f, curY + 18.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 10.0f, hubX + 28.0f, curY + 20.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
-                } else if (s == 6) {
+                } else if (s == 5) {
                     drawCircleOutline(hubX + 28.0f, curY + 15.0f, 5.0f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawLine(hubX + 28.0f, curY + 14.0f, hubX + 28.0f, curY + 17.5f, isExp ? theme.primaryAccent : theme.textSecondary, 1.2f);
                     drawCircle(hubX + 28.0f, curY + 12.0f, 1.0f, isExp ? theme.primaryAccent : theme.textSecondary);
@@ -6758,9 +7147,26 @@ void GuiWindow::renderFrame() {
                                    autoSaveEnabled_ ? theme.primaryAccent : theme.textMuted);
 
                         // Row 3: Reset to clean slate button
-                        drawRoundedRect(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 30.0f, 4.0f, theme.controlWell);
-                        drawRoundedRectOutline(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 30.0f, 4.0f, theme.borderSubtle, 1.0f);
-                        drawVectorString("RESET TO DEFAULT TEMPLATE (CLEAN SLATE)", hubX + 110.0f, contentY + 82.0f, 0.80f, theme.textSecondary);
+                        drawRoundedRect(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 28.0f, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(hubX + 24.0f, contentY + 74.0f, hubW - 48.0f, 28.0f, 4.0f, theme.borderSubtle, 1.0f);
+                        drawVectorString("RESET PROJECT (CLEAN SLATE)", hubX + 130.0f, contentY + 81.0f, 0.78f, theme.textSecondary);
+
+                        // Row 4: Settings Persistence & Desktop Native File Open
+#if defined(__EMSCRIPTEN__)
+                        drawRoundedRect(hubX + 24.0f, contentY + 108.0f, hubW - 48.0f, 28.0f, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(hubX + 24.0f, contentY + 108.0f, hubW - 48.0f, 28.0f, 4.0f, Color(1.0f, 0.45f, 0.35f), 1.0f);
+                        drawVectorString("REVERT TO DEFAULT SETTINGS", hubX + 120.0f, contentY + 115.0f, 0.78f, Color(1.0f, 0.55f, 0.35f));
+#else
+                        const float setBtnW = (hubW - 48.0f - 10.0f) * 0.5f;
+                        drawRoundedRect(hubX + 24.0f, contentY + 108.0f, setBtnW, 28.0f, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(hubX + 24.0f, contentY + 108.0f, setBtnW, 28.0f, 4.0f, Color(1.0f, 0.45f, 0.35f), 1.0f);
+                        drawVectorString("REVERT TO DEFAULT", hubX + 44.0f, contentY + 115.0f, 0.75f, Color(1.0f, 0.55f, 0.35f));
+
+                        drawRoundedRect(hubX + 34.0f + setBtnW, contentY + 108.0f, setBtnW, 28.0f, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(hubX + 34.0f + setBtnW, contentY + 108.0f, setBtnW, 28.0f, 4.0f, theme.primaryAccent, 1.0f);
+                        drawVectorString("OPEN SETTINGS (JSON)", hubX + 48.0f + setBtnW, contentY + 115.0f, 0.75f, theme.primaryAccent);
+#endif
+                        drawVectorString("Settings stored natively in JSON (auto-saved on change)", hubX + 28.0f, contentY + 144.0f, 0.60f, theme.textMuted);
                     } else if (s == 2) {
                         // SECTION 2: DISPLAY & WORKSPACE
                         // UI Magnification / Scale Slider with 25% Increments (50% to 200%)
@@ -6918,12 +7324,8 @@ void GuiWindow::renderFrame() {
                         drawCircle(hiDpiEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 166.0f, 7.0f,
                                    hiDpiEnabled_ ? theme.primaryAccent : theme.textMuted);
 
-                        // CRT Curved Shaders & Tweaker HUD Button
+                        // CRT Curved Shaders
                         drawVectorString("Screen Shaders & CRT Glass Curvature", hubX + 28.0f, contentY + 186.0f, 0.85f, theme.textPrimary);
-                        // [TWEAK HUD] button
-                        drawRoundedRect(hubX + hubW - 165.0f, contentY + 180.0f, 82.0f, 22.0f, 4.0f, theme.controlBackground);
-                        drawRoundedRectOutline(hubX + hubW - 165.0f, contentY + 180.0f, 82.0f, 22.0f, 4.0f, theme.primaryAccent, 1.0f);
-                        drawVectorString("TWEAK HUD", hubX + hubW - 158.0f, contentY + 185.0f, 0.65f, theme.primaryAccent);
                         // CRT toggle pill
                         drawRoundedRect(hubX + hubW - 70.0f, contentY + 182.0f, 44.0f, 20.0f, 10.0f,
                                        crtShaderEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
@@ -6941,77 +7343,13 @@ void GuiWindow::renderFrame() {
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
-                        // SECTION 3: CHASSIS COLOR ACCENTS & TINTS
-                        drawVectorString("ANODIZED / HARMONIC COLOR TINT", drawerX + 12.0f, contentY + 8.0f, 0.65f, theme.textMuted);
-
-                        struct TintPreset {
-                            const char* label;
-                            std::optional<Color> color;
-                            Color displayColor;
-                        };
-                        const TintPreset tints[8] = {
-                            {"NATURAL",    std::nullopt,                 Color(0.50f, 0.50f, 0.50f)},
-                            {"LIGHT GRAY", Color(0.78f, 0.80f, 0.84f),  Color(0.78f, 0.80f, 0.84f)},
-                            {"DARK GRAY",  Color(0.28f, 0.30f, 0.34f),  Color(0.28f, 0.30f, 0.34f)},
-                            {"BLUE",       Color(0.20f, 0.55f, 0.95f),  Color(0.20f, 0.55f, 0.95f)},
-                            {"GOLD",       Color(0.88f, 0.76f, 0.45f),  Color(0.88f, 0.76f, 0.45f)},
-                            {"GREEN",      Color(0.22f, 0.65f, 0.40f),  Color(0.22f, 0.65f, 0.40f)},
-                            {"OXBLOOD",    Color(0.80f, 0.25f, 0.30f),  Color(0.80f, 0.25f, 0.30f)},
-                            {"SLATE",      Color(0.40f, 0.45f, 0.52f),  Color(0.40f, 0.45f, 0.52f)}
-                        };
-
-                        const float tintGap = 4.0f;
-                        const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
-                        const float tintH = 22.0f;
-                        const float swatchesY = contentY + 22.0f;
-
-                        for (int t = 0; t < 8; ++t) {
-                            float tx = drawerX + 12.0f + t * (tintW + tintGap);
-                            bool isAct = false;
-                            if (!tints[t].color.has_value()) {
-                                isAct = !panelChassisTint_.has_value();
-                            } else if (panelChassisTint_.has_value()) {
-                                isAct = (std::abs(panelChassisTint_->r - tints[t].color->r) < 0.05f &&
-                                         std::abs(panelChassisTint_->g - tints[t].color->g) < 0.05f &&
-                                         std::abs(panelChassisTint_->b - tints[t].color->b) < 0.05f);
-                            }
-
-                            drawRoundedRect(tx, swatchesY, tintW, tintH, 3.0f,
-                                            isAct ? theme.controlWell : theme.controlBackground);
-                            drawRoundedRectOutline(tx, swatchesY, tintW, tintH, 3.0f,
-                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 0.8f);
-                            drawCircle(tx + 8.0f, swatchesY + tintH * 0.5f, 3.5f, tints[t].displayColor);
-                            drawVectorString(tints[t].label, tx + 14.0f, swatchesY + 5.0f, 0.55f,
-                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-                        }
-
-                        // Live Hardware Preview Plate
-                        const float prevLineY = swatchesY + tintH + 8.0f;
-                        drawLine(drawerX + 12.0f, prevLineY, drawerX + drawerW - 12.0f, prevLineY, theme.borderSubtle.darken(0.15f), 1.0f);
-
-                        const float prevX = drawerX + 12.0f;
-                        const float prevY = prevLineY + 6.0f;
-                        const float prevW = drawerW - 24.0f;
-                        const float prevH = 30.0f;
-
-                        if (batchRenderer_) {
-                            drawChassisPlate(prevX, prevY, prevW, prevH, true, theme, panelChassisTint_);
-                        }
-                        drawRoundedRectOutline(prevX, prevY, prevW, prevH, 4.0f, theme.borderSubtle.lighten(0.15f), 1.0f);
-                        drawVectorString("LIVE PREVIEW - TOP & BOTTOM CHASSIS PLATES", prevX + 12.0f, prevY + 9.0f, 0.65f, Color(1.0f, 1.0f, 1.0f));
-                    } else if (s == 4) {
-                        // SECTION 4: CRT SHADER (Scrollable within constrained drawer space)
+                        // SECTION 3: CRT SHADER (Scrollable within constrained drawer space)
                         const float contentBaseY = drawerY - projectHubScrollY_;
 
                         // Master Toggle Row
                         float rowMasterY = contentBaseY + 6.0f;
                         if (projectHubScrollArea_.isVisible(rowMasterY, 26.0f) && rowMasterY >= drawerY - 4.0f && rowMasterY + 26.0f <= drawerY + drawerH + 4.0f) {
                             drawVectorString("CRT Screen Shader & Curvature Engine", drawerX + 12.0f, rowMasterY + 6.0f, 0.85f, theme.textPrimary);
-
-                            // [LIVE HUD (F10)] Button
-                            drawRoundedRect(drawerX + drawerW - 180.0f, rowMasterY, 108.0f, 22.0f, 4.0f, theme.controlBackground);
-                            drawRoundedRectOutline(drawerX + drawerW - 180.0f, rowMasterY, 108.0f, 22.0f, 4.0f, theme.primaryAccent, 1.0f);
-                            drawVectorString("LIVE HUD (F10)", drawerX + drawerW - 173.0f, rowMasterY + 5.0f, 0.65f, theme.primaryAccent);
 
                             // CRT Toggle Switch
                             drawRoundedRect(drawerX + drawerW - 60.0f, rowMasterY + 1.0f, 44.0f, 20.0f, 10.0f,
@@ -7127,8 +7465,8 @@ void GuiWindow::renderFrame() {
                         if (projectHubScrollArea_.canScroll() && batchRenderer_) {
                             projectHubScrollArea_.renderScrollbar(*batchRenderer_, theme);
                         }
-                    } else if (s == 5) {
-                        // SECTION 5: AUDIO ENGINE & CLAP PLUGINS
+                    } else if (s == 4) {
+                        // SECTION 4: AUDIO ENGINE & CLAP PLUGINS
                         drawRoundedRect(hubX + 20.0f, contentY + 2.0f, hubW - 40.0f, 78.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 2.0f, hubW - 40.0f, 78.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
 #if defined(__EMSCRIPTEN__)
@@ -7180,8 +7518,8 @@ void GuiWindow::renderFrame() {
                         drawRoundedRectOutline(btnX, btnY, btnW, btnH, 4.0f, isScanning ? theme.primaryAccent : theme.borderSubtle, 1.0f);
                         drawVectorString(isScanning ? "SCANNING..." : "↻ RESCAN PLUGINS", btnX + 16.0f, btnY + 7.0f, 0.70f,
                                          isScanning ? theme.primaryAccent : theme.textPrimary);
-                    } else if (s == 6) {
-                        // SECTION 6: CREDITS & ACKNOWLEDGMENTS
+                    } else if (s == 5) {
+                        // SECTION 5: CREDITS & ACKNOWLEDGMENTS
                         drawRoundedRect(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.backgroundDark);
                         drawRoundedRectOutline(hubX + 20.0f, contentY + 4.0f, hubW - 40.0f, 92.0f, 6.0f, theme.borderSubtle.darken(0.18f), 1.0f);
                         drawVectorString("• Stanford CCRMA / Bank-Bensa commuted waveguide piano, bass & guitar models.", hubX + 32.0f, contentY + 14.0f, 0.70f, theme.textPrimary);
@@ -7257,8 +7595,13 @@ void GuiWindow::renderFrame() {
         }
 
         // 8. CRT SHADER & CHASSIS TWEAKER HUD MODAL
-        if (crtTweakerOpen_) {
-            renderCrtTweakerModal();
+        // 8. REUSABLE COLOR PICKER MODAL DIALOG
+        ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+        if (activeColorPicker && activeColorPicker->isOpen()) {
+            activeColorPicker->layout(static_cast<float>(width_), static_cast<float>(height_));
+            if (batchRenderer_) {
+                activeColorPicker->render(*batchRenderer_, theme);
+            }
         }
 
         // Persistent Floating Status Toast Overlay (F10 / F11 / Action Feedback)
@@ -7297,6 +7640,10 @@ void GuiWindow::renderFrame() {
     } else {
         dawnBridge_.beginFrame(static_cast<float>(width_), static_cast<float>(height_), 1.0f);
         dawnBridge_.endFrame();
+    }
+
+    if (FloatingWindowManager::instance().getOpenCount() > 0) {
+        FloatingWindowManager::instance().renderAllWindows(getTheme());
     }
 }
 
@@ -7969,22 +8316,8 @@ HitTestMixerResult GuiWindow::hitTestMixer(float x, float y) const noexcept {
     return res;
 }
 
-HitTestTrackTabResult GuiWindow::hitTestTrackTab(float x, float y) const noexcept {
+HitTestTrackTabResult GuiWindow::hitTestTrackTab(float, float) const noexcept {
     HitTestTrackTabResult res{};
-    if (activeView_ != WorkspaceView::Track && activeView_ != WorkspaceView::HardwarePanel) return res;
-    if (y < 60.0f || y > 95.0f) return res;
-
-    const float startX = 40.0f;
-    const float tabW = 120.0f;
-    const float tabGap = 8.0f;
-    for (uint32_t t = 0; t < 5; ++t) {
-        float tx = startX + t * (tabW + tabGap);
-        if (x >= tx && x <= tx + tabW) {
-            res.hit = true;
-            res.trackIndex = t;
-            return res;
-        }
-    }
     return res;
 }
 
@@ -9273,18 +9606,17 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
     const float headerH = 30.0f;
     const float headerGap = 6.0f;
     const float headerStep = headerH + headerGap; // 36.0f
-    const int numSections = 7;
+    const int numSections = 6;
     const float availableDrawerH = (footerY - topContentY) - (numSections * headerStep) - headerGap;
 
     float curDrawerH = 0.0f;
     if (projectHubSection_ >= 0) {
         if (projectHubSection_ == 0) curDrawerH = 190.0f;
-        else if (projectHubSection_ == 1) curDrawerH = 114.0f;
+        else if (projectHubSection_ == 1) curDrawerH = 186.0f;
         else if (projectHubSection_ == 2) curDrawerH = 244.0f;
-        else if (projectHubSection_ == 3) curDrawerH = 268.0f;
-        else if (projectHubSection_ == 4) curDrawerH = availableDrawerH;
-        else if (projectHubSection_ == 5) curDrawerH = 176.0f;
-        else if (projectHubSection_ == 6) curDrawerH = 100.0f;
+        else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
+        else if (projectHubSection_ == 4) curDrawerH = 176.0f;
+        else if (projectHubSection_ == 5) curDrawerH = 100.0f;
     }
 
     const float drawerX = hubX + 16.0f;
@@ -9293,7 +9625,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
     const float drawerH = curDrawerH;
 
     // 1. Check Section Headers hit FIRST (headers always receive clicks over underlying drawer bleed)
-    for (int s = 0; s < 7; ++s) {
+    for (int s = 0; s < 6; ++s) {
         float hY = 0.0f;
         if (projectHubSection_ == -1 || s <= projectHubSection_) {
             hY = topContentY + s * headerStep;
@@ -9347,11 +9679,30 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 res.action = ProjectHubAction::ToggleAutosave;
                 return res;
             }
-            if (y >= contentStartY + 74.0f && y <= contentStartY + 104.0f &&
+            if (y >= contentStartY + 74.0f && y <= contentStartY + 102.0f &&
                 x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
                 res.action = ProjectHubAction::ResetCleanSlate;
                 return res;
             }
+#if defined(__EMSCRIPTEN__)
+            if (y >= contentStartY + 108.0f && y <= contentStartY + 136.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::RevertSettingsDefault;
+                return res;
+            }
+#else
+            const float setBtnW = (hubW - 48.0f - 10.0f) * 0.5f;
+            if (y >= contentStartY + 108.0f && y <= contentStartY + 136.0f) {
+                if (x >= hubX + 24.0f && x <= hubX + 24.0f + setBtnW) {
+                    res.action = ProjectHubAction::RevertSettingsDefault;
+                    return res;
+                }
+                if (x >= hubX + 34.0f + setBtnW && x <= hubX + 34.0f + 2.0f * setBtnW) {
+                    res.action = ProjectHubAction::OpenSettingsFile;
+                    return res;
+                }
+            }
+#endif
         } else if (projectHubSection_ == 2) {
             float contentStartY = drawerY;
             // 1. Slider track hit [contentStartY + 10.0f .. contentStartY + 34.0f]
@@ -9427,7 +9778,6 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 return res;
             }
             if (y >= contentStartY + 180.0f && y <= contentStartY + 204.0f) {
-                if (x >= hubX + hubW - 170.0f && x <= hubX + hubW - 80.0f) { res.action = ProjectHubAction::OpenCrtTweaker; return res; }
                 if (x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) { res.action = ProjectHubAction::ToggleCrtShader; return res; }
             }
             if (y >= contentStartY + 206.0f && y <= contentStartY + 230.0f &&
@@ -9436,32 +9786,6 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 return res;
             }
         } else if (projectHubSection_ == 3) {
-            float contentStartY = drawerY;
-            // Tint swatches (8 swatches)
-            const float tintGap = 4.0f;
-            const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
-            const float tintH = 22.0f;
-            const float swatchesY = contentStartY + 22.0f;
-            const std::optional<Color> tintVals[8] = {
-                std::nullopt,
-                Color(0.78f, 0.80f, 0.84f),
-                Color(0.28f, 0.30f, 0.34f),
-                Color(0.20f, 0.55f, 0.95f),
-                Color(0.88f, 0.76f, 0.45f),
-                Color(0.22f, 0.65f, 0.40f),
-                Color(0.80f, 0.25f, 0.30f),
-                Color(0.40f, 0.45f, 0.52f)
-            };
-            for (int t = 0; t < 8; ++t) {
-                float tx = drawerX + 12.0f + t * (tintW + tintGap);
-                if (x >= tx && x <= tx + tintW && y >= swatchesY && y <= swatchesY + tintH) {
-                    res.action = ProjectHubAction::SetPanelTint;
-                    res.panelTint = tintVals[t];
-                    return res;
-                }
-            }
-            return res;
-        } else if (projectHubSection_ == 4) {
             // Check scrollbar hit within drawer
             if (projectHubScrollArea_.canScroll() && projectHubScrollArea_.getScrollbarTrackBounds().contains(x, y)) {
                 res.action = ProjectHubAction::Scrollbar;
@@ -9470,12 +9794,8 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
 
             float contentStartY = drawerY - projectHubScrollY_;
 
-            // CRT Switch & Live HUD Button
+            // CRT Switch
             if (y >= contentStartY + 6.0f && y <= contentStartY + 30.0f) {
-                if (x >= drawerX + drawerW - 180.0f && x <= drawerX + drawerW - 72.0f) {
-                    res.action = ProjectHubAction::OpenCrtTweaker;
-                    return res;
-                }
                 if (x >= drawerX + drawerW - 60.0f && x <= drawerX + drawerW - 16.0f) {
                     res.action = ProjectHubAction::ToggleCrtShader;
                     return res;
@@ -9504,7 +9824,7 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
 
             res.action = ProjectHubAction::ContentDrag;
             return res;
-        } else if (projectHubSection_ == 5) {
+        } else if (projectHubSection_ == 4) {
             float contentStartY = drawerY;
             float clapCardY = contentStartY + 86.0f;
             // Toggle switch at [hubX + hubW - 74, clapCardY + 12, 44, 20]
@@ -9653,6 +9973,11 @@ void GuiWindow::setActiveView(WorkspaceView view) noexcept {
     activeView_ = view;
     if (view == WorkspaceView::Design) {
         syncDesignViewToProject();
+    } else if (view == WorkspaceView::Track && modularTrackInspectorView_) {
+        float topY = 56.0f;
+        float bottomY = static_cast<float>(height_) - 32.0f;
+        ViewContext ctx = createViewContext();
+        modularTrackInspectorView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
     }
 }
 
@@ -10402,9 +10727,19 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             trk.chordFollowMode = inspHit.chordMode;
             if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
                 modularArrangerView_->getTracks()[tIdx].chordFollowMode = inspHit.chordMode;
+                modularArrangerView_->syncDrawerDataForTrack(tIdx);
+            }
+            if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+                modularMixerView_->getChannels()[tIdx].chordFollowMode = inspHit.chordMode;
             }
             if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
                 modularTrackInspectorView_->getTracks()[tIdx].chordFollowMode = inspHit.chordMode;
+            }
+            if (modularEditView_ && selectedTrackIndex_ == tIdx) {
+                modularEditView_->setChordFollowMode(inspHit.chordMode);
+                if (modularArrangerView_) {
+                    modularEditView_->setChordTrack(modularArrangerView_->getChordTrack());
+                }
             }
             if (engine_) {
                 auto& seq = engine_->getSequencer();
@@ -10415,8 +10750,7 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             recordProjectHistory("Set Chord Follow on Track " + std::to_string(tIdx + 1), "CHORD");
             break;
         case TrackInspectorHitArea::BakeChordsButton:
-            recordProjectHistory("Bake Chords on Track " + std::to_string(tIdx + 1), "CHORD");
-            scriptStatusMsg_ = "Harmonic chords baked into track " + std::to_string(tIdx + 1);
+            bakeTrackChordsAndFx(tIdx);
             break;
         case TrackInspectorHitArea::MidiFxArpToggle:
             trk.midiFx.arpEnabled = !trk.midiFx.arpEnabled;
@@ -10993,6 +11327,15 @@ void GuiWindow::runMacro(size_t macroIndex) {
 
 bool GuiWindow::saveProjectToFile(const std::string& filePath) {
     if (!engine_) return false;
+    if (modularArrangerView_) {
+        engine_->getSequencer().setChordTrack(modularArrangerView_->getChordTrack());
+        const auto& arrTracks = modularArrangerView_->getTracks();
+        for (size_t t = 0; t < arrTracks.size() && t < engine_->getSequencer().getNumTracks(); ++t) {
+            if (auto* trk = engine_->getSequencer().getTrack(t)) {
+                trk->setChordFollowMode(arrTracks[t].chordFollowMode);
+            }
+        }
+    }
     double bpm = engine_->getSequencer().getBpm();
     double swing = engine_->getSequencer().getSwing();
     bool ok = project::ProjectFile::saveToFile(filePath, engine_->getGraph(), engine_->getSequencer(), projectName_, bpm, swing);
@@ -11029,6 +11372,11 @@ bool GuiWindow::loadProjectFromFile(const std::string& filePath) {
         canvas_.updateRackLayout(engine_->getGraph());
         updateMixerStrips();
         syncArrangerFromSequencer();
+        const auto& loadedChords = engine_->getSequencer().getChordTrack();
+        if (!loadedChords.empty()) {
+            if (modularArrangerView_) modularArrangerView_->setChordTrack(loadedChords);
+            if (modularEditView_) modularEditView_->setChordTrack(loadedChords);
+        }
         initDefaultKnobValues();
         initHistory();
         lastStatusMessage_ = "LOADED PROJECT: " + (title.empty() ? filePath : title);
@@ -12632,6 +12980,78 @@ HitTestArrangerResult GuiWindow::hitTestArranger(float x, float y) const noexcep
 }
 
 void GuiWindow::onMouseMove(float x, float y) {
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        activeColorPicker->handlePointer(pev);
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
+    }
+
+    if (projectHubOpen_) {
+        if (dragMode_ == DragMode::ProjectHubScroll) {
+            if (projectHubScrollArea_.canScroll()) {
+                const float deltaY = y - dragStartY_;
+                if (projectHubDraggingThumb_) {
+                    PointerEvent pev;
+                    pev.type = PointerType::Mouse;
+                    pev.action = PointerAction::Move;
+                    pev.x = x;
+                    pev.y = y;
+                    projectHubScrollArea_.handlePointer(pev);
+                    projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+                } else {
+                    projectHubScrollArea_.setScrollY(dragStartScrollY_ - deltaY);
+                    projectHubScrollY_ = projectHubScrollArea_.getScrollY();
+                }
+            }
+        } else if (dragMode_ == DragMode::UiScaleSlider) {
+            DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
+            float sliderX = dl.x + 24.0f;
+            float sliderW = dl.w - 130.0f;
+            float norm = std::clamp((x - sliderX) / sliderW, 0.0f, 1.0f);
+            float rawScale = 0.50f + norm * 1.50f;
+            float snappedScale = std::round(rawScale / 0.25f) * 0.25f;
+            snappedScale = std::clamp(snappedScale, 0.50f, 2.00f);
+            if (std::abs(uiScale_ - snappedScale) > 0.001f) {
+                setUiScale(snappedScale);
+            }
+        }
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
+    }
+
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        mouseX_ = x;
+        mouseY_ = y;
+        fullscreenDeviceModal_.handlePointer(pev);
+        return;
+    }
+
+    if (isAnyModalActive()) {
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
+    }
     if (valueEditDialog_.isOpen()) {
         if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             PointerEvent pev;
@@ -12664,22 +13084,6 @@ void GuiWindow::onMouseMove(float x, float y) {
             mouseY_ = y;
             return;
         }
-    }
-
-    if (fullscreenDeviceModal_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Move;
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        pev.dx = x - mouseX_;
-        pev.dy = y - mouseY_;
-        mouseX_ = x;
-        mouseY_ = y;
-        fullscreenDeviceModal_.handlePointer(pev);
-        return;
     }
 
     if (themeBrowserDialog_.isOpen()) {
@@ -13002,7 +13406,7 @@ void GuiWindow::onMouseMove(float x, float y) {
 
             for (const auto& kv : batchResizeStartDurations_) {
                 if (kv.first < activeTrk->getNumSteps()) {
-                    activeTrk->getStep(kv.first).gateLength = std::clamp(kv.second + deltaDur, 0.10f, 4.0f);
+                    activeTrk->getStep(kv.first).gateLength = std::clamp(kv.second + deltaDur, 0.10f, 64.0f);
                 }
             }
         }
@@ -13211,8 +13615,7 @@ void GuiWindow::onMouseMove(float x, float y) {
                 projectHubScrollY_ = projectHubScrollArea_.getScrollY();
             }
         }
-    } else if (dragMode_ == DragMode::CrtTweakerSlider) {
-        handleCrtTweakerDrag(x, y);
+
     } else if (dragMode_ == DragMode::UiScaleSlider) {
         DialogFrameConfig cfg;
         cfg.width = 540.0f;
@@ -13234,11 +13637,18 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
     mouseX_ = x;
     mouseY_ = y;
 
-    // Intercept if CRT Shader & Chassis Tweaker Modal is open
-    if (crtTweakerOpen_) {
-        if (handleCrtTweakerPointer(x, y, true, false)) {
-            return;
-        }
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        activeColorPicker->handlePointer(pev);
+        return;
     }
 
     // 0. Intercept if Command Palette or Value Edit Modal Dialog is open
@@ -13422,46 +13832,48 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         projectHubOpen_ = false;
                         break;
                     case ProjectHubAction::ToggleRestoreSession:
-                        autoRestoreSession_ = !autoRestoreSession_;
+                        autoRestoreSession_ = !autoRestoreSession_; saveSettings();
                         break;
                     case ProjectHubAction::ToggleAutosave:
-                        autoSaveEnabled_ = !autoSaveEnabled_;
+                        autoSaveEnabled_ = !autoSaveEnabled_; saveSettings();
                         break;
                     case ProjectHubAction::ResetCleanSlate:
                         resetToDefaultProject();
                         break;
+                    case ProjectHubAction::RevertSettingsDefault:
+                        revertSettingsToDefault();
+                        break;
+                    case ProjectHubAction::OpenSettingsFile:
+                        openLocalSettingsFile();
+                        break;
                     case ProjectHubAction::SetUiScale:
-                        setUiScale(hubHit.scaleValue);
+                        setUiScale(hubHit.scaleValue); saveSettings();
                         dragMode_ = DragMode::UiScaleSlider;
                         break;
                     case ProjectHubAction::SelectTheme:
-                        setActiveThemePreset(hubHit.themeIndex);
+                        setActiveThemePreset(hubHit.themeIndex); saveSettings();
                         setStatusMessage("Theme: " + getTheme().name);
                         break;
                     case ProjectHubAction::SelectThemeBank:
-                        setThemeBank(hubHit.themeBank);
+                        setThemeBank(hubHit.themeBank); saveSettings();
                         break;
                     case ProjectHubAction::OpenThemeBrowser:
                         openThemeBrowserDialog();
                         break;
                     case ProjectHubAction::ToggleCrtShader:
-                        crtShaderEnabled_ = !crtShaderEnabled_;
+                        crtShaderEnabled_ = !crtShaderEnabled_; saveSettings();
                         break;
-                    case ProjectHubAction::OpenCrtTweaker:
-                        crtTweakerOpen_ = true;
-                        break;
+
                     case ProjectHubAction::ToggleAnimations:
-                        guiAnimationsEnabled_ = !guiAnimationsEnabled_;
+                        guiAnimationsEnabled_ = !guiAnimationsEnabled_; saveSettings();
                         break;
                     case ProjectHubAction::SetAntiAliasing:
-                        setAntiAliasingMode(hubHit.aaMode);
+                        setAntiAliasingMode(hubHit.aaMode); saveSettings();
                         break;
                     case ProjectHubAction::ToggleHiDpi:
-                        toggleHiDpi();
+                        toggleHiDpi(); saveSettings();
                         break;
-                    case ProjectHubAction::SetPanelTint:
-                        setPanelChassisTint(hubHit.panelTint);
-                        break;
+
                     case ProjectHubAction::ToggleIncludeBinaryClapPath: {
                         bool cur = audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled();
                         audio::ClapPluginLoader::instance().setIncludeBinaryPath(!cur);
@@ -13540,11 +13952,67 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     }
                     case ProjectHubAction::CrtSlider: {
                         DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
-                        dragMode_ = DragMode::CrtTweakerSlider;
-                        crtTweakerSliderIndex_ = hubHit.crtSliderIndex;
-                        crtTweakerTrackX_ = dl.x + 28.0f;
-                        crtTweakerTrackW_ = dl.w - 64.0f;
-                        handleCrtTweakerDrag(x, y);
+                        const float drawerX = dl.x + 16.0f;
+                        const float drawerW = dl.w - 32.0f;
+                        const float sTrackX = drawerX + 12.0f;
+                        const float sTrackW = drawerW - 32.0f;
+                        float t = std::clamp((x - sTrackX) / sTrackW, 0.0f, 1.0f);
+                        auto cfg = dawnBridge_.getMaterialConfig();
+                        switch (hubHit.crtSliderIndex) {
+                            case 0:
+                                cfg.scanlineIntensity = t * 1.0f;
+                                setStatusMessage("Scanlines: " + std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%" + (cfg.scanlineIntensity <= 0.005f ? " (OFF)" : ""));
+                                break;
+                            case 1:
+                                cfg.curvature = t * 1.50f;
+                                setStatusMessage("CRT Curvature: " + std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%");
+                                break;
+                            case 2:
+                                cfg.crtReflectionLevel = t * 1.0f;
+                                setStatusMessage("CRT Tube Reflection: " + std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%" + (cfg.crtReflectionLevel <= 0.005f ? " (OFF)" : ""));
+                                break;
+                            case 3:
+                                cfg.hsyncDistortion = t * 2.0f;
+                                setStatusMessage("H-Sync Distortion: " + std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%" + (cfg.hsyncDistortion <= 0.005f ? " (ZERO / STATIC)" : ""));
+                                break;
+                            case 4:
+                                cfg.spotlightIntensity = t * 2.0f;
+                                setStatusMessage("Spotlight Intensity: " + std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%");
+                                break;
+                            case 5:
+                                cfg.spotlightSize = 0.5f + t * 2.0f;
+                                setStatusMessage("Spotlight Beam Size: " + std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%");
+                                break;
+                            case 6:
+                                cfg.vignetteStrength = t * 2.0f;
+                                setStatusMessage("Vignette Falloff: " + std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%");
+                                break;
+                            case 7:
+                                cfg.reflectionOpacity = t * 1.0f;
+                                setStatusMessage("Frame Reflection: " + std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%");
+                                break;
+                            case 8: {
+                                cfg.panelSoftness = t * 1.50f;
+                                char buf[32];
+                                snprintf(buf, sizeof(buf), "Panel Softness: %.2f px", cfg.panelSoftness);
+                                setStatusMessage(buf);
+                                break;
+                            }
+                            case 9:
+                                cfg.panelSaturation = t * 1.0f;
+                                setStatusMessage("Panel Saturation: " + std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%");
+                                break;
+                            case 10: {
+                                cfg.panelBlackLift = t * 0.08f;
+                                char buf[32];
+                                snprintf(buf, sizeof(buf), "Panel Black Floor Lift: +%.3f", cfg.panelBlackLift);
+                                setStatusMessage(buf);
+                                break;
+                            }
+                            default: break;
+                        }
+                        dawnBridge_.setMaterialConfig(cfg);
+                        saveSettings();
                         break;
                     }
                     case ProjectHubAction::Scrollbar: {
@@ -13573,13 +14041,17 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         break;
                 }
                 return;
-            } else if (y >= 56.0f) {
-                // Clicked outside modal in workspace area -> close modal
+            } else {
+                // Clicked outside modal -> close modal and absorb click so background is untouched
                 projectHubOpen_ = false;
                 isEditingTitle_ = false;
                 isEditingAuthor_ = false;
                 return;
             }
+        }
+
+        if (isAnyModalActive()) {
+            return;
         }
 
         // 0. Check Preset Browser Drawer Hit (if open)
@@ -14794,7 +15266,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                         st.note = scoreHit.pitch;
                                         st.velocity = 0.85f;
                                         float durSteps = scoreDurationToSteps(scoreDuration_);
-                                        st.gateLength = std::clamp(durSteps / 4.0f, 0.25f, 4.0f);
+                                        st.gateLength = std::clamp(durSteps, 0.25f, 64.0f);
                                         engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
                                         previewingPitch_ = st.note;
                                         tr->setStep(scoreHit.step, st);
@@ -15107,6 +15579,42 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 }
 
 void GuiWindow::onMouseUp(int button, float x, float y) {
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        activeColorPicker->handlePointer(pev);
+        return;
+    }
+
+    if (projectHubOpen_) {
+        projectHubScrollArea_.stopDragging();
+        dragMode_ = DragMode::None;
+        return;
+    }
+
+    if (fullscreenDeviceModal_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        fullscreenDeviceModal_.handlePointer(pev);
+        return;
+    }
+
+    if (isAnyModalActive()) {
+        return;
+    }
     if (valueEditDialog_.isOpen()) {
         if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             PointerEvent pev;
@@ -15153,19 +15661,6 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         if (audioToMidiDialog_.handlePointer(pev)) return;
-    }
-
-    if (fullscreenDeviceModal_.isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Up;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        fullscreenDeviceModal_.handlePointer(pev);
-        return;
     }
 
     if (themeBrowserDialog_.isOpen()) {
@@ -15412,16 +15907,26 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
         return;
     }
 
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        activeColorPicker->handlePointer(pev);
+        return;
+    }
+
     // 2. Eatsbits Settings / Project Hub (context-based scroll via reusable ScrollableArea)
     if (projectHubOpen_) {
         DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
         if (mouseX_ >= dl.x && mouseX_ <= dl.x + dl.w && mouseY_ >= dl.y && mouseY_ <= dl.y + dl.h) {
-            if (projectHubSection_ == 4 && projectHubScrollArea_.canScroll()) {
+            if (projectHubSection_ == 3 && projectHubScrollArea_.canScroll()) {
                 projectHubScrollArea_.scrollBy(-static_cast<float>(yoffset) * 32.0f);
                 projectHubScrollY_ = projectHubScrollArea_.getScrollY();
             }
         }
         return; // Absorb all scroll events while Settings is open so it never scrolls the DAW underneath
+    }
+
+    if (isAnyModalActive()) {
+        return;
     }
 
     // 3. Sidebars & Drawers
@@ -15576,7 +16081,10 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
 
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
-    bool modalOrTerminalActive = valueEditDialog_.isOpen() ||
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    bool modalOrTerminalActive = projectHubOpen_ ||
+                                 (activeColorPicker && activeColorPicker->isOpen()) ||
+                                 valueEditDialog_.isOpen() ||
                                  commandPaletteDialog_.isOpen() ||
                                  audioToMidiDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
@@ -15619,12 +16127,52 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    // Intercept keyboard input if CRT Shader Tweaker is open (Escape dismisses)
-    if (crtTweakerOpen_) {
-        if (key == 256) { // GLFW_KEY_ESCAPE
-            crtTweakerOpen_ = false;
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        if (key == 256) { // Escape closes color picker
+            activeColorPicker->close();
+            markNeedsRedraw();
             return;
         }
+        if (activeColorPicker->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+        return;
+    }
+
+    if (projectHubOpen_) {
+        if (key == 256) { // Escape closes project hub
+            projectHubOpen_ = false;
+            isEditingTitle_ = false;
+            isEditingAuthor_ = false;
+            markNeedsRedraw();
+            return;
+        }
+        if (isEditingTitle_) {
+            if (key == 259 && !projectName_.empty()) {
+                projectName_.pop_back();
+                markNeedsRedraw();
+                return;
+            }
+            if (key == 257 || key == 335) {
+                isEditingTitle_ = false;
+                markNeedsRedraw();
+                return;
+            }
+        }
+        if (isEditingAuthor_) {
+            if (key == 259 && !authorName_.empty()) {
+                authorName_.pop_back();
+                markNeedsRedraw();
+                return;
+            }
+            if (key == 257 || key == 335) {
+                isEditingAuthor_ = false;
+                markNeedsRedraw();
+                return;
+            }
+        }
+        return; // Absorb all keyboard input while Settings dialog is active
     }
 
     // Intercept keyboard input if Command Palette is open
@@ -15795,20 +16343,10 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
-    // F9: Toggle Apocalypse CRT Shader (Shift+F9 toggles CRT Tweaker HUD)
+    // F9: Toggle Apocalypse CRT Shader
     if (key == 298) { // F9
-        if (isShift) {
-            toggleCrtTweaker();
-            return;
-        }
         toggleCrtShader();
         setStatusMessage(crtShaderEnabled_ ? "CRT Shader: ENABLED (Swaying Spotlight + Scanlines + Rumble)" : "CRT Shader: BYPASSED (Raw UI)");
-        return;
-    }
-
-    // F10: Toggle CRT Shader & Chassis Tweaker HUD Modal
-    if (key == 299) { // F10
-        toggleCrtTweaker();
         return;
     }
 
@@ -16268,6 +16806,26 @@ bool GuiWindow::isCommandPaletteOpen() const noexcept {
 }
 
 void GuiWindow::onChar(unsigned int codepoint) {
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        return;
+    }
+    if (projectHubOpen_) {
+        if (isEditingTitle_ && codepoint >= 32) {
+            projectName_ += static_cast<char>(codepoint);
+            markNeedsRedraw();
+            return;
+        }
+        if (isEditingAuthor_ && codepoint >= 32) {
+            authorName_ += static_cast<char>(codepoint);
+            markNeedsRedraw();
+            return;
+        }
+        return;
+    }
+    if (isAnyModalActive()) {
+        return;
+    }
     if (valueEditDialog_.isOpen()) {
         return;
     }
@@ -16396,340 +16954,245 @@ PluginSearchDialog* GuiWindow::getActivePluginSearchDialog() noexcept {
     return nullptr;
 }
 
-void GuiWindow::renderCrtTweakerModal() {
-    // Backdrop darkener
-    drawRect(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_), 0.0f, 0.0f, 0.0f, 0.40f);
-
-    const float mW = 490.0f;
-    const float mH = 612.0f;
-    const float mX = (static_cast<float>(width_) - mW) * 0.5f;
-    const float mY = (static_cast<float>(height_) - mH) * 0.5f;
-
-    // Modal Outer Shadow & Glassmorphic Body
-    drawRect(mX - 4.0f, mY - 4.0f, mW + 8.0f, mH + 8.0f, 0.0f, 0.0f, 0.0f, 0.50f);
-    drawRoundedRectGradient(mX, mY, mW, mH, 8.0f, 0.11f, 0.13f, 0.16f, 0.06f, 0.07f, 0.09f, 0.96f);
-    drawRoundedRectOutline(mX, mY, mW, mH, 8.0f, 0.0f, 0.85f, 0.95f, 0.80f, 1.5f);
-
-    // Header Bar
-    drawRoundedRectGradient(mX, mY, mW, 42.0f, 8.0f, 0.14f, 0.16f, 0.20f, 0.09f, 0.10f, 0.13f, 1.0f);
-    drawLine(mX, mY + 42.0f, mX + mW, mY + 42.0f, 0.0f, 0.85f, 0.95f, 0.45f, 1.0f);
-
-    // [CRT HUD] pill badge
-    drawRoundedRect(mX + 14.0f, mY + 11.0f, 62.0f, 20.0f, 4.0f, 0.0f, 0.70f, 0.85f, 0.25f);
-    drawRoundedRectOutline(mX + 14.0f, mY + 11.0f, 62.0f, 20.0f, 4.0f, 0.0f, 0.85f, 1.0f, 0.70f, 1.0f);
-    drawVectorString("CRT HUD", mX + 20.0f, mY + 15.0f, 0.65f, Color(0.0f, 0.90f, 1.0f));
-
-    // Title
-    drawVectorString("CHASSIS & SHADER TWEAKER", mX + 84.0f, mY + 14.0f, 0.80f, Color(0.95f, 0.97f, 1.0f));
-
-    // Master Power Toggle Button
-    const float pBtnX = mX + mW - 138.0f;
-    const float pBtnY = mY + 9.0f;
-    drawRoundedRect(pBtnX, pBtnY, 92.0f, 24.0f, 4.0f, crtShaderEnabled_ ? 0.05f : 0.20f, crtShaderEnabled_ ? 0.35f : 0.08f, crtShaderEnabled_ ? 0.12f : 0.08f, 0.85f);
-    drawRoundedRectOutline(pBtnX, pBtnY, 92.0f, 24.0f, 4.0f, crtShaderEnabled_ ? 0.20f : 0.60f, crtShaderEnabled_ ? 0.95f : 0.20f, crtShaderEnabled_ ? 0.30f : 0.20f, 0.90f, 1.2f);
-    drawCircle(pBtnX + 12.0f, pBtnY + 12.0f, 4.0f, crtShaderEnabled_ ? 0.20f : 0.60f, crtShaderEnabled_ ? 0.95f : 0.20f, crtShaderEnabled_ ? 0.30f : 0.20f, 1.0f);
-    drawVectorString(crtShaderEnabled_ ? "CRT: ON" : "CRT: OFF", pBtnX + 22.0f, pBtnY + 14.0f, 0.70f, Color(1.0f, 1.0f, 1.0f));
-
-    // Close button [X]
-    const float cBtnX = mX + mW - 36.0f;
-    const float cBtnY = mY + 9.0f;
-    drawRoundedRect(cBtnX, cBtnY, 26.0f, 24.0f, 4.0f, 0.25f, 0.08f, 0.08f, 0.70f);
-    drawRoundedRectOutline(cBtnX, cBtnY, 26.0f, 24.0f, 4.0f, 0.90f, 0.30f, 0.30f, 0.85f, 1.0f);
-    drawVectorString("X", cBtnX + 8.5f, cBtnY + 14.0f, 0.80f, Color(1.0f, 0.6f, 0.6f));
-
-    // Subtitle & Hints
-    drawVectorString("Real-time WebGPU Shader Parameters * Live Viewport Feedback", mX + 16.0f, mY + 49.0f, 0.60f, Color(0.60f, 0.65f, 0.72f));
-
-    // Presets Row
-    drawVectorString("PRESETS:", mX + 16.0f, mY + 74.0f, 0.62f, Color(0.0f, 0.85f, 0.95f));
-
-    struct PresetBtn {
-        const char* label;
-        float x;
-        float w;
-    };
-    PresetBtn presets[4] = {
-        {"STUDIO REF", mX + 80.0f, 96.0f},
-        {"MAX CLARITY", mX + 182.0f, 102.0f},
-        {"WARM VINTAGE", mX + 290.0f, 106.0f},
-        {"RESET", mX + 402.0f, 72.0f}
-    };
-    for (int p = 0; p < 4; ++p) {
-        drawRoundedRect(presets[p].x, mY + 68.0f, presets[p].w, 22.0f, 4.0f, 0.12f, 0.15f, 0.19f, 0.90f);
-        drawRoundedRectOutline(presets[p].x, mY + 68.0f, presets[p].w, 22.0f, 4.0f, 0.25f, 0.30f, 0.38f, 0.85f, 1.0f);
-        drawVectorString(presets[p].label, presets[p].x + 10.0f, mY + 73.0f, 0.65f, Color(0.85f, 0.90f, 0.96f));
-    }
-
-    // Sliders
-    const auto& cfg = dawnBridge_.getMaterialConfig();
-
-    struct SliderItem {
-        std::string label;
-        float minVal;
-        float maxVal;
-        float curVal;
-        std::string valStr;
-        bool isGreen{false};
-    };
-
-    char buf6[32];
-    snprintf(buf6, sizeof(buf6), (cfg.panelSoftness <= 0.01f) ? "0.00 px (SHARP)" : "%.2f px", cfg.panelSoftness);
-
-    char buf8[32];
-    snprintf(buf8, sizeof(buf8), (cfg.panelBlackLift <= 0.001f) ? "0.00 (PITCH BLACK)" : "+%.3f", cfg.panelBlackLift);
-
-    SliderItem items[11] = {
-        {"SCANLINE INTENSITY (0 = NONE)", 0.0f, 1.0f, cfg.scanlineIntensity,
-         (cfg.scanlineIntensity <= 0.005f) ? "0.00 (OFF / CRISP)" : (std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%"),
-         (cfg.scanlineIntensity <= 0.005f)},
-        {"CRT BULB CURVATURE", 0.0f, 1.50f, cfg.curvature,
-         (cfg.curvature <= 0.01f) ? "0.00 (FLAT GLASS)" : (std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%"), false},
-        {"CRT TUBE ROOM REFLECTION", 0.0f, 1.0f, cfg.crtReflectionLevel,
-         (cfg.crtReflectionLevel <= 0.005f) ? "0.00 (OFF / NONE)" : (std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%"),
-         (cfg.crtReflectionLevel <= 0.005f)},
-        {"H-SYNC WAVE DISTORTION", 0.0f, 2.0f, cfg.hsyncDistortion,
-         (cfg.hsyncDistortion <= 0.005f) ? "0.00 (ZERO / STATIC)" : (std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%"),
-         (cfg.hsyncDistortion <= 0.005f)},
-        {"SPOTLIGHT INTENSITY", 0.0f, 2.0f, cfg.spotlightIntensity,
-         (cfg.spotlightIntensity <= 0.01f) ? "0.00 (FLAT LIGHT)" : (std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%"), false},
-        {"SPOTLIGHT BEAM SIZE", 0.5f, 2.5f, cfg.spotlightSize,
-         std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%", false},
-        {"VIGNETTE CORNER FALLOFF", 0.0f, 2.0f, cfg.vignetteStrength,
-         (cfg.vignetteStrength <= 0.01f) ? "0.00 (NONE)" : (std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%"), false},
-        {"BEZEL FRAME REFLECTION", 0.0f, 1.0f, cfg.reflectionOpacity,
-         (cfg.reflectionOpacity <= 0.01f) ? "0.00 (MATTE)" : (std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%"), false},
-        {"PANEL SOFTNESS (SUBPIXEL BLUR)", 0.0f, 1.50f, cfg.panelSoftness, buf6, false},
-        {"PANEL HARDWARE SATURATION", 0.0f, 1.0f, cfg.panelSaturation,
-         std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%", false},
-        {"PANEL BLACK FLOOR LIFT", 0.0f, 0.08f, cfg.panelBlackLift, buf8, false}
-    };
-
-    const float trackX = mX + 18.0f;
-    const float trackW = mW - 36.0f;
-    const float trackH = 6.0f;
-
-    for (int i = 0; i < 11; ++i) {
-        float rowY = mY + 98.0f + i * 45.0f;
-        float trackY = rowY + 20.0f;
-
-        // Label
-        drawVectorString(items[i].label, trackX, rowY + 2.0f, 0.68f, Color(0.85f, 0.88f, 0.94f));
-
-        // Value readout
-        float valW = static_cast<float>(items[i].valStr.size()) * 7.2f;
-        drawVectorString(items[i].valStr, trackX + trackW - valW, rowY + 2.0f, 0.70f,
-                         items[i].isGreen ? Color(0.20f, 1.0f, 0.40f) : Color(0.0f, 0.90f, 1.0f));
-
-        // Track Background
-        drawRoundedRect(trackX, trackY, trackW, trackH, 3.0f, 0.04f, 0.05f, 0.07f, 1.0f);
-        drawRoundedRectOutline(trackX, trackY, trackW, trackH, 3.0f, 0.18f, 0.20f, 0.26f, 0.8f, 1.0f);
-
-        // Fill bar
-        float t = std::clamp((items[i].curVal - items[i].minVal) / (items[i].maxVal - items[i].minVal), 0.0f, 1.0f);
-        float fillW = t * trackW;
-        if (fillW > 2.0f) {
-            drawRoundedRectGradient(trackX, trackY, fillW, trackH, 3.0f, 0.0f, 0.65f, 0.85f, 0.0f, 0.90f, 0.95f, 0.95f);
+ColorPickerDialog* GuiWindow::getActiveColorPickerDialog() noexcept {
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        if (modularArrangerView_->getPropertiesDrawer().isColorPickerOpen()) {
+            return &modularArrangerView_->getPropertiesDrawer().getColorPickerDialog();
         }
-
-        // Thumb
-        float thumbX = trackX + fillW;
-        float thumbY = trackY + 3.0f;
-        drawCircle(thumbX, thumbY, 8.0f, 0.0f, 0.0f, 0.0f, 0.40f);
-        drawCircle(thumbX, thumbY, 6.5f, 0.90f, 0.96f, 1.0f, 1.0f);
-        drawCircleOutline(thumbX, thumbY, 6.5f, 0.0f, 0.75f, 0.95f, 1.0f, 1.5f);
+    } else if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        if (modularMixerView_->getPropertiesDrawer().isColorPickerOpen()) {
+            return &modularMixerView_->getPropertiesDrawer().getColorPickerDialog();
+        }
+    } else if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
+        if (modularTrackInspectorView_->getPanel().isColorPickerOpen()) {
+            return &modularTrackInspectorView_->getPanel().getColorPickerDialog();
+        }
     }
+    return nullptr;
 }
 
-bool GuiWindow::handleCrtTweakerPointer(float x, float y, bool isDown, bool isUp) {
-    (void)isUp;
-    if (!crtTweakerOpen_) return false;
+bool GuiWindow::isAnyModalActive() const noexcept {
+    if (projectHubOpen_) return true;
+    if (commandPaletteDialog_.isOpen()) return true;
+    if (valueEditDialog_.isOpen()) return true;
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) return true;
+    if (audioToMidiDialog_.isOpen()) return true;
+    if (fullscreenDeviceModal_.isOpen()) return true;
+    if (themeBrowserDialog_.isOpen()) return true;
+    const PluginSearchDialog* activePlugin = const_cast<GuiWindow*>(this)->getActivePluginSearchDialog();
+    if (activePlugin && activePlugin->isOpen()) return true;
+    const ColorPickerDialog* activeColor = const_cast<GuiWindow*>(this)->getActiveColorPickerDialog();
+    if (activeColor && activeColor->isOpen()) return true;
+    return false;
+}
 
-    const float mW = 490.0f;
-    const float mH = 612.0f;
-    const float mX = (static_cast<float>(width_) - mW) * 0.5f;
-    const float mY = (static_cast<float>(height_) - mH) * 0.5f;
+std::string GuiWindow::getSettingsFilePath() const {
+#if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    if (appData && *appData) {
+        std::filesystem::path p(appData);
+        p /= "Eatsbits";
+        p /= "settings.json";
+        return p.string();
+    }
+#elif !defined(__EMSCRIPTEN__)
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        std::filesystem::path p(home);
+        p /= ".config";
+        p /= "eatsbits";
+        p /= "settings.json";
+        return p.string();
+    }
+#endif
+    return "settings.json";
+}
 
-    // Check click outside modal
-    if (x < mX || x > mX + mW || y < mY || y > mY + mH) {
-        if (isDown) {
-            crtTweakerOpen_ = false;
-            return true;
+bool GuiWindow::saveSettings() {
+    using namespace eatsbits::json;
+    Object root;
+    root["uiScale"] = Value(uiScale_);
+    root["activeThemePreset"] = Value(activeThemePreset_);
+    root["themeBank"] = Value(getThemeBank());
+    root["antiAliasingMode"] = Value(antiAliasingMode_);
+    root["hiDpiEnabled"] = Value(hiDpiEnabled_);
+    root["crtShaderEnabled"] = Value(crtShaderEnabled_);
+    root["guiAnimationsEnabled"] = Value(guiAnimationsEnabled_);
+    root["autoRestoreSession"] = Value(autoRestoreSession_);
+    root["autoSaveEnabled"] = Value(autoSaveEnabled_);
+    root["includeBinaryClapPath"] = Value(audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled());
+
+    const auto& crt = dawnBridge_.getMaterialConfig();
+    Object crtObj;
+    crtObj["scanlineIntensity"] = Value(crt.scanlineIntensity);
+    crtObj["curvature"] = Value(crt.curvature);
+    crtObj["crtReflectionLevel"] = Value(crt.crtReflectionLevel);
+    crtObj["hsyncDistortion"] = Value(crt.hsyncDistortion);
+    crtObj["spotlightIntensity"] = Value(crt.spotlightIntensity);
+    crtObj["spotlightSize"] = Value(crt.spotlightSize);
+    crtObj["vignetteStrength"] = Value(crt.vignetteStrength);
+    crtObj["reflectionOpacity"] = Value(crt.reflectionOpacity);
+    crtObj["panelSoftness"] = Value(crt.panelSoftness);
+    crtObj["panelSaturation"] = Value(crt.panelSaturation);
+    crtObj["panelBlackLift"] = Value(crt.panelBlackLift);
+    root["crt"] = Value(std::move(crtObj));
+
+    std::string jsonStr = stringify(Value(std::move(root)), 2);
+
+#if defined(__EMSCRIPTEN__)
+    MAIN_THREAD_EM_ASM({
+        try {
+            localStorage.setItem("eatsbits_settings", UTF8ToString($0));
+        } catch (e) {
+            console.error("Failed to save settings to localStorage:", e);
         }
-        return false;
-    }
-
-    if (!isDown) {
-        return true; // Consume event inside modal bounds
-    }
-
-    // 1. Close button [X]
-    const float cBtnX = mX + mW - 36.0f;
-    const float cBtnY = mY + 9.0f;
-    if (x >= cBtnX && x <= cBtnX + 26.0f && y >= cBtnY && y <= cBtnY + 24.0f) {
-        crtTweakerOpen_ = false;
-        return true;
-    }
-
-    // 2. Power toggle button
-    const float pBtnX = mX + mW - 138.0f;
-    const float pBtnY = mY + 9.0f;
-    if (x >= pBtnX && x <= pBtnX + 92.0f && y >= pBtnY && y <= pBtnY + 24.0f) {
-        toggleCrtShader();
-        dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
-        setStatusMessage(crtShaderEnabled_ ? "CRT Shader: ENABLED" : "CRT Shader: BYPASSED");
-        return true;
-    }
-
-    // 3. Preset Buttons
-    auto cfg = dawnBridge_.getMaterialConfig();
-
-    // Preset 1: Studio Ref
-    if (x >= mX + 80.0f && x <= mX + 176.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
-        cfg.scanlineIntensity = 0.38f;
-        cfg.curvature = 0.85f;
-        cfg.crtReflectionLevel = 1.0f;
-        cfg.hsyncDistortion = 1.0f;
-        cfg.spotlightIntensity = 1.0f;
-        cfg.spotlightSize = 1.35f;
-        cfg.vignetteStrength = 1.0f;
-        cfg.reflectionOpacity = 0.52f;
-        cfg.panelSoftness = 0.75f;
-        cfg.panelSaturation = 0.70f;
-        cfg.panelBlackLift = 0.025f;
-        crtShaderEnabled_ = true;
-        dawnBridge_.setMaterialConfig(cfg);
-        dawnBridge_.setCrtShaderEnabled(true);
-        setStatusMessage("CRT Preset: STUDIO REF (Calibrated Hardware)");
-        return true;
-    }
-
-    // Preset 2: Max Clarity
-    if (x >= mX + 182.0f && x <= mX + 284.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
-        cfg.scanlineIntensity = 0.0f;  // Scanlines completely disabled
-        cfg.curvature = 0.0f;          // Flat screen
-        cfg.crtReflectionLevel = 0.0f; // Zero tube reflection
-        cfg.hsyncDistortion = 0.0f;    // Zero h-sync distortion / static raster
-        cfg.spotlightIntensity = 0.0f; // Flat uniform lighting
-        cfg.spotlightSize = 1.35f;
-        cfg.vignetteStrength = 0.0f;   // No corner vignette
-        cfg.reflectionOpacity = 0.0f;  // No frame glare
-        cfg.panelSoftness = 0.0f;      // Crisp pixels
-        cfg.panelSaturation = 1.0f;    // 100% saturation
-        cfg.panelBlackLift = 0.0f;
-        dawnBridge_.setMaterialConfig(cfg);
-        setStatusMessage("CRT Preset: MAX CLARITY (Flat Screen, 0 Scanlines, 0 Glare)");
-        return true;
-    }
-
-    // Preset 3: Warm Vintage
-    if (x >= mX + 290.0f && x <= mX + 396.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
-        cfg.scanlineIntensity = 0.55f;
-        cfg.curvature = 1.15f;
-        cfg.crtReflectionLevel = 1.25f;
-        cfg.hsyncDistortion = 1.35f;
-        cfg.spotlightIntensity = 1.25f;
-        cfg.spotlightSize = 1.20f;
-        cfg.vignetteStrength = 1.35f;
-        cfg.reflectionOpacity = 0.65f;
-        cfg.panelSoftness = 1.0f;
-        cfg.panelSaturation = 0.65f;
-        cfg.panelBlackLift = 0.035f;
-        crtShaderEnabled_ = true;
-        dawnBridge_.setMaterialConfig(cfg);
-        dawnBridge_.setCrtShaderEnabled(true);
-        setStatusMessage("CRT Preset: WARM VINTAGE (Deep Bulb & Scanlines)");
-        return true;
-    }
-
-    // Preset 4: Reset
-    if (x >= mX + 402.0f && x <= mX + 474.0f && y >= mY + 68.0f && y <= mY + 90.0f) {
-        cfg = CrtMaterialConfig{};
-        dawnBridge_.setMaterialConfig(cfg);
-        setStatusMessage("CRT Preset: RESET (Factory Defaults)");
-        return true;
-    }
-
-    // 4. Slider Hit Tests
-    const float trackX = mX + 18.0f;
-    const float trackW = mW - 36.0f;
-    for (int i = 0; i < 11; ++i) {
-        float rowY = mY + 98.0f + i * 45.0f;
-        if (x >= trackX - 8.0f && x <= trackX + trackW + 8.0f && y >= rowY + 8.0f && y <= rowY + 36.0f) {
-            dragMode_ = DragMode::CrtTweakerSlider;
-            crtTweakerSliderIndex_ = i;
-            crtTweakerTrackX_ = trackX;
-            crtTweakerTrackW_ = trackW;
-            handleCrtTweakerDrag(x, y);
-            return true;
-        }
-    }
-
+    }, jsonStr.c_str());
     return true;
+#else
+    std::string filePath = getSettingsFilePath();
+    try {
+        std::filesystem::path p(filePath);
+        if (p.has_parent_path()) {
+            std::filesystem::create_directories(p.parent_path());
+        }
+        std::ofstream ofs(filePath);
+        if (ofs.is_open()) {
+            ofs << jsonStr;
+            return true;
+        }
+    } catch (...) {}
+    return false;
+#endif
 }
 
-void GuiWindow::handleCrtTweakerDrag(float x, float y) {
-    (void)y;
-    if (crtTweakerSliderIndex_ < 0 || crtTweakerSliderIndex_ > 10 || crtTweakerTrackW_ <= 0.0f) return;
-
-    float t = std::clamp((x - crtTweakerTrackX_) / crtTweakerTrackW_, 0.0f, 1.0f);
-    auto cfg = dawnBridge_.getMaterialConfig();
-
-    switch (crtTweakerSliderIndex_) {
-        case 0:
-            cfg.scanlineIntensity = t * 1.0f;
-            setStatusMessage("Scanlines: " + std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%" + (cfg.scanlineIntensity <= 0.005f ? " (OFF)" : ""));
-            break;
-        case 1:
-            cfg.curvature = t * 1.50f;
-            setStatusMessage("CRT Curvature: " + std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%");
-            break;
-        case 2:
-            cfg.crtReflectionLevel = t * 1.0f;
-            setStatusMessage("CRT Tube Reflection: " + std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%" + (cfg.crtReflectionLevel <= 0.005f ? " (OFF)" : ""));
-            break;
-        case 3:
-            cfg.hsyncDistortion = t * 2.0f;
-            setStatusMessage("H-Sync Distortion: " + std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%" + (cfg.hsyncDistortion <= 0.005f ? " (ZERO / STATIC)" : ""));
-            break;
-        case 4:
-            cfg.spotlightIntensity = t * 2.0f;
-            setStatusMessage("Spotlight Intensity: " + std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%");
-            break;
-        case 5:
-            cfg.spotlightSize = 0.5f + t * 2.0f;
-            setStatusMessage("Spotlight Beam Size: " + std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%");
-            break;
-        case 6:
-            cfg.vignetteStrength = t * 2.0f;
-            setStatusMessage("Vignette Falloff: " + std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%");
-            break;
-        case 7:
-            cfg.reflectionOpacity = t * 1.0f;
-            setStatusMessage("Frame Reflection: " + std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%");
-            break;
-        case 8: {
-            cfg.panelSoftness = t * 1.50f;
-            char buf[32];
-            snprintf(buf, sizeof(buf), "Panel Softness: %.2f px", cfg.panelSoftness);
-            setStatusMessage(buf);
-            break;
+bool GuiWindow::loadSettings() {
+    std::string jsonStr;
+#if defined(__EMSCRIPTEN__)
+    char* jsVal = reinterpret_cast<char*>(MAIN_THREAD_EM_ASM_PTR({
+        try {
+            var s = localStorage.getItem("eatsbits_settings");
+            if (!s) return 0;
+            var len = lengthBytesUTF8(s) + 1;
+            var buf = _malloc(len);
+            stringToUTF8(s, buf, len);
+            return buf;
+        } catch (e) {
+            return 0;
         }
-        case 9:
-            cfg.panelSaturation = t * 1.0f;
-            setStatusMessage("Panel Saturation: " + std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%");
-            break;
-        case 10: {
-            cfg.panelBlackLift = t * 0.08f;
-            char buf[32];
-            snprintf(buf, sizeof(buf), "Panel Black Floor Lift: +%.3f", cfg.panelBlackLift);
-            setStatusMessage(buf);
-            break;
-        }
-        default:
-            break;
+    }));
+    if (jsVal) {
+        jsonStr = jsVal;
+        free(jsVal);
     }
+#else
+    std::string filePath = getSettingsFilePath();
+    try {
+        std::ifstream ifs(filePath);
+        if (ifs.is_open()) {
+            std::stringstream ss;
+            ss << ifs.rdbuf();
+            jsonStr = ss.str();
+        }
+    } catch (...) {}
+#endif
 
-    dawnBridge_.setMaterialConfig(cfg);
+    if (jsonStr.empty()) return false;
+
+    try {
+        auto root = eatsbits::json::Parser(jsonStr).parse();
+        if (!root.isObject()) return false;
+
+        if (root.contains("uiScale")) {
+            setUiScale(root["uiScale"].asFloat(uiScale_));
+        }
+        if (root.contains("activeThemePreset")) {
+            activeThemePreset_ = root["activeThemePreset"].asInt(activeThemePreset_);
+        }
+        if (root.contains("themeBank")) {
+            setThemeBank(root["themeBank"].asInt(getThemeBank()));
+        }
+        if (root.contains("antiAliasingMode")) {
+            antiAliasingMode_ = root["antiAliasingMode"].asInt(antiAliasingMode_);
+        }
+        if (root.contains("hiDpiEnabled")) {
+            hiDpiEnabled_ = root["hiDpiEnabled"].asBool(hiDpiEnabled_);
+        }
+        if (root.contains("crtShaderEnabled")) {
+            crtShaderEnabled_ = root["crtShaderEnabled"].asBool(crtShaderEnabled_);
+            dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
+        }
+        if (root.contains("guiAnimationsEnabled")) {
+            guiAnimationsEnabled_ = root["guiAnimationsEnabled"].asBool(guiAnimationsEnabled_);
+        }
+        if (root.contains("autoRestoreSession")) {
+            autoRestoreSession_ = root["autoRestoreSession"].asBool(autoRestoreSession_);
+        }
+        if (root.contains("autoSaveEnabled")) {
+            autoSaveEnabled_ = root["autoSaveEnabled"].asBool(autoSaveEnabled_);
+        }
+        if (root.contains("includeBinaryClapPath")) {
+            audio::ClapPluginLoader::instance().setIncludeBinaryPath(root["includeBinaryClapPath"].asBool());
+        }
+        if (root.contains("crt") && root["crt"].isObject()) {
+            const auto& crtObj = root["crt"];
+            auto cfg = dawnBridge_.getMaterialConfig();
+            if (crtObj.contains("scanlineIntensity")) cfg.scanlineIntensity = crtObj["scanlineIntensity"].asFloat(cfg.scanlineIntensity);
+            if (crtObj.contains("curvature")) cfg.curvature = crtObj["curvature"].asFloat(cfg.curvature);
+            if (crtObj.contains("crtReflectionLevel")) cfg.crtReflectionLevel = crtObj["crtReflectionLevel"].asFloat(cfg.crtReflectionLevel);
+            if (crtObj.contains("hsyncDistortion")) cfg.hsyncDistortion = crtObj["hsyncDistortion"].asFloat(cfg.hsyncDistortion);
+            if (crtObj.contains("spotlightIntensity")) cfg.spotlightIntensity = crtObj["spotlightIntensity"].asFloat(cfg.spotlightIntensity);
+            if (crtObj.contains("spotlightSize")) cfg.spotlightSize = crtObj["spotlightSize"].asFloat(cfg.spotlightSize);
+            if (crtObj.contains("vignetteStrength")) cfg.vignetteStrength = crtObj["vignetteStrength"].asFloat(cfg.vignetteStrength);
+            if (crtObj.contains("reflectionOpacity")) cfg.reflectionOpacity = crtObj["reflectionOpacity"].asFloat(cfg.reflectionOpacity);
+            if (crtObj.contains("panelSoftness")) cfg.panelSoftness = crtObj["panelSoftness"].asFloat(cfg.panelSoftness);
+            if (crtObj.contains("panelSaturation")) cfg.panelSaturation = crtObj["panelSaturation"].asFloat(cfg.panelSaturation);
+            if (crtObj.contains("panelBlackLift")) cfg.panelBlackLift = crtObj["panelBlackLift"].asFloat(cfg.panelBlackLift);
+            dawnBridge_.setMaterialConfig(cfg);
+        }
+        return true;
+    } catch (...) {}
+    return false;
+}
+
+void GuiWindow::revertSettingsToDefault() {
+    setUiScale(1.0f);
+    setActiveThemePreset(0);
+    setThemeBank(0);
+    setAntiAliasingMode(2);
+    hiDpiEnabled_ = true;
+    crtShaderEnabled_ = false;
+    dawnBridge_.setCrtShaderEnabled(false);
+    dawnBridge_.setMaterialConfig(CrtMaterialConfig{});
+    guiAnimationsEnabled_ = true;
+    autoRestoreSession_ = true;
+    autoSaveEnabled_ = true;
+    audio::ClapPluginLoader::instance().setIncludeBinaryPath(false);
+    saveSettings();
+    setStatusMessage("Settings reverted to factory defaults");
+    markNeedsRedraw();
+}
+
+void GuiWindow::openLocalSettingsFile() {
+    saveSettings();
+#if defined(_WIN32)
+    std::string path = getSettingsFilePath();
+    HINSTANCE hInst = ShellExecuteA(nullptr, "open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(hInst) > 32) {
+        setStatusMessage("Opened settings file in system editor: " + path);
+    } else {
+        setStatusMessage("Settings file location: " + path);
+    }
+#elif defined(__APPLE__)
+    std::string path = getSettingsFilePath();
+    system(("open "" + path + """).c_str());
+    setStatusMessage("Opened settings file: " + path);
+#elif !defined(__EMSCRIPTEN__)
+    std::string path = getSettingsFilePath();
+    system(("xdg-open "" + path + """).c_str());
+    setStatusMessage("Opened settings file: " + path);
+#else
+    setStatusMessage("Settings stored in browser localStorage");
+#endif
 }
 
 void GuiWindow::openThemeBrowserDialog() {

@@ -69,6 +69,7 @@ public:
     [[nodiscard]] int getSelectedCategoryIndex() const noexcept { return selectedCategoryIndex_; }
     void setSelectedCategoryIndex(int idx) noexcept { selectedCategoryIndex_ = idx; }
     [[nodiscard]] size_t getFilteredCount() const { return getFilteredEntries().size(); }
+    [[nodiscard]] const Rect2D& getBounds() const noexcept { return dialogBounds_; }
 
     void refreshLibrary() { initLibrary(); }
 

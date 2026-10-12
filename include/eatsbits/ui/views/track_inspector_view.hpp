@@ -135,6 +135,7 @@ public:
     std::function<void(uint32_t trackIdx)> onAudioFxChanged;
     std::function<void(float scrollY)> onScrollChanged;
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIdx)> onOpenDetachedWindow;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
     std::function<void(uint32_t trackIdx)> onAddClip;
@@ -146,10 +147,11 @@ public:
     [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
     void setScrollY(float y) noexcept { panel_.setScrollY(y); }
 
-private:
-    void initDefaultTracks();
     void syncKnobsForTrack(InspectorTrackChannel& trk);
     void updateDrawerData();
+
+private:
+    void initDefaultTracks();
     TrackPropertiesDrawerData buildDrawerData() const;
     void syncBackFromDrawerData(const TrackPropertiesDrawerData& d);
 

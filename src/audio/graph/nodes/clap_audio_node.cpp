@@ -876,14 +876,22 @@ bool ClapAudioNode::openGuiWindow() {
         }
     }
 #endif
-    if (isGuiOpen_) {
+    // If standalone floating window already exists, bring it to front and focus
+    if (guiHwnd_) {
 #if defined(_WIN32)
-        if (guiHwnd_) {
-            ShowWindow(static_cast<HWND>(guiHwnd_), SW_RESTORE);
-            SetForegroundWindow(static_cast<HWND>(guiHwnd_));
+        HWND hWnd = static_cast<HWND>(guiHwnd_);
+        if (IsWindow(hWnd)) {
+            ShowWindow(hWnd, SW_RESTORE);
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+            return true;
         }
 #endif
-        return true;
+    }
+
+    // Clean up any lingering embedded container so plugin GUI can be created as standalone window
+    if (embeddedContainerHwnd_) {
+        destroyEmbeddedGui();
     }
 
 #if defined(_WIN32)
@@ -963,12 +971,24 @@ bool ClapAudioNode::openGuiWindow() {
     int winW = rc.right - rc.left;
     int winH = rc.bottom - rc.top;
 
+    int winX = 100;
+    int winY = 100;
+    HWND parentHwnd = GetActiveWindow();
+    if (parentHwnd) {
+        RECT prc{};
+        GetWindowRect(parentHwnd, &prc);
+        int pw = prc.right - prc.left;
+        int ph = prc.bottom - prc.top;
+        winX = prc.left + std::max(40, (pw - winW) / 2);
+        winY = prc.top + std::max(40, (ph - winH) / 2);
+    }
+
     HWND hWnd = CreateWindowExA(
         WS_EX_APPWINDOW,
         kClassName,
         title.c_str(),
         style | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT,
+        winX, winY,
         winW, winH,
         nullptr, nullptr, GetModuleHandleA(nullptr), nullptr
     );
@@ -1019,6 +1039,12 @@ bool ClapAudioNode::openGuiWindow() {
         return false;
     }
 
+    SetWindowPos(hWnd, HWND_TOP, winX, winY, winW, winH, SWP_SHOWWINDOW);
+    ShowWindow(hWnd, SW_SHOWNORMAL);
+    UpdateWindow(hWnd);
+    BringWindowToTop(hWnd);
+    SetForegroundWindow(hWnd);
+
     isGuiOpen_ = true;
     return true;
 #else
@@ -1051,6 +1077,10 @@ void ClapAudioNode::closeGuiWindow() {
 #endif
 
     isGuiOpen_ = false;
+
+    if (onGuiClosed) {
+        onGuiClosed();
+    }
 }
 
 bool ClapAudioNode::openEmbeddedGui(void* parentHwnd, int x, int y, int w, int h) {
@@ -1260,6 +1290,7 @@ void ClapAudioNode::hideEmbeddedGui() {
         SafeClapGuiHide(extGui_, plugin_);
     }
     isEmbeddedGuiOpen_ = false;
+    isGuiOpen_ = false;
 #endif
 }
 
@@ -1280,6 +1311,7 @@ void ClapAudioNode::destroyEmbeddedGui() {
     DestroyWindow(container);
     embeddedContainerHwnd_ = nullptr;
     isEmbeddedGuiOpen_ = false;
+    isGuiOpen_ = false;
     lastEmbeddedX_ = -1;
     lastEmbeddedY_ = -1;
     lastEmbeddedW_ = -1;

@@ -3,6 +3,7 @@
 #include "../geometry.hpp"
 #include "../views/view_base.hpp"
 #include "plugin_search_dialog.hpp"
+#include "color_picker_dialog.hpp"
 #include "../gui_panel_def.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/project/preset_loader.hpp"
@@ -498,6 +499,7 @@ enum class TrackPropertiesHitArea {
     PanSlider = PanKnob,
     CodeButton,
     ColorSwatch,
+    CustomColorPicker,
     EqToggle,
     EqReset,
     EqHpf,
@@ -511,6 +513,7 @@ enum class TrackPropertiesHitArea {
     InstrumentKnob,
     ChangeInstrument,
     FullscreenInstrument,
+    DetachInstrumentWindow,
     OpenPluginGui,
     ToggleInstrumentExpand,
     ChordFollowChip,
@@ -611,6 +614,11 @@ public:
     [[nodiscard]] PluginSearchDialog& getPluginSearchDialog() noexcept { return pluginDialog_; }
     [[nodiscard]] const PluginSearchDialog& getPluginSearchDialog() const noexcept { return pluginDialog_; }
 
+    // Embedded ColorPickerDialog modal overlay
+    [[nodiscard]] bool isColorPickerOpen() const noexcept { return colorPickerDialog_.isOpen(); }
+    [[nodiscard]] ColorPickerDialog& getColorPickerDialog() noexcept { return colorPickerDialog_; }
+    [[nodiscard]] const ColorPickerDialog& getColorPickerDialog() const noexcept { return colorPickerDialog_; }
+
     // Synchronized Callbacks
     std::function<void(uint32_t trackIndex)> onTrackSelected;
     std::function<void(uint32_t trackIndex)> onTrackRename;
@@ -636,6 +644,7 @@ public:
     std::function<void(uint32_t trackIndex, int clipIndex)> onEditInPianoRoll;
     std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
     std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIndex)> onOpenDetachedWindow;
     std::function<void(uint32_t trackIndex)> onOpenPluginGui;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
@@ -752,8 +761,12 @@ private:
     GuiPanelDef guiPanel_;
     int draggingRow_{-1};
     int draggingWidget_{-1};
+    uint32_t lastTrackIndex_{0xFFFFFFFF};
+    std::string lastInstrumentEngine_;
+    std::string lastInstrument_;
 
     PluginSearchDialog pluginDialog_;
+    ColorPickerDialog colorPickerDialog_;
     bool isInsideDrawer_{false};
 
     std::chrono::steady_clock::time_point lastClickTime_{};

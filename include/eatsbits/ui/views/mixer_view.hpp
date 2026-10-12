@@ -70,6 +70,9 @@ struct MixerChannelStrip {
     std::string knob3Name{"DECAY"};
     std::string knob4Name{"VAR"};
 
+    // Chord Follow
+    theory::ChordFollowMode chordFollowMode{theory::ChordFollowMode::Off};
+
     // FX Racks
     std::vector<TrackMidiFxItem> midiFx;
     std::vector<TrackAudioFxItem> audioFx;
@@ -125,6 +128,7 @@ public:
     [[nodiscard]] float getPropertiesWidth() const noexcept { return propertiesDrawer_.getWidth(); }
     void setPropertiesWidth(float w) noexcept { propertiesDrawer_.setWidth(w); }
     [[nodiscard]] TrackPropertiesDrawer& getPropertiesDrawer() noexcept { return propertiesDrawer_; }
+    [[nodiscard]] const TrackPropertiesDrawerData& getDrawerData() const noexcept { return drawerData_; }
 
     // Section Visibility & Presets
     void setPreset(ModularMixerPreset preset) noexcept;
@@ -196,6 +200,8 @@ public:
     std::function<void(uint32_t channelIdx)> onAddClip;
     std::function<void(uint32_t channelIdx)> onDeleteTrack;
     std::function<void(uint32_t channelIdx)> onDuplicateTrack;
+    std::function<void(uint32_t channelIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
+    std::function<void(uint32_t channelIdx)> onBakeChords;
 
     // Structured Fader Geometry & Hit-Testing
     struct FaderGeometry {

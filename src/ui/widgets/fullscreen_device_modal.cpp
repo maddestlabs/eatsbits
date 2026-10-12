@@ -394,10 +394,15 @@ void FullscreenDeviceModal::layout(float screenW, float screenH) noexcept {
     float btnY = (headerH - closeBtnSize) * 0.5f;
     closeBtnBounds_ = Rect2D{closeX, btnY, closeBtnSize, closeBtnSize};
 
+    // Detach window button (desktop floating window popout)
+    float detachBtnSize = 28.0f;
+    float detachX = closeX - detachBtnSize - 8.0f;
+    detachBtnBounds_ = Rect2D{detachX, btnY, detachBtnSize, detachBtnSize};
+
     // 2. Preset button linking to preset dialog (middle)
     float presetBtnW = 92.0f;
     float presetBtnH = 26.0f;
-    float presetX = closeX - presetBtnW - 10.0f;
+    float presetX = detachX - presetBtnW - 10.0f;
     float presetY = (headerH - presetBtnH) * 0.5f;
     presetBtnBounds_ = Rect2D{presetX, presetY, presetBtnW, presetBtnH};
 
@@ -625,6 +630,24 @@ void FullscreenDeviceModal::renderHeaderBar(BatchRenderer2D& r, const ThemeToken
     float triY = presetBtnBounds_.y + presetBtnBounds_.h * 0.5f - 1.0f;
     drawTriangle(r, triX - 3.5f, triY - 2.0f, triX + 3.5f, triY - 2.0f, triX, triY + 3.0f,
                  chipCol.r, chipCol.g, chipCol.b, 0.9f);
+
+    // Detach window button (desktop popout)
+    if (detachBtnBounds_.w > 0.0f) {
+        float detX = detachBtnBounds_.x;
+        float detY = detachBtnBounds_.y;
+        bool detHover = detachBtnBounds_.contains(mouseX_, mouseY_);
+        float detBg = detHover ? 0.24f : 0.16f;
+        drawRoundedRect(r, detX, detY, detachBtnBounds_.w, detachBtnBounds_.h, 4.0f, detBg, detBg, detBg, 0.95f);
+        drawRoundedRectOutline(r, detX, detY, detachBtnBounds_.w, detachBtnBounds_.h, 4.0f,
+                               detHover ? theme.primaryAccent.r : 0.35f,
+                               detHover ? theme.primaryAccent.g : 0.40f,
+                               detHover ? theme.primaryAccent.b : 0.48f, 0.8f, 1.2f);
+        float icX = detX + 7.0f;
+        float icY = detY + 7.0f;
+        drawRoundedRectOutline(r, icX + 4.0f, icY, 9.0f, 9.0f, 1.0f, 0.65f, 0.70f, 0.80f, 0.85f, 1.2f);
+        drawRect(r, icX, icY + 4.0f, 9.0f, 9.0f, detBg, detBg, detBg, 1.0f);
+        drawRoundedRectOutline(r, icX, icY + 4.0f, 9.0f, 9.0f, 1.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f, 1.2f);
+    }
 
     // Right: 3. Universal Close Button (rotated screw icon)
     float cx = closeBtnBounds_.x + closeBtnBounds_.w * 0.5f;
@@ -941,6 +964,15 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                     return true;
                 }
             }
+            return true;
+        }
+
+        // Detach floating window button (desktop popout)
+        if (detachBtnBounds_.contains(mx, my)) {
+            if (onOpenDetachedWindow) {
+                onOpenDetachedWindow(target_.trackIndex);
+            }
+            close();
             return true;
         }
 

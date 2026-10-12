@@ -179,7 +179,7 @@ SongGenerationResult ProceduralSongEngine::generateToSequencer(
                         sd.active = true;
                         sd.note = note.pitch;
                         sd.velocity = note.velocity;
-                        sd.gateLength = static_cast<float>(std::clamp(note.lengthBeats * 0.25f, 0.1f, 1.0f));
+                        sd.gateLength = static_cast<float>(std::clamp(note.lengthBeats * 4.0f, 0.1f, 64.0f));
                         sd.probability = 1.0f;
                     } else if (sd.note != note.pitch && std::find(sd.extraNotes.begin(), sd.extraNotes.end(), note.pitch) == sd.extraNotes.end()) {
                         sd.extraNotes.push_back(note.pitch);

@@ -167,6 +167,7 @@ ArrangerView::ArrangerView() {
                 for (auto& cl : tracks_[targetIdx].clips) {
                     cl.r = entry.r; cl.g = entry.g; cl.b = entry.b;
                 }
+                syncDrawerDataForTrack(targetIdx);
             }
             if (onInstrumentChanged) {
                 onInstrumentChanged(effectiveTrackIdx, entry.id, entry.name);
@@ -281,6 +282,17 @@ ArrangerView::ArrangerView() {
         inspectorTab_ = (tab == TrackPropertiesTab::Clip) ? ArrangerInspectorTab::Clip : ArrangerInspectorTab::Track;
         drawerData_.tab = tab;
     };
+    propertiesDrawer_.onChordFollowChanged = [this](uint32_t trackIdx, theory::ChordFollowMode mode) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].chordFollowMode = mode;
+            drawerData_.chordFollowMode = mode;
+            if (onTrackChordFollowChanged) onTrackChordFollowChanged(trackIdx, mode);
+        }
+    };
+    propertiesDrawer_.onBakeChords = [this](uint32_t trackIdx) {
+        bakeChordsToTrack(trackIdx);
+        drawerData_.chordFollowMode = theory::ChordFollowMode::Off;
+    };
     propertiesDrawer_.onEditInPianoRoll = [this](uint32_t trackIdx, int clipIdx) {
         if (onEditClipInPianoRoll) {
             onEditClipInPianoRoll(trackIdx, clipIdx);
@@ -295,11 +307,7 @@ ArrangerView::ArrangerView() {
                     tracks_[targetIdx].r = entry.r;
                     tracks_[targetIdx].g = entry.g;
                     tracks_[targetIdx].b = entry.b;
-                    drawerData_.instrument = entry.name;
-                    drawerData_.instrumentEngine = entry.id;
-                    drawerData_.r = entry.r;
-                    drawerData_.g = entry.g;
-                    drawerData_.b = entry.b;
+                    syncDrawerDataForTrack(targetIdx);
                     if (onInstrumentChanged) {
                         onInstrumentChanged(targetIdx, entry.id, entry.name);
                     }
@@ -411,6 +419,9 @@ ArrangerView::ArrangerView() {
     };
     propertiesDrawer_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
         if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
+    };
+    propertiesDrawer_.onOpenDetachedWindow = [this](uint32_t trackIdx) {
+        if (onOpenDetachedWindow) onOpenDetachedWindow(trackIdx);
     };
     propertiesDrawer_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
@@ -532,6 +543,35 @@ void ArrangerView::setMasterLevels(float masterVol, float masterPan, bool master
 void ArrangerView::setActiveTrack(uint32_t idx) noexcept {
     if (idx < tracks_.size()) {
         activeTrackIndex_ = idx;
+        syncDrawerDataForTrack(idx);
+    }
+}
+
+void ArrangerView::syncDrawerDataForTrack(uint32_t trackIdx) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    const std::string& expectedEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+    if (trackIdx == activeTrackIndex_) {
+        drawerData_.trackIndex = trackIdx;
+        drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
+        drawerData_.trackName = track.name;
+        drawerData_.instrument = track.instrument;
+        drawerData_.instrumentEngine = expectedEngine;
+        drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
+        drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
+        drawerData_.iconRef = track.iconRef;
+        drawerData_.r = track.r;
+        drawerData_.g = track.g;
+        drawerData_.b = track.b;
+        drawerData_.volume = track.volume;
+        drawerData_.pan = track.pan;
+        drawerData_.mute = track.mute;
+        drawerData_.solo = track.solo;
+        drawerData_.chordFollowMode = track.chordFollowMode;
+        drawerData_.knobs.clear();
+        drawerData_.midiFx = track.midiFx;
+        drawerData_.audioFx = track.audioFx;
+        drawerData_.syncKnobsIfEmpty();
     }
 }
 
@@ -1508,18 +1548,21 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
 void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
     if (activeTrackIndex_ < tracks_.size()) {
         auto& track = tracks_[activeTrackIndex_];
+        const std::string& expectedEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
         bool trackChanged = (drawerData_.trackIndex != activeTrackIndex_ ||
                              drawerData_.totalTracks != tracks_.size() ||
                              drawerData_.trackName != track.name ||
                              drawerData_.instrument != track.instrument ||
-                             drawerData_.instrumentEngine != track.instrumentEngine);
+                             drawerData_.instrumentEngine != expectedEngine);
         if (trackChanged) {
             drawerData_.knobs.clear();
+            drawerData_.midiFx = track.midiFx;
+            drawerData_.audioFx = track.audioFx;
             drawerData_.trackIndex = activeTrackIndex_;
             drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
             drawerData_.trackName = track.name;
             drawerData_.instrument = track.instrument;
-            drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+            drawerData_.instrumentEngine = expectedEngine;
             drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
             drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
             drawerData_.iconRef = track.iconRef;
@@ -1546,9 +1589,29 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
         drawerData_.pan = track.pan;
         drawerData_.mute = track.mute;
         drawerData_.solo = track.solo;
+        drawerData_.chordFollowMode = track.chordFollowMode;
         drawerData_.isMasterSelected = false;
         drawerData_.isMixerMode = false;
         drawerData_.tab = (inspectorTab_ == ArrangerInspectorTab::Clip) ? TrackPropertiesTab::Clip : TrackPropertiesTab::Track;
+
+        std::string_view desiredTitle = track.instrument.empty() ? std::string_view(track.name) : std::string_view(track.instrument);
+        if (drawerData_.presetTitle != desiredTitle) {
+            drawerData_.presetTitle = desiredTitle;
+        }
+        std::string_view trkInst = track.instrument.empty() ? std::string_view("Track") : std::string_view(track.instrument);
+        std::string_view sep = " • ";
+        size_t neededSubLen = track.name.size() + sep.size() + trkInst.size();
+        bool subMatches = (drawerData_.presetSubtitle.size() == neededSubLen) &&
+                          (drawerData_.presetSubtitle.compare(0, track.name.size(), track.name) == 0) &&
+                          (drawerData_.presetSubtitle.compare(track.name.size(), sep.size(), sep) == 0) &&
+                          (drawerData_.presetSubtitle.compare(track.name.size() + sep.size(), trkInst.size(), trkInst) == 0);
+        if (!subMatches) {
+            drawerData_.presetSubtitle.clear();
+            drawerData_.presetSubtitle.reserve(neededSubLen);
+            drawerData_.presetSubtitle.append(track.name);
+            drawerData_.presetSubtitle.append(sep);
+            drawerData_.presetSubtitle.append(trkInst);
+        }
 
         drawerData_.knob1 = track.knob1;
         drawerData_.knob2 = track.knob2;
@@ -2040,6 +2103,27 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 if (ev.button == PointerButton::Right && !volBox.contains(ev.x, ev.y) && !panBox.contains(ev.x, ev.y)) {
                     openTrackTitleEdit();
                     return true;
+                }
+
+                // Double-click / double-tap detection on track header -> Open Track Properties sidebar (Track view)
+                if ((ev.button == PointerButton::Left || ev.type == PointerType::Touch) &&
+                    !volBox.contains(ev.x, ev.y) && !panBox.contains(ev.x, ev.y)) {
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastHeaderClickTime_).count();
+                    if (lastClickedHeaderTrack_ == clickedTrack && elapsedMs > 0 && elapsedMs < 350) {
+                        lastHeaderClickTime_ = std::chrono::steady_clock::time_point{};
+                        lastClickedHeaderTrack_ = -1;
+                        inspectorTab_ = ArrangerInspectorTab::Track;
+                        selectedClipIndex_ = -1;
+                        drawerData_.tab = TrackPropertiesTab::Track;
+                        drawerData_.selectedClipIndex = -1;
+                        propertiesDrawer_.setExpanded(true);
+                        inspectorOpen_ = true;
+                        syncDrawerDataForTrack(activeTrackIndex_);
+                        return true;
+                    }
+                    lastHeaderClickTime_ = now;
+                    lastClickedHeaderTrack_ = clickedTrack;
                 }
 
                 if (volBox.contains(ev.x, ev.y)) {

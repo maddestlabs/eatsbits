@@ -278,6 +278,53 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
     engineMode_ = SynthEngineMode::ModularGraph;
 }
 
+void AudioEngine::setupDefaultRhodesGrandGraph() {
+    graph_.clear();
+    invalidateTrackStripCache();
+
+    // Track 1 (Index 0): DX7 Rhodes (6-Operator FM Synthesizer)
+    auto dx7 = std::make_shared<Dx7Node>("Dx7Rhodes");
+    auto dx7Strip = std::make_shared<GainNode>("Track1_Gain");
+    dx7Strip->setVolume(0.85f);
+
+    // Track 2 (Index 1): Concert Grand (Physical Modeling Waveguide Piano)
+    auto piano = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::ConcertGrandPiano, "ConcertGrand");
+    auto pianoStrip = std::make_shared<GainNode>("Track2_Gain");
+    pianoStrip->setVolume(0.85f);
+
+    // Master Output
+    auto masterGain = std::make_shared<GainNode>("MasterOut");
+    masterGain->setVolume(0.85f);
+
+    NodeId dx7Id = graph_.addNode(dx7);
+    NodeId dx7StripId = graph_.addNode(dx7Strip);
+
+    NodeId pianoId = graph_.addNode(piano);
+    NodeId pianoStripId = graph_.addNode(pianoStrip);
+
+    NodeId masterId = graph_.addNode(masterGain);
+
+    // Route Track 1 (Dx7): Dx7Rhodes -> Track1_Gain -> MasterOut
+    graph_.connect(dx7Id, 0, dx7StripId, 0);
+    graph_.connect(dx7StripId, 0, masterId, 0);
+
+    // Route Track 2 (Piano): ConcertGrand -> Track2_Gain -> MasterOut
+    graph_.connect(pianoId, 0, pianoStripId, 0);
+    graph_.connect(pianoStripId, 0, masterId, 0);
+
+    // Register Source Nodes & Strip Caches
+    trackSourceNodeCache_[0] = dx7Id;
+    trackFxNodeIds_[0] = {};
+    trackFxConfigs_[0] = {};
+
+    trackSourceNodeCache_[1] = pianoId;
+    trackFxNodeIds_[1] = {};
+    trackFxConfigs_[1] = {};
+
+    graph_.setOutputNode(masterId, 0);
+    engineMode_ = SynthEngineMode::ModularGraph;
+}
+
 bool AudioEngine::start() {
     if (!isInitialized_ || !impl_->deviceInitialized) return false;
     if (isRunning_) return true;
@@ -321,20 +368,34 @@ uint32_t AudioEngine::getBufferFrameSize() const noexcept {
     return config_.bufferFrameSize;
 }
 
-bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent, int trackIndex) noexcept {
+bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent, int trackIndex, bool applyMidiFx) noexcept {
     uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
-    if (tIdx < sequencer_.getNumTracks()) {
+    if (applyMidiFx && tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
-        if (trk && trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
-            float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
-            const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
-            if (!activeChord && !sequencer_.getChordTrack().empty()) {
-                activeChord = &sequencer_.getChordTrack().front();
+        if (trk) {
+            int noteNum = note;
+            if (trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
+                float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+                const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+                if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                    activeChord = &sequencer_.getChordTrack().front();
+                }
+                if (activeChord) {
+                    noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, trk->getChordFollowMode());
+                }
             }
-            if (activeChord) {
-                int remapped = theory::ChordTheory::remapPitchForChord(static_cast<int>(note), *activeChord, trk->getChordFollowMode());
-                note = static_cast<uint8_t>(std::clamp(remapped, 0, 127));
+            for (const auto& fx : trk->getMidiFxRack()) {
+                if (!fx.enabled) continue;
+                if (fx.type == eatscript::MidiFxType::ScaleSnap) {
+                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : 0;
+                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : false;
+                    noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                } else if (fx.type == eatscript::MidiFxType::Transpose) {
+                    int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
+                    noteNum = std::clamp(noteNum + semi, 0, 127);
+                }
             }
+            note = static_cast<uint8_t>(std::clamp(noteNum, 0, 127));
         }
     }
 
@@ -364,20 +425,34 @@ bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool is
     return eventQueue_.push(evt);
 }
 
-bool AudioEngine::postNoteOff(uint8_t note, int trackIndex) noexcept {
+bool AudioEngine::postNoteOff(uint8_t note, int trackIndex, bool applyMidiFx) noexcept {
     uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
-    if (tIdx < sequencer_.getNumTracks()) {
+    if (applyMidiFx && tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
-        if (trk && trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
-            float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
-            const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
-            if (!activeChord && !sequencer_.getChordTrack().empty()) {
-                activeChord = &sequencer_.getChordTrack().front();
+        if (trk) {
+            int noteNum = note;
+            if (trk->getChordFollowMode() != theory::ChordFollowMode::Off) {
+                float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+                const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+                if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                    activeChord = &sequencer_.getChordTrack().front();
+                }
+                if (activeChord) {
+                    noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, trk->getChordFollowMode());
+                }
             }
-            if (activeChord) {
-                int remapped = theory::ChordTheory::remapPitchForChord(static_cast<int>(note), *activeChord, trk->getChordFollowMode());
-                note = static_cast<uint8_t>(std::clamp(remapped, 0, 127));
+            for (const auto& fx : trk->getMidiFxRack()) {
+                if (!fx.enabled) continue;
+                if (fx.type == eatscript::MidiFxType::ScaleSnap) {
+                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : 0;
+                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : false;
+                    noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                } else if (fx.type == eatscript::MidiFxType::Transpose) {
+                    int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
+                    noteNum = std::clamp(noteNum + semi, 0, 127);
+                }
             }
+            note = static_cast<uint8_t>(std::clamp(noteNum, 0, 127));
         }
     }
 

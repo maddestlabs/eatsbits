@@ -3,6 +3,14 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#endif
+// Trigger PDB rebuild
 
 #include "eatsbits/ui/dawn_bridge.hpp"
 #include "eatsbits/ui/gui_window.hpp"
@@ -747,43 +755,36 @@ void testTrackTabInteraction() {
     window.initialize(engine);
     window.setActiveView(WorkspaceView::Track);
 
-    // Tab 0: [40, 60, 120, 30] -> center (80, 75)
+    // Buttons at top linking to other tracks have been removed in Track tab per requirement
     auto tab0Hit = window.hitTestTrackTab(80.0f, 75.0f);
-    REQUIRE(tab0Hit.hit);
-    REQUIRE(tab0Hit.trackIndex == 0);
+    REQUIRE(!tab0Hit.hit);
 
-    window.onMouseDown(0, 80.0f, 75.0f);
-    window.onMouseUp(0, 80.0f, 75.0f);
+    auto tab1Hit = window.hitTestTrackTab(200.0f, 75.0f);
+    REQUIRE(!tab1Hit.hit);
+
+    auto tab3Hit = window.hitTestTrackTab(460.0f, 75.0f);
+    REQUIRE(!tab3Hit.hit);
+
+    // Verify track selection and preset synchronization directly
+    window.setSelectedTrackIndex(0);
     REQUIRE(window.getSelectedTrackIndex() == 0);
     const auto* p0 = window.getActivePreset();
     REQUIRE(p0 != nullptr);
     REQUIRE(p0->metadata.id.find("303") != std::string::npos || p0->metadata.engineId.find("tb303") != std::string::npos);
 
-    // Tab 1: [40 + 128, 60, 120, 30] -> center (200, 75)
-    auto tab1Hit = window.hitTestTrackTab(200.0f, 75.0f);
-    REQUIRE(tab1Hit.hit);
-    REQUIRE(tab1Hit.trackIndex == 1);
-
-    window.onMouseDown(0, 200.0f, 75.0f);
-    window.onMouseUp(0, 200.0f, 75.0f);
+    window.setSelectedTrackIndex(1);
     REQUIRE(window.getSelectedTrackIndex() == 1);
     const auto* p1 = window.getActivePreset();
     REQUIRE(p1 != nullptr);
     REQUIRE(p1->metadata.id.find("808") != std::string::npos || p1->metadata.name.find("808") != std::string::npos);
 
-    // Tab 3: [40 + 3*128, 60, 120, 30] -> center (460, 75)
-    auto tab3Hit = window.hitTestTrackTab(460.0f, 75.0f);
-    REQUIRE(tab3Hit.hit);
-    REQUIRE(tab3Hit.trackIndex == 3);
-
-    window.onMouseDown(0, 460.0f, 75.0f);
-    window.onMouseUp(0, 460.0f, 75.0f);
+    window.setSelectedTrackIndex(3);
     REQUIRE(window.getSelectedTrackIndex() == 3);
     const auto* p3 = window.getActivePreset();
     REQUIRE(p3 != nullptr);
     REQUIRE(p3->metadata.id.find("dx7") != std::string::npos || p3->metadata.engineId.find("dx7") != std::string::npos);
 
-    std::cout << "  [PASS] Track workspace selector tabs & preset synchronization passed." << std::endl;
+    std::cout << "  [PASS] Track workspace selector tabs removed & preset synchronization passed." << std::endl;
 }
 
 void testPresetBrowserAndProjectActions() {
@@ -2011,6 +2012,7 @@ void testProjectHubAndTopLeftMenu() {
     REQUIRE(window.getHeight() == 800);
 
     // Test Theme Switching across the 5 Eatsbeats presets
+    window.setThemeBank(0);
     float themeChipY = sec2ContentY + 84.0f; // [contentY + 74..100]
 
     // Click Theme Chip 1: Midnight Bites
@@ -2096,42 +2098,48 @@ void testProjectHubAndTopLeftMenu() {
     window.toggleHiDpi();
     REQUIRE(window.isHiDpiEnabled() == prevHiDpi);
 
-    // 8. Test Section 3: Chassis Color Accents & Tints
-    window.setProjectHubSection(3);
+    // 8. Test Section 1: Revert Settings to Default & Open Settings File
+    window.setActiveThemePreset(2);
+    window.setThemeBank(1);
+    window.setProjectHubSection(1);
     window.renderFrame();
     {
         const float topContentY = hubY + 50.0f;
         const float headerStep = 36.0f;
-        float drawerX = hubX + 16.0f;
-        float drawerW = hubW - 32.0f;
-        float drawerY = topContentY + 4 * headerStep;
+        float drawerY = topContentY + 2 * headerStep;
+        float contentStartY = drawerY;
+        const float setBtnW = (hubW - 48.0f - 10.0f) * 0.5f;
 
-        // Click tint swatch (Blue, index 3)
-        const float tintGap = 4.0f;
-        const float tintW = (drawerW - 24.0f - (7.0f * tintGap)) / 8.0f;
-        const float swatch3X = drawerX + 12.0f + 3 * (tintW + tintGap) + 5.0f;
-        const float swatch3Y = drawerY + 22.0f + 5.0f;
-        auto tintHit = window.hitTestProjectHub(swatch3X, swatch3Y);
-        REQUIRE(tintHit.hit);
-        REQUIRE(tintHit.action == ProjectHubAction::SetPanelTint);
-        REQUIRE(tintHit.panelTint.has_value());
-        REQUIRE(std::abs(tintHit.panelTint->b - 0.95f) < 0.01f);
-        window.onMouseDown(0, swatch3X, swatch3Y);
-        window.onMouseUp(0, swatch3X, swatch3Y);
-        REQUIRE(window.getPanelChassisTint().has_value());
-        REQUIRE(std::abs(window.getPanelChassisTint()->b - 0.95f) < 0.01f);
+        float revertBtnX = hubX + 24.0f + 10.0f;
+        float revertBtnY = contentStartY + 120.0f;
+        auto revertHit = window.hitTestProjectHub(revertBtnX, revertBtnY);
+        REQUIRE(revertHit.hit);
+        REQUIRE(revertHit.action == ProjectHubAction::RevertSettingsDefault);
+        window.onMouseDown(0, revertBtnX, revertBtnY);
+        window.onMouseUp(0, revertBtnX, revertBtnY);
+        REQUIRE(window.getUiScale() == 1.0f);
+        REQUIRE(window.getActiveThemePreset() == 0);
+        REQUIRE(window.getThemeBank() == 0);
+        REQUIRE(window.getAntiAliasingMode() == 2);
+        REQUIRE(window.getLastStatusMessage().find("reverted") != std::string::npos);
+
+        float openBtnX = hubX + 34.0f + setBtnW + 10.0f;
+        float openBtnY = contentStartY + 120.0f;
+        auto openHit = window.hitTestProjectHub(openBtnX, openBtnY);
+        REQUIRE(openHit.hit);
+        REQUIRE(openHit.action == ProjectHubAction::OpenSettingsFile);
     }
 
-    // 8b. Test Section 4: CRT Shader Drawer Constraints & Scrollbar Area
-    window.setProjectHubSection(4);
+    // 8b. Test Section 3: CRT Shader Drawer Constraints & Scrollbar Area
+    window.setProjectHubSection(3);
     window.renderFrame();
 
     const auto& crtScrollArea = window.getProjectHubScrollArea();
     REQUIRE(crtScrollArea.canScroll());
     REQUIRE(crtScrollArea.getViewport().w == hubW - 32.0f);
-    REQUIRE(crtScrollArea.getViewport().h == 276.0f);
+    REQUIRE(crtScrollArea.getViewport().h == 312.0f);
     REQUIRE(crtScrollArea.getContentHeight() == 586.0f);
-    REQUIRE(crtScrollArea.getMaxScroll() == 586.0f - 276.0f); // 310.0f
+    REQUIRE(crtScrollArea.getMaxScroll() == 586.0f - 312.0f); // 274.0f
 
     // Verify Scrollbar Track Bounds strictly inside drawer
     auto sbTrack = crtScrollArea.getScrollbarTrackBounds();
@@ -2151,44 +2159,46 @@ void testProjectHubAndTopLeftMenu() {
     window.onMouseScroll(0.0, 2.0);
     REQUIRE(window.getProjectHubScrollY() == 0.0f);
 
-    const float topContentY = hubY + 50.0f;
-    const float headerStep = 36.0f;
-    float drawerX = hubX + 16.0f;
-    float drawerY = topContentY + 5 * headerStep;
-    float presetMaxClarityX = drawerX + 180.0f;
-    float presetMaxClarityY = drawerY + 48.0f;
-    auto presetHit = window.hitTestProjectHub(presetMaxClarityX, presetMaxClarityY);
-    REQUIRE(presetHit.hit);
-    REQUIRE(presetHit.action == ProjectHubAction::CrtPresetMaxClarity);
-    window.onMouseDown(0, presetMaxClarityX, presetMaxClarityY);
-    window.onMouseUp(0, presetMaxClarityX, presetMaxClarityY);
-    REQUIRE(window.getLastStatusMessage().find("MAX CLARITY") != std::string::npos);
+    {
+        const float topContentY = hubY + 50.0f;
+        const float headerStep = 36.0f;
+        float drawerX = hubX + 16.0f;
+        float drawerY = topContentY + 4 * headerStep;
+        float presetMaxClarityX = drawerX + 180.0f;
+        float presetMaxClarityY = drawerY + 48.0f;
+        auto presetHit = window.hitTestProjectHub(presetMaxClarityX, presetMaxClarityY);
+        REQUIRE(presetHit.hit);
+        REQUIRE(presetHit.action == ProjectHubAction::CrtPresetMaxClarity);
+        window.onMouseDown(0, presetMaxClarityX, presetMaxClarityY);
+        window.onMouseUp(0, presetMaxClarityX, presetMaxClarityY);
+        REQUIRE(window.getLastStatusMessage().find("MAX CLARITY") != std::string::npos);
 
-    // Test CRT Slider in drawer (Curvature slider, index 1)
-    float sliderRowY = drawerY + 76.0f + 1 * 46.0f + 18.0f;
-    float sliderTrackX = drawerX + 12.0f;
-    float sliderTrackW = (hubW - 32.0f) - 32.0f;
-    auto sliderHit = window.hitTestProjectHub(sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
-    REQUIRE(sliderHit.hit);
-    REQUIRE(sliderHit.action == ProjectHubAction::CrtSlider);
-    REQUIRE(sliderHit.crtSliderIndex == 1);
-    window.onMouseDown(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
-    window.onMouseUp(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
-    REQUIRE(window.getLastStatusMessage().find("Curvature") != std::string::npos);
+        // Test CRT Slider in drawer (Curvature slider, index 1)
+        float sliderRowY = drawerY + 76.0f + 1 * 46.0f + 18.0f;
+        float sliderTrackX = drawerX + 12.0f;
+        float sliderTrackW = (hubW - 32.0f) - 32.0f;
+        auto sliderHit = window.hitTestProjectHub(sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+        REQUIRE(sliderHit.hit);
+        REQUIRE(sliderHit.action == ProjectHubAction::CrtSlider);
+        REQUIRE(sliderHit.crtSliderIndex == 1);
+        window.onMouseDown(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+        window.onMouseUp(0, sliderTrackX + sliderTrackW * 0.5f, sliderRowY);
+        REQUIRE(window.getLastStatusMessage().find("Curvature") != std::string::npos);
 
-    // Test switching to another section resets scroll
-    window.onMouseScroll(0.0, -3.0);
-    REQUIRE(window.getProjectHubScrollY() > 0.0f);
-    // Click Section 5 Header (Audio Engine Config)
-    float sec5HeaderY = drawerY + 276.0f + 6.0f;
-    auto sec5Hit = window.hitTestProjectHub(hubX + 50.0f, sec5HeaderY + 10.0f);
-    REQUIRE(sec5Hit.hit);
-    REQUIRE(sec5Hit.action == ProjectHubAction::SectionHeader);
-    REQUIRE(sec5Hit.sectionIndex == 5);
-    window.onMouseDown(0, hubX + 50.0f, sec5HeaderY + 10.0f);
-    window.onMouseUp(0, hubX + 50.0f, sec5HeaderY + 10.0f);
-    REQUIRE(window.getProjectHubSection() == 5);
-    REQUIRE(window.getProjectHubScrollY() == 0.0f);
+        // Test switching to another section resets scroll
+        window.onMouseScroll(0.0, -3.0);
+        REQUIRE(window.getProjectHubScrollY() > 0.0f);
+        // Click Section 4 Header (Audio & CLAP Plugins)
+        float sec4HeaderY = drawerY + 312.0f + 6.0f;
+        auto sec4Hit = window.hitTestProjectHub(hubX + 50.0f, sec4HeaderY + 10.0f);
+        REQUIRE(sec4Hit.hit);
+        REQUIRE(sec4Hit.action == ProjectHubAction::SectionHeader);
+        REQUIRE(sec4Hit.sectionIndex == 4);
+        window.onMouseDown(0, hubX + 50.0f, sec4HeaderY + 10.0f);
+        window.onMouseUp(0, hubX + 50.0f, sec4HeaderY + 10.0f);
+        REQUIRE(window.getProjectHubSection() == 4);
+        REQUIRE(window.getProjectHubScrollY() == 0.0f);
+    }
 
     // 9. Test Global Keyboard Shortcuts for Project Operations
     // Close modal
@@ -3436,7 +3446,9 @@ void testFullscreenDeviceModal() {
     REQUIRE(window.isFullscreenDeviceOpen());
 
     // 6. Test Preset Button Click (opens Preset Dialog)
-    float presetBtnX = 1280.0f - 28.0f - 14.0f - 92.0f - 10.0f;
+    float closeBtnX = 1280.0f - 28.0f - 14.0f;
+    float detachBtnX = closeBtnX - 32.0f - 10.0f;
+    float presetBtnX = detachBtnX - 92.0f - 10.0f;
     float presetBtnY = 22.0f;
     window.onMouseDown(0, presetBtnX + 20.0f, presetBtnY);
     REQUIRE(window.isFullscreenDeviceOpen());

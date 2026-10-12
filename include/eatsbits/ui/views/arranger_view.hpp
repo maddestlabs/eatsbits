@@ -188,6 +188,9 @@ public:
     uint32_t extractChordsFromTrack(uint32_t trackIdx);
     uint32_t extractChordsFromClip(uint32_t trackIdx, uint32_t clipIdx);
     void bakeChordsToTrack(uint32_t trackIdx);
+    void syncDrawerDataForTrack(uint32_t trackIdx);
+    [[nodiscard]] TrackPropertiesDrawerData& getDrawerData() noexcept { return drawerData_; }
+    [[nodiscard]] const TrackPropertiesDrawerData& getDrawerData() const noexcept { return drawerData_; }
 
     // Dynamic Clip Chords & Track-to-Track Harmonic Sync
     void updateClipDetectedChords(ArrangerTimelineClip& clip);
@@ -223,6 +226,7 @@ public:
     std::function<void(uint32_t trackIdx)> onMidiFxChanged;
     std::function<void(uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIdx)> onOpenDetachedWindow;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIdx, size_t fxIdx)> onOpenFullscreenMidiFx;
     std::function<void(float masterVolume)> onMasterVolumeChanged;
@@ -266,6 +270,8 @@ private:
     uint32_t lastEmptyClickedBar_{0};
     std::chrono::steady_clock::time_point lastOverviewClickTime_{};
     int lastClickedOverviewChordIdx_{-1};
+    std::chrono::steady_clock::time_point lastHeaderClickTime_{};
+    int lastClickedHeaderTrack_{-1};
 
     // Properties Drawer State
     bool inspectorOpen_{true};

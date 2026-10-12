@@ -6,8 +6,15 @@
 
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/ui/views/arranger_view.hpp"
+#include "eatsbits/ui/views/edit_view.hpp"
+#include "eatsbits/ui/views/mixer_view.hpp"
+#include "eatsbits/ui/views/track_inspector_view.hpp"
+#include "eatsbits/sequencer/step_sequencer.hpp"
 #include "eatsbits/ui/widgets/circle_of_fifths_dialog.hpp"
 #include "eatsbits/ui/input/pointer_event.hpp"
+#include "eatsbits/project/eats_serializer.hpp"
+#include "eatsbits/project/project_file.hpp"
+#include "eatsbits/audio/audio_engine.hpp"
 
 using namespace eatsbits;
 using namespace eatsbits::theory;
@@ -673,6 +680,267 @@ void testChordFollowPipelineSyncAndAuditioning() {
     std::cout << "  -> Passed (Arranger-Sequencer chord track sync & chord follow pipeline)." << std::endl;
 }
 
+// -------------------------------------------------------------------------
+// 13. Test EditView Piano Roll Chord Follow & MIDI FX Evaluation and Baking
+// -------------------------------------------------------------------------
+void testEditViewChordFollowAndMidiFxBake() {
+    std::cout << "[Test 13/13] EditView Piano Roll Chord Follow & MIDI FX Evaluation and Baking..." << std::endl;
+
+    EditView editView;
+    ViewContext vctx{};
+    editView.layout(Rect2D{0.0f, 0.0f, 1200.0f, 800.0f}, vctx);
+
+    // 1. Initial state with raw notes
+    std::vector<PianoRollNote> notes;
+    PianoRollNote n1;
+    n1.id = "n1";
+    n1.pitch = 60; // C4
+    n1.startStep = 0.0f; // Bar 0
+    n1.durationSteps = 4.0f;
+    n1.velocity = 0.8f;
+
+    PianoRollNote n2;
+    n2.id = "n2";
+    n2.pitch = 65; // F4
+    n2.startStep = 16.0f; // Bar 1 (16 sixteenth steps per bar)
+    n2.durationSteps = 4.0f;
+    n2.velocity = 0.8f;
+
+    notes.push_back(n1);
+    notes.push_back(n2);
+    editView.getNotes() = notes;
+
+    assert(!editView.hasActiveChordFollowOrMidiFx());
+    assert(!editView.getBtnBake().isVisible());
+
+    // 2. Set up Chord Track: Bar 0 = C Major, Bar 1 = G Major (root = 7)
+    std::vector<ChordEvent> chords;
+    ChordEvent c0{"c0", 0, 1.0f, 0, ChordQuality::Major, -1};
+    ChordEvent c1{"c1", 1, 1.0f, 7, ChordQuality::Major, -1};
+    chords.push_back(c0);
+    chords.push_back(c1);
+    editView.setChordTrack(chords);
+
+    // 3. Set Chord Follow Mode to Bass
+    editView.setChordFollowMode(ChordFollowMode::Bass);
+    assert(editView.hasActiveChordFollowOrMidiFx());
+    assert(editView.getBtnBake().isVisible());
+
+    // Note 1 (pitch 60 C4 at bar 0) over C Major in Bass mode -> snaps to root C (60)
+    // Note 2 (pitch 65 F4 at bar 1) over G Major in Bass mode -> snaps to root G (67)
+    const auto& evalNotes1 = editView.getEvaluatedFxNotes();
+    assert(evalNotes1.size() == 2);
+    assert(evalNotes1[0].pitch == 60);
+    assert(evalNotes1[1].pitch == 67); // F4 snapped to G4
+
+    // 4. Add Transpose MIDI FX (+12 semitones)
+    std::vector<eatscript::MidiFxInsert> fxRack;
+    eatscript::MidiFxInsert fxTrans;
+    fxTrans.id = "fx_trans";
+    fxTrans.name = "Transpose";
+    fxTrans.type = eatscript::MidiFxType::Transpose;
+    fxTrans.enabled = true;
+    fxTrans.params["semitones"] = 12.0f;
+    fxRack.push_back(fxTrans);
+    editView.setMidiFxRack(fxRack);
+
+    const auto& evalNotes2 = editView.getEvaluatedFxNotes();
+    assert(evalNotes2.size() == 2);
+    assert(evalNotes2[0].pitch == 72); // 60 + 12 = C5
+    assert(evalNotes2[1].pitch == 79); // 67 + 12 = G5
+
+    // 5. Test Baking: commits evaluated notes to base notes, resets follow mode, disables FX, and formats Eatscript
+    bool bakeCallbackFired = false;
+    uint32_t bakedTrackReceived = 999;
+
+    editView.onBakeRequested = [&](uint32_t tIdx, int) {
+        bakeCallbackFired = true;
+        bakedTrackReceived = tIdx;
+    };
+
+    editView.bakeChordFollowAndMidiFx();
+
+    assert(bakeCallbackFired);
+    assert(bakedTrackReceived == editView.getActiveTrackIndex());
+
+    // Verify Eatscript code is non-empty and contains the baked notes (source of truth)
+    std::string bakedScript = editView.getScriptEditor().getText();
+    assert(!bakedScript.empty());
+    assert(bakedScript.find("track \"") != std::string::npos);
+
+    // Verify follow mode reset and FX disabled
+    assert(editView.getChordFollowMode() == ChordFollowMode::Off);
+    for (const auto& fx : editView.getMidiFxRack()) {
+        assert(!fx.enabled);
+    }
+    assert(!editView.hasActiveChordFollowOrMidiFx());
+    assert(!editView.getBtnBake().isVisible());
+
+    // Verify EditView's base notes now contain the baked pitches
+    const auto& currentNotes = editView.getNotes();
+    assert(currentNotes.size() == 2);
+    assert(currentNotes[0].pitch == 72);
+    assert(currentNotes[1].pitch == 79);
+
+    // 6. Test StepSequencer integration: setting the baked script code onto a SequencerTrack
+    sequencer::StepSequencer seq;
+    size_t trkIdx = seq.addTrack("Synth Track", 0, 32);
+    auto* seqTrk = seq.getTrack(trkIdx);
+    assert(seqTrk != nullptr);
+
+    seqTrk->setEatscriptCode(bakedScript);
+    assert(seqTrk->getEatscriptCode() == bakedScript);
+
+    std::cout << "  -> Passed (EditView Chord Follow & MIDI FX evaluation, baking & Eatscript code sync)." << std::endl;
+}
+
+// -------------------------------------------------------------------------
+// 14. Test EatsProjectSerializer .eats Chord Track & Default Rhodes + Grand
+// -------------------------------------------------------------------------
+void testEatsFormatChordTrackAndRhodesGrandSong() {
+    std::cout << "[Test 14/14] EatsProjectSerializer .eats Chord Track & Default Rhodes + Grand..." << std::endl;
+
+    audio::AudioEngine engine;
+    engine.setupDefaultRhodesGrandGraph();
+
+    auto& seq = engine.getSequencer();
+    seq.setBpm(116.0);
+    seq.setSwing(0.52);
+
+    std::vector<ChordEvent> chords = {
+        {"chord_0",  0,  2.0f, 0, ChordQuality::Major, -1},  // Bar 1-2: C Major
+        {"chord_2",  2,  2.0f, 7, ChordQuality::Major, -1},  // Bar 3-4: G Major
+        {"chord_4",  4,  2.0f, 9, ChordQuality::Minor, -1},  // Bar 5-6: A Minor
+        {"chord_6",  6,  2.0f, 5, ChordQuality::Major, -1},  // Bar 7-8: F Major
+        {"chord_8",  8,  2.0f, 0, ChordQuality::Major, -1},  // Bar 9-10: C Major
+        {"chord_10", 10, 2.0f, 7, ChordQuality::Major, -1},  // Bar 11-12: G Major
+        {"chord_12", 12, 2.0f, 9, ChordQuality::Minor, -1},  // Bar 13-14: A Minor
+        {"chord_14", 14, 2.0f, 5, ChordQuality::Major, -1}   // Bar 15-16: F Major
+    };
+    seq.setChordTrack(chords);
+
+    size_t t0 = seq.addTrack("DX7 Rhodes", 1, 128);
+    auto* tr0 = seq.getTrack(t0);
+    tr0->setChordFollowMode(ChordFollowMode::Chord);
+
+    size_t t1 = seq.addTrack("Concert Grand", 2, 128);
+    auto* tr1 = seq.getTrack(t1);
+    tr1->setChordFollowMode(ChordFollowMode::Chord);
+
+    // 1. Test .eats serialization
+    std::string eatsContent = project::EatsProjectSerializer::serialize(
+        engine.getGraph(), seq, "Rhodes & Concert Grand", 116.0, 0.52);
+
+    assert(eatsContent.find("chordTrack = {") != std::string::npos);
+    assert(eatsContent.find("chordFollowMode = \"Chord\"") != std::string::npos);
+    assert(eatsContent.find("type = \"dx7\"") != std::string::npos);
+    assert(eatsContent.find("type = \"piano\"") != std::string::npos);
+
+    // 2. Test .eats deserialization into new engine
+    audio::AudioGraph loadedGraph;
+    sequencer::StepSequencer loadedSeq;
+    std::string loadedTitle;
+    double loadedBpm = 0.0, loadedSwing = 0.0;
+
+    bool ok = project::EatsProjectSerializer::deserialize(
+        eatsContent, loadedGraph, loadedSeq, loadedTitle, loadedBpm, loadedSwing);
+    assert(ok);
+    assert(loadedTitle == "Rhodes & Concert Grand");
+    assert(std::abs(loadedBpm - 116.0) < 0.01);
+    assert(loadedSeq.getNumTracks() == 2);
+    assert(loadedSeq.getTrack(0)->getName() == "DX7 Rhodes");
+    assert(loadedSeq.getTrack(0)->getChordFollowMode() == ChordFollowMode::Chord);
+    assert(loadedSeq.getTrack(1)->getName() == "Concert Grand");
+    assert(loadedSeq.getTrack(1)->getChordFollowMode() == ChordFollowMode::Chord);
+    assert(loadedSeq.getChordTrack().size() == 8);
+    assert(loadedSeq.getChordTrack()[0].quality == ChordQuality::Major);
+    assert(loadedSeq.getChordTrack()[2].quality == ChordQuality::Minor);
+
+    // 3. Test project.eats file on disk
+    audio::AudioGraph diskGraph;
+    sequencer::StepSequencer diskSeq;
+    std::string diskTitle;
+    double diskBpm = 0.0, diskSwing = 0.0;
+    bool diskOk = project::ProjectFile::loadFromFile(
+        "project.eats", diskGraph, diskSeq, diskTitle, diskBpm, diskSwing);
+    assert(diskOk);
+    assert(diskSeq.getNumTracks() == 2);
+    assert(diskSeq.getChordTrack().size() == 8);
+    assert(diskSeq.getTrack(0)->getChordFollowMode() == ChordFollowMode::Chord);
+    assert(diskSeq.getTrack(1)->getChordFollowMode() == ChordFollowMode::Chord);
+
+    std::cout << "  -> Passed (EatsProjectSerializer .eats chord track and Rhodes + Grand default song)." << std::endl;
+}
+
+// -------------------------------------------------------------------------
+// 15. Test Per-Track Chord Follow Isolation Across Arranger, Mixer & Inspector
+// -------------------------------------------------------------------------
+void testPerTrackChordFollowIsolation() {
+    std::cout << "[Test 15/15] Per-Track Harmonic Chord Follow Isolation..." << std::endl;
+
+    // 1. ArrangerView isolation
+    ArrangerView arranger;
+    assert(arranger.getTracks().size() >= 2);
+
+    // Initial default: track 0 and 1
+    arranger.getTracks()[0].chordFollowMode = ChordFollowMode::Chord;
+    arranger.getTracks()[1].chordFollowMode = ChordFollowMode::Bass;
+
+    // Switching active track must populate drawerData_ with that specific track's mode
+    arranger.setActiveTrack(0);
+    assert(arranger.getDrawerData().trackIndex == 0);
+    assert(arranger.getDrawerData().chordFollowMode == ChordFollowMode::Chord);
+
+    arranger.setActiveTrack(1);
+    assert(arranger.getDrawerData().trackIndex == 1);
+    assert(arranger.getDrawerData().chordFollowMode == ChordFollowMode::Bass);
+
+    // Triggering drawer chord follow change on track 1 must ONLY modify track 1
+    arranger.getPropertiesDrawer().onChordFollowChanged(1, ChordFollowMode::Scale);
+    assert(arranger.getTracks()[1].chordFollowMode == ChordFollowMode::Scale);
+    assert(arranger.getTracks()[0].chordFollowMode == ChordFollowMode::Chord); // Must NOT be changed!
+    assert(arranger.getDrawerData().chordFollowMode == ChordFollowMode::Scale);
+
+    // Switching back to track 0 must reload track 0's ChordFollowMode::Chord
+    arranger.setActiveTrack(0);
+    assert(arranger.getDrawerData().trackIndex == 0);
+    assert(arranger.getDrawerData().chordFollowMode == ChordFollowMode::Chord);
+
+    // 2. MixerView isolation
+    MixerView mixer;
+    assert(mixer.getChannels().size() >= 2);
+    mixer.getChannels()[0].chordFollowMode = ChordFollowMode::Chord;
+    mixer.getChannels()[1].chordFollowMode = ChordFollowMode::ColorLead;
+
+    mixer.getPropertiesDrawer().onChordFollowChanged(1, ChordFollowMode::Off);
+    assert(mixer.getChannels()[1].chordFollowMode == ChordFollowMode::Off);
+    assert(mixer.getChannels()[0].chordFollowMode == ChordFollowMode::Chord); // Must NOT be changed!
+
+    // 3. TrackInspectorView isolation
+    TrackInspectorView inspector;
+    assert(inspector.getTracks().size() >= 2);
+    inspector.getTracks()[0].chordFollowMode = ChordFollowMode::Chord;
+    inspector.getTracks()[1].chordFollowMode = ChordFollowMode::Bass;
+
+    inspector.setActiveTrack(0);
+    inspector.updateDrawerData();
+    assert(inspector.getDrawerData().chordFollowMode == ChordFollowMode::Chord);
+
+    inspector.setActiveTrack(1);
+    inspector.updateDrawerData();
+    assert(inspector.getDrawerData().chordFollowMode == ChordFollowMode::Bass);
+
+    inspector.onChordFollowChanged = [&](uint32_t idx, ChordFollowMode mode) {
+        assert(idx == 1);
+        assert(mode == ChordFollowMode::Scale);
+    };
+    inspector.getPanel().onChordFollowChanged(1, ChordFollowMode::Scale);
+    assert(inspector.getTracks()[1].chordFollowMode == ChordFollowMode::Scale);
+    assert(inspector.getTracks()[0].chordFollowMode == ChordFollowMode::Chord); // Track 0 preserved!
+
+    std::cout << "  -> Passed (Harmonic Chord Follow strictly isolated on a per-track basis across Arranger, Mixer, and Inspector)." << std::endl;
+}
+
 int main() {
     std::cout << "=================================================" << std::endl;
     std::cout << "  EATSBITS CHORD TRACK & HARMONIC ENGINE TESTS   " << std::endl;
@@ -690,9 +958,12 @@ int main() {
     testClipChordsAndTrackSync();
     testPlaybackFollowModeAndMidiFxSync();
     testChordFollowPipelineSyncAndAuditioning();
+    testEditViewChordFollowAndMidiFxBake();
+    testEatsFormatChordTrackAndRhodesGrandSong();
+    testPerTrackChordFollowIsolation();
 
     std::cout << "=================================================" << std::endl;
-    std::cout << "  ALL 12 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
+    std::cout << "  ALL 15 CHORD & HARMONIC SUITES PASSED (100%)   " << std::endl;
     std::cout << "=================================================" << std::endl;
     return 0;
 }

@@ -7,7 +7,7 @@ namespace eatsbits::ui {
 
 TrackInspectorView::TrackInspectorView() {
     initDefaultTracks();
-    panel_.setShowTrackRibbon(true);
+    panel_.setShowTrackRibbon(false);
 
     // Bridge callbacks
     panel_.onTrackSelected = [this](uint32_t idx) {
@@ -140,6 +140,9 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onOpenFullscreenDevice = [this](uint32_t trackIdx) {
         if (onOpenFullscreenDevice) onOpenFullscreenDevice(trackIdx);
     };
+    panel_.onOpenDetachedWindow = [this](uint32_t trackIdx) {
+        if (onOpenDetachedWindow) onOpenDetachedWindow(trackIdx);
+    };
     panel_.onOpenPluginGui = [this](uint32_t trackIdx) {
         if (onOpenPluginGui) onOpenPluginGui(trackIdx);
     };
@@ -176,6 +179,7 @@ TrackInspectorView::TrackInspectorView() {
                 trk.g = entry.g;
                 trk.b = entry.b;
                 syncKnobsForTrack(trk);
+                updateDrawerData();
                 if (onInstrumentChanged) onInstrumentChanged(trackIndex, trk.instrumentEngine, entry.name);
                 if (onChangeInstrument) onChangeInstrument(trackIndex);
             } else if (mode == PluginDialogMode::AddMidiFx) {
@@ -733,7 +737,7 @@ void TrackInspectorView::syncFromWindow(
 
 void TrackInspectorView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     bounds_ = bounds;
-    panel_.setShowTrackRibbon(true);
+    panel_.setShowTrackRibbon(false);
     panel_.layout(bounds, ctx);
 }
 

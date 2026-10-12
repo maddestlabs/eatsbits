@@ -103,54 +103,113 @@ public:
 };
 
 /// Commuted Soundboard Exciter (Bank-Bensa Physical Piano).
-/// Synthesizes dual dry-tap and sympathetic sustain-pedal noise bursts shaped by
-/// empirical T60 time constants per MIDI note.
+/// Synthesizes coherent Hertzian hammer strike force combined with dual dry-tap and
+/// sympathetic sustain-pedal noise bursts shaped by empirical T60 time constants per MIDI note.
 class CommutedSoundboardExciter {
 public:
-    static void generate(float* outBuffer, size_t numFrames, float sampleRate, int midiNote,
-                        float velocity, float hammerHardness = 0.85f, float pedalResonance = 0.55f,
-                        float soundboardGain = 1.0f) {
-        if (!outBuffer || numFrames == 0) return;
+    void reset() noexcept {
+        active_ = false;
+        sampleIdx_ = 0;
+        envDry_ = 0.0f;
+        envPedal_ = 0.0f;
+    }
 
+    void trigger(float sampleRate, int midiNote, float velocity,
+                 float hammerHardness = 0.85f, float pedalResonance = 0.55f,
+                 float soundboardGain = 1.0f) noexcept {
+        sampleRate_ = sampleRate > 0.0f ? sampleRate : 48000.0f;
         const float note = static_cast<float>(midiNote);
         const float vel = std::clamp(velocity, 0.01f, 1.0f);
         const float hardness = std::clamp(hammerHardness, 0.05f, 2.0f);
         const float pReso = std::clamp(pedalResonance, 0.0f, 2.0f);
-        const float sbGain = std::clamp(soundboardGain, 0.0f, 2.0f);
+        sbGain_ = std::clamp(soundboardGain, 0.0f, 2.0f);
 
         const float noteCutoffT60 = static_cast<float>(PianoPhysicalTables::dryTapAmpT60.lookup(note)) * (0.8f + 0.4f * vel);
         const float pedalEnvValue = static_cast<float>(PianoPhysicalTables::sustainPedalLevel.lookup(note)) * 0.2f * pReso;
         constexpr float pedalCutoffT60 = 1.4f;
 
-        const float attDurSec = std::max(0.0005f, 0.015f / hardness);
-        const float factorNote = std::exp(-7.0f / (noteCutoffT60 * sampleRate));
-        const float factorPedal = std::exp(-7.0f / (pedalCutoffT60 * sampleRate));
+        // Attack duration: hammer impact transient rises to peak in 0.8ms - 2.5ms
+        const float attDurSec = std::clamp(0.0018f / hardness, 0.0004f, 0.005f);
+        attDurSamples_ = std::max(4u, static_cast<uint32_t>(attDurSec * sampleRate_));
+        factorNote_ = std::exp(-7.0f / (noteCutoffT60 * sampleRate_));
+        factorPedal_ = std::exp(-7.0f / (pedalCutoffT60 * sampleRate_));
 
-        float envDry = 0.85f * vel;
-        float envPedal = pedalEnvValue * vel * 2.0f;
-        uint32_t seed = 0x1A2B3Cu ^ static_cast<uint32_t>(midiNote * 37);
+        // Hammer contact duration for coherent force pulse (0.8ms to 3.5ms)
+        const float contactSec = std::clamp(0.0028f / (std::pow(vel, 0.35f) * hardness), 0.0006f, 0.005f);
+        contactSamples_ = std::max(4u, static_cast<uint32_t>(contactSec * sampleRate_));
+        strikeVelocity_ = vel;
 
+        envDry_ = 1.0f * vel;
+        envPedal_ = pedalEnvValue * vel * 2.0f;
+        sampleIdx_ = 0;
+        seed_ = 0x1A2B3Cu ^ static_cast<uint32_t>(midiNote * 37);
+        active_ = true;
+    }
+
+    [[nodiscard]] bool isActive() const noexcept { return active_; }
+
+    void process(float* outBuffer, size_t numFrames) noexcept {
+        if (!active_ || !outBuffer || numFrames == 0) return;
+
+        constexpr float pi = 3.14159265358979323846f;
         for (size_t i = 0; i < numFrames; ++i) {
-            float t = static_cast<float>(i) / sampleRate;
-            seed ^= (seed << 13);
-            seed ^= (seed >> 17);
-            seed ^= (seed << 5);
-            float noise = (static_cast<float>(seed & 0xFFFFFFu) / 8388607.5f) - 1.0f;
-
-            float curEnvDry;
-            if (t < attDurSec) {
-                curEnvDry = (t / attDurSec) * envDry;
-            } else {
-                curEnvDry = envDry;
-                envDry *= factorNote;
+            // 1. Coherent Hertzian hammer strike force pulse
+            float strike = 0.0f;
+            if (sampleIdx_ < contactSamples_) {
+                float phase = (static_cast<float>(sampleIdx_) / static_cast<float>(contactSamples_)) * pi;
+                strike = std::sin(phase) * strikeVelocity_ * 1.35f;
             }
 
-            float curEnvPedal = envPedal;
-            envPedal *= factorPedal;
+            // 2. Soundboard dry-tap and sympathetic resonance noise burst
+            seed_ ^= (seed_ << 13);
+            seed_ ^= (seed_ >> 17);
+            seed_ ^= (seed_ << 5);
+            float noise = (static_cast<float>(seed_ & 0xFFFFFFu) / 8388607.5f) - 1.0f;
 
-            outBuffer[i] = (noise * curEnvDry + noise * curEnvPedal) * sbGain;
+            float curEnvDry;
+            if (sampleIdx_ < attDurSamples_) {
+                curEnvDry = (static_cast<float>(sampleIdx_) / static_cast<float>(attDurSamples_)) * envDry_;
+            } else {
+                curEnvDry = envDry_;
+                envDry_ *= factorNote_;
+            }
+
+            float curEnvPedal = envPedal_;
+            envPedal_ *= factorPedal_;
+
+            float sbSignal = (noise * curEnvDry + noise * curEnvPedal) * sbGain_;
+
+            outBuffer[i] += strike + sbSignal * 0.30f;
+            sampleIdx_++;
+        }
+
+        if (sampleIdx_ >= contactSamples_ && envDry_ < 0.00005f && envPedal_ < 0.00005f) {
+            active_ = false;
         }
     }
+
+    static void generate(float* outBuffer, size_t numFrames, float sampleRate, int midiNote,
+                        float velocity, float hammerHardness = 0.85f, float pedalResonance = 0.55f,
+                        float soundboardGain = 1.0f) {
+        CommutedSoundboardExciter exc;
+        exc.trigger(sampleRate, midiNote, velocity, hammerHardness, pedalResonance, soundboardGain);
+        std::fill_n(outBuffer, numFrames, 0.0f);
+        exc.process(outBuffer, numFrames);
+    }
+
+private:
+    bool active_{false};
+    float sampleRate_{48000.0f};
+    uint32_t sampleIdx_{0};
+    uint32_t attDurSamples_{64};
+    uint32_t contactSamples_{96};
+    float strikeVelocity_{1.0f};
+    float envDry_{0.0f};
+    float envPedal_{0.0f};
+    float factorNote_{0.999f};
+    float factorPedal_{0.999f};
+    float sbGain_{1.0f};
+    uint32_t seed_{0x1A2B3Cu};
 };
 
 /// 4-Stage 1-Pole Non-Linear Hammer Filter Cascade.

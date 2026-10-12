@@ -39,6 +39,9 @@ public:
     [[nodiscard]] bool isAnimating() const noexcept { return std::abs(animProgress_ - (isExpanded_ ? 1.0f : 0.0f)) > 0.001f; }
     [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (width_ * animProgress_); }
     [[nodiscard]] bool isPluginDialogOpen() const noexcept { return panel_.getPluginSearchDialog().isOpen(); }
+    [[nodiscard]] bool isColorPickerOpen() const noexcept { return panel_.isColorPickerOpen(); }
+    [[nodiscard]] ColorPickerDialog& getColorPickerDialog() noexcept { return panel_.getColorPickerDialog(); }
+    [[nodiscard]] const ColorPickerDialog& getColorPickerDialog() const noexcept { return panel_.getColorPickerDialog(); }
     [[nodiscard]] bool isDragging() const noexcept { return panel_.isDragging() || isResizing_; }
 
     [[nodiscard]] float getWidth() const noexcept { return width_; }
@@ -80,6 +83,7 @@ public:
     std::function<void(uint32_t trackIndex)> onOpenDesign;
     std::function<void(uint32_t trackIndex)> onOpenPresets;
     std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
+    std::function<void(uint32_t trackIndex)> onOpenDetachedWindow;
     std::function<void()> onPrevPreset;
     std::function<void()> onNextPreset;
     std::function<void(TrackPropertiesTab newTab)> onTabSelected;
@@ -104,6 +108,8 @@ public:
     std::function<void(uint32_t trackIndex)> onDuplicateTrack;
     std::function<void(uint32_t trackIndex, int clipIndex)> onDuplicateClip;
     std::function<void(uint32_t trackIndex, int clipIndex)> onDeleteClip;
+    std::function<void(uint32_t trackIndex, ChordFollowMode mode)> onChordFollowChanged;
+    std::function<void(uint32_t trackIndex)> onBakeChords;
 
 private:
     bool isExpanded_{true};

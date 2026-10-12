@@ -72,6 +72,7 @@ public:
             v.active = false;
             v.age = 0;
             v.isNoteOff = false;
+            v.pianoExciter.reset();
             v.pianoWaveguide.reset();
             v.pianoHammer.reset();
             v.pianoComb.reset();
@@ -114,6 +115,8 @@ public:
         v.isNoteOff = false;
         v.isExcited = false; // Trigger exciter in processBlock
 
+        const float sr = sampleRate_ > 0.0 ? static_cast<float>(sampleRate_) : 48000.0f;
+        v.pianoExciter.trigger(sr, note, v.velocity, hammerHardness_, 0.55f, 1.0f);
         v.pianoWaveguide.reset();
         v.pianoHammer.reset();
         v.pianoComb.reset();
@@ -189,37 +192,38 @@ public:
         for (auto& v : voices_) {
             if (!v.active) continue;
 
-            // 1. Synthesize excitation on note-on trigger
-            if (!v.isExcited) {
-                v.isExcited = true;
-                switch (modelType_) {
-                    case PhysicalModelType::ConcertGrandPiano:
-                        dsp::CommutedSoundboardExciter::generate(
-                            v.voiceBuffer.data(), frames, sr, v.note, v.velocity,
-                            hammerHardness_, 0.55f, 1.0f
-                        );
+            std::fill(v.voiceBuffer.begin(), v.voiceBuffer.begin() + frames, 0.0f);
+
+            // 1. Synthesize excitation
+            switch (modelType_) {
+                case PhysicalModelType::ConcertGrandPiano:
+                    if (v.pianoExciter.isActive()) {
+                        v.pianoExciter.process(v.voiceBuffer.data(), frames);
                         v.pianoHammer.process(v.voiceBuffer.data(), frames, v.note, v.velocity, brightness_, hammerHardness_);
                         v.pianoComb.process(v.voiceBuffer.data(), frames, sr, v.note, v.freq);
-                        break;
+                    }
+                    break;
 
-                    case PhysicalModelType::UprightBass:
+                case PhysicalModelType::UprightBass:
+                    if (!v.isExcited) {
+                        v.isExcited = true;
                         dsp::UprightPluckSlapExciter::generate(
                             v.voiceBuffer.data(), frames, sr, v.note, v.velocity,
                             2.2f, 0.35f, 0.70f
                         );
-                        break;
+                    }
+                    break;
 
-                    case PhysicalModelType::SpanishGuitar:
-                    case PhysicalModelType::SteelAcousticGuitar:
+                case PhysicalModelType::SpanishGuitar:
+                case PhysicalModelType::SteelAcousticGuitar:
+                    if (!v.isExcited) {
+                        v.isExcited = true;
                         dsp::PlectrumStrumExciter::generate(
                             v.voiceBuffer.data(), frames, sr, v.note, v.velocity,
                             strumSpreadMs_, brightness_ * 2.0f
                         );
-                        break;
-                }
-            } else {
-                // Ongoing loop without new excitation
-                std::fill(v.voiceBuffer.begin(), v.voiceBuffer.begin() + frames, 0.0f);
+                    }
+                    break;
             }
 
             // 2. Waveguide Loop & Resonator Processing
@@ -261,10 +265,11 @@ public:
             const float pan = 0.5f + (static_cast<float>(v.voiceIdx) - 3.5f) * 0.06f;
             const float gainL = std::cos(pan * 1.5707963f);
             const float gainR = std::sin(pan * 1.5707963f);
+            const float instrumentGain = 1.0f;
 
             float peak = 0.0f;
             for (size_t i = 0; i < frames; ++i) {
-                float s = v.voiceBuffer[i];
+                float s = v.voiceBuffer[i] * instrumentGain;
                 outL[i] += s * gainL;
                 outR[i] += s * gainR;
                 peak = std::max(peak, std::abs(s));
@@ -272,8 +277,10 @@ public:
 
             v.age += static_cast<uint32_t>(frames);
 
-            // Auto-deactivate voice if silent
-            if (v.age > static_cast<uint32_t>(sr * 0.5f) && peak < 0.00005f) {
+            // Auto-deactivate voice if silent after note off, or after extended decay
+            if (v.isNoteOff && v.age > static_cast<uint32_t>(sr * 0.25f) && peak < 0.00005f) {
+                v.active = false;
+            } else if (v.age > static_cast<uint32_t>(sr * 12.0f) && peak < 0.00002f) {
                 v.active = false;
             }
         }
@@ -291,6 +298,7 @@ private:
         uint32_t age = 0;
 
         // DSP Cores
+        dsp::CommutedSoundboardExciter pianoExciter;
         dsp::CommutedPianoWaveguideCore pianoWaveguide;
         dsp::CommutedHammerFilterCascade pianoHammer;
         dsp::CommutedStrikeComb pianoComb;

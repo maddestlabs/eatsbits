@@ -281,7 +281,7 @@ void ProceduralPianoEngine::populateSequencerTrack(sequencer::SequencerTrack& tr
                 sd.active = true;
                 sd.note = n.pitch;
                 sd.velocity = n.velocity;
-                sd.gateLength = static_cast<float>(std::clamp(n.durationBeats * 0.25, 0.1, 1.0));
+                sd.gateLength = static_cast<float>(std::clamp(n.durationBeats * 4.0, 0.1, 64.0));
                 sd.probability = 1.0f;
             } else {
                 if (sd.note != n.pitch && std::find(sd.extraNotes.begin(), sd.extraNotes.end(), n.pitch) == sd.extraNotes.end()) {

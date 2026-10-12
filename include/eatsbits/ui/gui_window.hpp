@@ -217,10 +217,10 @@ enum class ProjectHubAction {
     ToggleAnimations,
     SetAntiAliasing,
     ToggleHiDpi,
-    SetPanelTint,
+    RevertSettingsDefault,
+    OpenSettingsFile,
     Scrollbar,
     ContentDrag,
-    OpenCrtTweaker,
     CrtPresetStudioRef,
     CrtPresetMaxClarity,
     CrtPresetWarmVintage,
@@ -269,7 +269,6 @@ struct HitTestProjectHubResult {
     int themeBank{0};
     int aaMode{2};
     int crtSliderIndex{-1};
-    std::optional<Color> panelTint{std::nullopt};
 };
 
 struct HitTestJackResult {
@@ -580,9 +579,6 @@ public:
     void setHiDpiEnabled(bool enable) noexcept;
     void toggleHiDpi() noexcept;
 
-    [[nodiscard]] const std::optional<Color>& getPanelChassisTint() const noexcept { return panelChassisTint_; }
-    void setPanelChassisTint(const std::optional<Color>& tint) noexcept { panelChassisTint_ = tint; markNeedsRedraw(); }
-
     [[nodiscard]] GLFWwindow* getWindowHandle() const noexcept { return window_; }
     [[nodiscard]] BatchRenderer2D* getBatchRenderer() noexcept { return batchRenderer_.get(); }
 
@@ -611,6 +607,9 @@ public:
     void openFullscreenMidiFx(uint32_t trackIndex, int fxIndex = 0);
     void closeFullscreenDevice() noexcept;
     void toggleFullscreenDevice() noexcept;
+    void openDetachedInstrument(uint32_t trackIndex = 0);
+    void closeDetachedInstrument(uint32_t trackIndex);
+    [[nodiscard]] bool isDetachedInstrumentOpen(uint32_t trackIndex) const noexcept;
     [[nodiscard]] FullscreenDeviceModal& getFullscreenDeviceModal() noexcept { return fullscreenDeviceModal_; }
     [[nodiscard]] const FullscreenDeviceModal& getFullscreenDeviceModal() const noexcept { return fullscreenDeviceModal_; }
     [[nodiscard]] const DeviceTarget& getLastFocusedDevice() const noexcept { return lastFocusedDevice_; }
@@ -656,9 +655,6 @@ public:
     [[nodiscard]] bool isCrtShaderEnabled() const noexcept { return crtShaderEnabled_; }
     void setCrtShaderEnabled(bool enable) noexcept { crtShaderEnabled_ = enable; }
     void toggleCrtShader() noexcept { crtShaderEnabled_ = !crtShaderEnabled_; }
-    [[nodiscard]] bool isCrtTweakerOpen() const noexcept { return crtTweakerOpen_; }
-    void toggleCrtTweaker() noexcept { crtTweakerOpen_ = !crtTweakerOpen_; }
-    void setCrtTweakerOpen(bool open) noexcept { crtTweakerOpen_ = open; }
     [[nodiscard]] bool isGuiAnimationsEnabled() const noexcept { return guiAnimationsEnabled_; }
     void setGuiAnimationsEnabled(bool enable) noexcept {
         guiAnimationsEnabled_ = enable;
@@ -752,6 +748,15 @@ public:
     void closeAudioToMidiConverter() noexcept;
     [[nodiscard]] bool isAudioToMidiDialogOpen() const noexcept;
     [[nodiscard]] PluginSearchDialog* getActivePluginSearchDialog() noexcept;
+    [[nodiscard]] ColorPickerDialog* getActiveColorPickerDialog() noexcept;
+    [[nodiscard]] bool isAnyModalActive() const noexcept;
+
+    // Application Settings & JSON Persistence
+    [[nodiscard]] std::string getSettingsFilePath() const;
+    bool saveSettings();
+    bool loadSettings();
+    void revertSettingsToDefault();
+    void openLocalSettingsFile();
 
     // Hit-Testing logic
     [[nodiscard]] HitTestTransportResult hitTestTransport(float x, float y) const noexcept;
@@ -941,6 +946,7 @@ public:
     void syncTrackAudioFxToEngine(uint32_t trackIdx);
     void syncTrackMidiFxToEngine(uint32_t trackIdx);
     void syncAllTracksFxToEngine();
+    void bakeTrackChordsAndFx(uint32_t trackIdx);
     [[nodiscard]] int getPreviewingPitch() const noexcept { return previewingPitch_; }
     [[nodiscard]] float getPreviewingVelocity() const noexcept { return previewingVelocity_; }
     void setPreviewingVelocity(float vel) noexcept { previewingVelocity_ = std::clamp(vel, 0.0f, 1.0f); }
@@ -1161,12 +1167,7 @@ private:
     bool autoSaveEnabled_{true};
     int activeThemePreset_{0};
     int userThemeBankOverride_{-1};
-    std::optional<Color> panelChassisTint_{std::nullopt};
     bool crtShaderEnabled_{false};
-    bool crtTweakerOpen_{false};
-    int crtTweakerSliderIndex_{-1};
-    float crtTweakerTrackX_{0.0f};
-    float crtTweakerTrackW_{0.0f};
     float lampTime_{0.0f};
     bool guiAnimationsEnabled_{true};
     bool isEditingTitle_{false};
@@ -1388,10 +1389,6 @@ private:
     DeviceTarget lastFocusedDevice_{DeviceTargetType::Instrument, 0, -1, ""};
     KineticScroller kineticScroller_;
     GestureRecognizer gestureRecognizer_;
-
-    void renderCrtTweakerModal();
-    bool handleCrtTweakerPointer(float x, float y, bool isDown, bool isUp);
-    void handleCrtTweakerDrag(float x, float y);
 };
 
 } // namespace eatsbits::ui

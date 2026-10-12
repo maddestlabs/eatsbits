@@ -266,6 +266,7 @@ target_link_libraries(eatsbits_core INTERFACE eats_audio eats_presenter eats_cor
 # GUI Desktop Core Library (Window, Views, Widgets)
 add_library(eatsbits_gui_core STATIC
     src/ui/gui_window.cpp
+    src/ui/floating_window_manager.cpp
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
     src/ui/widgets/arranger_mixer_drawer.cpp

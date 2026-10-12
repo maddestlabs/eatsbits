@@ -298,10 +298,14 @@ void testPluginSearchDialogClapListing() {
     EATS_CHECK(filtered >= 1);
     std::printf("    Filtered search for 'CLAP': %zu matches found in library\n", filtered);
 
-    dialog.setSearchQuery("Surge");
-    auto surgeFiltered = dialog.getFilteredCount();
-    std::printf("    Filtered search for 'Surge': %zu matches found in library\n", surgeFiltered);
     if (std::filesystem::exists("C:\\Program Files\\Common Files\\CLAP\\Surge Synth Team\\Surge XT.clap")) {
+        auto& loader = ClapPluginLoader::instance();
+        loader.scanDirectories(loader.getDefaultSearchPaths());
+        PluginSearchDialog surgeDialog;
+        surgeDialog.open(PluginDialogMode::AddInstrument, "Track 1", 0);
+        surgeDialog.setSearchQuery("Surge");
+        auto surgeFiltered = surgeDialog.getFilteredCount();
+        std::printf("    Filtered search for 'Surge': %zu matches found in library\n", surgeFiltered);
         EATS_CHECK(surgeFiltered >= 1);
     }
 

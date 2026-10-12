@@ -69,10 +69,11 @@ public:
 
 #if defined(_WIN32)
         if (windowHandle) {
-            if (IsWindow(reinterpret_cast<HWND>(windowHandle))) {
+            HWND win32 = glfwGetWin32Window(static_cast<GLFWwindow*>(windowHandle));
+            if (win32 && IsWindow(win32)) {
+                hwnd_ = win32;
+            } else if (IsWindow(reinterpret_cast<HWND>(windowHandle))) {
                 hwnd_ = reinterpret_cast<HWND>(windowHandle);
-            } else {
-                hwnd_ = glfwGetWin32Window(static_cast<GLFWwindow*>(windowHandle));
             }
         }
 #else
