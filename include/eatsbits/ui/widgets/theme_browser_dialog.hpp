@@ -38,6 +38,9 @@ public:
     void setSelectedCategoryIndex(int idx) noexcept;
     [[nodiscard]] int getSelectedItemIndex() const noexcept { return selectedItemIndex_; }
     void setSelectedItemIndex(int idx);
+    [[nodiscard]] float getScrollY() const noexcept { return scrollY_; }
+    [[nodiscard]] float getMaxScrollY() const noexcept { return maxScrollY_; }
+    [[nodiscard]] bool isDraggingScrollbar() const noexcept { return isDraggingScrollbar_; }
 
     std::function<void(Theme::Preset preset)> onThemeApplied;
     std::function<void()> onClose;
@@ -80,6 +83,9 @@ private:
     int selectedItemIndex_{0};
     float scrollY_{0.0f};
     float maxScrollY_{0.0f};
+    bool isDraggingScrollbar_{false};
+    float dragStartY_{0.0f};
+    float dragStartScrollY_{0.0f};
 
     std::vector<std::string> categories_{
         "ALL", "DARK", "LIGHT", "SYNTAX PORTS", "MINIMAL / DUOTONE", "HARDWARE"

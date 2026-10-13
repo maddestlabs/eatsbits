@@ -1159,6 +1159,7 @@ private:
     float projectHubScrollY_{0.0f};
     float projectHubMaxScroll_{0.0f};
     bool projectHubDraggingThumb_{false};
+    int activeCrtSliderIndex_{-1};
     ScrollableArea projectHubScrollArea_;
     std::string projectName_{"Untitled Song"};
     std::string authorName_{"Anonymous Producer"};

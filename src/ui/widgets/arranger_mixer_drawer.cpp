@@ -9,7 +9,19 @@
 namespace eatsbits::ui {
 
 ArrangerMixerDrawer::ArrangerMixerDrawer() {
-    height_ = kDefaultHeight;
+    DrawerConfig cfg;
+    cfg.edge = DockEdge::Bottom;
+    cfg.tab.title = "ARRANGER MIXER [M]";
+    cfg.tab.tabWidth = kPullTabWidth;
+    cfg.tab.tabHeight = kPullTabHeight;
+    cfg.tab.preferredExtent = kDefaultHeight;
+    cfg.tab.minExtent = kMinHeight;
+    cfg.tab.maxExtent = kMaxHeight;
+    cfg.tab.resizable = true;
+    cfg.tab.showHeaderBar = true;
+    cfg.tab.headerHeight = 24.0f;
+    cfg.tab.hotkey = 'M';
+    drawer_.setConfig(cfg);
 }
 
 ArrangerMixerDrawer::FaderGeometry ArrangerMixerDrawer::computeFaderGeometry(
@@ -30,24 +42,9 @@ void ArrangerMixerDrawer::layout(const Rect2D& containerBounds, float rightMargi
     containerBounds_ = containerBounds;
     rightMargin_ = rightMargin;
 
-    const float effectiveW = (std::max)(200.0f, containerBounds.w - rightMargin);
-    const float currentH = height_ * animProgress_;
-    const float drawerY = (containerBounds.y + containerBounds.h) - currentH;
+    drawer_.layout(containerBounds, rightMargin);
 
-    drawerBounds_ = Rect2D(containerBounds.x, drawerY, effectiveW, currentH);
-
-    // Pull-tab geometry
-    const float tabX = containerBounds.x + (effectiveW - kPullTabWidth) * 0.5f;
-    if (animProgress_ <= 0.001f) {
-        pullTabBounds_ = Rect2D(tabX, containerBounds.y + containerBounds.h - kPullTabHeight, kPullTabWidth, kPullTabHeight);
-    } else {
-        pullTabBounds_ = Rect2D(tabX, drawerY - kPullTabHeight, kPullTabWidth, kPullTabHeight);
-    }
-
-    if (animProgress_ <= 0.001f) {
-        headerBounds_ = Rect2D();
-        closeBtnBounds_ = Rect2D();
-        resizeHandleBounds_ = Rect2D();
+    if (drawer_.getAnimProgress() <= 0.001f) {
         masterStripBounds_ = Rect2D();
         channelsViewportBounds_ = Rect2D();
         scrollBarBounds_ = Rect2D();
@@ -55,36 +52,21 @@ void ArrangerMixerDrawer::layout(const Rect2D& containerBounds, float rightMargi
         return;
     }
 
-    // Top grab/resize handle
-    resizeHandleBounds_ = Rect2D(containerBounds.x, drawerY - 4.0f, effectiveW, 8.0f);
-
-    // Top Header bar inside drawer
-    headerBounds_ = Rect2D(containerBounds.x, drawerY, effectiveW, 24.0f);
-    closeBtnBounds_ = Rect2D(containerBounds.x + effectiveW - 26.0f, drawerY + 3.0f, 20.0f, 18.0f);
-
-    // Master Channel Strip (docked on left)
-    const float contentY = drawerY + 24.0f;
-    const float contentH = (std::max)(20.0f, currentH - 24.0f);
+    const Rect2D& drBounds = drawer_.getDrawerBounds();
+    const float contentY = drBounds.y + 24.0f;
+    const float contentH = (std::max)(20.0f, drBounds.h - 24.0f);
     masterStripBounds_ = Rect2D(containerBounds.x + 6.0f, contentY + 2.0f, kMasterStripWidth, contentH - 4.0f);
 
-    // Channels Viewport
     const float channelsX = masterStripBounds_.x + masterStripBounds_.w + 8.0f;
-    const float channelsW = (std::max)(50.0f, (containerBounds.x + effectiveW - 6.0f) - channelsX);
+    const float channelsW = (std::max)(50.0f, (containerBounds.x + drBounds.w - 6.0f) - channelsX);
     channelsViewportBounds_ = Rect2D(channelsX, contentY + 2.0f, channelsW, contentH - 4.0f);
 
-    // Scrollbar bounds along bottom of channels viewport
     const float scrollbarH = 6.0f;
     scrollBarBounds_ = Rect2D(channelsX, contentY + contentH - scrollbarH - 2.0f, channelsW, scrollbarH);
 }
 
 void ArrangerMixerDrawer::update(float dt) noexcept {
-    const float target = isExpanded_ ? 1.0f : 0.0f;
-    constexpr float kDamping = 18.0f;
-    const float factor = 1.0f - std::exp(-kDamping * dt);
-    animProgress_ += (target - animProgress_) * factor;
-    if (std::abs(animProgress_ - target) < 0.001f) {
-        animProgress_ = target;
-    }
+    drawer_.update(dt);
 }
 
 void ArrangerMixerDrawer::render(
@@ -98,78 +80,85 @@ void ArrangerMixerDrawer::render(
 
     (void)masterPan;
 
+    const bool isExpanded = drawer_.isExpanded();
+    const float animProgress = drawer_.getAnimProgress();
+    const Rect2D& pullTabBounds = drawer_.getPullTabBounds();
+    const Rect2D& drawerBounds = drawer_.getDrawerBounds();
+    const Rect2D& headerBounds = drawer_.getHeaderBounds();
+    const Rect2D& closeBtnBounds = drawer_.getCloseButtonBounds();
+
     // 1. Draw Pull Tab
-    const bool isHoverTab = pullTabBounds_.contains(mouseX, mouseY);
+    const bool isHoverTab = pullTabBounds.contains(mouseX, mouseY);
     const Color tabBg = isHoverTab ? theme.panelHeader.lighten(0.08f) : theme.panelHeader;
 
-    drawRoundedRect(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
+    drawRoundedRect(r, pullTabBounds.x, pullTabBounds.y, pullTabBounds.w, pullTabBounds.h, 4.0f,
                     tabBg.r, tabBg.g, tabBg.b, 0.96f);
-    drawRoundedRectOutline(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
-                           isExpanded_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
+    drawRoundedRectOutline(r, pullTabBounds.x, pullTabBounds.y, pullTabBounds.w, pullTabBounds.h, 4.0f,
+                           isExpanded ? theme.primaryAccent : theme.borderSubtle, 1.0f);
 
     // Icon + Label
-    const float iconX = pullTabBounds_.x + 10.0f;
-    const float iconY = pullTabBounds_.y + (pullTabBounds_.h - 12.0f) * 0.5f;
-    drawSlidersTuneIcon(r, iconX, iconY, 12.0f, isExpanded_ ? theme.primaryAccent : theme.textSecondary);
+    const float iconX = pullTabBounds.x + 10.0f;
+    const float iconY = pullTabBounds.y + (pullTabBounds.h - 12.0f) * 0.5f;
+    drawSlidersTuneIcon(r, iconX, iconY, 12.0f, isExpanded ? theme.primaryAccent : theme.textSecondary);
 
-    const std::string_view tabLabel = isExpanded_ ? "MIXER [M] ^" : "ARRANGER MIXER [M]";
-    const Color labelCol = isExpanded_ ? theme.primaryAccent : theme.textPrimary;
-    drawCenteredText(r, tabLabel, pullTabBounds_.x + 24.0f, pullTabBounds_.y, pullTabBounds_.w - 42.0f, pullTabBounds_.h, 10.0f, labelCol);
+    const std::string_view tabLabel = isExpanded ? "MIXER [M] ^" : "ARRANGER MIXER [M]";
+    const Color labelCol = isExpanded ? theme.primaryAccent : theme.textPrimary;
+    drawCenteredText(r, tabLabel, pullTabBounds.x + 24.0f, pullTabBounds.y, pullTabBounds.w - 42.0f, pullTabBounds.h, 10.0f, labelCol);
 
     // Active status mini-LED on right
-    const float ledX = pullTabBounds_.x + pullTabBounds_.w - 12.0f;
-    const float ledY = pullTabBounds_.y + (pullTabBounds_.h * 0.5f);
-    if (isExpanded_) {
+    const float ledX = pullTabBounds.x + pullTabBounds.w - 12.0f;
+    const float ledY = pullTabBounds.y + (pullTabBounds.h * 0.5f);
+    if (isExpanded) {
         drawCircle(r, ledX, ledY, 3.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
     } else {
         drawCircle(r, ledX, ledY, 2.5f, 0.35f, 0.35f, 0.35f, 0.8f);
     }
 
-    if (animProgress_ <= 0.001f || drawerBounds_.h <= 5.0f) {
+    if (animProgress <= 0.001f || drawerBounds.h <= 5.0f) {
         return;
     }
 
     // 2. Drop Shadow above drawer
-    drawRect(r, drawerBounds_.x, drawerBounds_.y - 5.0f, drawerBounds_.w, 5.0f, 0.0f, 0.0f, 0.0f, 0.45f * animProgress_);
+    drawRect(r, drawerBounds.x, drawerBounds.y - 5.0f, drawerBounds.w, 5.0f, 0.0f, 0.0f, 0.0f, 0.45f * animProgress);
 
     // 3. Drawer Chassis Background
-    drawRectGradient(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, drawerBounds_.h,
+    drawRectGradient(r, drawerBounds.x, drawerBounds.y, drawerBounds.w, drawerBounds.h,
                      theme.panelBackground.lighten(0.03f), theme.panelBackground.darken(0.12f));
 
     // Top accent border line
-    drawLine(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.x + drawerBounds_.w, drawerBounds_.y,
-             theme.primaryAccent, 0.85f * animProgress_, 1.5f);
+    drawLine(r, drawerBounds.x, drawerBounds.y, drawerBounds.x + drawerBounds.w, drawerBounds.y,
+             theme.primaryAccent, 0.85f * animProgress, 1.5f);
 
     // Subtle resize grip dots in center of top edge
-    const float gripCx = drawerBounds_.x + drawerBounds_.w * 0.5f;
+    const float gripCx = drawerBounds.x + drawerBounds.w * 0.5f;
     for (int g = -2; g <= 2; ++g) {
-        drawCircle(r, gripCx + static_cast<float>(g) * 6.0f, drawerBounds_.y + 2.0f, 1.2f, theme.textMuted, 0.6f);
+        drawCircle(r, gripCx + static_cast<float>(g) * 6.0f, drawerBounds.y + 2.0f, 1.2f, theme.textMuted, 0.6f);
     }
 
-    if (drawerBounds_.h < 35.0f) {
+    if (drawerBounds.h < 35.0f) {
         return;
     }
 
     // 4. Header Bar (Title, Active track badge, Close button)
-    drawRect(r, headerBounds_.x, headerBounds_.y, headerBounds_.w, headerBounds_.h,
+    drawRect(r, headerBounds.x, headerBounds.y, headerBounds.w, headerBounds.h,
              theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.75f);
-    drawLine(r, headerBounds_.x, headerBounds_.y + headerBounds_.h,
-             headerBounds_.x + headerBounds_.w, headerBounds_.y + headerBounds_.h,
+    drawLine(r, headerBounds.x, headerBounds.y + headerBounds.h,
+             headerBounds.x + headerBounds.w, headerBounds.y + headerBounds.h,
              theme.borderSubtle, 0.7f, 1.0f);
 
-    drawText(r, "ARRANGER MIXER", headerBounds_.x + 10.0f, headerBounds_.y + 6.0f, 10.5f, theme.primaryAccent);
+    drawText(r, "ARRANGER MIXER", headerBounds.x + 10.0f, headerBounds.y + 6.0f, 10.5f, theme.primaryAccent);
 
     // Selected track info badge
     if (activeTrackIndex < tracks.size()) {
         const auto& actTrack = tracks[activeTrackIndex];
         char badgeBuf[64];
         snprintf(badgeBuf, sizeof(badgeBuf), "TRACK #%u • %s", activeTrackIndex + 1, actTrack.name.c_str());
-        drawText(r, std::string_view(badgeBuf), headerBounds_.x + 120.0f, headerBounds_.y + 6.5f, 9.5f, theme.textSecondary);
+        drawText(r, std::string_view(badgeBuf), headerBounds.x + 120.0f, headerBounds.y + 6.5f, 9.5f, theme.textSecondary);
     }
 
     // Close button [v]
-    const bool isCloseHover = closeBtnBounds_.contains(mouseX, mouseY);
-    drawButton(r, closeBtnBounds_, "v",
+    const bool isCloseHover = closeBtnBounds.contains(mouseX, mouseY);
+    drawButton(r, closeBtnBounds, "v",
                isCloseHover ? theme.primaryAccent.withAlpha(0.3f) : theme.controlBackground,
                isCloseHover ? theme.primaryAccent : theme.borderSubtle,
                isCloseHover ? theme.primaryAccent : theme.textMuted,
@@ -460,28 +449,20 @@ bool ArrangerMixerDrawer::handlePointer(
 
     (void)masterPan;
 
-    // 1. Pull-Tab Click / Tap
-    if (pullTabBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down) {
-            toggle();
-            return true;
-        }
+    // 1. Let unified drawer handle pull-tab click, close button, and top resize dragging
+    if (drawer_.handlePointer(ev, ctx)) {
         return true;
     }
 
     // If collapsed, don't handle clicks inside the empty drawer area
-    if (animProgress_ <= 0.001f) {
+    if (drawer_.getAnimProgress() <= 0.001f) {
         return false;
     }
 
-    // 2. Active Drags (Fader, Pan, Resize, Scrollbar)
-    if (ev.action == PointerAction::Move) {
-        if (isResizing_) {
-            const float dy = resizeStartY_ - ev.y;
-            height_ = (std::clamp)(initialResizeH_ + dy, kMinHeight, kMaxHeight);
-            return true;
-        }
+    const float curHeight = drawer_.getExtent();
 
+    // 2. Active Drags (Fader, Pan, Scrollbar)
+    if (ev.action == PointerAction::Move) {
         if (isDraggingScrollbar_ && maxScrollX_ > 0.0f) {
             const float dx = ev.x - scrollbarDragStartX_;
             const float availableTrack = scrollBarBounds_.w - scrollThumbBounds_.w;
@@ -496,7 +477,7 @@ bool ArrangerMixerDrawer::handlePointer(
             const float dy = dragStartY_ - ev.y;
             // Shift trim modifier for fine 0.15 scale
             const float trimScale = ev.mods.shift ? 0.15f : 1.0f;
-            const float faderTravelDelta = (dy / (height_ - 60.0f)) * trimScale;
+            const float faderTravelDelta = (dy / (curHeight - 60.0f)) * trimScale;
 
             const float startTravel = presenter::audio_taper::gainToTravel(dragStartGain_);
             const float newTravel = (std::clamp)(startTravel + faderTravelDelta, 0.0f, 1.0f);
@@ -529,7 +510,6 @@ bool ArrangerMixerDrawer::handlePointer(
 
     if (ev.action == PointerAction::Up) {
         bool hadDrag = isDragging();
-        isResizing_ = false;
         isDraggingScrollbar_ = false;
         activeFaderIndex_ = -999;
         activePanIndex_ = -999;
@@ -543,23 +523,6 @@ bool ArrangerMixerDrawer::handlePointer(
             scrollX_ = (std::clamp)(scrollX_ - delta * 45.0f, 0.0f, maxScrollX_);
             return true;
         }
-    }
-
-    // 4. Close Button [v]
-    if (closeBtnBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down) {
-            setExpanded(false);
-            return true;
-        }
-        return true;
-    }
-
-    // 5. Top Resize Handle Drag
-    if (resizeHandleBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
-        isResizing_ = true;
-        resizeStartY_ = ev.y;
-        initialResizeH_ = height_;
-        return true;
     }
 
     // 6. Horizontal Scrollbar Click & Drag
@@ -723,30 +686,17 @@ bool ArrangerMixerDrawer::handlePointer(
     }
 
     // If pointer is inside drawer container, absorb click so it doesn't fall through
-    if (drawerBounds_.contains(ev.x, ev.y)) {
+    if (drawer_.getDrawerBounds().contains(ev.x, ev.y)) {
         return true;
     }
 
     return false;
 }
 
-bool ArrangerMixerDrawer::handleKey(int key, int scancode, int action, int mods, [[maybe_unused]] const ViewContext& ctx) {
-    (void)scancode;
-
-    if (action != 1 && action != 2) return false; // Press or repeat only
-
-    // Hotkey 'M' (without Ctrl or Alt) toggles the drawer
-    if ((key == 'M' || key == 'm' || key == 77 || key == 109) && !(mods & 2) && !(mods & 4)) {
-        toggle();
+bool ArrangerMixerDrawer::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+    if (drawer_.handleKey(key, scancode, action, mods, ctx)) {
         return true;
     }
-
-    // Escape collapses the drawer if it is open
-    if (key == 256 && isExpanded_) {
-        setExpanded(false);
-        return true;
-    }
-
     return false;
 }
 

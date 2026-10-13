@@ -66,6 +66,9 @@ private:
 
     float scrollY_{0.0f};
     float maxScrollY_{0.0f};
+    bool isDraggingScrollbar_{false};
+    float dragStartY_{0.0f};
+    float dragStartScrollY_{0.0f};
 
     // Custom SVG paste state
     std::optional<IconDef> customPastedDef_{std::nullopt};

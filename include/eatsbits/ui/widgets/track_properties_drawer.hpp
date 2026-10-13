@@ -1,6 +1,7 @@
 #pragma once
 
 #include "track_properties_panel.hpp"
+#include "sliding_dock.hpp"
 
 namespace eatsbits::ui {
 
@@ -25,31 +26,35 @@ public:
     [[nodiscard]] TrackPropertiesHitResult hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept;
     bool handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data, const ViewContext& ctx);
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+        if (drawer_.handleKey(key, scancode, action, mods, ctx)) return true;
         return panel_.handleKey(key, scancode, action, mods, ctx);
     }
     bool handleChar(char32_t codepoint) {
         return panel_.handleChar(codepoint);
     }
 
-    [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
-    void setExpanded(bool exp) noexcept { isExpanded_ = exp; }
-    void toggle() noexcept { isExpanded_ = !isExpanded_; }
+    [[nodiscard]] bool isExpanded() const noexcept { return drawer_.isExpanded(); }
+    void setExpanded(bool exp) noexcept { drawer_.setExpanded(exp); }
+    void toggle() noexcept { drawer_.toggle(); }
 
-    [[nodiscard]] float getAnimProgress() const noexcept { return animProgress_; }
-    [[nodiscard]] bool isAnimating() const noexcept { return std::abs(animProgress_ - (isExpanded_ ? 1.0f : 0.0f)) > 0.001f; }
-    [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (width_ * animProgress_); }
+    [[nodiscard]] float getAnimProgress() const noexcept { return drawer_.getAnimProgress(); }
+    [[nodiscard]] bool isAnimating() const noexcept { return drawer_.isAnimating(); }
+    [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (drawer_.getExtent() * drawer_.getAnimProgress()); }
     [[nodiscard]] bool isPluginDialogOpen() const noexcept { return panel_.getPluginSearchDialog().isOpen(); }
     [[nodiscard]] bool isColorPickerOpen() const noexcept { return panel_.isColorPickerOpen(); }
     [[nodiscard]] ColorPickerDialog& getColorPickerDialog() noexcept { return panel_.getColorPickerDialog(); }
     [[nodiscard]] const ColorPickerDialog& getColorPickerDialog() const noexcept { return panel_.getColorPickerDialog(); }
-    [[nodiscard]] bool isDragging() const noexcept { return panel_.isDragging() || isResizing_; }
+    [[nodiscard]] bool isDragging() const noexcept { return panel_.isDragging() || drawer_.isDragging(); }
 
-    [[nodiscard]] float getWidth() const noexcept { return width_; }
-    void setWidth(float w) noexcept { width_ = std::clamp(w, minWidth_, maxWidth_); }
+    [[nodiscard]] float getWidth() const noexcept { return drawer_.getExtent(); }
+    void setWidth(float w) noexcept { drawer_.setExtent(w); }
 
-    [[nodiscard]] const Rect2D& getPullTabBounds() const noexcept { return pullTabBounds_; }
-    [[nodiscard]] const Rect2D& getDrawerBounds() const noexcept { return drawerBounds_; }
-    [[nodiscard]] const Rect2D& getCloseButtonBounds() const noexcept { return closeButtonBounds_; }
+    [[nodiscard]] const Rect2D& getPullTabBounds() const noexcept { return drawer_.getPullTabBounds(); }
+    [[nodiscard]] const Rect2D& getDrawerBounds() const noexcept { return drawer_.getDrawerBounds(); }
+    [[nodiscard]] const Rect2D& getCloseButtonBounds() const noexcept { return drawer_.getCloseButtonBounds(); }
+
+    [[nodiscard]] SlidingDrawer& getDrawer() noexcept { return drawer_; }
+    [[nodiscard]] const SlidingDrawer& getDrawer() const noexcept { return drawer_; }
 
     [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
     void setScrollY(float sy) noexcept { panel_.setScrollY(sy); }
@@ -63,9 +68,9 @@ public:
     [[nodiscard]] std::string getTooltip(float x, float y, const TrackPropertiesDrawerData& data) const noexcept;
 
     static constexpr float kPullTabWidth = 24.0f;
-    static constexpr float kDefaultWidth = 360.0f;
-    static constexpr float kMinWidth = 260.0f;
-    static constexpr float kMaxWidth = 640.0f;
+    static constexpr float kDefaultWidth = 460.0f;
+    static constexpr float kMinWidth = 300.0f;
+    static constexpr float kMaxWidth = 760.0f;
 
     // Decoupled callbacks for shared usage in Arranger and Mixer tabs
     std::function<void(uint32_t trackIndex)> onTrackSelected;
@@ -112,21 +117,9 @@ public:
     std::function<void(uint32_t trackIndex)> onBakeChords;
 
 private:
-    bool isExpanded_{true};
-    float animProgress_{1.0f};
+    SlidingDrawer drawer_;
     float browserOffset_{0.0f};
-    bool isResizing_{false};
-    float width_{kDefaultWidth};
-    float minWidth_{kMinWidth};
-    float maxWidth_{kMaxWidth};
-
     Rect2D containerBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D pullTabBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D drawerBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D closeButtonBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-
-    float resizeStartX_{0.0f};
-    float resizeStartWidth_{kDefaultWidth};
 
     TrackPropertiesPanel panel_;
 };

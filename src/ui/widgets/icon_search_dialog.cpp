@@ -249,6 +249,19 @@ void IconSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
         }
     }
 
+    // 5b. Scrollbar Indicator
+    if (maxScrollY_ > 0.0f) {
+        float trackX = gridBounds_.x + gridBounds_.w - 4.0f;
+        float trackY = gridBounds_.y;
+        float trackH = gridBounds_.h;
+        drawRect(r, trackX, trackY, 4.0f, trackH, 0.1f, 0.1f, 0.1f, 0.4f);
+
+        float thumbNorm = (maxScrollY_ > 0.0f) ? (scrollY_ / maxScrollY_) : 0.0f;
+        float thumbH = std::max(20.0f, trackH * (gridBounds_.h / (gridBounds_.h + maxScrollY_)));
+        float thumbY = trackY + thumbNorm * (trackH - thumbH);
+        drawRoundedRect(r, trackX, thumbY, 4.0f, thumbH, 2.0f, theme.primaryAccent);
+    }
+
     // 6. Bottom Bar: Paste Button and Status Message
     Color pasteBg{theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.90f};
     Color pasteBorder = theme.borderFocus;
@@ -267,6 +280,47 @@ bool IconSearchDialog::handlePointer(const PointerEvent& ev) {
 
     if (ev.action == PointerAction::Scroll) {
         return handleScroll(ev.scrollY);
+    }
+
+    // Scrollbar dragging on move
+    if (ev.action == PointerAction::Move && isDraggingScrollbar_) {
+        float trackH = gridBounds_.h;
+        float thumbH = std::max(20.0f, trackH * (gridBounds_.h / (gridBounds_.h + maxScrollY_)));
+        float travel = trackH - thumbH;
+        if (travel > 1.0f) {
+            float dy = ev.y - dragStartY_;
+            scrollY_ = std::clamp(dragStartScrollY_ + (dy / travel) * maxScrollY_, 0.0f, maxScrollY_);
+        }
+        return true;
+    }
+
+    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (isDraggingScrollbar_) {
+            isDraggingScrollbar_ = false;
+            return true;
+        }
+    }
+
+    // Scrollbar click / start drag on down
+    if (ev.action == PointerAction::Down && maxScrollY_ > 0.0f) {
+        float trackX = gridBounds_.x + gridBounds_.w - 14.0f;
+        if (ev.x >= trackX && ev.x <= gridBounds_.x + gridBounds_.w + 6.0f &&
+            ev.y >= gridBounds_.y && ev.y <= gridBounds_.y + gridBounds_.h) {
+            isDraggingScrollbar_ = true;
+            dragStartY_ = ev.y;
+            dragStartScrollY_ = scrollY_;
+            float trackH = gridBounds_.h;
+            float thumbH = std::max(20.0f, trackH * (gridBounds_.h / (gridBounds_.h + maxScrollY_)));
+            float travel = trackH - thumbH;
+            float thumbNorm = (travel > 1.0f) ? (scrollY_ / maxScrollY_) : 0.0f;
+            float thumbY = gridBounds_.y + thumbNorm * travel;
+            if (ev.y < thumbY || ev.y > thumbY + thumbH) {
+                float targetNorm = (travel > 1.0f) ? std::clamp((ev.y - gridBounds_.y - thumbH * 0.5f) / travel, 0.0f, 1.0f) : 0.0f;
+                scrollY_ = targetNorm * maxScrollY_;
+                dragStartScrollY_ = scrollY_;
+            }
+            return true;
+        }
     }
 
     if (ev.action != PointerAction::Down) return true; // Consume events behind modal

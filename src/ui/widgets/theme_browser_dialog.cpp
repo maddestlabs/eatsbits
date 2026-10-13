@@ -372,6 +372,47 @@ bool ThemeBrowserDialog::handlePointer(const PointerEvent& ev) {
         }
     }
 
+    // Scrollbar dragging on move
+    if (ev.action == PointerAction::Move && isDraggingScrollbar_) {
+        float trackH = cardsAreaBounds_.h;
+        float thumbH = std::max(20.0f, trackH * (cardsAreaBounds_.h / (cardsAreaBounds_.h + maxScrollY_)));
+        float travel = trackH - thumbH;
+        if (travel > 1.0f) {
+            float dy = ev.y - dragStartY_;
+            scrollY_ = std::clamp(dragStartScrollY_ + (dy / travel) * maxScrollY_, 0.0f, maxScrollY_);
+        }
+        return true;
+    }
+
+    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (isDraggingScrollbar_) {
+            isDraggingScrollbar_ = false;
+            return true;
+        }
+    }
+
+    // Scrollbar click / start drag on down
+    if (ev.action == PointerAction::Down && maxScrollY_ > 0.0f) {
+        float trackX = cardsAreaBounds_.x + cardsAreaBounds_.w - 14.0f;
+        if (ev.x >= trackX && ev.x <= cardsAreaBounds_.x + cardsAreaBounds_.w + 6.0f &&
+            ev.y >= cardsAreaBounds_.y && ev.y <= cardsAreaBounds_.y + cardsAreaBounds_.h) {
+            isDraggingScrollbar_ = true;
+            dragStartY_ = ev.y;
+            dragStartScrollY_ = scrollY_;
+            float trackH = cardsAreaBounds_.h;
+            float thumbH = std::max(20.0f, trackH * (cardsAreaBounds_.h / (cardsAreaBounds_.h + maxScrollY_)));
+            float travel = trackH - thumbH;
+            float thumbNorm = (travel > 1.0f) ? (scrollY_ / maxScrollY_) : 0.0f;
+            float thumbY = cardsAreaBounds_.y + thumbNorm * travel;
+            if (ev.y < thumbY || ev.y > thumbY + thumbH) {
+                float targetNorm = (travel > 1.0f) ? std::clamp((ev.y - cardsAreaBounds_.y - thumbH * 0.5f) / travel, 0.0f, 1.0f) : 0.0f;
+                scrollY_ = targetNorm * maxScrollY_;
+                dragStartScrollY_ = scrollY_;
+            }
+            return true;
+        }
+    }
+
     // Search bar focus
     if (ev.action == PointerAction::Down && searchBarBounds_.contains(ev.x, ev.y)) {
         searchFocused_ = true;

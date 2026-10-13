@@ -9,6 +9,7 @@
 #include "../theme.hpp"
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
+#include "sliding_dock.hpp"
 
 namespace eatsbits::ui {
 
@@ -100,15 +101,16 @@ public:
     void open() noexcept;
     void close() noexcept;
     void toggle() noexcept;
-    [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
-    [[nodiscard]] bool isAnimating() const noexcept {
-        return std::abs(animProgress_ - (isOpen_ ? 1.0f : 0.0f)) > 0.001f;
-    }
-    [[nodiscard]] float getAnimOffset() const noexcept { return animOffset_; }
-    [[nodiscard]] float getAnimProgress() const noexcept { return animProgress_; }
-    [[nodiscard]] float getEffectiveWidth() const noexcept { return kDrawerWidth * animProgress_; }
-    [[nodiscard]] Rect2D getDrawerBounds() const noexcept { return drawerBounds_; }
+    [[nodiscard]] bool isOpen() const noexcept { return drawer_.isExpanded(); }
+    [[nodiscard]] bool isAnimating() const noexcept { return drawer_.isAnimating(); }
+    [[nodiscard]] float getAnimOffset() const noexcept { return drawer_.getExtent() * (1.0f - drawer_.getAnimProgress()); }
+    [[nodiscard]] float getAnimProgress() const noexcept { return drawer_.getAnimProgress(); }
+    [[nodiscard]] float getEffectiveWidth() const noexcept { return drawer_.getExtent() * drawer_.getAnimProgress(); }
+    [[nodiscard]] Rect2D getDrawerBounds() const noexcept { return drawer_.getDrawerBounds(); }
     [[nodiscard]] static constexpr float getDrawerWidth() noexcept { return kDrawerWidth; }
+
+    [[nodiscard]] SlidingDrawer& getDrawer() noexcept { return drawer_; }
+    [[nodiscard]] const SlidingDrawer& getDrawer() const noexcept { return drawer_; }
 
     void setTab(BrowserDrawerTab tab) noexcept;
     [[nodiscard]] BrowserDrawerTab getTab() const noexcept { return activeTab_; }
@@ -162,10 +164,8 @@ private:
     size_t getFilteredPatchesCount() const;
     size_t getFilteredProjectsCount() const;
 
-    bool isOpen_{false};
+    SlidingDrawer drawer_;
     bool isMobile_{false};
-    float animProgress_{0.0f}; // 0.0 (closed) to 1.0 (open)
-    float animOffset_{380.0f}; // Pixels offscreen to the right
 
     static constexpr float kDrawerWidth = 380.0f;
 

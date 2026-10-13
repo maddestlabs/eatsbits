@@ -18,6 +18,8 @@
 #include "eatsbits/ui/widgets/transport_header.hpp"
 #include "eatsbits/ui/widgets/bottom_nav_bar.hpp"
 #include "eatsbits/ui/widgets/plugin_search_dialog.hpp"
+#include "eatsbits/ui/widgets/sliding_dock.hpp"
+#include "eatsbits/ui/widgets/terminal_console_drawer.hpp"
 #include "eatsbits/ui/widgets/text_field_state.hpp"
 #include "eatsbits/ui/widgets/text_field_widget.hpp"
 #include "eatsbits/ui/widgets/text_editor_widget.hpp"
@@ -1621,6 +1623,58 @@ void testValueEditDialogAndBackdropBlur() {
     assert(dialog.getSelectedText() == "1.00");
     dialog.close();
 
+    // 1c. Value Slider below Input Field (Ergonomic UX alternative to knobs)
+    dialog.open(req); // min = 0.0, max = 2.0, default = 1.0, current = 1.0
+    dialog.layout(1280.0f, 800.0f);
+    Rect2D slb = dialog.getSliderBounds();
+    assert(slb.w > 0.0f && slb.h > 0.0f);
+    assert(slb.y >= ifb.y + ifb.h); // Slider is located directly below input field
+    assert(!dialog.isDraggingSlider());
+
+    // Initially current value is 1.0, so normalized is (1.0 - 0.0) / (2.0 - 0.0) = 0.5
+    assertNear(dialog.getSliderNormalized(), 0.5f, 0.01f);
+
+    // Mouse down on slider at 25% across width
+    float quarterSliderX = slb.x + slb.w * 0.25f;
+    float midSliderY = slb.y + slb.h * 0.5f;
+    PointerEvent peSliderDown = makePointer(quarterSliderX, midSliderY, PointerAction::Down);
+    dialog.handlePointer(peSliderDown);
+    assertNear(dialog.getSliderNormalized(), 0.25f, 0.02f, "raw down 25%");
+    assertNear(std::stof(dialog.getInputText()), 0.5f, 0.02f, "raw text 0.5"); // 0.0 + 0.25 * 2.0 = 0.5
+
+    // Mouse drag on slider to 75%
+    float threeQuartersX = slb.x + slb.w * 0.75f;
+    PointerEvent peSliderMove = makePointer(threeQuartersX, midSliderY, PointerAction::Move);
+    dialog.handlePointer(peSliderMove);
+    assertNear(dialog.getSliderNormalized(), 0.75f, 0.02f, "raw move 75%");
+    assertNear(std::stof(dialog.getInputText()), 1.5f, 0.02f, "raw text 1.5"); // 0.0 + 0.75 * 2.0 = 1.5
+
+    // Mouse up on slider finishes drag
+    PointerEvent peSliderUp = makePointer(threeQuartersX, midSliderY, PointerAction::Up);
+    dialog.handlePointer(peSliderUp);
+    assertNear(dialog.getSliderNormalized(), 0.75f, 0.02f, "raw up 75%");
+
+    // Percent mode synchronization with slider
+    dialog.setPercentMode(true);
+    assert(dialog.isPercentMode());
+    assertNear(dialog.getSliderNormalized(), 0.75f, 0.02f, "pct init 75%");
+    assertNear(std::stof(dialog.getInputText()), 75.0f, 0.5f, "pct text 75");
+
+    // Drag in percent mode to 25%
+    float quarterX = slb.x + slb.w * 0.25f;
+    dialog.handlePointer(makePointer(quarterX, midSliderY, PointerAction::Down));
+    assert(dialog.isDraggingSlider());
+    assertNear(dialog.getSliderNormalized(), 0.25f, 0.02f, "pct down 25%");
+    assertNear(std::stof(dialog.getInputText()), 25.0f, 0.5f, "pct text 25");
+    dialog.handlePointer(makePointer(quarterX, midSliderY, PointerAction::Up));
+    assert(!dialog.isDraggingSlider());
+
+    // Submit value chosen via slider
+    dialog.submit();
+    assert(!dialog.isOpen());
+    assertNear(committedVal, 0.5f, 0.02f); // 25% of [0, 2] = 0.5
+    dialog.close();
+
     // 1b. Text Mode ValueEditDialog (Track Renaming & Icon Link)
     std::string committedText = "";
     bool actionLinkClicked = false;
@@ -3211,6 +3265,238 @@ static void testPanningFxDeletionAndHeaderDoubleClick() {
     std::cout << "  [PASS] Equal-Power Panning, Index 0 FX Deletion & Header Double-Click validated." << std::endl;
 }
 
+void testUnifiedSlidingDockAndDrawer() {
+    std::cout << "[Test 27] Unified SlidingDrawer & SlidingDock Toolkit Parity..." << std::endl;
+
+    // 1. SlidingDrawer - Bottom edge
+    {
+        DrawerConfig cfg;
+        cfg.edge = DockEdge::Bottom;
+        cfg.tab.title = "TEST BOTTOM DRAWER";
+        cfg.tab.tabWidth = 140.0f;
+        cfg.tab.tabHeight = 22.0f;
+        cfg.tab.preferredExtent = 200.0f;
+        cfg.tab.minExtent = 100.0f;
+        cfg.tab.maxExtent = 400.0f;
+        cfg.tab.resizable = true;
+        cfg.tab.showCloseButton = true;
+        cfg.tab.hotkey = 'D';
+
+        SlidingDrawer drawer(cfg);
+        assert(!drawer.isExpanded());
+        assert(drawer.getAnimProgress() == 0.0f);
+
+        Rect2D container(0.0f, 0.0f, 1000.0f, 600.0f);
+        drawer.layout(container);
+
+        // Pull tab bounds check (default center placement)
+        Rect2D tabBounds = drawer.getPullTabBounds();
+        assert(tabBounds.w == 140.0f);
+        assert(tabBounds.h == 22.0f);
+        assertNear(tabBounds.x, (1000.0f - 140.0f) * 0.5f, 1.0f);
+        assertNear(tabBounds.y, 600.0f - 22.0f, 1.0f);
+
+        // Expand
+        drawer.setExpanded(true);
+        assert(drawer.isExpanded());
+        assert(drawer.isAnimating());
+
+        for (int i = 0; i < 40; ++i) {
+            drawer.update(0.016f);
+        }
+        assertNear(drawer.getAnimProgress(), 1.0f, 0.01f);
+        assert(!drawer.isAnimating());
+
+        drawer.layout(container);
+        Rect2D drawerBounds = drawer.getDrawerBounds();
+        assertNear(drawerBounds.y, 600.0f - 200.0f, 1.0f);
+        assertNear(drawerBounds.h, 200.0f, 1.0f);
+        assert(drawer.getCloseButtonBounds().w > 0.0f);
+        assert(drawer.getResizeHandleBounds().h > 0.0f);
+
+        // Test drag resizing
+        PointerEvent downEv = makePointer(500.0f, drawer.getResizeHandleBounds().y + 2.0f, PointerAction::Down);
+        ViewContext vctx;
+        bool dragStarted = drawer.handlePointer(downEv, vctx);
+        assert(dragStarted);
+        assert(drawer.isResizing());
+
+        PointerEvent moveEv = makePointer(500.0f, drawer.getResizeHandleBounds().y - 50.0f, PointerAction::Move);
+        drawer.handlePointer(moveEv, vctx);
+        assertNear(drawer.getExtent(), 250.0f, 2.0f);
+
+        PointerEvent upEv = makePointer(500.0f, drawer.getResizeHandleBounds().y - 50.0f, PointerAction::Up);
+        drawer.handlePointer(upEv, vctx);
+        assert(!drawer.isResizing());
+
+        // Test close button
+        PointerEvent closeEv = makePointer(drawer.getCloseButtonBounds().x + 2.0f, drawer.getCloseButtonBounds().y + 2.0f, PointerAction::Down);
+        drawer.handlePointer(closeEv, vctx);
+        assert(!drawer.isExpanded());
+
+        // Test hotkey 'D'
+        drawer.handleKey('D', 0, 1, 0, vctx);
+        assert(drawer.isExpanded());
+    }
+
+    // 2. SlidingDrawer - Right edge (Sidebar)
+    {
+        DrawerConfig cfg;
+        cfg.edge = DockEdge::Right;
+        cfg.tab.title = "SIDEBAR";
+        cfg.tab.tabWidth = 24.0f;
+        cfg.tab.fullEdgeTab = true;
+        cfg.tab.preferredExtent = 320.0f;
+        cfg.tab.minExtent = 200.0f;
+        cfg.tab.maxExtent = 600.0f;
+        cfg.tab.resizable = true;
+
+        SlidingDrawer rightDrawer(cfg);
+        Rect2D container(0.0f, 0.0f, 1200.0f, 800.0f);
+        rightDrawer.layout(container);
+
+        assert(!rightDrawer.isExpanded());
+        Rect2D tabBounds = rightDrawer.getPullTabBounds();
+        assert(tabBounds.w == 24.0f);
+        assert(tabBounds.h == 800.0f);
+        assertNear(tabBounds.x, 1200.0f - 24.0f, 1.0f);
+
+        rightDrawer.setExpanded(true);
+        for (int i = 0; i < 40; ++i) rightDrawer.update(0.016f);
+        rightDrawer.layout(container);
+
+        assertNear(rightDrawer.getDrawerBounds().x, 1200.0f - 320.0f, 1.0f);
+        assertNear(rightDrawer.getDrawerBounds().w, 320.0f, 1.0f);
+    }
+
+    // 3. Multi-Tab SlidingDock
+    {
+        SlidingDock dock(DockEdge::Bottom);
+        assert(!dock.isOpen());
+        assert(dock.getTabCount() == 0);
+
+        DockTabItem tab1;
+        tab1.id = "mixer";
+        tab1.title = "MIXER";
+        tab1.preferredExtent = 220.0f;
+        tab1.tabWidth = 120.0f;
+        dock.addTab(tab1);
+
+        DockTabItem tab2;
+        tab2.id = "keys";
+        tab2.title = "KEYBOARD";
+        tab2.preferredExtent = 160.0f;
+        tab2.tabWidth = 130.0f;
+        dock.addTab(tab2);
+
+        DockTabItem tab3;
+        tab3.id = "terminal";
+        tab3.title = "TERMINAL";
+        tab3.preferredExtent = 280.0f;
+        tab3.tabWidth = 140.0f;
+        dock.addTab(tab3);
+
+        assert(dock.getTabCount() == 3);
+
+        Rect2D container(0.0f, 0.0f, 1280.0f, 720.0f);
+        dock.layout(container);
+
+        assert(dock.getTabStripBounds().w > 0.0f);
+        assert(dock.getPullTabBounds(0).w == 120.0f);
+        assert(dock.getPullTabBounds(1).w == 130.0f);
+        assert(dock.getPullTabBounds(2).w == 140.0f);
+
+        // Select tab by ID
+        dock.selectTab("keys");
+        assert(dock.isOpen());
+        assert(dock.getActiveTabId() == "keys");
+
+        for (int i = 0; i < 40; ++i) dock.update(0.016f);
+        assertNear(dock.getCurrentExtent(), 160.0f, 1.0f);
+        assertNear(dock.getAnimProgress(), 1.0f, 0.01f);
+
+        // Switch to terminal tab - should interpolate extent to 280.0f
+        dock.selectTab("terminal");
+        assert(dock.getActiveTabId() == "terminal");
+        for (int i = 0; i < 40; ++i) dock.update(0.016f);
+        assertNear(dock.getCurrentExtent(), 280.0f, 1.0f);
+
+        // Close dock
+        dock.closeDock();
+        assert(!dock.isOpen());
+        for (int i = 0; i < 40; ++i) dock.update(0.016f);
+        assertNear(dock.getAnimProgress(), 0.0f, 0.01f);
+    }
+
+    // 4. TerminalConsoleDrawer delegation verification
+    {
+        TerminalConsoleDrawer term;
+        assert(!term.isExpanded());
+
+        term.layout(1280.0f, 680.0f, 1.0f);
+        assert(term.getPullTabBounds().w == 150.0f);
+        assert(term.getPullTabBounds().h == 28.0f);
+
+        term.setExpanded(true);
+        assert(term.isExpanded());
+
+        presenter::FrameTimeContext ftc;
+        ftc.deltaTime = 0.016f;
+        term.update(ftc);
+        term.layout(1280.0f, 680.0f, 1.0f);
+
+        assert(term.getDrawerBounds().h > 200.0f);
+        assert(term.isFocused());
+
+        // Escape closes
+        term.handleKey(256 /* Escape */, 0, 1, 0);
+        assert(!term.isExpanded());
+    }
+
+    // 5. TrackPropertiesDrawer & ProjectBrowserDrawer Side-by-Side Coexistence
+    {
+        ProjectBrowserDrawer browser;
+        TrackPropertiesDrawer props;
+
+        // Verify TrackPropertiesDrawer enlarged default width (460px instead of 360px)
+        assertNear(props.getWidth(), 460.0f, 1.0f);
+
+        // Open both simultaneously
+        browser.open();
+        props.setExpanded(true);
+
+        for (int i = 0; i < 40; ++i) {
+            browser.update(0.016f);
+            props.update(0.016f);
+        }
+
+        float screenW = 1920.0f;
+        float screenH = 1080.0f;
+        browser.layout(screenW, screenH, 56.0f, 48.0f);
+
+        float browserOffset = browser.getEffectiveWidth();
+        assertNear(browserOffset, ProjectBrowserDrawer::getDrawerWidth(), 2.0f);
+
+        Rect2D container(0.0f, 56.0f, screenW, screenH - 56.0f - 48.0f);
+        props.layout(container, browserOffset);
+
+        Rect2D bBounds = browser.getDrawerBounds();
+        Rect2D pBounds = props.getDrawerBounds();
+
+        // Browser sits at right screen edge: [1920 - 380, 1920] = [1540, 1920]
+        assertNear(bBounds.x, screenW - ProjectBrowserDrawer::getDrawerWidth(), 2.0f);
+
+        // Properties drawer sits immediately to the left of the browser!
+        // Right edge of properties = bBounds.x
+        assertNear(pBounds.x + pBounds.w, bBounds.x, 2.0f);
+
+        // No overlap between body contents
+        assert(!bBounds.intersects(pBounds));
+    }
+
+    std::cout << "  [PASS] Unified SlidingDrawer, Multi-Tab SlidingDock, Side-by-Side Drawers & Terminal validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -3242,8 +3528,9 @@ int main() {
     testTrackAudioFxPresetBindingAndDefaults();
     testChangeInstrumentSwapIconAndImmediateGuiRefresh();
     testPanningFxDeletionAndHeaderDoubleClick();
+    testUnifiedSlidingDockAndDrawer();
 
-    std::cout << "\n>>> ALL 26 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 27 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

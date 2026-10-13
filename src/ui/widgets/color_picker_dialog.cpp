@@ -321,12 +321,42 @@ void ColorPickerDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
 bool ColorPickerDialog::handlePointer(const PointerEvent& ev) {
     if (!isOpen_) return false;
 
+    // Handle ongoing slider dragging regardless of whether cursor left dialog bounds
+    if (ev.action == PointerAction::Move && (isDraggingHue_ || isDraggingSat_ || isDraggingLight_)) {
+        if (isDraggingHue_) {
+            float norm = std::clamp((ev.x - hueSliderBounds_.x) / hueSliderBounds_.w, 0.0f, 1.0f);
+            hue_ = norm * 360.0f;
+            currentColor_ = hslToRgb(hue_, saturation_, lightness_);
+            return true;
+        }
+        if (isDraggingSat_) {
+            float norm = std::clamp((ev.x - satSliderBounds_.x) / satSliderBounds_.w, 0.0f, 1.0f);
+            saturation_ = norm;
+            currentColor_ = hslToRgb(hue_, saturation_, lightness_);
+            return true;
+        }
+        if (isDraggingLight_) {
+            float norm = std::clamp((ev.x - lightSliderBounds_.x) / lightSliderBounds_.w, 0.0f, 1.0f);
+            lightness_ = norm;
+            currentColor_ = hslToRgb(hue_, saturation_, lightness_);
+            return true;
+        }
+    }
+
+    if ((ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) &&
+        (isDraggingHue_ || isDraggingSat_ || isDraggingLight_)) {
+        isDraggingHue_ = false;
+        isDraggingSat_ = false;
+        isDraggingLight_ = false;
+        return true;
+    }
+
     if (!dialogBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {
             close();
             return true;
         }
-        return false;
+        return true; // Absorb events behind modal while modal is open
     }
 
     if (ev.action == PointerAction::Down) {

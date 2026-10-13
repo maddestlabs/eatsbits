@@ -13025,6 +13025,69 @@ void GuiWindow::onMouseMove(float x, float y) {
             if (std::abs(uiScale_ - snappedScale) > 0.001f) {
                 setUiScale(snappedScale);
             }
+        } else if (dragMode_ == DragMode::ProjectHubCrtSlider && activeCrtSliderIndex_ >= 0) {
+            DialogLayout dl = computeDialogLayout(540.0f, 620.0f);
+            const float drawerX = dl.x + 16.0f;
+            const float drawerW = dl.w - 32.0f;
+            const float sTrackX = drawerX + 12.0f;
+            const float sTrackW = drawerW - 32.0f;
+            float t = std::clamp((x - sTrackX) / sTrackW, 0.0f, 1.0f);
+            auto cfg = dawnBridge_.getMaterialConfig();
+            switch (activeCrtSliderIndex_) {
+                case 0:
+                    cfg.scanlineIntensity = t * 1.0f;
+                    setStatusMessage("Scanlines: " + std::to_string(static_cast<int>(std::round(cfg.scanlineIntensity * 100.0f))) + "%" + (cfg.scanlineIntensity <= 0.005f ? " (OFF)" : ""));
+                    break;
+                case 1:
+                    cfg.curvature = t * 1.50f;
+                    setStatusMessage("CRT Curvature: " + std::to_string(static_cast<int>(std::round(cfg.curvature * 100.0f))) + "%");
+                    break;
+                case 2:
+                    cfg.crtReflectionLevel = t * 1.0f;
+                    setStatusMessage("CRT Tube Reflection: " + std::to_string(static_cast<int>(std::round(cfg.crtReflectionLevel * 100.0f))) + "%" + (cfg.crtReflectionLevel <= 0.005f ? " (OFF)" : ""));
+                    break;
+                case 3:
+                    cfg.hsyncDistortion = t * 2.0f;
+                    setStatusMessage("H-Sync Distortion: " + std::to_string(static_cast<int>(std::round(cfg.hsyncDistortion * 100.0f))) + "%" + (cfg.hsyncDistortion <= 0.005f ? " (ZERO / STATIC)" : ""));
+                    break;
+                case 4:
+                    cfg.spotlightIntensity = t * 2.0f;
+                    setStatusMessage("Spotlight Intensity: " + std::to_string(static_cast<int>(std::round(cfg.spotlightIntensity * 100.0f))) + "%");
+                    break;
+                case 5:
+                    cfg.spotlightSize = 0.5f + t * 2.0f;
+                    setStatusMessage("Spotlight Beam Size: " + std::to_string(static_cast<int>(std::round(cfg.spotlightSize * 100.0f))) + "%");
+                    break;
+                case 6:
+                    cfg.vignetteStrength = t * 2.0f;
+                    setStatusMessage("Vignette Falloff: " + std::to_string(static_cast<int>(std::round(cfg.vignetteStrength * 100.0f))) + "%");
+                    break;
+                case 7:
+                    cfg.reflectionOpacity = t * 1.0f;
+                    setStatusMessage("Frame Reflection: " + std::to_string(static_cast<int>(std::round(cfg.reflectionOpacity * 100.0f))) + "%");
+                    break;
+                case 8: {
+                    cfg.panelSoftness = t * 1.50f;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "Panel Softness: %.2f px", cfg.panelSoftness);
+                    setStatusMessage(buf);
+                    break;
+                }
+                case 9:
+                    cfg.panelSaturation = t * 1.0f;
+                    setStatusMessage("Panel Saturation: " + std::to_string(static_cast<int>(std::round(cfg.panelSaturation * 100.0f))) + "%");
+                    break;
+                case 10: {
+                    cfg.panelBlackLift = t * 0.08f;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "Panel Black Floor Lift: +%.3f", cfg.panelBlackLift);
+                    setStatusMessage(buf);
+                    break;
+                }
+                default: break;
+            }
+            dawnBridge_.setMaterialConfig(cfg);
+            saveSettings();
         }
         mouseX_ = x;
         mouseY_ = y;
@@ -13047,11 +13110,6 @@ void GuiWindow::onMouseMove(float x, float y) {
         return;
     }
 
-    if (isAnyModalActive()) {
-        mouseX_ = x;
-        mouseY_ = y;
-        return;
-    }
     if (valueEditDialog_.isOpen()) {
         if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             PointerEvent pev;
@@ -13157,6 +13215,28 @@ void GuiWindow::onMouseMove(float x, float y) {
             mouseY_ = y;
             return;
         }
+    }
+
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
+    }
+
+    if (isAnyModalActive()) {
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
     }
 
     if (browserOpen_ && projectBrowserDrawerWidget_) {
@@ -13713,49 +13793,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         if (fullscreenDeviceModal_.handlePointer(pev)) return;
     }
 
-    if (button == 2) { // Middle click: 2D panning in Arranger or Piano Roll
-        if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-            ViewContext ctx = createViewContext();
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = PointerButton::Middle;
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularArrangerView_->handlePointer(pev, ctx)) return;
-        } else if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
-            ViewContext ctx = createViewContext();
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = PointerButton::Middle;
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularEditView_->handlePointer(pev, ctx)) {
-                if (editSubView_ == EditSubView::PianoRoll) {
-                    dragMode_ = DragMode::PianoRollMiddlePan;
-                    panStartMouseX_ = x;
-                    panStartMouseY_ = y;
-                    panStartScrollX_ = pianoRollScrollX_;
-                    panStartScrollY_ = pianoRollScrollY_;
-                }
-                return;
-            }
-        }
-        if (activeView_ == WorkspaceView::Edit && editSubView_ == EditSubView::PianoRoll) {
-            dragMode_ = DragMode::PianoRollMiddlePan;
-            panStartMouseX_ = x;
-            panStartMouseY_ = y;
-            panStartScrollX_ = pianoRollScrollX_;
-            panStartScrollY_ = pianoRollScrollY_;
-            return;
-        }
-    }
-
     if (themeBrowserDialog_.isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -13785,9 +13822,22 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         return; // Absorb events behind modal
     }
 
-    if (button == 0) { // Left click
-        // 0A. Check Project Hub & Settings Modal Hit (if open)
-        if (projectHubOpen_) {
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        return;
+    }
+
+    // Check Project Hub & Settings Modal Hit (if open)
+    if (projectHubOpen_) {
+        if (button == 0) { // Left click
             auto hubHit = hitTestProjectHub(x, y);
             if (hubHit.hit) {
                 switch (hubHit.action) {
@@ -14013,6 +14063,8 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         }
                         dawnBridge_.setMaterialConfig(cfg);
                         saveSettings();
+                        dragMode_ = DragMode::ProjectHubCrtSlider;
+                        activeCrtSliderIndex_ = hubHit.crtSliderIndex;
                         break;
                     }
                     case ProjectHubAction::Scrollbar: {
@@ -14048,11 +14100,60 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 isEditingAuthor_ = false;
                 return;
             }
-        }
-
-        if (isAnyModalActive()) {
+        } else {
+            // Right or middle click outside/inside open settings modal -> absorb so background is untouched
             return;
         }
+    }
+
+    if (isAnyModalActive()) {
+        return;
+    }
+
+    if (button == 2) { // Middle click: 2D panning in Arranger or Piano Roll
+        if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = PointerButton::Middle;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularArrangerView_->handlePointer(pev, ctx)) return;
+        } else if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = PointerButton::Middle;
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            if (modularEditView_->handlePointer(pev, ctx)) {
+                if (editSubView_ == EditSubView::PianoRoll) {
+                    dragMode_ = DragMode::PianoRollMiddlePan;
+                    panStartMouseX_ = x;
+                    panStartMouseY_ = y;
+                    panStartScrollX_ = pianoRollScrollX_;
+                    panStartScrollY_ = pianoRollScrollY_;
+                }
+                return;
+            }
+        }
+        if (activeView_ == WorkspaceView::Edit && editSubView_ == EditSubView::PianoRoll) {
+            dragMode_ = DragMode::PianoRollMiddlePan;
+            panStartMouseX_ = x;
+            panStartMouseY_ = y;
+            panStartScrollX_ = pianoRollScrollX_;
+            panStartScrollY_ = pianoRollScrollY_;
+            return;
+        }
+    }
+
+    if (button == 0) { // Left click
 
         // 0. Check Preset Browser Drawer Hit (if open)
         if (browserOpen_) {
@@ -15595,6 +15696,7 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
 
     if (projectHubOpen_) {
         projectHubScrollArea_.stopDragging();
+        activeCrtSliderIndex_ = -1;
         dragMode_ = DragMode::None;
         return;
     }
@@ -15612,9 +15714,6 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         return;
     }
 
-    if (isAnyModalActive()) {
-        return;
-    }
     if (valueEditDialog_.isOpen()) {
         if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             PointerEvent pev;
@@ -15677,6 +15776,36 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         return;
     }
 
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (activePluginDialog->handlePointer(pev)) return;
+    }
+
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        return;
+    }
+
+    if (isAnyModalActive()) {
+        return;
+    }
+
     if (browserOpen_ && projectBrowserDrawerWidget_) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -15690,23 +15819,6 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
             return;
         }
-    }
-
-    if (projectHubOpen_) {
-        projectHubScrollArea_.stopDragging();
-    }
-
-    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
-    if (activePluginDialog && activePluginDialog->isOpen()) {
-        PointerEvent pev;
-        pev.type = PointerType::Mouse;
-        pev.action = PointerAction::Up;
-        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-        pev.x = x;
-        pev.y = y;
-        pev.rawX = x;
-        pev.rawY = y;
-        if (activePluginDialog->handlePointer(pev)) return;
     }
 
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -15923,6 +16035,11 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
             }
         }
         return; // Absorb all scroll events while Settings is open so it never scrolls the DAW underneath
+    }
+
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        return;
     }
 
     if (isAnyModalActive()) {
@@ -16823,9 +16940,6 @@ void GuiWindow::onChar(unsigned int codepoint) {
         }
         return;
     }
-    if (isAnyModalActive()) {
-        return;
-    }
     if (valueEditDialog_.isOpen()) {
         return;
     }
@@ -16862,6 +16976,13 @@ void GuiWindow::onChar(unsigned int codepoint) {
     }
     if (audioToMidiDialog_.isOpen()) {
         audioToMidiDialog_.handleChar(codepoint);
+        return;
+    }
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        return;
+    }
+
+    if (isAnyModalActive()) {
         return;
     }
 
@@ -16976,6 +17097,7 @@ bool GuiWindow::isAnyModalActive() const noexcept {
     if (commandPaletteDialog_.isOpen()) return true;
     if (valueEditDialog_.isOpen()) return true;
     if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) return true;
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) return true;
     if (audioToMidiDialog_.isOpen()) return true;
     if (fullscreenDeviceModal_.isOpen()) return true;
     if (themeBrowserDialog_.isOpen()) return true;

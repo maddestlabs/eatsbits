@@ -280,11 +280,43 @@ void testThemeBrowserDialog() {
     assert(callbackFired);
     assert(Theme::getCurrentPreset() == Theme::Preset::NordicFrost);
 
-    // Reset back to default AteTrack
-    Theme::setPreset(Theme::Preset::AteTrack);
-    assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack);
+    // 5. Scrollbar Drag & Mouse/Touch interaction test
+    dialog.open();
+    dialog.layout(1000.0f, 400.0f); // compact height forces scrollbar
+    assert(dialog.getMaxScrollY() > 0.0f);
+    assert(dialog.getScrollY() == 0.0f);
+    assert(!dialog.isDraggingScrollbar());
 
-    std::cout << "  [PASS] ThemeBrowserDialog category filtering, search, and live preview verified." << std::endl;
+    float sbX = (1000.0f + 820.0f) * 0.5f - 18.0f;
+    float sbDownY = (400.0f - 360.0f) * 0.5f + 160.0f;
+    PointerEvent peDown;
+    peDown.type = PointerType::Mouse;
+    peDown.action = PointerAction::Down;
+    peDown.button = PointerButton::Left;
+    peDown.x = sbX;
+    peDown.y = sbDownY;
+    assert(dialog.handlePointer(peDown));
+    assert(dialog.isDraggingScrollbar());
+    assert(dialog.getScrollY() > 0.0f);
+
+    PointerEvent peMove;
+    peMove.type = PointerType::Mouse;
+    peMove.action = PointerAction::Move;
+    peMove.x = sbX;
+    peMove.y = sbDownY + 30.0f;
+    assert(dialog.handlePointer(peMove));
+    assert(dialog.isDraggingScrollbar());
+
+    PointerEvent peUp;
+    peUp.type = PointerType::Mouse;
+    peUp.action = PointerAction::Up;
+    peUp.x = sbX;
+    peUp.y = sbDownY + 30.0f;
+    assert(dialog.handlePointer(peUp));
+    assert(!dialog.isDraggingScrollbar());
+    dialog.close();
+
+    std::cout << "  [PASS] ThemeBrowserDialog category filtering, search, scrollbar drag, and live preview verified." << std::endl;
 }
 
 int main() {

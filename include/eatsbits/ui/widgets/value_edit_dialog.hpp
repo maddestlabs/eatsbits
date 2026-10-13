@@ -72,6 +72,10 @@ public:
     void submit();
     [[nodiscard]] const Rect2D& getDialogBounds() const noexcept { return dialogBounds_; }
     [[nodiscard]] const Rect2D& getCloseButtonBounds() const noexcept { return closeBtnBounds_; }
+    [[nodiscard]] const Rect2D& getSliderBounds() const noexcept { return sliderBounds_; }
+    [[nodiscard]] bool isDraggingSlider() const noexcept { return isDraggingSlider_; }
+    [[nodiscard]] float getSliderNormalized() const noexcept;
+    void setSliderNormalized(float norm);
 
     // Text Selection & Cursor inspection / control
     [[nodiscard]] bool hasSelection() const noexcept { return textModel_.hasSelection(); }
@@ -102,14 +106,16 @@ private:
     TextFieldState textModel_{};
     float inputScrollX_{0.0f};
     bool isDraggingSelection_{false};
+    bool isDraggingSlider_{false};
     float cursorBlinkTimer_{0.0f};
 
     float screenWidth_{1280.0f};
     float screenHeight_{800.0f};
 
     // Hit test geometry
-    Rect2D dialogBounds_{0.0f, 0.0f, 360.0f, 240.0f};
+    Rect2D dialogBounds_{0.0f, 0.0f, 360.0f, 260.0f};
     Rect2D inputFieldBounds_{};
+    Rect2D sliderBounds_{};
     Rect2D percentToggleBounds_{};
     Rect2D defaultBtnBounds_{};
     Rect2D closeBtnBounds_{};

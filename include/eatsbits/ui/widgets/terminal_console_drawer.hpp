@@ -16,6 +16,7 @@
 #include "eatsbits/core/geometry.hpp"
 #include "eatsbits/presenter/frame_time_context.hpp"
 #include "eatsbits/ui/input/focus_manager.hpp"
+#include "eatsbits/ui/widgets/sliding_dock.hpp"
 
 namespace eatsbits::audio {
     class AudioEngine;
@@ -52,7 +53,7 @@ public:
         isFocused_ = false;
     }
     [[nodiscard]] bool isFocused() const noexcept override {
-        return isFocused_ || isExpanded_;
+        return isFocused_ || isExpanded();
     }
     void setFocused(bool focused) noexcept {
         isFocused_ = focused;
@@ -60,16 +61,19 @@ public:
 
     void bindAudioEngine(audio::AudioEngine* engine);
 
-    [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
+    [[nodiscard]] bool isExpanded() const noexcept { return drawer_.isExpanded(); }
     void setExpanded(bool exp) noexcept;
-    void toggleExpanded() noexcept { setExpanded(!isExpanded_); }
+    void toggleExpanded() noexcept { setExpanded(!drawer_.isExpanded()); }
 
     [[nodiscard]] float getDrawerHeight() const noexcept {
-        return isExpanded_ ? (drawerHeight_ + kPullTabHeight) : kPullTabHeight;
+        return drawer_.isExpanded() ? (drawerHeight_ + kPullTabHeight) : kPullTabHeight;
     }
 
     [[nodiscard]] core::Rect2D getDrawerBounds() const noexcept { return drawerBounds_; }
     [[nodiscard]] core::Rect2D getPullTabBounds() const noexcept { return pullTabBounds_; }
+
+    [[nodiscard]] SlidingDrawer& getDrawer() noexcept { return drawer_; }
+    [[nodiscard]] const SlidingDrawer& getDrawer() const noexcept { return drawer_; }
 
     void executeCommand(const std::string& command);
     void clear();
@@ -90,7 +94,7 @@ private:
     static constexpr float kCellWidth{8.0f};
     static constexpr float kCellHeight{16.0f};
 
-    bool isExpanded_{false};
+    SlidingDrawer drawer_;
     bool isFocused_{false};
     float drawerHeight_{kDefaultDrawerHeight};
     core::Rect2D drawerBounds_{};

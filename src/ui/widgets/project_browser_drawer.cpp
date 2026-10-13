@@ -12,6 +12,18 @@
 namespace eatsbits::ui {
 
 ProjectBrowserDrawer::ProjectBrowserDrawer() {
+    DrawerConfig cfg;
+    cfg.edge = DockEdge::Right;
+    cfg.tab.tabWidth = 0.0f;
+    cfg.tab.preferredExtent = kDrawerWidth;
+    cfg.tab.minExtent = 280.0f;
+    cfg.tab.maxExtent = 600.0f;
+    cfg.tab.resizable = true;
+    cfg.tab.showCloseButton = true;
+    cfg.tab.showHeaderBar = false;
+    cfg.animationDamping = 18.0f;
+    drawer_.setConfig(cfg);
+
     initData();
     scanSavedProjects();
 }
@@ -175,17 +187,17 @@ void ProjectBrowserDrawer::setHistory(const std::vector<BrowserHistoryMilestoneI
 }
 
 void ProjectBrowserDrawer::open() noexcept {
-    isOpen_ = true;
+    drawer_.setExpanded(true);
     scanSavedProjects();
 }
 
 void ProjectBrowserDrawer::close() noexcept {
-    isOpen_ = false;
+    drawer_.setExpanded(false);
     if (onClose) onClose();
 }
 
 void ProjectBrowserDrawer::toggle() noexcept {
-    if (isOpen_) close();
+    if (drawer_.isExpanded()) close();
     else open();
 }
 
@@ -326,16 +338,18 @@ size_t ProjectBrowserDrawer::getFilteredProjectsCount() const {
 void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float topHeaderHeight, float bottomNavHeight) {
     isMobile_ = (screenWidth < 768.0f);
     float drawerH = screenHeight - topHeaderHeight - bottomNavHeight;
-    float currentX = screenWidth - (kDrawerWidth * animProgress_);
+    drawer_.layout(Rect2D(0.0f, topHeaderHeight, screenWidth, drawerH), 0.0f);
 
-    drawerBounds_ = Rect2D(currentX, topHeaderHeight, kDrawerWidth, drawerH);
+    drawerBounds_ = drawer_.getDrawerBounds();
+    float currentX = drawerBounds_.x;
+    float currentW = drawerBounds_.w;
 
     float headerY = topHeaderHeight + 8.0f;
-    closeBtnBounds_ = Rect2D(currentX + kDrawerWidth - 32.0f, headerY, 24.0f, 24.0f);
+    closeBtnBounds_ = Rect2D(currentX + currentW - 32.0f, headerY, 24.0f, 24.0f);
 
     // 6 Tabs layout
     float tabY = headerY + 28.0f;
-    float totalTabW = kDrawerWidth - 24.0f;
+    float totalTabW = currentW - 24.0f;
     float tabW = totalTabW / 6.0f;
     float tabH = isMobile_ ? 26.0f : 28.0f;
 
@@ -345,11 +359,11 @@ void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float t
 
     // Search bar below tab strip
     float subY = tabY + tabH + 6.0f;
-    searchBoxBounds_ = Rect2D(currentX + 12.0f, subY, kDrawerWidth - 24.0f, 24.0f);
+    searchBoxBounds_ = Rect2D(currentX + 12.0f, subY, currentW - 24.0f, 24.0f);
 
     // Script category filter chips (below search bar)
     float chipY = subY + 28.0f;
-    float totalChipW = kDrawerWidth - 24.0f;
+    float totalChipW = currentW - 24.0f;
     float chipW = (totalChipW - (5.0f * 4.0f)) / 6.0f;
     for (size_t i = 0; i < 6; ++i) {
         scriptCategoryBounds_[i] = Rect2D(currentX + 12.0f + (static_cast<float>(i) * (chipW + 4.0f)), chipY, chipW, 22.0f);
@@ -357,20 +371,11 @@ void ProjectBrowserDrawer::layout(float screenWidth, float screenHeight, float t
 }
 
 void ProjectBrowserDrawer::update(float dt) {
-    float target = isOpen_ ? 1.0f : 0.0f;
-    constexpr float kDrawerDamping = 18.0f; // ~180ms smooth ease-out
-    float factor = 1.0f - std::exp(-kDrawerDamping * dt);
-    animProgress_ += (target - animProgress_) * factor;
-
-    if (std::abs(animProgress_ - target) < 0.001f) {
-        animProgress_ = target;
-    }
-
-    animOffset_ = kDrawerWidth * (1.0f - animProgress_);
+    drawer_.update(dt);
 }
 
 void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) {
-    if (animProgress_ <= 0.001f) return;
+    if (drawer_.getAnimProgress() <= 0.001f) return;
 
     // Drawer chassis background
     drawRect(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.w, drawerBounds_.h,
@@ -378,7 +383,7 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
 
     // Left border indicator line
     drawLine(r, drawerBounds_.x, drawerBounds_.y, drawerBounds_.x, drawerBounds_.y + drawerBounds_.h,
-             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f * animProgress_, 2.0f);
+             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f * drawer_.getAnimProgress(), 2.0f);
 
     // Header Title
     drawText(r, "PROJECT BROWSER", drawerBounds_.x + 14.0f, drawerBounds_.y + 12.0f, 12.5f,
@@ -846,7 +851,7 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
 }
 
 bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
-    if (animProgress_ <= 0.05f) return false;
+    if (drawer_.getAnimProgress() <= 0.05f) return false;
     mouseX_ = ev.x;
     mouseY_ = ev.y;
 

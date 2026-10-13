@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 
 namespace eatsbits::ui {
 
@@ -20,6 +21,7 @@ void ValueEditDialog::open(const ValueEditRequest& req) {
     isPercentMode_ = false;
     cursorBlinkTimer_ = 0.0f;
     isDraggingSelection_ = false;
+    isDraggingSlider_ = false;
     inputScrollX_ = 0.0f;
 
     presenter::ValueEditConfig cfg;
@@ -79,6 +81,32 @@ void ValueEditDialog::submit() {
     close();
 }
 
+float ValueEditDialog::getSliderNormalized() const noexcept {
+    if (req_.isTextMode) return 0.0f;
+    if (req_.maxValue <= req_.minValue) return 0.0f;
+
+    auto valResult = presenter_.validate(textModel_.getText());
+    float curVal = valResult.isValid ? valResult.parsedValue : req_.currentValue;
+    return std::clamp((curVal - req_.minValue) / (req_.maxValue - req_.minValue), 0.0f, 1.0f);
+}
+
+void ValueEditDialog::setSliderNormalized(float norm) {
+    if (req_.isTextMode) return;
+    norm = std::clamp(norm, 0.0f, 1.0f);
+    if (isPercentMode_) {
+        float pct = norm * 100.0f;
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f", pct);
+        textModel_.setText(buf, /*selectAllOnSet=*/ false);
+    } else {
+        float val = req_.minValue + norm * (req_.maxValue - req_.minValue);
+        if (req_.isInteger) {
+            val = std::round(val);
+        }
+        std::string str = presenter_.formatValueForEdit(val);
+        textModel_.setText(str, /*selectAllOnSet=*/ false);
+    }
+}
 
 void ValueEditDialog::layout(float screenW, float screenH) {
     screenWidth_ = screenW;
@@ -94,6 +122,8 @@ void ValueEditDialog::layout(float screenW, float screenH) {
         closeBtnBounds_ = Rect2D(dx + dw - 34.0f, dy + 12.0f, 22.0f, 22.0f);
         percentToggleBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         defaultBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+        sliderBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+        isDraggingSlider_ = false;
         quickPercentPills_.clear();
 
         inputFieldBounds_ = Rect2D(dx + 20.0f, dy + 62.0f, dw - 40.0f, 38.0f);
@@ -110,7 +140,7 @@ void ValueEditDialog::layout(float screenW, float screenH) {
     }
 
     float dw = 370.0f;
-    float dh = 240.0f;
+    float dh = 260.0f;
     float dx = std::max(12.0f, (screenW - dw) * 0.5f);
     float dy = std::max(12.0f, (screenH - dh) * 0.5f);
     dialogBounds_ = Rect2D(dx, dy, dw, dh);
@@ -122,9 +152,12 @@ void ValueEditDialog::layout(float screenW, float screenH) {
 
     inputFieldBounds_ = Rect2D(dx + 20.0f, dy + 68.0f, dw - 40.0f, 40.0f);
 
+    // Ergonomic direct slider below input field
+    sliderBounds_ = Rect2D(dx + 20.0f, dy + 116.0f, dw - 40.0f, 18.0f);
+
     // 5 Quick percentage shortcut pills: 0%, 25%, 50%, 75%, 100%
     quickPercentPills_.clear();
-    float pillY = dy + 124.0f;
+    float pillY = dy + 144.0f;
     float pillW = 54.0f;
     float pillGap = 15.0f;
     float startPillX = dx + 20.0f;
@@ -321,6 +354,43 @@ void ValueEditDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                  linkHov ? accent.b : theme.textPrimary.b, 1.0f);
     }
 
+    // 4b. Value Slider (Direct ergonomic slider adjustment)
+    if (!req_.isTextMode && sliderBounds_.w > 0.0f) {
+        float trackX = sliderBounds_.x;
+        float trackW = sliderBounds_.w;
+        float trackY = sliderBounds_.y + 7.0f;
+        float trackH = 4.0f;
+        float norm = getSliderNormalized();
+        float fillW = trackW * norm;
+
+        // Recessed track background
+        drawRoundedRect(r, trackX, trackY, trackW, trackH, 2.0f,
+                        theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.95f);
+        drawRoundedRectOutline(r, trackX, trackY, trackW, trackH, 2.0f,
+                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.5f, 1.0f);
+
+        // Filled active track
+        if (fillW > 1.0f) {
+            drawRoundedRect(r, trackX, trackY, fillW, trackH, 2.0f,
+                            accent.r, accent.g, accent.b, 0.85f);
+        }
+
+        // Thumb
+        float thumbX = trackX + fillW;
+        float thumbY = trackY + trackH * 0.5f;
+        bool thumbHover = sliderBounds_.contains(lastMouseX_, lastMouseY_) || isDraggingSlider_;
+        float thumbRadius = thumbHover ? 7.5f : 6.0f;
+
+        // Outer glow on hover / drag
+        if (thumbHover) {
+            drawCircle(r, thumbX, thumbY, thumbRadius + 3.0f, accent.r, accent.g, accent.b, 0.25f);
+        }
+        // Thumb body
+        drawCircle(r, thumbX, thumbY, thumbRadius, 0.08f, 0.10f, 0.14f, 1.0f);
+        drawCircle(r, thumbX, thumbY, thumbRadius - 1.5f, accent.r, accent.g, accent.b, 1.0f);
+        drawCircleOutline(r, thumbX, thumbY, thumbRadius, accent.r, accent.g, accent.b, 1.0f, 1.2f);
+    }
+
     // 5. Quick Percentage Shortcut Pills: 0%, 25%, 50%, 75%, 100% (Numeric mode only)
     if (!req_.isTextMode && req_.allowPercentage) {
         const char* pillLabels[5] = {"0%", "25%", "50%", "75%", "100%"};
@@ -435,11 +505,24 @@ bool ValueEditDialog::handlePointer(const PointerEvent& ev) {
             return true;
         }
 
+        // Slider hit
+        if (!req_.isTextMode && sliderBounds_.w > 0.0f && sliderBounds_.contains(ev.x, ev.y)) {
+            isDraggingSlider_ = true;
+            float norm = (ev.x - sliderBounds_.x) / sliderBounds_.w;
+            setSliderNormalized(norm);
+            return true;
+        }
+
         // Intercept any click inside modal
         return true;
     }
 
     if (ev.action == PointerAction::Move) {
+        if (isDraggingSlider_) {
+            float norm = (ev.x - sliderBounds_.x) / sliderBounds_.w;
+            setSliderNormalized(norm);
+            return true;
+        }
         if (isDraggingSelection_) {
             float pad = 12.0f;
             float textStartX = inputFieldBounds_.x + pad - inputScrollX_;
@@ -454,7 +537,11 @@ bool ValueEditDialog::handlePointer(const PointerEvent& ev) {
         }
     }
 
-    if (ev.action == PointerAction::Up) {
+    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        if (isDraggingSlider_) {
+            isDraggingSlider_ = false;
+            return true;
+        }
         if (isDraggingSelection_) {
             isDraggingSelection_ = false;
             return true;

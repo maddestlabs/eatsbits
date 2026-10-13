@@ -6,13 +6,32 @@
 namespace eatsbits::ui {
 
 VirtualKeyboardDrawer::VirtualKeyboardDrawer() {
-    PianoKeyboardConfig cfg;
-    cfg.orientation = KeyboardOrientation::Horizontal;
-    cfg.baseOctave = baseOctave_;
-    cfg.octavesCount = 3;
-    cfg.minPitch = baseOctave_ * 12;
-    cfg.maxPitch = cfg.minPitch + (cfg.octavesCount * 12);
-    keyboard_.setConfig(cfg);
+    DrawerConfig cfg;
+    cfg.edge = DockEdge::Bottom;
+    cfg.tab.title = "KEYS / PADS";
+    cfg.tab.tabWidth = kPullTabWidth;
+    cfg.tab.tabHeight = kPullTabHeight;
+    cfg.tab.preferredExtent = kPianoDrawerHeight + kPullTabHeight;
+    cfg.tab.minExtent = kPianoDrawerHeight + kPullTabHeight;
+    cfg.tab.maxExtent = kDrumDrawerHeight + kPullTabHeight;
+    cfg.tab.resizable = false;
+    cfg.tab.showHeaderBar = false;
+    cfg.tab.hotkey = 'K';
+    drawer_.setConfig(cfg);
+
+    PianoKeyboardConfig pcfg;
+    pcfg.orientation = KeyboardOrientation::Horizontal;
+    pcfg.baseOctave = baseOctave_;
+    pcfg.octavesCount = 3;
+    pcfg.minPitch = baseOctave_ * 12;
+    pcfg.maxPitch = pcfg.minPitch + (pcfg.octavesCount * 12);
+    keyboard_.setConfig(pcfg);
+}
+
+void VirtualKeyboardDrawer::setMode(KeyboardDrawerMode mode) noexcept {
+    mode_ = mode;
+    float h = (mode_ == KeyboardDrawerMode::DrumPads ? kDrumDrawerHeight : kPianoDrawerHeight) + kPullTabHeight;
+    drawer_.setExtent(h);
 }
 
 void VirtualKeyboardDrawer::setBaseOctave(int oct) noexcept {
@@ -25,16 +44,19 @@ void VirtualKeyboardDrawer::setBaseOctave(int oct) noexcept {
 }
 
 void VirtualKeyboardDrawer::update(float dt) noexcept {
+    drawer_.update(dt);
     drumPadGrid_.update(dt);
 }
 
 void VirtualKeyboardDrawer::layout(float screenWidth, float bottomNavTopY) {
+    drawer_.layout(Rect2D(0.0f, 0.0f, screenWidth, bottomNavTopY), 0.0f);
+
     float tabX = (screenWidth - kPullTabWidth) * 0.5f;
     float tabY = bottomNavTopY - kPullTabHeight;
 
     float activeDrawerH = (mode_ == KeyboardDrawerMode::DrumPads) ? kDrumDrawerHeight : kPianoDrawerHeight;
 
-    if (isExpanded_) {
+    if (drawer_.isExpanded()) {
         float drawerY = bottomNavTopY - activeDrawerH - kPullTabHeight;
         drawerBounds_ = Rect2D(0.0f, drawerY, screenWidth, activeDrawerH + kPullTabHeight);
         pullTabBounds_ = Rect2D(tabX, drawerY, kPullTabWidth, kPullTabHeight);
@@ -80,6 +102,8 @@ void VirtualKeyboardDrawer::layout(float screenWidth, float bottomNavTopY) {
 void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme, audio::AudioEngine& engine) {
     (void)engine;
 
+    const bool isExpanded = drawer_.isExpanded();
+
     // 1. Draw Pull Tab
     drawRoundedRect(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
                     theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 0.95f);
@@ -88,34 +112,34 @@ void VirtualKeyboardDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
 
     // Instrument Icon & Label
     float iconW = 16.0f;
-    float iconH = 11.0f;
-    float iconX = pullTabBounds_.x + 10.0f;
+    float iconH = 14.0f;
+    float iconX = pullTabBounds_.x + 8.0f;
     float iconY = pullTabBounds_.y + (pullTabBounds_.h - iconH) * 0.5f;
 
-    Color iconCol = isExpanded_ ? theme.primaryAccent : theme.textSecondary;
+    Color iconCol = isExpanded ? theme.primaryAccent : theme.textSecondary;
     drawPianoIcon(r, iconX, iconY, iconW, iconH, iconCol);
 
     std::string tabLabel;
     if (mode_ == KeyboardDrawerMode::DrumPads) {
-        tabLabel = isExpanded_ ? "MPC DRUM PADS" : "DRUM PADS (16)";
+        tabLabel = isExpanded ? "MPC DRUM PADS" : "DRUM PADS (16)";
     } else {
-        tabLabel = isExpanded_ ? "VIRTUAL PIANO" : ("PIANO (C" + std::to_string(baseOctave_) + ")");
+        tabLabel = isExpanded ? "VIRTUAL PIANO" : ("PIANO (C" + std::to_string(baseOctave_) + ")");
     }
 
     float labelAreaW = pullTabBounds_.w - (iconX + iconW) - 24.0f;
-    Color tabCol = isExpanded_ ? theme.primaryAccent : theme.textPrimary;
+    Color tabCol = isExpanded ? theme.primaryAccent : theme.textPrimary;
     drawCenteredText(r, tabLabel, iconX + iconW + 4.0f, pullTabBounds_.y, labelAreaW, pullTabBounds_.h, 10.0f, tabCol);
 
     // Active status mini-LED on right
     float ledX = pullTabBounds_.x + pullTabBounds_.w - 12.0f;
     float ledY = pullTabBounds_.y + (pullTabBounds_.h * 0.5f);
-    if (isExpanded_) {
+    if (isExpanded) {
         drawCircle(r, ledX, ledY, 3.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
     } else {
         drawCircle(r, ledX, ledY, 2.5f, 0.35f, 0.35f, 0.35f, 0.8f);
     }
 
-    if (!isExpanded_) return;
+    if (!isExpanded) return;
 
     // 2. Draw Drawer Background Panel
     float activeDrawerH = (mode_ == KeyboardDrawerMode::DrumPads) ? kDrumDrawerHeight : kPianoDrawerHeight;
@@ -218,7 +242,7 @@ bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEn
     if (pullTabBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {
             toggleExpanded();
-            if (!isExpanded_) {
+            if (!drawer_.isExpanded()) {
                 releaseAllNotes(engine);
                 drumPadGrid_.releaseAllPads();
             }
@@ -226,7 +250,7 @@ bool VirtualKeyboardDrawer::handlePointer(const PointerEvent& ev, audio::AudioEn
         }
     }
 
-    if (!isExpanded_) return false;
+    if (!drawer_.isExpanded()) return false;
 
     // 2. Control Strip: Mode Buttons [ KEYS | PADS ]
     if (ev.action == PointerAction::Down) {

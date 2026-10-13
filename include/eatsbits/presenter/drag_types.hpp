@@ -36,7 +36,8 @@ enum class DragMode {
     PianoRollScrollbarH,
     VirtualKeyboardGlissando,
     ProjectHubScroll,
-    UiScaleSlider
+    UiScaleSlider,
+    ProjectHubCrtSlider
 };
 
 } // namespace eatsbits::ui

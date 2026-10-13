@@ -269,6 +269,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/floating_window_manager.cpp
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
+    src/ui/widgets/sliding_dock.cpp
     src/ui/widgets/arranger_mixer_drawer.cpp
     src/ui/widgets/drum_pad_grid_widget.cpp
     src/ui/widgets/project_browser_drawer.cpp

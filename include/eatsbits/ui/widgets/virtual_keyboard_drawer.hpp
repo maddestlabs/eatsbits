@@ -12,6 +12,7 @@
 #include "../input/pointer_event.hpp"
 #include "../widgets/piano_keyboard.hpp"
 #include "../widgets/drum_pad_grid_widget.hpp"
+#include "sliding_dock.hpp"
 
 namespace eatsbits::audio {
     class AudioEngine;
@@ -41,23 +42,26 @@ public:
 
     bool handlePointer(const PointerEvent& ev, audio::AudioEngine& engine);
 
-    [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
-    void setExpanded(bool exp) noexcept { isExpanded_ = exp; }
-    void toggleExpanded() noexcept { isExpanded_ = !isExpanded_; }
+    [[nodiscard]] bool isExpanded() const noexcept { return drawer_.isExpanded(); }
+    void setExpanded(bool exp) noexcept { drawer_.setExpanded(exp); }
+    void toggleExpanded() noexcept { drawer_.toggle(); }
 
     [[nodiscard]] KeyboardDrawerMode getMode() const noexcept { return mode_; }
-    void setMode(KeyboardDrawerMode mode) noexcept { mode_ = mode; }
+    void setMode(KeyboardDrawerMode mode) noexcept;
     void toggleMode() noexcept {
-        mode_ = (mode_ == KeyboardDrawerMode::Piano) ? KeyboardDrawerMode::DrumPads : KeyboardDrawerMode::Piano;
+        setMode(mode_ == KeyboardDrawerMode::Piano ? KeyboardDrawerMode::DrumPads : KeyboardDrawerMode::Piano);
     }
 
     [[nodiscard]] float getDrawerHeight() const noexcept {
-        if (!isExpanded_) return kPullTabHeight;
+        if (!drawer_.isExpanded()) return kPullTabHeight;
         return (mode_ == KeyboardDrawerMode::DrumPads ? kDrumDrawerHeight : kPianoDrawerHeight) + kPullTabHeight;
     }
 
     [[nodiscard]] Rect2D getDrawerBounds() const noexcept { return drawerBounds_; }
     [[nodiscard]] Rect2D getPullTabBounds() const noexcept { return pullTabBounds_; }
+
+    [[nodiscard]] SlidingDrawer& getDrawer() noexcept { return drawer_; }
+    [[nodiscard]] const SlidingDrawer& getDrawer() const noexcept { return drawer_; }
 
     void setBaseOctave(int oct) noexcept;
     [[nodiscard]] int getBaseOctave() const noexcept { return baseOctave_; }
@@ -75,9 +79,8 @@ private:
 
     uint32_t activeTrackIndex_{0};
 
-    bool isExpanded_{false};
+    SlidingDrawer drawer_;
     KeyboardDrawerMode mode_{KeyboardDrawerMode::Piano};
-    float animProgress_{0.0f}; // 0.0 (collapsed) to 1.0 (expanded)
 
     static constexpr float kPianoDrawerHeight = 110.0f;
     static constexpr float kDrumDrawerHeight = 164.0f;

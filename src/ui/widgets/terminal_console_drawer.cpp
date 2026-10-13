@@ -7,6 +7,21 @@
 namespace eatsbits::ui {
 
 TerminalConsoleDrawer::TerminalConsoleDrawer() {
+    DrawerConfig cfg;
+    cfg.edge = DockEdge::Bottom;
+    cfg.tab.title = ">_ TERMINAL";
+    cfg.tab.tabPlacement = DockTabPlacement::End;
+    cfg.tab.tabOffset = 16.0f;
+    cfg.tab.tabWidth = 150.0f;
+    cfg.tab.tabHeight = kPullTabHeight;
+    cfg.tab.preferredExtent = kDefaultDrawerHeight;
+    cfg.tab.minExtent = 140.0f;
+    cfg.tab.maxExtent = 600.0f;
+    cfg.tab.resizable = true;
+    cfg.tab.showHeaderBar = false;
+    cfg.tab.showCloseButton = false;
+    drawer_.setConfig(cfg);
+
     setupHostBindings();
     printWelcomeBanner();
     printPrompt();
@@ -111,8 +126,8 @@ void TerminalConsoleDrawer::printPrompt() {
 }
 
 void TerminalConsoleDrawer::setExpanded(bool exp) noexcept {
-    isExpanded_ = exp;
-    if (isExpanded_) {
+    drawer_.setExpanded(exp);
+    if (exp) {
         isFocused_ = true;
         cursorBlinkTimer_ = 0.0;
         cursorBlinkState_ = true;
@@ -138,16 +153,17 @@ void TerminalConsoleDrawer::layout(float screenWidth, float bottomNavTopY, float
     const float scaledCellH = kCellHeight * uiScale;
 
     drawerHeight_ = kDefaultDrawerHeight * uiScale;
-    const float topY = isExpanded_ ? (bottomNavTopY - drawerHeight_ - kPullTabHeight) : (bottomNavTopY - kPullTabHeight);
+    drawer_.setExtent(drawerHeight_);
+    drawer_.layout(Rect2D(0.0f, 0.0f, screenWidth, bottomNavTopY), 0.0f);
 
-    drawerBounds_ = {0.0f, topY, screenWidth, isExpanded_ ? (drawerHeight_ + kPullTabHeight) : kPullTabHeight};
+    const float topY = drawer_.isExpanded() ? (bottomNavTopY - drawerHeight_ - kPullTabHeight) : (bottomNavTopY - kPullTabHeight);
+    drawerBounds_ = {0.0f, topY, screenWidth, drawer_.isExpanded() ? (drawerHeight_ + kPullTabHeight) : kPullTabHeight};
 
-    // Right-docked tab above bottom nav bar (leaving virtual piano centered at screenWidth*0.5f completely clear)
     const float tabW = 150.0f * uiScale;
     const float tabX = screenWidth - tabW - 16.0f * uiScale;
     pullTabBounds_ = {tabX, topY, tabW, kPullTabHeight};
 
-    if (isExpanded_) {
+    if (drawer_.isExpanded()) {
         const float termX = 12.0f * uiScale;
         const float termY = topY + kPullTabHeight + 4.0f;
         const float termW = screenWidth - termX * 2.0f;
@@ -164,7 +180,8 @@ void TerminalConsoleDrawer::layout(float screenWidth, float bottomNavTopY, float
 }
 
 void TerminalConsoleDrawer::update(const FrameTimeContext& time) noexcept {
-    if (!isExpanded_) return;
+    drawer_.update(static_cast<float>(time.deltaTime));
+    if (!drawer_.isExpanded()) return;
 
     cursorBlinkTimer_ += time.deltaTime;
     cursorBlinkState_ = (std::fmod(cursorBlinkTimer_, 0.8) < 0.4);
@@ -187,10 +204,10 @@ void TerminalConsoleDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme,
 
     // Tab Icon & Title
     r.drawMonospaceText(tabX + 14.0f * uiScale, tabY + 6.0f, 8.0f * uiScale, 16.0f * uiScale,
-                        isExpanded_ ? "v  >_ TERMINAL" : "^  >_ TERMINAL",
+                        drawer_.isExpanded() ? "v  >_ TERMINAL" : "^  >_ TERMINAL",
                         0xFFE0E0E0);
 
-    if (!isExpanded_) return;
+    if (!drawer_.isExpanded()) return;
 
     // 2. Main Terminal Acrylic Drawer Background
     const float termX = drawerBounds_.x;
@@ -227,7 +244,7 @@ bool TerminalConsoleDrawer::handlePointer(const PointerEvent& ev) {
             toggleExpanded();
             return true;
         }
-        if (isExpanded_ && drawerBounds_.contains(ev.x, ev.y)) {
+        if (drawer_.isExpanded() && drawerBounds_.contains(ev.x, ev.y)) {
             isFocused_ = true;
             return true; // Consume clicks within terminal drawer
         }
@@ -237,7 +254,7 @@ bool TerminalConsoleDrawer::handlePointer(const PointerEvent& ev) {
 
 bool TerminalConsoleDrawer::handleKey(int key, int scancode, int action, int mods) {
     (void)scancode;
-    if (!isExpanded_) return false;
+    if (!drawer_.isExpanded()) return false;
     if (action != 1 && action != 2) return true; // Consume key release events when expanded
 
     bool isCtrl = (mods & 0x0002) != 0;
@@ -364,7 +381,7 @@ bool TerminalConsoleDrawer::handleKey(int key, int scancode, int action, int mod
 }
 
 bool TerminalConsoleDrawer::handleChar(char32_t codepoint) {
-    if (!isExpanded_) return false;
+    if (!drawer_.isExpanded()) return false;
     if (codepoint < 32 || codepoint == 127) return false;
 
     // Convert UTF-32 codepoint to UTF-8
