@@ -271,7 +271,12 @@
                     if (!dev) continue;
                     var ctx = dev.webaudio || dev.audioContext;
                     if (ctx && typeof ctx.resume === 'function' && ctx.state === 'suspended') {
-                        ctx.resume().catch(function(e) {
+                        ctx.resume().then(function() {
+                            var unlockFn = window._ma_device__on_notification_unlocked || (typeof Module !== 'undefined' ? Module._ma_device__on_notification_unlocked : null);
+                            if (typeof unlockFn === 'function' && dev.pDevice) {
+                                unlockFn(dev.pDevice);
+                            }
+                        }).catch(function(e) {
                             console.warn('[Audio] Failed to resume WebAudio context:', e);
                         });
                     }
