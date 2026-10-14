@@ -252,6 +252,7 @@ public:
 
     void start() noexcept { transport_.start(); }
     void stop() noexcept;
+    void stop(audio::AudioGraph* graph) noexcept;
     void pause() noexcept { transport_.pause(); }
     [[nodiscard]] bool isPlaying() const noexcept { return transport_.isPlaying(); }
 

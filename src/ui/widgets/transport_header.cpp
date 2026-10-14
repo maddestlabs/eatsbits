@@ -174,7 +174,7 @@ bool TransportHeader::handlePointer(const PointerEvent& ev, audio::AudioEngine* 
         if (onTogglePlay) onTogglePlay();
         else if (engine) {
             if (engine->getSequencer().isPlaying()) {
-                engine->getSequencer().stop();
+                engine->stopPlayback();
             } else {
                 engine->getSequencer().start();
             }
@@ -182,7 +182,8 @@ bool TransportHeader::handlePointer(const PointerEvent& ev, audio::AudioEngine* 
         return true;
     }
     if (stopBounds_.contains(ev.x, ev.y)) {
-        if (engine) engine->getSequencer().stop();
+        if (onStop) onStop();
+        else if (engine) engine->stopPlayback();
         return true;
     }
     if (loopBounds_.contains(ev.x, ev.y)) {

@@ -420,7 +420,7 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     } else if (mode_ == PluginDialogMode::AddUtility) {
         title = "UTILITY & MACRO SCRIPTS";
     } else if (mode_ == PluginDialogMode::AddModule) {
-        title = "ADD EURORACK MODULE • MODULAR RACK";
+        title = "ADD RACK MODULE • MODULAR RACK";
     } else {
         title = "ADD AUDIO FX • " + (targetTrackName_.empty() ? "TRACK" : targetTrackName_);
     }

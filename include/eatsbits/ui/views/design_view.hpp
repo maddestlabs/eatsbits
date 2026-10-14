@@ -5,6 +5,7 @@
 #include "../gui_panel_def.hpp"
 #include "../widgets/text_editor_widget.hpp"
 #include "../widgets/plugin_search_dialog.hpp"
+#include "../widgets/sliding_dock.hpp"
 #include "eatsbits/presenter/zoom_pan_presenter.hpp"
 #include <string>
 #include <vector>
@@ -93,7 +94,7 @@ struct ModularModuleDef {
 
 /**
  * DesignView: High-fidelity Design Workbench for Eatsbits.
- * Aligned with original Eatsbeats: Code Editor with Live Parameters & Oscilloscope,
+ * Aligned with original Eatsbeats: Code Editor with Live Parameters,
  * Eurorack Modular rack with physics catenary cables, Split view, and Skeuomorphic
  * GUI Interface with integrated visual GUI designer.
  */
@@ -118,6 +119,14 @@ public:
     [[nodiscard]] std::vector<ModularModuleDef>& getModules() noexcept { return modules_; }
     void addModule(const ModularModuleDef& mod);
     void resetPatch();
+    void initModularRackFromScript(const std::string& code);
+    std::string getDefaultScriptForTarget(const ScriptTarget& target) const;
+
+    // Unified Project Sidebar Drawer
+    [[nodiscard]] SlidingDrawer& getProjectDrawer() noexcept { return projectDrawer_; }
+    [[nodiscard]] const SlidingDrawer& getProjectDrawer() const noexcept { return projectDrawer_; }
+    [[nodiscard]] bool isExplorerOpen() const noexcept { return projectDrawer_.isExpanded(); }
+    void setExplorerOpen(bool open) noexcept;
 
     // Modular 2D Canvas & Search Dialog API
     [[nodiscard]] presenter::ZoomPanPresenter& getModularZoomPan() noexcept { return modularZoomPan_; }
@@ -163,8 +172,8 @@ public:
     std::function<void(const std::string& targetId, const std::string& code)> onCompileScript;
     std::function<void(const std::string& text)> onCopyToClipboard;
 
-    void setAudioScopeBuffer(const float* buffer, size_t count);
-    void setAudioScopeBuffer(std::span<const float> buffer);
+    void setAudioScopeBuffer([[maybe_unused]] const float* buffer, [[maybe_unused]] size_t count) {}
+    void setAudioScopeBuffer([[maybe_unused]] std::span<const float> buffer) {}
 
 private:
     void initDefaultTargetsAndCode();
@@ -175,7 +184,6 @@ private:
     void renderSubNavHeader(const ViewContext& ctx);
     void renderExplorerSidebar(const ViewContext& ctx);
     void renderCodeEditorCanvas(const ViewContext& ctx);
-    void renderOscilloscope(const ViewContext& ctx, const Rect2D& rect);
     void renderModularRack(const ViewContext& ctx, const Rect2D& rect);
     void renderSplitView(const ViewContext& ctx);
     void renderGuiPreview(const ViewContext& ctx);
@@ -184,7 +192,8 @@ private:
     void renderCatenaryCable(BatchRenderer2D& r, float x1, float y1, float x2, float y2, float cr, float cg, float cb);
 
     // Mode state
-    DesignSubMode mode_{DesignSubMode::ModularRack}; // Default to ModularRack for test compatibility
+    DesignSubMode mode_{DesignSubMode::Code}; // Default to Code view
+    SlidingDrawer projectDrawer_;
     bool isExplorerOpen_{true};
     std::string scriptFilterQuery_{""};
     bool isTargetDropdownOpen_{false};
@@ -208,7 +217,6 @@ private:
     Rect2D studioBodyBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Code & Editor Bounds
-    Rect2D scopeBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D editorHeaderBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnSelectAll_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnCopy_{0.0f, 0.0f, 0.0f, 0.0f};
@@ -249,10 +257,6 @@ private:
     std::string statusMsg_{"Compiled successfully (Eatscript Live Engine) Active parameters: 5"};
     std::string errorMsg_{""};
 
-    // Scope audio waveform
-    std::vector<float> scopeSamples_;
-    std::span<const float> scopeSpan_{};
-
     // Modular rack state & toolbar
     std::vector<ModularModuleDef> modules_;
     std::vector<PatchCord> patchCords_;
@@ -262,6 +266,26 @@ private:
     Rect2D btnModularZoomIn_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnModularZoomOut_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnModularZoomReset_{0.0f, 0.0f, 0.0f, 0.0f};
+
+
+    // Mobile touch interaction state (multi-touch pinch-zoom, tap-drag pan, long tap)
+    struct ActiveTouch {
+        int id{0};
+        float x{0.0f};
+        float y{0.0f};
+    };
+    std::vector<ActiveTouch> activeTouches_;
+    bool isTouchPanning_{false};
+    bool isPinchZooming_{false};
+    float initialPinchDistance_{0.0f};
+    float initialPinchZoom_{1.0f};
+    float lastPinchDistance_{0.0f};
+    float touchPanStartX_{0.0f};
+    float touchPanStartY_{0.0f};
+    double touchDownTimeMs_{0.0};
+    float touchDownWorldX_{0.0f};
+    float touchDownWorldY_{0.0f};
+    bool touchMoved_{false};
 
     // Infinite 2D Zoom & Pan Engine
     presenter::ZoomPanPresenter modularZoomPan_;

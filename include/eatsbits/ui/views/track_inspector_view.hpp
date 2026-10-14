@@ -72,6 +72,9 @@ public:
     [[nodiscard]] TrackPropertiesPanel& getPanel() noexcept { return panel_; }
     [[nodiscard]] const TrackPropertiesPanel& getPanel() const noexcept { return panel_; }
 
+    // Direct synchronization from TrackPropertiesDrawerData (matching Track Properties sidebar)
+    void syncFromDrawerData(const TrackPropertiesDrawerData& data);
+
     // Zero-allocation Synchronization from Window
     void syncFromWindow(
         std::span<const ArrangerTrackData> tracks,

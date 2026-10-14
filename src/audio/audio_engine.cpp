@@ -494,15 +494,27 @@ bool AudioEngine::postAllNotesOff() noexcept {
     return eventQueue_.push(evt);
 }
 
+void AudioEngine::stopPlayback() noexcept {
+    // 1. Halt sequencer and flush all active voices with NoteOff to target nodes in graph
+    sequencer_.stop(&graph_);
+
+    // 2. Kill all active notes on standalone synths
+    polySynth_.allNotesOff();
+    tb303_.noteOff();
+
+    // 3. Post AllNotesOff to lock-free audio event queue
+    postAllNotesOff();
+}
+
 void AudioEngine::panic() noexcept {
-    // 1. Halt sequencer playhead and active voice registry
-    sequencer_.stop();
+    // 1. Halt sequencer playhead and flush active voice registry
+    sequencer_.stop(&graph_);
 
     // 2. Kill all active notes on standalone synths
     polySynth_.allNotesOff();
     tb303_.reset();
 
-    // 3. Reset modular audio graph (clears delay lines, IIR filter states, drum playheads)
+    // 3. Reset modular audio graph (clears delay lines, IIR filter states, triggers CLAP panic choke & reset)
     graph_.reset();
 
     // 4. Drain pending audio event queue

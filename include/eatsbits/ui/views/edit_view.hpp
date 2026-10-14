@@ -254,6 +254,7 @@ private:
     Point2D marqueeCurrentPoint_{0.0f, 0.0f};
     std::chrono::steady_clock::time_point lastGridClickTime_{};
     Point2D lastGridClickPos_{0.0f, 0.0f};
+    bool lastGridClickHadNote_{false};
     float panStartScrollX_{0.0f};
     float panStartScrollY_{0.0f};
     int activeDragNoteIdx_{-1};

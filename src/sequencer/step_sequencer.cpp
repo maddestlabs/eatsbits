@@ -12,9 +12,23 @@ StepSequencer::StepSequencer() {
 }
 
 void StepSequencer::stop() noexcept {
+    stop(nullptr);
+}
+
+void StepSequencer::stop(audio::AudioGraph* graph) noexcept {
     transport_.stop();
     for (auto& voice : activeVoices_) {
-        voice.active = false;
+        if (voice.active) {
+            if (graph) {
+                dispatchNoteOff(*graph, voice);
+            }
+            voice.active = false;
+        }
+    }
+    if (graph) {
+        AudioEvent allOff{};
+        allOff.type = AudioEventType::AllNotesOff;
+        graph->broadcastEvent(allOff);
     }
 }
 

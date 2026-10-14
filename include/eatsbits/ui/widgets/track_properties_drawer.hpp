@@ -38,6 +38,7 @@ public:
     void toggle() noexcept { drawer_.toggle(); }
 
     [[nodiscard]] float getAnimProgress() const noexcept { return drawer_.getAnimProgress(); }
+    void setAnimProgress(float p) noexcept { drawer_.setAnimProgress(p); }
     [[nodiscard]] bool isAnimating() const noexcept { return drawer_.isAnimating(); }
     [[nodiscard]] float getEffectiveWidth() const noexcept { return kPullTabWidth + (drawer_.getExtent() * drawer_.getAnimProgress()); }
     [[nodiscard]] bool isPluginDialogOpen() const noexcept { return panel_.getPluginSearchDialog().isOpen(); }

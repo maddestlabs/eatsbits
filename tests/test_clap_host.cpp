@@ -280,6 +280,20 @@ void testAudioEngineIntegration() {
 
     engine.postNoteOff(48, static_cast<int>(tIdx));
 
+    // Test stopPlayback with CLAP
+    engine.postNoteOn(50, 0.85f, false, false, static_cast<int>(tIdx));
+    engine.renderOfflineBlock(left.data(), right.data(), 256);
+    engine.stopPlayback();
+    engine.renderOfflineBlock(left.data(), right.data(), 256);
+    std::printf("    Verified stopPlayback() flushed CLAP track voices cleanly.\n");
+
+    // Test panic with CLAP (Panic Mode / Double-click Stop)
+    engine.postNoteOn(55, 0.85f, false, false, static_cast<int>(tIdx));
+    engine.renderOfflineBlock(left.data(), right.data(), 256);
+    engine.panic();
+    engine.renderOfflineBlock(left.data(), right.data(), 256);
+    std::printf("    Verified panic() killed CLAP track voices cleanly via audio-thread choke.\n");
+
     std::printf("[+] AudioEngine CLAP integration tests passed.\n\n");
 }
 

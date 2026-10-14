@@ -1545,7 +1545,7 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.0f);
 }
 
-void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
+void ArrangerView::syncDrawerData() {
     if (activeTrackIndex_ < tracks_.size()) {
         auto& track = tracks_[activeTrackIndex_];
         const std::string& expectedEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
@@ -1660,6 +1660,10 @@ void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
         }
         drawerData_.syncKnobsIfEmpty();
     }
+}
+
+void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
+    syncDrawerData();
 
     mixerDrawer_.render(*ctx.renderer, *ctx.theme, tracks_, activeTrackIndex_,
                         masterVolume_, masterPan_, masterMute_,
@@ -1699,16 +1703,14 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return false;
     }
 
-    // 0a. Continuous active drag inside Properties Drawer (knobs, sliders, scrollbar)
-    if (propertiesDrawer_.isDragging()) {
-        propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
-        return true;
-    }
-
-    // 0b. Interaction or Scroll inside expanded Properties Drawer Sidebar
-    if (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y)) {
-        propertiesDrawer_.handlePointer(ev, drawerData_, ctx);
-        inspectorOpen_ = propertiesDrawer_.isExpanded();
+    // 0a. Properties Drawer (Active Drag, Pull-Tab, or expanded sidebar interaction & scroll)
+    if (propertiesDrawer_.isDragging() ||
+        propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
+        (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
+        syncDrawerData();
+        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
+            inspectorOpen_ = propertiesDrawer_.isExpanded();
+        }
         return true;
     }
 
@@ -1733,6 +1735,15 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         scrollX_ = std::clamp(scrollX_ - ev.scrollX * 30.0f, 0.0f, std::max(0.0f, totalArrangerW - gridBounds_.w));
         scrollY_ = std::max(0.0f, scrollY_ - ev.scrollY * 30.0f);
         return true;
+    }
+
+    if (ev.action == PointerAction::Up) {
+        if (isAuditioningChord_) {
+            isAuditioningChord_ = false;
+            if (onAuditionChordEnd) {
+                onAuditionChordEnd();
+            }
+        }
     }
 
     // 0c. Active Continuous Drags (Move, LoopResize, EdgeResize, ViewportPan, MinimapScrub, PlayheadScrub, ChordMove, ChordResize)
@@ -1903,43 +1914,6 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return true;
     }
 
-    // 1. Properties Drawer Pull-Tab & Panel Pointer Handling
-    if (propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
-        (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
-        if (activeTrackIndex_ < tracks_.size()) {
-            auto& track = tracks_[activeTrackIndex_];
-            drawerData_.trackIndex = activeTrackIndex_;
-            drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
-            drawerData_.trackName = track.name;
-            drawerData_.instrument = track.instrument;
-            drawerData_.instrumentEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
-            drawerData_.r = track.r;
-            drawerData_.g = track.g;
-            drawerData_.b = track.b;
-            drawerData_.volume = track.volume;
-            drawerData_.pan = track.pan;
-            drawerData_.mute = track.mute;
-            drawerData_.solo = track.solo;
-            drawerData_.isMasterSelected = false;
-            drawerData_.isMixerMode = false;
-            drawerData_.tab = (inspectorTab_ == ArrangerInspectorTab::Clip) ? TrackPropertiesTab::Clip : TrackPropertiesTab::Track;
-            drawerData_.selectedClipIndex = selectedClipIndex_;
-            if (selectedClipIndex_ >= 0 && selectedClipIndex_ < static_cast<int>(track.clips.size())) {
-                const auto& cl = track.clips[selectedClipIndex_];
-                drawerData_.clipName = cl.name;
-                drawerData_.clipStartBar = cl.startBar;
-                drawerData_.clipLengthBars = cl.lengthBars;
-                drawerData_.clipLooped = cl.isLooped;
-                drawerData_.clipLoopLengthBars = cl.loopLengthBars;
-                drawerData_.clipTranspose = cl.transposeSemitones;
-            }
-            drawerData_.syncKnobsIfEmpty();
-        }
-        if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
-            inspectorOpen_ = propertiesDrawer_.isExpanded();
-        }
-        return true;
-    }
 
     // 2. Timeline Minimap Scrubbing / Jump
     if (minimapBounds_.contains(ev.x, ev.y)) {
@@ -1994,6 +1968,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                     selectedChordIndex_ = static_cast<int>(i);
 
                     // Audition chord
+                    isAuditioningChord_ = true;
                     if (onAuditionChord) {
                         onAuditionChord(chord);
                     }

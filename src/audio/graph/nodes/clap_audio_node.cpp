@@ -548,13 +548,15 @@ void ClapAudioNode::prepare(double sampleRate, uint32_t maxBlockSize) {
 }
 
 void ClapAudioNode::reset() noexcept {
-    if (plugin_ && isProcessing_.load(std::memory_order_relaxed)) {
-        if (plugin_->reset) {
+    needsPanicReset_.store(true, std::memory_order_release);
+    isPlaying_ = false;
+#if !defined(__EMSCRIPTEN__)
+    if (audioThreadId_.load(std::memory_order_relaxed) == std::this_thread::get_id()) {
+        if (plugin_ && isProcessing_.load(std::memory_order_relaxed) && plugin_->reset) {
             plugin_->reset(plugin_);
         }
     }
-    queueReadPos_.store(queueWritePos_.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    activeEventCount_ = 0;
+#endif
 }
 
 void ClapAudioNode::processBlock(uint32_t numFrames) noexcept {
@@ -583,28 +585,218 @@ void ClapAudioNode::processBlock(uint32_t numFrames) noexcept {
 
     // 1. Drain pending events into zero-allocation pre-allocated event caches
     activeEventCount_ = 0;
-    uint32_t rPos = queueReadPos_.load(std::memory_order_relaxed);
-    const uint32_t wPos = queueWritePos_.load(std::memory_order_acquire);
 
-    while (rPos != wPos && activeEventCount_ < kMaxEventsPerBlock) {
-        const auto& pending = pendingQueue_[rPos % kQueueCapacity];
-        rPos++;
+    // Check for pending Panic Reset (must execute strictly on the audio thread)
+    if (needsPanicReset_.exchange(false, std::memory_order_acq_rel)) {
+        if (plugin_ && isProcessing_.load(std::memory_order_relaxed) && plugin_->reset) {
+            plugin_->reset(plugin_);
+        }
 
-        if (pending.type == PendingEvent::Type::NoteOn || pending.type == PendingEvent::Type::NoteOff) {
+        // Emit CLAP_EVENT_NOTE_CHOKE with wildcard (key=-1, channel=-1, port=0, note_id=-1)
+        if (activeEventCount_ < eventHeadersCache_.size()) {
             auto& ne = noteEventsCache_[activeEventCount_];
             ne.header.size = sizeof(clap_event_note_t);
             ne.header.time = 0;
             ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-            ne.header.type = (pending.type == PendingEvent::Type::NoteOn) ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF;
+            ne.header.type = CLAP_EVENT_NOTE_CHOKE;
             ne.header.flags = 0;
             ne.note_id = -1;
             ne.port_index = 0;
-            ne.channel = pending.channel;
-            ne.key = static_cast<int16_t>(pending.note);
+            ne.channel = -1;
+            ne.key = -1;
+            ne.velocity = 0.0;
+            eventHeadersCache_[activeEventCount_] = &ne.header;
+            activeEventCount_++;
+        }
+
+        // Emit CLAP_EVENT_NOTE_OFF with wildcard (key=-1, channel=-1, port=0, note_id=-1)
+        if (activeEventCount_ < eventHeadersCache_.size()) {
+            auto& ne = noteEventsCache_[activeEventCount_];
+            ne.header.size = sizeof(clap_event_note_t);
+            ne.header.time = 0;
+            ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ne.header.type = CLAP_EVENT_NOTE_OFF;
+            ne.header.flags = 0;
+            ne.note_id = -1;
+            ne.port_index = 0;
+            ne.channel = -1;
+            ne.key = -1;
+            ne.velocity = 0.0;
+            eventHeadersCache_[activeEventCount_] = &ne.header;
+            activeEventCount_++;
+        }
+
+        // Emit MIDI CC 120 (All Sound Off), CC 123 (All Notes Off), CC 64 (Sustain Off) for channels 0..15
+        uint32_t midiCount = 0;
+        for (uint8_t ch = 0; ch < 16 && (activeEventCount_ + 3) <= eventHeadersCache_.size() && (midiCount + 3) <= midiEventsCache_.size(); ++ch) {
+            auto& me120 = midiEventsCache_[midiCount++];
+            me120.header.size = sizeof(clap_event_midi_t);
+            me120.header.time = 0;
+            me120.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            me120.header.type = CLAP_EVENT_MIDI;
+            me120.header.flags = 0;
+            me120.port_index = 0;
+            me120.data[0] = static_cast<uint8_t>(0xB0 | ch);
+            me120.data[1] = 120; // All Sound Off
+            me120.data[2] = 0;
+            eventHeadersCache_[activeEventCount_++] = &me120.header;
+
+            auto& me123 = midiEventsCache_[midiCount++];
+            me123.header.size = sizeof(clap_event_midi_t);
+            me123.header.time = 0;
+            me123.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            me123.header.type = CLAP_EVENT_MIDI;
+            me123.header.flags = 0;
+            me123.port_index = 0;
+            me123.data[0] = static_cast<uint8_t>(0xB0 | ch);
+            me123.data[1] = 123; // All Notes Off
+            me123.data[2] = 0;
+            eventHeadersCache_[activeEventCount_++] = &me123.header;
+
+            auto& me64 = midiEventsCache_[midiCount++];
+            me64.header.size = sizeof(clap_event_midi_t);
+            me64.header.time = 0;
+            me64.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            me64.header.type = CLAP_EVENT_MIDI;
+            me64.header.flags = 0;
+            me64.port_index = 0;
+            me64.data[0] = static_cast<uint8_t>(0xB0 | ch);
+            me64.data[1] = 64; // Damper / Sustain Pedal
+            me64.data[2] = 0;
+            eventHeadersCache_[activeEventCount_++] = &me64.header;
+        }
+
+        for (auto& bitset : activeNotesOnChannel_) {
+            bitset.reset();
+        }
+        queueReadPos_.store(queueWritePos_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    }
+
+    uint32_t rPos = queueReadPos_.load(std::memory_order_relaxed);
+    const uint32_t wPos = queueWritePos_.load(std::memory_order_acquire);
+    uint32_t midiCount = 0;
+
+    while (rPos != wPos && activeEventCount_ < kMaxEventsPerBlock && activeEventCount_ < eventHeadersCache_.size()) {
+        const auto& pending = pendingQueue_[rPos % kQueueCapacity];
+        rPos++;
+
+        if (pending.type == PendingEvent::Type::NoteOn) {
+            int16_t ch = (pending.channel >= 0 && pending.channel < 16) ? pending.channel : 0;
+            int16_t key = (pending.note >= 0 && pending.note < 128) ? pending.note : 60;
+            activeNotesOnChannel_[ch].set(key);
+
+            auto& ne = noteEventsCache_[activeEventCount_];
+            ne.header.size = sizeof(clap_event_note_t);
+            ne.header.time = 0;
+            ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ne.header.type = CLAP_EVENT_NOTE_ON;
+            ne.header.flags = 0;
+            ne.note_id = -1;
+            ne.port_index = 0;
+            ne.channel = ch;
+            ne.key = key;
             ne.velocity = static_cast<double>(pending.velocity);
 
             eventHeadersCache_[activeEventCount_] = &ne.header;
             activeEventCount_++;
+        } else if (pending.type == PendingEvent::Type::NoteOff) {
+            int16_t key = pending.note;
+            int16_t ch = pending.channel;
+            if (key >= 0 && key < 128) {
+                if (ch >= 0 && ch < 16) {
+                    activeNotesOnChannel_[ch].reset(key);
+                } else {
+                    for (int c = 0; c < 16; ++c) activeNotesOnChannel_[c].reset(key);
+                }
+            } else if (key == -1) {
+                if (ch >= 0 && ch < 16) {
+                    activeNotesOnChannel_[ch].reset();
+                } else {
+                    for (int c = 0; c < 16; ++c) activeNotesOnChannel_[c].reset();
+                }
+            }
+
+            auto& ne = noteEventsCache_[activeEventCount_];
+            ne.header.size = sizeof(clap_event_note_t);
+            ne.header.time = 0;
+            ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ne.header.type = CLAP_EVENT_NOTE_OFF;
+            ne.header.flags = 0;
+            ne.note_id = -1;
+            ne.port_index = 0;
+            ne.channel = ch;
+            ne.key = key;
+            ne.velocity = static_cast<double>(pending.velocity);
+
+            eventHeadersCache_[activeEventCount_] = &ne.header;
+            activeEventCount_++;
+        } else if (pending.type == PendingEvent::Type::AllNotesOff) {
+            // Graceful AllNotesOff: Emit explicit NoteOff for all currently sounding notes
+            for (int ch = 0; ch < 16; ++ch) {
+                if (activeNotesOnChannel_[ch].none()) continue;
+                for (int k = 0; k < 128 && activeEventCount_ < eventHeadersCache_.size(); ++k) {
+                    if (activeNotesOnChannel_[ch].test(k)) {
+                        auto& ne = noteEventsCache_[activeEventCount_];
+                        ne.header.size = sizeof(clap_event_note_t);
+                        ne.header.time = 0;
+                        ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                        ne.header.type = CLAP_EVENT_NOTE_OFF;
+                        ne.header.flags = 0;
+                        ne.note_id = -1;
+                        ne.port_index = 0;
+                        ne.channel = static_cast<int16_t>(ch);
+                        ne.key = static_cast<int16_t>(k);
+                        ne.velocity = 0.0;
+                        eventHeadersCache_[activeEventCount_] = &ne.header;
+                        activeEventCount_++;
+                    }
+                }
+                activeNotesOnChannel_[ch].reset();
+            }
+
+            // Also emit wildcard CLAP_EVENT_NOTE_OFF for any untracked voices
+            if (activeEventCount_ < eventHeadersCache_.size()) {
+                auto& ne = noteEventsCache_[activeEventCount_];
+                ne.header.size = sizeof(clap_event_note_t);
+                ne.header.time = 0;
+                ne.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                ne.header.type = CLAP_EVENT_NOTE_OFF;
+                ne.header.flags = 0;
+                ne.note_id = -1;
+                ne.port_index = 0;
+                ne.channel = -1;
+                ne.key = -1;
+                ne.velocity = 0.0;
+                eventHeadersCache_[activeEventCount_] = &ne.header;
+                activeEventCount_++;
+            }
+
+            // Emit MIDI CC 123 (All Notes Off) and CC 64 (Sustain Off) across channels
+            for (uint8_t ch = 0; ch < 16 && (activeEventCount_ + 2) <= eventHeadersCache_.size() && (midiCount + 2) <= midiEventsCache_.size(); ++ch) {
+                auto& me123 = midiEventsCache_[midiCount++];
+                me123.header.size = sizeof(clap_event_midi_t);
+                me123.header.time = 0;
+                me123.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                me123.header.type = CLAP_EVENT_MIDI;
+                me123.header.flags = 0;
+                me123.port_index = 0;
+                me123.data[0] = static_cast<uint8_t>(0xB0 | ch);
+                me123.data[1] = 123;
+                me123.data[2] = 0;
+                eventHeadersCache_[activeEventCount_++] = &me123.header;
+
+                auto& me64 = midiEventsCache_[midiCount++];
+                me64.header.size = sizeof(clap_event_midi_t);
+                me64.header.time = 0;
+                me64.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                me64.header.type = CLAP_EVENT_MIDI;
+                me64.header.flags = 0;
+                me64.port_index = 0;
+                me64.data[0] = static_cast<uint8_t>(0xB0 | ch);
+                me64.data[1] = 64;
+                me64.data[2] = 0;
+                eventHeadersCache_[activeEventCount_++] = &me64.header;
+            }
         } else if (pending.type == PendingEvent::Type::SetParam) {
             auto& pe = paramEventsCache_[activeEventCount_];
             pe.header.size = sizeof(clap_event_param_value_t);
@@ -732,7 +924,7 @@ void ClapAudioNode::noteOn(uint8_t note, float velocity, int16_t channel) noexce
     queueWritePos_.store(wPos + 1, std::memory_order_release);
 }
 
-void ClapAudioNode::noteOff(uint8_t note, int16_t channel) noexcept {
+void ClapAudioNode::noteOff(int16_t note, int16_t channel) noexcept {
     uint32_t wPos = queueWritePos_.load(std::memory_order_relaxed);
     auto& ev = pendingQueue_[wPos % kQueueCapacity];
     ev.type = PendingEvent::Type::NoteOff;
@@ -743,9 +935,14 @@ void ClapAudioNode::noteOff(uint8_t note, int16_t channel) noexcept {
 }
 
 void ClapAudioNode::allNotesOff() noexcept {
-    for (uint8_t n = 0; n < 128; ++n) {
-        noteOff(n, 0);
-    }
+    isPlaying_ = false;
+    uint32_t wPos = queueWritePos_.load(std::memory_order_relaxed);
+    auto& ev = pendingQueue_[wPos % kQueueCapacity];
+    ev.type = PendingEvent::Type::AllNotesOff;
+    ev.note = -1;
+    ev.velocity = 0.0f;
+    ev.channel = -1;
+    queueWritePos_.store(wPos + 1, std::memory_order_release);
 }
 
 void ClapAudioNode::setParameter(uint32_t paramId, float value) noexcept {

@@ -303,21 +303,43 @@ bool TrackPropertiesDrawer::handlePointer(const PointerEvent& ev, TrackPropertie
         return panel_.handlePointer(ev, data, ctx);
     }
 
-    // 1. Let unified drawer handle pull-tab click, close button, and left-edge drag resize
-    if (drawer_.handlePointer(ev, ctx)) {
-        return true;
-    }
-
-    // 1b. Active Continuous Dragging forward (knobs, sliders, scrollbar)
+    // 1. Continuous active dragging inside panel (knobs, sliders, scrollbar)
+    // Takes precedence so fast mouse dragging isn't interrupted by frame elements
     if (panel_.isDragging()) {
         return panel_.handlePointer(ev, data, ctx);
+    }
+
+    // 2. Active dragging / resizing on the drawer frame (pull tab drag or resize handle drag)
+    if (drawer_.isDragging()) {
+        return drawer_.handlePointer(ev, ctx);
+    }
+
+    // 3. Pull-Tab interaction (tap to toggle, drag to resize)
+    const Rect2D& pullTabBounds = drawer_.getPullTabBounds();
+    if (pullTabBounds.contains(ev.x, ev.y)) {
+        return drawer_.handlePointer(ev, ctx);
     }
 
     const Rect2D& drawerBounds = drawer_.getDrawerBounds();
     const float animProgress = drawer_.getAnimProgress();
 
-    // 2. Drawer Interaction
+    // 4. Drawer interaction if drawer is visible
     if (animProgress > 0.05f && drawerBounds.contains(ev.x, ev.y)) {
+        // 4a. Close button
+        const Rect2D& closeButtonBounds = drawer_.getCloseButtonBounds();
+        if (closeButtonBounds.w > 0.0f && closeButtonBounds.contains(ev.x, ev.y)) {
+            return drawer_.handlePointer(ev, ctx);
+        }
+
+        // 4b. Left-edge resize handle
+        const Rect2D& resizeHandleBounds = drawer_.getResizeHandleBounds();
+        if (resizeHandleBounds.w > 0.0f && resizeHandleBounds.contains(ev.x, ev.y)) {
+            if (drawer_.handlePointer(ev, ctx)) {
+                return true;
+            }
+        }
+
+        // 4c. Top Tab Switcher [TRACK] [CLIP]
         if (ev.action == PointerAction::Down) {
             if (!data.isMixerMode && ev.y >= drawerBounds.y + 5.0f && ev.y <= drawerBounds.y + 31.0f) {
                 float tabW = (drawerBounds.w - 60.0f) * 0.5f;
@@ -334,8 +356,9 @@ bool TrackPropertiesDrawer::handlePointer(const PointerEvent& ev, TrackPropertie
             }
         }
 
-        // Delegate to unified panel and absorb interaction so it never passes through to components behind it
+        // 4d. Forward to unified panel (handles knobs, sliders, buttons, scrollbar, and mouse wheel)
         panel_.handlePointer(ev, data, ctx);
+        // Absorb interaction inside drawer bounds so it never bleeds through to components behind it
         return true;
     }
 

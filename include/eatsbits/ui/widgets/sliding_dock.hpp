@@ -109,6 +109,7 @@ public:
     [[nodiscard]] bool isExpanded() const noexcept { return isExpanded_; }
     void setExpanded(bool exp) noexcept;
     void toggle() noexcept { setExpanded(!isExpanded_); }
+    void toggleExpanded() noexcept { toggle(); }
 
     [[nodiscard]] float getAnimProgress() const noexcept { return animProgress_; }
     void setAnimProgress(float p) noexcept { animProgress_ = std::clamp(p, 0.0f, 1.0f); }

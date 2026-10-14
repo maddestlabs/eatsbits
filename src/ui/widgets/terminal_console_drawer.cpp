@@ -48,7 +48,7 @@ void TerminalConsoleDrawer::setupHostBindings() {
     // 2. engine_stop()
     hostRegistry_.registerHostFunction("engine_stop", EATS_ABI_TYPE_BOOL, {}, [this](const auto&) -> EatsAbiValue {
         if (audioEngine_) {
-            audioEngine_->getSequencer().stop();
+            audioEngine_->stopPlayback();
             return eats_abi_value_bool(true);
         }
         return eats_abi_value_bool(false);

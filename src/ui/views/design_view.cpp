@@ -11,6 +11,23 @@
 namespace eatsbits::ui {
 
 DesignView::DesignView() {
+    DrawerConfig drawerCfg;
+    drawerCfg.edge = DockEdge::Left;
+    drawerCfg.tab.title = "PROJECT";
+    drawerCfg.tab.tabWidth = 22.0f;
+    drawerCfg.tab.tabHeight = 84.0f;
+    drawerCfg.tab.preferredExtent = 240.0f;
+    drawerCfg.tab.minExtent = 180.0f;
+    drawerCfg.tab.maxExtent = 480.0f;
+    drawerCfg.tab.resizable = true;
+    drawerCfg.tab.showCloseButton = true;
+    drawerCfg.tab.showHeaderBar = false;
+    drawerCfg.tab.tabPlacement = DockTabPlacement::Center;
+    drawerCfg.animationDamping = 18.0f;
+    projectDrawer_.setConfig(drawerCfg);
+    projectDrawer_.setExpanded(true);
+    projectDrawer_.setAnimProgress(1.0f);
+
     initDefaultTargetsAndCode();
 
     // Default patch cords (preserving unit test invariants)
@@ -35,13 +52,6 @@ DesignView::DesignView() {
          {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}},
          {"L IN", "R IN"}, {"MAIN L", "MAIN R"}}
     };
-
-    // Synthesize scope buffer with animated waveform
-    scopeSamples_.resize(128, 0.0f);
-    for (size_t i = 0; i < scopeSamples_.size(); ++i) {
-        float ph = static_cast<float>(i) / static_cast<float>(scopeSamples_.size()) * 6.2831853f * 2.0f;
-        scopeSamples_[i] = std::sin(ph) * 0.75f + std::sin(ph * 2.0f) * 0.25f;
-    }
 
     initDefaultGuiPanel();
 
@@ -127,10 +137,572 @@ void DesignView::setSubMode(DesignSubMode mode) noexcept {
     mode_ = mode;
 }
 
+void DesignView::setExplorerOpen(bool open) noexcept {
+    isExplorerOpen_ = open;
+    projectDrawer_.setExpanded(open);
+}
+
 void DesignView::resetPatch() {
+    const auto& t = getActiveTarget();
+    std::string defaultCode = getDefaultScriptForTarget(t);
+    targetCodeMap_.erase(t.id);
+    targetParamsMap_.erase(t.id);
+    setScriptCode(defaultCode);
+    initModularRackFromScript(defaultCode);
+    initDefaultGuiPanel();
+}
+
+std::string DesignView::getDefaultScriptForTarget(const ScriptTarget& target) const {
+    std::string id = target.id;
+    std::string key = id + " " + target.title + " " + target.subtitle;
+    for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (key.find("303") != std::string::npos || id == "eats_303") {
+        return
+            "# --- TB-303 Acid Bassline Synthesizer (Eatscript) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"Cutoff\", min=200.0, max=4000.0, default=850.0)\n"
+            "    eat.param(\"Resonance\", min=0.1, max=0.98, default=0.78)\n"
+            "    eat.param(\"EnvMod\", min=0.0, max=1.0, default=0.65)\n"
+            "    eat.param(\"Decay\", min=0.05, max=1.5, default=0.45)\n"
+            "    eat.param(\"Accent\", min=0.0, max=1.0, default=0.70)\n"
+            "    eat.param(\"Drive\", min=0.0, max=1.0, default=0.25)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Eats-303 (Synth DSP)\",\n"
+            "        \"subtitle\": \"Acid Diode Ladder Synth\",\n"
+            "        \"chassis\": 1,\n"
+            "        \"woodCheeks\": False,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_waveform\", \"type\": 1, \"param\": \"Waveform\", \"label\": \"WAVEFORM\", \"style\": 3},\n"
+            "             {\"id\": \"w_pitch\", \"type\": 1, \"param\": \"Pitch\", \"label\": \"PITCH\", \"style\": 1},\n"
+            "             {\"id\": \"w_cutoff\", \"type\": 1, \"param\": \"Cutoff\", \"label\": \"CUTOFF\", \"style\": 1},\n"
+            "             {\"id\": \"w_res\", \"type\": 1, \"param\": \"Resonance\", \"label\": \"RESONANCE\", \"style\": 1},\n"
+            "             {\"id\": \"w_envmod\", \"type\": 1, \"param\": \"EnvMod\", \"label\": \"ENV MOD\", \"style\": 1},\n"
+            "             {\"id\": \"w_decay\", \"type\": 1, \"param\": \"Decay\", \"label\": \"DECAY\", \"style\": 1},\n"
+            "             {\"id\": \"w_accent\", \"type\": 1, \"param\": \"Accent\", \"label\": \"ACCENT\", \"style\": 1}],\n"
+            "            [{\"id\": \"w_octave\", \"type\": 1, \"param\": \"Octave\", \"label\": \"OCTAVE\", \"style\": 2},\n"
+            "             {\"id\": \"w_subosc\", \"type\": 3, \"param\": \"SubWaveform\", \"label\": \"SUB OSC\", \"style\": 0},\n"
+            "             {\"id\": \"w_subvol\", \"type\": 1, \"param\": \"SubVolume\", \"label\": \"SUB VOL\", \"style\": 4},\n"
+            "             {\"id\": \"w_glide\", \"type\": 1, \"param\": \"GlideCurve\", \"label\": \"GLIDE CURVE\", \"style\": 4},\n"
+            "             {\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"DRIVE\", \"style\": 4}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    osc = eat.node.osc(type=\"TB-303 CORE\", tune=0.50, wave=0.0, glide=0.35)\n"
+            "    filter = eat.node.vcf(type=\"24dB DIODE\", cutoff=0.65, resonance=0.78, env_mod=0.60, accent=0.70)\n"
+            "    vca = eat.node.vca(type=\"VCA & SATURATION\", drive=0.45, attack=0.05, decay=0.45)\n"
+            "    out = eat.node.out(type=\"MASTER BUS\", volume=0.85, pan=0.0, limit=0.90)\n"
+            "    osc >> filter\n"
+            "    filter >> vca\n"
+            "    vca >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n"
+            "    cutoff = params.get(\"Cutoff\", 850.0)\n"
+            "    res = params.get(\"Resonance\", 0.78)\n"
+            "    return tb303_diode_ladder(saw, cutoff, res)\n";
+    }
+
+    if (id == "eats_kick") {
+        return
+            "# --- Procedural Sub Kick Drum (Eatscript) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"StartFreq\", min=100.0, max=300.0, default=160.0)\n"
+            "    eat.param(\"EndFreq\", min=30.0, max=60.0, default=42.0)\n"
+            "    eat.param(\"PitchDecay\", min=0.01, max=0.2, default=0.035)\n"
+            "    eat.param(\"AmpDecay\", min=0.05, max=4.0, default=0.35)\n"
+            "    eat.param(\"Click\", min=0.0, max=1.0, default=0.0)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Eats Kick (Synth DSP)\",\n"
+            "        \"subtitle\": \"Procedural Sub Kick Drum\",\n"
+            "        \"chassis\": 2,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_start_f\", \"type\": 1, \"param\": \"StartFreq\", \"label\": \"START FREQ\", \"style\": 5},\n"
+            "             {\"id\": \"w_end_f\", \"type\": 1, \"param\": \"EndFreq\", \"label\": \"END FREQ\", \"style\": 4},\n"
+            "             {\"id\": \"w_pdecay\", \"type\": 1, \"param\": \"PitchDecay\", \"label\": \"PITCH DECAY\", \"style\": 6}],\n"
+            "            [{\"id\": \"w_ampdecay\", \"type\": 1, \"param\": \"AmpDecay\", \"label\": \"AMP DECAY\", \"style\": 7},\n"
+            "             {\"id\": \"w_click\", \"type\": 3, \"param\": \"Click\", \"label\": \"CLICK TRANSIENT\", \"style\": 0},\n"
+            "             {\"id\": \"w_vu\", \"type\": 5, \"param\": \"Volume\", \"label\": \"OUTPUT LEVEL\", \"style\": 0}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    osc = eat.node.osc(type=\"SUB OSC\", start_f=160.0, end_f=42.0, pitch_decay=0.035)\n"
+            "    env = eat.node.env(type=\"AMP ENV\", decay=0.35, click=0.0)\n"
+            "    out = eat.node.out(type=\"MASTER OUT\", volume=0.85)\n"
+            "    osc >> env\n"
+            "    env >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    startF = params.get(\"StartFreq\", 160.0)\n"
+            "    endF = params.get(\"EndFreq\", 42.0)\n"
+            "    pDecay = params.get(\"PitchDecay\", 0.035)\n"
+            "    aDecay = params.get(\"AmpDecay\", 0.35)\n"
+            "    click = params.get(\"Click\", 0.0)\n"
+            "    curFreq = endF + (startF - endF) * math.exp(-time / max(0.005, pDecay))\n"
+            "    phase = 2.0 * math.pi * curFreq * time\n"
+            "    body = math.sin(phase) * math.exp(-time / max(0.01, aDecay))\n"
+            "    clickNoise = (math.sin(time * 8421.0) * math.exp(-time / 0.005)) * click\n"
+            "    return body + clickNoise\n";
+    }
+
+    if (id == "eats_snare") {
+        return
+            "# --- Procedural Analog Snare Drum (Eatscript) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"Tone\", min=100.0, max=350.0, default=180.0)\n"
+            "    eat.param(\"Snappy\", min=0.0, max=1.0, default=0.65)\n"
+            "    eat.param(\"Decay\", min=0.05, max=1.0, default=0.25)\n"
+            "    eat.param(\"Tune\", min=0.5, max=2.0, default=1.0)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Eats Snare (Synth DSP)\",\n"
+            "        \"subtitle\": \"Analog Filtered Noise Snare\",\n"
+            "        \"chassis\": 0,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_tone\", \"type\": 1, \"param\": \"Tone\", \"label\": \"TONE\", \"style\": 4},\n"
+            "             {\"id\": \"w_snappy\", \"type\": 1, \"param\": \"Snappy\", \"label\": \"SNAPPY\", \"style\": 5},\n"
+            "             {\"id\": \"w_decay\", \"type\": 1, \"param\": \"Decay\", \"label\": \"DECAY\", \"style\": 6},\n"
+            "             {\"id\": \"w_tune\", \"type\": 1, \"param\": \"Tune\", \"label\": \"TUNE\", \"style\": 4}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    osc = eat.node.osc(type=\"TONE GENERATOR\", tone=180.0, tune=1.0)\n"
+            "    noise = eat.node.noise(type=\"FILTERED NOISE\", snappy=0.65, decay=0.25)\n"
+            "    out = eat.node.out(type=\"MASTER OUT\", volume=0.85)\n"
+            "    osc >> out\n"
+            "    noise >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    toneF = params.get(\"Tone\", 180.0) * params.get(\"Tune\", 1.0)\n"
+            "    decay = params.get(\"Decay\", 0.25)\n"
+            "    snappy = params.get(\"Snappy\", 0.65)\n"
+            "    tone = math.sin(2.0 * math.pi * toneF * time) * math.exp(-time / (decay * 0.7))\n"
+            "    noise = (math.sin(time * 12345.67) % 1.0 - 0.5) * 2.0 * math.exp(-time / decay) * snappy\n"
+            "    return tone * (1.0 - snappy * 0.5) + noise\n";
+    }
+
+    if (id == "eats_hats") {
+        return
+            "# --- Procedural Metallic Hi-Hat (Eatscript) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"Decay\", min=0.01, max=0.8, default=0.08)\n"
+            "    eat.param(\"Metallic\", min=0.1, max=1.0, default=0.75)\n"
+            "    eat.param(\"Pitch\", min=4000.0, max=12000.0, default=8500.0)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Eats Hats (Synth DSP)\",\n"
+            "        \"subtitle\": \"Metallic Phase Hi-Hat\",\n"
+            "        \"chassis\": 0,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_decay\", \"type\": 1, \"param\": \"Decay\", \"label\": \"DECAY\", \"style\": 4},\n"
+            "             {\"id\": \"w_metal\", \"type\": 1, \"param\": \"Metallic\", \"label\": \"METALLIC\", \"style\": 6},\n"
+            "             {\"id\": \"w_pitch\", \"type\": 1, \"param\": \"Pitch\", \"label\": \"PITCH\", \"style\": 5}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    osc = eat.node.osc(type=\"METALLIC OSC\", pitch=8500.0, metallic=0.75)\n"
+            "    env = eat.node.env(type=\"DECAY ENV\", decay=0.08)\n"
+            "    out = eat.node.out(type=\"MASTER OUT\", volume=0.85)\n"
+            "    osc >> env\n"
+            "    env >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    decay = params.get(\"Decay\", 0.08)\n"
+            "    pitch = params.get(\"Pitch\", 8500.0)\n"
+            "    osc1 = math.sin(2.0 * math.pi * pitch * time)\n"
+            "    osc2 = math.sin(2.0 * math.pi * (pitch * 1.414) * time)\n"
+            "    metallic = (1.0 if osc1 * osc2 > 0.0 else -1.0) * math.exp(-time / decay)\n"
+            "    return metallic * 0.4\n";
+    }
+
+    if (target.type == ScriptTargetType::AudioFx) {
+        if (key.find("crush") != std::string::npos || key.find("8-bit") != std::string::npos || key.find("bitcrusher") != std::string::npos) {
+            return
+                "# --- 8-Bit Digital Bitcrusher & Sample Reducer (Eatscript FX) ---\n"
+                "import math\n\n"
+                "def init():\n"
+                "    eat.param(\"Bits\", min=1.0, max=16.0, default=8.0)\n"
+                "    eat.param(\"Downsample\", min=1.0, max=32.0, default=4.0)\n"
+                "    eat.param(\"Drive\", min=0.5, max=4.0, default=1.0)\n"
+                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
+                "def gui():\n"
+                "    return {\n"
+                "        \"title\": \"Bitcrusher FX\",\n"
+                "        \"subtitle\": \"Lo-Fi Sample Reducer\",\n"
+                "        \"chassis\": 3,\n"
+                "        \"woodCheeks\": False,\n"
+                "        \"rows\": [\n"
+                "            [{\"id\": \"w_bits\", \"type\": 1, \"param\": \"Bits\", \"label\": \"BIT DEPTH\", \"style\": 6},\n"
+                "             {\"id\": \"w_down\", \"type\": 1, \"param\": \"Downsample\", \"label\": \"DOWNSAMPLE\", \"style\": 4},\n"
+                "             {\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"PRE-DRIVE\", \"style\": 5},\n"
+                "             {\"id\": \"w_mix\", \"type\": 1, \"param\": \"Mix\", \"label\": \"DRY / WET\", \"style\": 7}]\n"
+                "        ]\n"
+                "    }\n\n"
+                "def graph():\n"
+                "    in_node = eat.node.input(type=\"AUDIO IN\")\n"
+                "    crush = eat.node.fx(type=\"CRUSHER\", bits=8.0, downsample=4.0, drive=1.0)\n"
+                "    out = eat.node.out(type=\"AUDIO OUT\", volume=1.0)\n"
+                "    in_node >> crush\n"
+                "    crush >> out\n"
+                "    return out\n\n"
+                "def process(in_l, in_r, params):\n"
+                "    bits = params.get(\"Bits\", 8.0)\n"
+                "    crush = params.get(\"Downsample\", 4.0)\n"
+                "    mix = params.get(\"Mix\", 0.85)\n"
+                "    levels = math.pow(2.0, bits)\n"
+                "    out_l = math.floor(in_l * levels) / levels\n"
+                "    out_r = math.floor(in_r * levels) / levels\n"
+                "    return [out_l * mix + in_l * (1.0 - mix), out_r * mix + in_r * (1.0 - mix)]\n";
+        }
+
+        return
+            "# --- Warm Analog Tube Distortion (Eatscript FX) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"Drive\", min=1.0, max=20.0, default=4.5)\n"
+            "    eat.param(\"Warmth\", min=0.0, max=1.0, default=0.70)\n"
+            "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Tube Distortion FX\",\n"
+            "        \"subtitle\": \"Harmonic Saturation\",\n"
+            "        \"chassis\": 4,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"SATURATION DRIVE\", \"style\": 5},\n"
+            "             {\"id\": \"w_warmth\", \"type\": 1, \"param\": \"Warmth\", \"label\": \"WARMTH\", \"style\": 4}],\n"
+            "            [{\"id\": \"w_mix\", \"type\": 2, \"param\": \"Mix\", \"label\": \"DRY / WET MIX\", \"style\": 0},\n"
+            "             {\"id\": \"w_vu\", \"type\": 5, \"param\": \"Level\", \"label\": \"DISTORTION PEAK\", \"style\": 0}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    in_node = eat.node.input(type=\"AUDIO IN\")\n"
+            "    dist = eat.node.fx(type=\"TUBE SAT\", drive=4.5, warmth=0.70)\n"
+            "    out = eat.node.out(type=\"AUDIO OUT\", volume=1.0)\n"
+            "    in_node >> dist\n"
+            "    dist >> out\n"
+            "    return out\n\n"
+            "def process(in_l, in_r, params):\n"
+            "    drive = params.get(\"Drive\", 4.5)\n"
+            "    mix = params.get(\"Mix\", 0.85)\n"
+            "    out_l = math.tanh(in_l * drive) * mix + in_l * (1.0 - mix)\n"
+            "    out_r = math.tanh(in_r * drive) * mix + in_r * (1.0 - mix)\n"
+            "    return [out_l, out_r]\n";
+    }
+
+    if (target.type == ScriptTargetType::MidiFx) {
+        if (key.find("arp") != std::string::npos) {
+            return
+                "# --- Algorithmic 16-Step Arpeggiator (Eatscript MIDI FX) ---\n"
+                "def init():\n"
+                "    eat.param(\"Rate\", min=1.0, max=8.0, default=4.0)\n"
+                "    eat.param(\"Octaves\", min=1.0, max=4.0, default=2.0)\n"
+                "    eat.param(\"Gate\", min=0.1, max=1.0, default=0.75)\n"
+                "    eat.param(\"Pattern\", min=0.0, max=4.0, default=0.0)\n\n"
+                "def gui():\n"
+                "    return {\n"
+                "        \"title\": \"Arpeggiator MIDI FX\",\n"
+                "        \"subtitle\": \"16th UpDown Generator\",\n"
+                "        \"chassis\": 0,\n"
+                "        \"woodCheeks\": True,\n"
+                "        \"rows\": [\n"
+                "            [{\"id\": \"w_rate\", \"type\": 1, \"param\": \"Rate\", \"label\": \"RATE\", \"style\": 4},\n"
+                "             {\"id\": \"w_oct\", \"type\": 1, \"param\": \"Octaves\", \"label\": \"OCTAVES\", \"style\": 5},\n"
+                "             {\"id\": \"w_gate\", \"type\": 1, \"param\": \"Gate\", \"label\": \"GATE\", \"style\": 6},\n"
+                "             {\"id\": \"w_pat\", \"type\": 1, \"param\": \"Pattern\", \"label\": \"PATTERN\", \"style\": 4}]\n"
+                "        ]\n"
+                "    }\n\n"
+                "def graph():\n"
+                "    midi_in = eat.node.midi_in(type=\"MIDI IN\")\n"
+                "    arp = eat.node.mfx(type=\"ARPEGGIATOR\", rate=4.0, octaves=2.0)\n"
+                "    midi_out = eat.node.midi_out(type=\"MIDI OUT\")\n"
+                "    midi_in >> arp\n"
+                "    arp >> midi_out\n"
+                "    return midi_out\n\n"
+                "def process_notes(notes, context):\n"
+                "    return notes\n";
+        }
+
+        return
+            "# --- Real-Time MIDI Scale Quantizer (Eatscript MIDI FX) ---\n"
+            "def init():\n"
+            "    eat.param(\"RootKey\", min=0, max=11, default=0)\n"
+            "    eat.param(\"ScaleMode\", min=0, max=6, default=0)\n"
+            "    eat.param(\"HumanizeVel\", min=0.0, max=0.5, default=0.15)\n"
+            "    eat.param(\"Transpose\", min=-24.0, max=24.0, default=0.0)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Scale Snap MIDI FX\",\n"
+            "        \"subtitle\": \"C Natural Minor Quantize\",\n"
+            "        \"chassis\": 0,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_root\", \"type\": 1, \"param\": \"RootKey\", \"label\": \"ROOT KEY\", \"style\": 4},\n"
+            "             {\"id\": \"w_mode\", \"type\": 1, \"param\": \"ScaleMode\", \"label\": \"SCALE MODE\", \"style\": 5},\n"
+            "             {\"id\": \"w_hum\", \"type\": 1, \"param\": \"HumanizeVel\", \"label\": \"HUMANIZE\", \"style\": 6}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    midi_in = eat.node.midi_in(type=\"MIDI IN\")\n"
+            "    snap = eat.node.mfx(type=\"SCALE SNAP\", root=0, mode=0)\n"
+            "    midi_out = eat.node.midi_out(type=\"MIDI OUT\")\n"
+            "    midi_in >> snap\n"
+            "    snap >> midi_out\n"
+            "    return midi_out\n\n"
+            "def process_notes(notes, context):\n"
+            "    out = []\n"
+            "    for n in notes:\n"
+            "        snapped = eat.snap_to_scale(n.pitch, root=0, minor=True)\n"
+            "        out.append(eat.Note(snapped, n.velocity, n.length))\n"
+            "    return out\n";
+    }
+
+    return
+        "# --- Procedural Synthesizer Engine (Eatscript) ---\n"
+        "import math\n\n"
+        "def init():\n"
+        "    eat.param(\"Cutoff\", min=50.0, max=15000.0, default=2500.0)\n"
+        "    eat.param(\"Resonance\", min=0.1, max=0.95, default=0.50)\n"
+        "    eat.param(\"Attack\", min=0.001, max=1.0, default=0.05)\n"
+        "    eat.param(\"Decay\", min=0.05, max=3.0, default=0.40)\n\n"
+        "def gui():\n"
+        "    return {\n"
+        "        \"title\": \"" + target.title + "\",\n"
+        "        \"subtitle\": \"" + target.subtitle + "\",\n"
+        "        \"chassis\": 0,\n"
+        "        \"woodCheeks\": True,\n"
+        "        \"rows\": [\n"
+        "            [{\"id\": \"w_cutoff\", \"type\": 1, \"param\": \"Cutoff\", \"label\": \"CUTOFF\", \"style\": 4},\n"
+        "             {\"id\": \"w_res\", \"type\": 1, \"param\": \"Resonance\", \"label\": \"RESONANCE\", \"style\": 5},\n"
+        "             {\"id\": \"w_att\", \"type\": 1, \"param\": \"Attack\", \"label\": \"ATTACK\", \"style\": 6},\n"
+        "             {\"id\": \"w_dec\", \"type\": 1, \"param\": \"Decay\", \"label\": \"DECAY\", \"style\": 7}]\n"
+        "        ]\n"
+        "    }\n\n"
+        "def graph():\n"
+        "    osc = eat.node.osc(type=\"SYNTH OSC\", wave=0.0, tune=0.0)\n"
+        "    vcf = eat.node.vcf(type=\"LADDER FILTER\", cutoff=0.6, resonance=0.5)\n"
+        "    vca = eat.node.vca(type=\"VCA AMPLIFIER\", volume=0.8)\n"
+        "    out = eat.node.out(type=\"MASTER OUT\", volume=0.85)\n"
+        "    osc >> vcf\n"
+        "    vcf >> vca\n"
+        "    vca >> out\n"
+        "    return out\n\n"
+        "def process(time, freq, note, params):\n"
+        "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n"
+        "    return saw * 0.5\n";
+}
+
+void DesignView::initModularRackFromScript(const std::string& code) {
+    modules_.clear();
     patchCords_.clear();
-    patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
-    patchCords_.push_back({1, 1, 2, 0, 0.13f, 0.96f, 0.91f});
+
+    std::string lowerCode = code;
+    for (char& c : lowerCode) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    size_t graphPos = lowerCode.find("def graph():");
+    if (graphPos == std::string::npos) graphPos = lowerCode.find("def patch():");
+    if (graphPos == std::string::npos) graphPos = lowerCode.find("def modular():");
+
+    bool is303 = (lowerCode.find("303") != std::string::npos) || (getActiveTarget().id == "eats_303");
+    if (is303 && (graphPos == std::string::npos || lowerCode.find("tb-303 core") != std::string::npos || lowerCode.find("diode") != std::string::npos)) {
+        modules_ = {
+            {"OSC 1: TB-303 CORE", "OSC", 30.0f, 80.0f, 240.0f, 320.0f, 0.20f, 0.21f, 0.24f,
+             {{"TUNE", 0.50f, -24.0f, 24.0f, "st"}, {"WAVE", 0.0f, 0.0f, 1.0f, ""}, {"GLIDE", 0.35f, 0.0f, 1.0f, "s"}},
+             {"CV IN", "GATE"}, {"OUT", "SUB"}},
+
+            {"FILTER: 24dB DIODE", "VCF", 270.0f, 80.0f, 240.0f, 320.0f, 0.22f, 0.23f, 0.26f,
+             {{"CUTOFF", 0.65f, 20.0f, 20000.0f, "Hz"}, {"RESON", 0.78f, 0.0f, 1.0f, ""}, {"ENV MOD", 0.60f, 0.0f, 1.0f, ""}, {"ACCENT", 0.70f, 0.0f, 1.0f, ""}},
+             {"AUDIO IN", "FM IN"}, {"LPF OUT", "ENV OUT"}},
+
+            {"VCA & SATURATION", "VCA", 510.0f, 80.0f, 210.0f, 320.0f, 0.19f, 0.20f, 0.23f,
+             {{"DRIVE", 0.45f, 1.0f, 10.0f, "x"}, {"ATTACK", 0.05f, 0.001f, 1.0f, "s"}, {"DECAY", 0.45f, 0.01f, 2.0f, "s"}},
+             {"IN", "CV"}, {"OUT", "MON"}},
+
+            {"OUT: MASTER BUS", "OUT", 720.0f, 80.0f, 210.0f, 320.0f, 0.18f, 0.19f, 0.22f,
+             {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}},
+             {"L IN", "R IN"}, {"MAIN L", "MAIN R"}}
+        };
+        patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
+        patchCords_.push_back({1, 1, 2, 0, 0.13f, 0.96f, 0.91f});
+        modularLayoutDone_ = true;
+        return;
+    }
+
+    std::istringstream stream(code);
+    std::string line;
+    bool inGraph = false;
+    std::vector<std::string> nodeVarNames;
+    float currentX = 30.0f;
+    float row0Y = modularZoomPan_.getViewportOriginY();
+    float modY = row0Y + kModuleTopRailOffset;
+    std::vector<std::pair<std::string, std::string>> connections;
+
+    while (std::getline(stream, line)) {
+        std::string trimmed = line;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+
+        if (trimmed.starts_with("def graph():") || trimmed.starts_with("def patch():") || trimmed.starts_with("def modular():")) {
+            inGraph = true;
+            continue;
+        }
+        if (inGraph && trimmed.starts_with("def ") && !trimmed.starts_with("def graph") && !trimmed.starts_with("def patch") && !trimmed.starts_with("def modular")) {
+            inGraph = false;
+        }
+
+        if (inGraph) {
+            size_t pipePos = trimmed.find(">>");
+            if (pipePos != std::string::npos) {
+                std::string from = trimmed.substr(0, pipePos);
+                std::string to = trimmed.substr(pipePos + 2);
+                from.erase(0, from.find_first_not_of(" \t"));
+                from.erase(from.find_last_not_of(" \t") + 1);
+                to.erase(0, to.find_first_not_of(" \t"));
+                to.erase(to.find_last_not_of(" \t") + 1);
+                if (!from.empty() && !to.empty()) {
+                    connections.push_back({from, to});
+                }
+                continue;
+            }
+
+            size_t nodePos = trimmed.find("eat.node.");
+            if (nodePos != std::string::npos) {
+                size_t eqPos = trimmed.find('=');
+                std::string varName = "node_" + std::to_string(modules_.size());
+                if (eqPos != std::string::npos && eqPos < nodePos) {
+                    varName = trimmed.substr(0, eqPos);
+                    varName.erase(0, varName.find_first_not_of(" \t"));
+                    varName.erase(varName.find_last_not_of(" \t") + 1);
+                }
+
+                size_t typeStart = nodePos + 9;
+                size_t openParen = trimmed.find('(', typeStart);
+                if (openParen != std::string::npos) {
+                    std::string nodeType = trimmed.substr(typeStart, openParen - typeStart);
+                    for (char& c : nodeType) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+                    ModularModuleDef modDef;
+                    modDef.type = nodeType;
+                    modDef.title = varName;
+                    for (char& c : modDef.title) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                    modDef.w = 210.0f;
+                    modDef.h = 320.0f;
+                    modDef.x = currentX;
+                    modDef.y = modY;
+
+                    size_t typeKwarg = trimmed.find("type=\"");
+                    if (typeKwarg != std::string::npos) {
+                        size_t endQuote = trimmed.find('"', typeKwarg + 6);
+                        if (endQuote != std::string::npos) {
+                            modDef.title = trimmed.substr(typeKwarg + 6, endQuote - (typeKwarg + 6));
+                        }
+                    }
+
+                    if (nodeType.find("OSC") != std::string::npos || nodeType.find("VCO") != std::string::npos) {
+                        modDef.r = 0.20f; modDef.g = 0.21f; modDef.b = 0.24f;
+                        modDef.knobs = {{"TUNE", 0.50f, -24.0f, 24.0f, "st"}, {"WAVE", 0.0f, 0.0f, 1.0f, ""}, {"GLIDE", 0.35f, 0.0f, 1.0f, "s"}};
+                        modDef.inputs = {"CV IN", "GATE"};
+                        modDef.outputs = {"OUT", "SUB"};
+                    } else if (nodeType.find("VCF") != std::string::npos || nodeType.find("FILTER") != std::string::npos || nodeType.find("SVF") != std::string::npos) {
+                        modDef.r = 0.22f; modDef.g = 0.23f; modDef.b = 0.26f;
+                        modDef.knobs = {{"CUTOFF", 0.65f, 20.0f, 20000.0f, "Hz"}, {"RESON", 0.78f, 0.0f, 1.0f, ""}, {"ENV MOD", 0.60f, 0.0f, 1.0f, ""}, {"ACCENT", 0.70f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"AUDIO IN", "FM IN"};
+                        modDef.outputs = {"LPF OUT", "ENV OUT"};
+                    } else if (nodeType.find("VCA") != std::string::npos || nodeType.find("SAT") != std::string::npos) {
+                        modDef.r = 0.19f; modDef.g = 0.20f; modDef.b = 0.23f;
+                        modDef.knobs = {{"DRIVE", 0.45f, 1.0f, 10.0f, "x"}, {"ATTACK", 0.05f, 0.001f, 1.0f, "s"}, {"DECAY", 0.45f, 0.01f, 2.0f, "s"}};
+                        modDef.inputs = {"IN", "CV"};
+                        modDef.outputs = {"OUT", "MON"};
+                    } else if (nodeType.find("OUT") != std::string::npos || nodeType.find("MASTER") != std::string::npos) {
+                        modDef.r = 0.18f; modDef.g = 0.19f; modDef.b = 0.22f;
+                        modDef.knobs = {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"L IN", "R IN"};
+                        modDef.outputs = {"MAIN L", "MAIN R"};
+                    } else if (nodeType.find("ENV") != std::string::npos || nodeType.find("ADSR") != std::string::npos) {
+                        modDef.r = 0.24f; modDef.g = 0.22f; modDef.b = 0.19f;
+                        modDef.knobs = {{"ATTACK", 0.05f, 0.001f, 1.0f, "s"}, {"DECAY", 0.35f, 0.01f, 2.0f, "s"}, {"SUSTAIN", 0.70f, 0.0f, 1.0f, "%"}, {"RELEASE", 0.30f, 0.01f, 3.0f, "s"}};
+                        modDef.inputs = {"GATE", "RETRIG"};
+                        modDef.outputs = {"ENV OUT", "INV OUT"};
+                    } else if (nodeType.find("NOISE") != std::string::npos) {
+                        modDef.r = 0.23f; modDef.g = 0.20f; modDef.b = 0.22f;
+                        modDef.knobs = {{"SNAPPY", 0.65f, 0.0f, 1.0f, ""}, {"DECAY", 0.25f, 0.01f, 1.0f, "s"}};
+                        modDef.inputs = {"CV IN"};
+                        modDef.outputs = {"NOISE OUT"};
+                    } else {
+                        modDef.r = 0.20f; modDef.g = 0.22f; modDef.b = 0.25f;
+                        modDef.knobs = {{"PARAM 1", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 2", 0.50f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"IN 1", "CV IN"};
+                        modDef.outputs = {"OUT 1", "OUT 2"};
+                    }
+
+                    int wHp = std::max(1, static_cast<int>(std::round(modDef.w / kHpWidth)));
+                    modDef.w = wHp * kHpWidth;
+                    currentX += modDef.w;
+                    nodeVarNames.push_back(varName);
+                    modules_.push_back(modDef);
+                }
+            }
+        }
+    }
+
+    if (modules_.empty()) {
+        modules_ = {
+            {"OSC 1: TB-303 CORE", "OSC", 30.0f, 80.0f, 240.0f, 320.0f, 0.20f, 0.21f, 0.24f,
+             {{"TUNE", 0.50f, -24.0f, 24.0f, "st"}, {"WAVE", 0.0f, 0.0f, 1.0f, ""}, {"GLIDE", 0.35f, 0.0f, 1.0f, "s"}},
+             {"CV IN", "GATE"}, {"OUT", "SUB"}},
+
+            {"FILTER: 24dB DIODE", "VCF", 270.0f, 80.0f, 240.0f, 320.0f, 0.22f, 0.23f, 0.26f,
+             {{"CUTOFF", 0.65f, 20.0f, 20000.0f, "Hz"}, {"RESON", 0.78f, 0.0f, 1.0f, ""}, {"ENV MOD", 0.60f, 0.0f, 1.0f, ""}, {"ACCENT", 0.70f, 0.0f, 1.0f, ""}},
+             {"AUDIO IN", "FM IN"}, {"LPF OUT", "ENV OUT"}},
+
+            {"VCA & SATURATION", "VCA", 510.0f, 80.0f, 210.0f, 320.0f, 0.19f, 0.20f, 0.23f,
+             {{"DRIVE", 0.45f, 1.0f, 10.0f, "x"}, {"ATTACK", 0.05f, 0.001f, 1.0f, "s"}, {"DECAY", 0.45f, 0.01f, 2.0f, "s"}},
+             {"IN", "CV"}, {"OUT", "MON"}},
+
+            {"OUT: MASTER BUS", "OUT", 720.0f, 80.0f, 210.0f, 320.0f, 0.18f, 0.19f, 0.22f,
+             {{"VOLUME", 0.85f, 0.0f, 1.0f, ""}, {"PAN", 0.0f, -1.0f, 1.0f, ""}, {"LIMIT", 0.90f, 0.0f, 1.0f, ""}},
+             {"L IN", "R IN"}, {"MAIN L", "MAIN R"}}
+        };
+        patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
+        patchCords_.push_back({1, 1, 2, 0, 0.13f, 0.96f, 0.91f});
+    } else {
+        static const float cordColors[][3] = {
+            {1.0f, 0.55f, 0.0f},
+            {0.13f, 0.96f, 0.91f},
+            {1.0f, 0.85f, 0.0f},
+            {1.0f, 0.16f, 0.55f},
+            {0.2f, 1.0f, 0.45f}
+        };
+        int cordIdx = 0;
+        for (const auto& conn : connections) {
+            int srcIdx = -1, dstIdx = -1;
+            for (size_t i = 0; i < nodeVarNames.size(); ++i) {
+                if (nodeVarNames[i] == conn.first) srcIdx = static_cast<int>(i);
+                if (nodeVarNames[i] == conn.second) dstIdx = static_cast<int>(i);
+            }
+            if (srcIdx >= 0 && dstIdx >= 0 && srcIdx < static_cast<int>(modules_.size()) && dstIdx < static_cast<int>(modules_.size())) {
+                const auto& col = cordColors[cordIdx % 5];
+                patchCords_.push_back({srcIdx, 0, dstIdx, 0, col[0], col[1], col[2]});
+                cordIdx++;
+            }
+        }
+        if (patchCords_.empty() && modules_.size() >= 2) {
+            patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
+            if (modules_.size() >= 3) {
+                patchCords_.push_back({1, 0, 2, 0, 0.13f, 0.96f, 0.91f});
+            }
+        }
+    }
+    modularLayoutDone_ = true;
 }
 
 void DesignView::addModule(const ModularModuleDef& mod) {
@@ -309,7 +881,7 @@ void DesignView::initDefaultTargetsAndCode() {
     allTargets_.push_back({"mfx_arpeggiator", "Arpeggiator (16th UpDown)", "Algorithmic Pattern Generator", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.13f, 0.96f, 0.91f}, 1, -1, 0});
     allTargets_.push_back({"mfx_chord_follow", "Chord Follower (Triad Lock)", "Harmonic Progression Tracking", ScriptTargetType::MidiFx, "MIDI FX", {1.0f, 0.85f, 0.0f}, {0.2f, 1.0f, 0.45f}, 3, -1, 0});
 
-    activeTargetIndex_ = 0;
+    activeTargetIndex_ = 3;
     updateActiveTargetCodeAndParams();
 }
 
@@ -678,28 +1250,9 @@ void DesignView::updateActiveTargetCodeAndParams() {
         return;
     }
 
-    if (t.id == "eats_kick") {
-        currentScriptCode_ =
-            "# --- Procedural Sub Kick Drum (Eatscript) ---\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"StartFreq\", min=100.0, max=300.0, default=160.0)\n"
-            "    eat.param(\"EndFreq\", min=30.0, max=60.0, default=42.0)\n"
-            "    eat.param(\"PitchDecay\", min=0.01, max=0.2, default=0.035)\n"
-            "    eat.param(\"AmpDecay\", min=0.05, max=4.0, default=0.35)\n"
-            "    eat.param(\"Click\", min=0.0, max=1.0, default=0.0)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    startF = params.get(\"StartFreq\", 160.0)\n"
-            "    endF = params.get(\"EndFreq\", 42.0)\n"
-            "    pDecay = params.get(\"PitchDecay\", 0.035)\n"
-            "    aDecay = params.get(\"AmpDecay\", 0.35)\n"
-            "    click = params.get(\"Click\", 0.0)\n\n"
-            "    curFreq = endF + (startF - endF) * math.exp(-time / max(0.005, pDecay))\n"
-            "    phase = 2.0 * math.pi * curFreq * time\n"
-            "    body = math.sin(phase) * math.exp(-time / max(0.01, aDecay))\n"
-            "    clickNoise = (math.sin(time * 8421.0) * math.exp(-time / 0.005)) * click\n"
-            "    return body + clickNoise\n";
+    currentScriptCode_ = getDefaultScriptForTarget(t);
 
+    if (t.id == "eats_kick") {
         currentParams_ = {
             {"StartFreq", 100.0f, 300.0f, 160.0f, 120.2f, "Hz"},
             {"EndFreq", 30.0f, 60.0f, 42.0f, 56.4f, "Hz"},
@@ -708,22 +1261,6 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Click", 0.0f, 1.0f, 0.0f, 0.0f, ""}
         };
     } else if (t.id == "eats_snare") {
-        currentScriptCode_ =
-            "# --- Procedural Analog Snare Drum (Eatscript) ---\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"Tone\", min=100.0, max=350.0, default=180.0)\n"
-            "    eat.param(\"Snappy\", min=0.0, max=1.0, default=0.65)\n"
-            "    eat.param(\"Decay\", min=0.05, max=1.0, default=0.25)\n"
-            "    eat.param(\"Tune\", min=0.5, max=2.0, default=1.0)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    toneF = params.get(\"Tone\", 180.0) * params.get(\"Tune\", 1.0)\n"
-            "    decay = params.get(\"Decay\", 0.25)\n"
-            "    snappy = params.get(\"Snappy\", 0.65)\n\n"
-            "    tone = math.sin(2.0 * math.pi * toneF * time) * math.exp(-time / (decay * 0.7))\n"
-            "    noise = (math.sin(time * 12345.67) % 1.0 - 0.5) * 2.0 * math.exp(-time / decay) * snappy\n"
-            "    return tone * (1.0 - snappy * 0.5) + noise\n";
-
         currentParams_ = {
             {"Tone", 100.0f, 350.0f, 180.0f, 185.0f, "Hz"},
             {"Snappy", 0.0f, 1.0f, 0.65f, 0.72f, ""},
@@ -731,43 +1268,12 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Tune", 0.5f, 2.0f, 1.0f, 1.05f, "x"}
         };
     } else if (t.id == "eats_hats") {
-        currentScriptCode_ =
-            "# --- Procedural Metallic Hi-Hat (Eatscript) ---\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"Decay\", min=0.01, max=0.8, default=0.08)\n"
-            "    eat.param(\"Metallic\", min=0.1, max=1.0, default=0.75)\n"
-            "    eat.param(\"Pitch\", min=4000.0, max=12000.0, default=8500.0)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    decay = params.get(\"Decay\", 0.08)\n"
-            "    pitch = params.get(\"Pitch\", 8500.0)\n"
-            "    osc1 = math.sin(2.0 * math.pi * pitch * time)\n"
-            "    osc2 = math.sin(2.0 * math.pi * (pitch * 1.414) * time)\n"
-            "    metallic = (1.0 if osc1 * osc2 > 0.0 else -1.0) * math.exp(-time / decay)\n"
-            "    return metallic * 0.4\n";
-
         currentParams_ = {
             {"Decay", 0.01f, 0.8f, 0.08f, 0.08f, "s"},
             {"Metallic", 0.1f, 1.0f, 0.75f, 0.80f, ""},
             {"Pitch", 4000.0f, 12000.0f, 8500.0f, 8600.0f, "Hz"}
         };
     } else if (engKey.find("303") != std::string::npos || t.id == "eats_303") {
-        currentScriptCode_ =
-            "# --- TB-303 Acid Bassline Synthesizer (Eatscript) ---\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"Cutoff\", min=200.0, max=4000.0, default=850.0)\n"
-            "    eat.param(\"Resonance\", min=0.1, max=0.98, default=0.78)\n"
-            "    eat.param(\"EnvMod\", min=0.0, max=1.0, default=0.65)\n"
-            "    eat.param(\"Decay\", min=0.05, max=1.5, default=0.45)\n"
-            "    eat.param(\"Accent\", min=0.0, max=1.0, default=0.70)\n"
-            "    eat.param(\"Drive\", min=0.0, max=1.0, default=0.25)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n"
-            "    cutoff = params.get(\"Cutoff\", 850.0)\n"
-            "    res = params.get(\"Resonance\", 0.78)\n"
-            "    return tb303_diode_ladder(saw, cutoff, res)\n";
-
         currentParams_ = {
             {"Cutoff", 200.0f, 4000.0f, 850.0f, 920.0f, "Hz"},
             {"Resonance", 0.1f, 0.98f, 0.78f, 0.85f, ""},
@@ -777,17 +1283,6 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Drive", 0.0f, 1.0f, 0.25f, 0.25f, ""}
         };
     } else if (engKey.find("dx7") != std::string::npos || engKey.find("fm") != std::string::npos) {
-        currentScriptCode_ =
-            "# --- Yamaha DX7 6-Operator FM Synthesizer (Eatscript) ---\n"
-            "def init():\n"
-            "    eat.param(\"Algorithm\", min=1.0, max=32.0, default=5.0)\n"
-            "    eat.param(\"Feedback\", min=0.0, max=7.0, default=6.0)\n"
-            "    eat.param(\"Brightness\", min=0.0, max=2.0, default=1.0)\n"
-            "    eat.param(\"TineBell\", min=0.0, max=2.0, default=0.85)\n"
-            "    eat.param(\"BodyWarmth\", min=0.0, max=2.0, default=1.0)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    return dx7_voice(time, freq, note, params)\n";
-
         currentParams_ = {
             {"Algorithm", 1.0f, 32.0f, 5.0f, 5.0f, ""},
             {"Feedback", 0.0f, 7.0f, 6.0f, 6.0f, ""},
@@ -796,16 +1291,6 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"BodyWarmth", 0.0f, 2.0f, 1.0f, 1.0f, ""}
         };
     } else if (engKey.find("sid") != std::string::npos || engKey.find("c64") != std::string::npos) {
-        currentScriptCode_ =
-            "# --- MOS 6581/8580 SID Chip Voice (Eatscript) ---\n"
-            "def init():\n"
-            "    eat.param(\"Waveform\", min=0.0, max=3.0, default=0.0)\n"
-            "    eat.param(\"Cutoff\", min=30.0, max=12000.0, default=1200.0)\n"
-            "    eat.param(\"Resonance\", min=0.0, max=15.0, default=9.0)\n"
-            "    eat.param(\"Overdrive\", min=1.0, max=4.0, default=1.2)\n\n"
-            "def process(time, freq, note, params):\n"
-            "    return sid_voice(time, freq, note, params)\n";
-
         currentParams_ = {
             {"Waveform", 0.0f, 3.0f, 0.0f, 0.0f, ""},
             {"Cutoff", 30.0f, 12000.0f, 1200.0f, 1200.0f, "Hz"},
@@ -818,21 +1303,6 @@ void DesignView::updateActiveTargetCodeAndParams() {
         std::string k2 = trk.knob2Name.empty() ? "Snappy" : trk.knob2Name;
         std::string k3 = trk.knob3Name.empty() ? "Decay" : trk.knob3Name;
         std::string k4 = trk.knob4Name.empty() ? "Var" : trk.knob4Name;
-
-        std::ostringstream ss;
-        ss << "# --- Procedural Synthesizer Engine (Eatscript) ---\n";
-        ss << "# Track: " << trk.name << " (" << (trk.instrument.empty() ? "Synth DSP" : trk.instrument) << ")\n";
-        ss << "import math\n\n";
-        ss << "def init():\n";
-        ss << "    eat.param(\"" << k1 << "\", min=0.0, max=1.0, default=" << trk.knob1 << ")\n";
-        ss << "    eat.param(\"" << k2 << "\", min=0.0, max=1.0, default=" << trk.knob2 << ")\n";
-        ss << "    eat.param(\"" << k3 << "\", min=0.0, max=1.0, default=" << trk.knob3 << ")\n";
-        ss << "    eat.param(\"" << k4 << "\", min=0.0, max=1.0, default=" << trk.knob4 << ")\n\n";
-        ss << "def process(time, freq, note, params):\n";
-        ss << "    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))\n";
-        ss << "    return saw * params.get(\"" << k1 << "\", 0.5)\n";
-        currentScriptCode_ = ss.str();
-
         currentParams_ = {
             {k1, 0.0f, 1.0f, trk.knob1, trk.knob1, ""},
             {k2, 0.0f, 1.0f, trk.knob2, trk.knob2, ""},
@@ -840,124 +1310,14 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {k4, 0.0f, 1.0f, trk.knob4, trk.knob4, ""}
         };
     } else if (t.type == ScriptTargetType::AudioFx) {
-        std::string afxKey = t.id + " " + t.title + " " + t.subtitle;
-        if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size()) &&
-            t.fxIndex >= 0 && t.fxIndex < static_cast<int>(cachedTracks_[t.trackIndex].audioFx.size())) {
-            const auto& afx = cachedTracks_[t.trackIndex].audioFx[t.fxIndex];
-            afxKey += " " + afx.type + " " + afx.name;
-        }
-        for (char& c : afxKey) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-
-        if (afxKey.find("CRUSH") != std::string::npos || afxKey.find("8-BIT") != std::string::npos || afxKey.find("BITCRUSHER") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- 8-Bit Digital Bitcrusher & Sample Reducer (Eatscript FX) ---\n"
-                "import math\n\n"
-                "def init():\n"
-                "    eat.param(\"Bits\", min=1.0, max=16.0, default=8.0)\n"
-                "    eat.param(\"Downsample\", min=1.0, max=32.0, default=4.0)\n"
-                "    eat.param(\"Drive\", min=0.5, max=4.0, default=1.0)\n"
-                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    bits = params.get(\"Bits\", 8.0)\n"
-                "    crush = params.get(\"Downsample\", 4.0)\n"
-                "    mix = params.get(\"Mix\", 0.85)\n"
-                "    levels = math.pow(2.0, bits)\n"
-                "    out_l = math.floor(in_l * levels) / levels\n"
-                "    out_r = math.floor(in_r * levels) / levels\n"
-                "    return [out_l * mix + in_l * (1.0 - mix), out_r * mix + in_r * (1.0 - mix)]\n";
-
+        if (engKey.find("crush") != std::string::npos || engKey.find("8-bit") != std::string::npos || engKey.find("bitcrusher") != std::string::npos) {
             currentParams_ = {
                 {"Bits", 1.0f, 16.0f, 8.0f, 8.0f, "bit"},
                 {"Downsample", 1.0f, 32.0f, 4.0f, 4.0f, "x"},
                 {"Drive", 0.5f, 4.0f, 1.0f, 1.0f, "x"},
                 {"Mix", 0.0f, 1.0f, 0.85f, 0.85f, "%"}
             };
-        } else if (afxKey.find("DELAY") != std::string::npos || afxKey.find("ECHO") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- Digital Stereo Delay (Eatscript FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"Time\", min=10.0, max=1000.0, default=375.0) # ms\n"
-                "    eat.param(\"Feedback\", min=0.0, max=0.95, default=0.45)\n"
-                "    eat.param(\"Damp\", min=1000.0, max=20000.0, default=8000.0) # Hz\n"
-                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.40)\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    time_ms = params.get(\"Time\", 375.0)\n"
-                "    fb = params.get(\"Feedback\", 0.45)\n"
-                "    mix = params.get(\"Mix\", 0.40)\n"
-                "    return [in_l * (1.0 - mix) + in_l * mix, in_r * (1.0 - mix) + in_r * mix]\n";
-
-            currentParams_ = {
-                {"Time", 10.0f, 1000.0f, 375.0f, 375.0f, "ms"},
-                {"Feedback", 0.0f, 0.95f, 0.45f, 0.45f, "%"},
-                {"Damp", 1000.0f, 20000.0f, 8000.0f, 8000.0f, "Hz"},
-                {"Mix", 0.0f, 1.0f, 0.40f, 0.40f, "%"}
-            };
-        } else if (afxKey.find("EQ") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- 3-Band Parametric EQ (Eatscript FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"LowGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
-                "    eat.param(\"MidGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
-                "    eat.param(\"HighGain\", min=-12.0, max=12.0, default=0.0) # dB\n"
-                "    eat.param(\"MidFreq\", min=200.0, max=5000.0, default=1000.0) # Hz\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    return [in_l, in_r]\n";
-
-            currentParams_ = {
-                {"LowGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
-                {"MidGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
-                {"HighGain", -12.0f, 12.0f, 0.0f, 0.0f, "dB"},
-                {"MidFreq", 200.0f, 5000.0f, 1000.0f, 1000.0f, "Hz"}
-            };
-        } else if (afxKey.find("LIMIT") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- Brickwall Studio Limiter (Eatscript FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"Ceiling\", min=-12.0, max=0.0, default=-0.1) # dB\n"
-                "    eat.param(\"Threshold\", min=-24.0, max=0.0, default=-3.0) # dB\n"
-                "    eat.param(\"Release\", min=10.0, max=500.0, default=100.0) # ms\n"
-                "    eat.param(\"Lookahead\", min=0.0, max=10.0, default=2.0) # ms\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    return [in_l, in_r]\n";
-
-            currentParams_ = {
-                {"Ceiling", -12.0f, 0.0f, -0.1f, -0.1f, "dB"},
-                {"Threshold", -24.0f, 0.0f, -3.0f, -3.0f, "dB"},
-                {"Release", 10.0f, 500.0f, 100.0f, 100.0f, "ms"},
-                {"Lookahead", 0.0f, 10.0f, 2.0f, 2.0f, "ms"}
-            };
-        } else if (afxKey.find("FILTER") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- State Variable Resonant Filter (Eatscript FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"Cutoff\", min=20.0, max=20000.0, default=1200.0) # Hz\n"
-                "    eat.param(\"Resonance\", min=0.1, max=0.98, default=0.65)\n"
-                "    eat.param(\"Drive\", min=1.0, max=10.0, default=1.0)\n"
-                "    eat.param(\"Mode\", min=0.0, max=2.0, default=0.0) # 0=LP, 1=BP, 2=HP\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    return [in_l, in_r]\n";
-
-            currentParams_ = {
-                {"Cutoff", 20.0f, 20000.0f, 1200.0f, 1200.0f, "Hz"},
-                {"Resonance", 0.1f, 0.98f, 0.65f, 0.65f, ""},
-                {"Drive", 1.0f, 10.0f, 1.0f, 1.0f, "x"},
-                {"Mode", 0.0f, 2.0f, 0.0f, 0.0f, ""}
-            };
         } else {
-            currentScriptCode_ =
-                "# --- Warm Analog Tube Distortion (Eatscript FX) ---\n"
-                "import math\n\n"
-                "def init():\n"
-                "    eat.param(\"Drive\", min=1.0, max=20.0, default=4.5)\n"
-                "    eat.param(\"Warmth\", min=0.0, max=1.0, default=0.70)\n"
-                "    eat.param(\"Mix\", min=0.0, max=1.0, default=0.85)\n\n"
-                "def process(in_l, in_r, params):\n"
-                "    drive = params.get(\"Drive\", 4.5)\n"
-                "    mix = params.get(\"Mix\", 0.85)\n"
-                "    out_l = math.tanh(in_l * drive) * mix + in_l * (1.0 - mix)\n"
-                "    out_r = math.tanh(in_r * drive) * mix + in_r * (1.0 - mix)\n"
-                "    return [out_l, out_r]\n";
-
             currentParams_ = {
                 {"Drive", 1.0f, 20.0f, 4.5f, 6.2f, "x"},
                 {"Warmth", 0.0f, 1.0f, 0.70f, 0.75f, ""},
@@ -965,63 +1325,14 @@ void DesignView::updateActiveTargetCodeAndParams() {
             };
         }
     } else if (t.type == ScriptTargetType::MidiFx) {
-        std::string mfxKey = t.id + " " + t.title + " " + t.subtitle;
-        if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size()) &&
-            t.fxIndex >= 0 && t.fxIndex < static_cast<int>(cachedTracks_[t.trackIndex].midiFx.size())) {
-            const auto& mfx = cachedTracks_[t.trackIndex].midiFx[t.fxIndex];
-            mfxKey += " " + mfx.type + " " + mfx.name;
-        }
-        for (char& c : mfxKey) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-
-        if (mfxKey.find("ARP") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- Algorithmic 16-Step Arpeggiator (Eatscript MIDI FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"Rate\", min=1.0, max=8.0, default=4.0) # 16th notes\n"
-                "    eat.param(\"Octaves\", min=1.0, max=4.0, default=2.0)\n"
-                "    eat.param(\"Gate\", min=0.1, max=1.0, default=0.75)\n"
-                "    eat.param(\"Pattern\", min=0.0, max=4.0, default=0.0)\n\n"
-                "def process_notes(notes, context):\n"
-                "    return notes\n";
-
+        if (engKey.find("arp") != std::string::npos) {
             currentParams_ = {
                 {"Rate", 1.0f, 8.0f, 4.0f, 4.0f, "st"},
                 {"Octaves", 1.0f, 4.0f, 2.0f, 2.0f, "oct"},
                 {"Gate", 0.1f, 1.0f, 0.75f, 0.75f, "%"},
                 {"Pattern", 0.0f, 4.0f, 0.0f, 0.0f, ""}
             };
-        } else if (mfxKey.find("CHORD") != std::string::npos) {
-            currentScriptCode_ =
-                "# --- Harmonic Chord Follower & Voicing (Eatscript MIDI FX) ---\n"
-                "def init():\n"
-                "    eat.param(\"FollowMode\", min=0.0, max=3.0, default=1.0)\n"
-                "    eat.param(\"Voicing\", min=0.0, max=3.0, default=0.0)\n"
-                "    eat.param(\"Inversion\", min=0.0, max=3.0, default=0.0)\n"
-                "    eat.param(\"VelocitySpread\", min=0.0, max=0.5, default=0.10)\n\n"
-                "def process_notes(notes, context):\n"
-                "    return notes\n";
-
-            currentParams_ = {
-                {"FollowMode", 0.0f, 3.0f, 1.0f, 1.0f, ""},
-                {"Voicing", 0.0f, 3.0f, 0.0f, 0.0f, ""},
-                {"Inversion", 0.0f, 3.0f, 0.0f, 0.0f, ""},
-                {"VelocitySpread", 0.0f, 0.5f, 0.10f, 0.10f, "%"}
-            };
         } else {
-            currentScriptCode_ =
-                "# --- Real-Time MIDI Scale Quantizer (Eatscript MIDI FX) ---\n"
-                "# Transforms note pitch, velocity, and timing before voice trigger\n"
-                "def init():\n"
-                "    eat.param(\"RootKey\", min=0, max=11, default=0) # 0 = C\n"
-                "    eat.param(\"ScaleMode\", min=0, max=6, default=0) # 0 = Major, 1 = Minor\n"
-                "    eat.param(\"HumanizeVel\", min=0.0, max=0.5, default=0.15)\n\n"
-                "def process_notes(notes, context):\n"
-                "    out = []\n"
-                "    for n in notes:\n"
-                "        snapped = eat.snap_to_scale(n.pitch, root=0, minor=True)\n"
-                "        out.append(eat.Note(snapped, n.velocity, n.length))\n"
-                "    return out\n";
-
             currentParams_ = {
                 {"RootKey", 0.0f, 11.0f, 0.0f, 0.0f, "st"},
                 {"ScaleMode", 0.0f, 6.0f, 0.0f, 0.0f, ""},
@@ -1029,60 +1340,12 @@ void DesignView::updateActiveTargetCodeAndParams() {
                 {"Transpose", -24.0f, 24.0f, 0.0f, 0.0f, "st"}
             };
         }
-    } else if (t.type == ScriptTargetType::ClipScript) {
-        currentScriptCode_ =
-            "# --- Dynamic Pattern Generator (Eatscript Clip) ---\n"
-            "# Generates rhythmic and harmonic variations on the timeline\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"Density\", min=0.1, max=1.0, default=0.75)\n"
-            "    eat.param(\"Swing\", min=0.0, max=0.75, default=0.15)\n"
-            "    eat.param(\"HumanizeVel\", min=0.0, max=0.4, default=0.10)\n"
-            "    eat.param(\"OctaveSpread\", min=0.0, max=2.0, default=1.0)\n\n"
-            "def generate(bars, step):\n"
-            "    return []\n";
-
-        currentParams_ = {
-            {"Density", 0.1f, 1.0f, 0.75f, 0.75f, ""},
-            {"Swing", 0.0f, 0.75f, 0.15f, 0.15f, "%"},
-            {"HumanizeVel", 0.0f, 0.4f, 0.10f, 0.10f, "%"},
-            {"OctaveSpread", 0.0f, 2.0f, 1.0f, 1.0f, "oct"}
-        };
-    } else if (t.type == ScriptTargetType::BuiltinPreset) {
-        auto builtins = project::PresetLoader::getBuiltinPresets();
-        bool found = false;
-        for (const auto& bp : builtins) {
-            if (bp.metadata.id == t.id || bp.metadata.name == t.title) {
-                currentScriptCode_ = bp.rawScript;
-                for (const auto& [pName, pDef] : bp.params) {
-                    currentParams_.push_back({pDef.name, pDef.minVal, pDef.maxVal, pDef.defaultVal, pDef.currentVal, pDef.unit});
-                }
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            currentScriptCode_ =
-                "# --- Built-in Preset Definition ---\n"
-                "# " + t.title + "\n";
-            currentParams_ = {
-                {"Param1", 0.0f, 1.0f, 0.5f, 0.5f, ""},
-                {"Param2", 0.0f, 1.0f, 0.5f, 0.5f, ""}
-            };
-        }
     } else {
-        currentScriptCode_ =
-            "# --- Eatscript Generative Model ---\n"
-            "import math\n\n"
-            "def init():\n"
-            "    eat.param(\"Density\", min=0.1, max=1.0, default=0.75)\n"
-            "    eat.param(\"Velocity\", min=0.1, max=1.0, default=0.90)\n\n"
-            "def generate(bars, step):\n"
-            "    return []\n";
-
         currentParams_ = {
-            {"Density", 0.1f, 1.0f, 0.75f, 0.75f, ""},
-            {"Velocity", 0.1f, 1.0f, 0.90f, 0.90f, ""}
+            {"Cutoff", 50.0f, 15000.0f, 2500.0f, 2500.0f, "Hz"},
+            {"Resonance", 0.1f, 0.95f, 0.50f, 0.50f, ""},
+            {"Attack", 0.001f, 1.0f, 0.05f, 0.05f, "s"},
+            {"Decay", 0.05f, 3.0f, 0.40f, 0.40f, "s"}
         };
     }
 
@@ -1090,6 +1353,7 @@ void DesignView::updateActiveTargetCodeAndParams() {
     targetParamsMap_[t.id] = currentParams_;
 
     setScriptCode(currentScriptCode_);
+    initModularRackFromScript(currentScriptCode_);
     initDefaultGuiPanel();
 }
 
@@ -1189,18 +1453,6 @@ const ScriptTarget& DesignView::getActiveTarget() const {
     return fallback;
 }
 
-void DesignView::setAudioScopeBuffer(const float* buffer, size_t count) {
-    if (!buffer || count == 0) {
-        scopeSpan_ = {};
-        return;
-    }
-    scopeSpan_ = std::span<const float>(buffer, count);
-}
-
-void DesignView::setAudioScopeBuffer(std::span<const float> buffer) {
-    scopeSpan_ = buffer;
-}
-
 void DesignView::compileCurrentScript(const ViewContext& ctx) {
     isCompiled_ = true;
     statusMsg_ = "Compiled successfully (Eatscript Live Engine) Active parameters: " + std::to_string(currentParams_.size());
@@ -1252,18 +1504,16 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     btnModular_ = Rect2D(btnSplit_.x - (modeBtnW + 8.0f) - 4.0f, btnY, modeBtnW + 8.0f, btnH);
     btnCode_ = Rect2D(btnModular_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
 
-    // Explorer sidebar vs Studio body layout
-    float explorerW = isExplorerOpen_ ? (ctx.isMobile ? 180.0f : 240.0f) : 0.0f;
-    explorerBounds_ = Rect2D(contentBounds_.x, contentBounds_.y, explorerW, contentBounds_.h);
-    studioBodyBounds_ = Rect2D(contentBounds_.x + explorerW, contentBounds_.y, contentBounds_.w - explorerW, contentBounds_.h);
+    // Project Sidebar Unified Drawer Layout
+    projectDrawer_.layout(contentBounds_, 0.0f);
+    float drawerW = projectDrawer_.isExpanded() ? (projectDrawer_.getExtent() * projectDrawer_.getAnimProgress()) : 0.0f;
+    explorerBounds_ = projectDrawer_.getContentBounds();
+    studioBodyBounds_ = Rect2D(contentBounds_.x + drawerW, contentBounds_.y, contentBounds_.w - drawerW, contentBounds_.h);
 
-    // Code Editor layout inside studioBodyBounds_
+    // Code Editor layout inside studioBodyBounds_ (oscilloscope removed, extra height to editor)
     float pad = 12.0f;
-    float scopeH = 64.0f;
-    scopeBounds_ = Rect2D(studioBodyBounds_.x + pad, studioBodyBounds_.y + pad, studioBodyBounds_.w - (pad * 2.0f), scopeH);
-
-    float edHeaderY = scopeBounds_.y + scopeH + 10.0f;
-    editorHeaderBounds_ = Rect2D(scopeBounds_.x, edHeaderY, scopeBounds_.w, 28.0f);
+    float edHeaderY = studioBodyBounds_.y + pad;
+    editorHeaderBounds_ = Rect2D(studioBodyBounds_.x + pad, edHeaderY, studioBodyBounds_.w - (pad * 2.0f), 28.0f);
 
     float linkY = edHeaderY + 6.0f;
     float linkRight = editorHeaderBounds_.x + editorHeaderBounds_.w - 10.0f;
@@ -1273,16 +1523,16 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     btnSelectAll_ = Rect2D(btnCopy_.x - 75.0f, linkY, 70.0f, 18.0f);
 
     float edCanvasY = edHeaderY + 28.0f;
-    float edCanvasH = std::min(300.0f, std::max(160.0f, studioBodyBounds_.h - 280.0f));
-    editorCanvasBounds_ = Rect2D(scopeBounds_.x, edCanvasY, scopeBounds_.w, edCanvasH);
+    float edCanvasH = std::max(180.0f, studioBodyBounds_.h - 260.0f);
+    editorCanvasBounds_ = Rect2D(editorHeaderBounds_.x, edCanvasY, editorHeaderBounds_.w, edCanvasH);
     textEditor_.layout(editorCanvasBounds_, ctx);
 
     float statusY = edCanvasY + edCanvasH + 8.0f;
-    statusBannerBounds_ = Rect2D(scopeBounds_.x, statusY, scopeBounds_.w, 26.0f);
+    statusBannerBounds_ = Rect2D(editorHeaderBounds_.x, statusY, editorHeaderBounds_.w, 26.0f);
 
     float liveParamsY = statusY + 32.0f;
     float liveParamsH = std::max(80.0f, studioBodyBounds_.y + studioBodyBounds_.h - liveParamsY - pad);
-    liveParamsSectionBounds_ = Rect2D(scopeBounds_.x, liveParamsY, scopeBounds_.w, liveParamsH);
+    liveParamsSectionBounds_ = Rect2D(editorHeaderBounds_.x, liveParamsY, editorHeaderBounds_.w, liveParamsH);
 
     // Compute parameter card bounds
     float cardW = 160.0f;
@@ -1329,7 +1579,6 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     btnToggleInspector_ = Rect2D(designerToolbarBounds_.x + designerToolbarBounds_.w - 96.0f, designerToolbarBounds_.y + 5.0f, 88.0f, 24.0f);
 
     // Modular Rack layout inside studioBodyBounds_
-    float railH = 16.0f;
     float rackBodyY = studioBodyBounds_.y + modularToolbarBounds_.h;
     float rackBodyH = std::max(200.0f, studioBodyBounds_.h - modularToolbarBounds_.h);
 
@@ -1366,7 +1615,12 @@ void DesignView::render(const ViewContext& ctx) {
 
     renderSubNavHeader(ctx);
 
-    if (isExplorerOpen_ && explorerBounds_.w > 0.0f) {
+    projectDrawer_.update(0.016f);
+    projectDrawer_.render(*ctx.renderer, *ctx.theme, ctx);
+
+    if (projectDrawer_.getAnimProgress() > 0.001f) {
+        ScissorScope scissor(*ctx.renderer, projectDrawer_.getContentBounds().x, projectDrawer_.getContentBounds().y,
+                             projectDrawer_.getContentBounds().w, projectDrawer_.getContentBounds().h);
         renderExplorerSidebar(ctx);
     }
 
@@ -1426,11 +1680,6 @@ void DesignView::render(const ViewContext& ctx) {
 
             itemY += itemH + 2.0f;
         }
-    }
-
-    // Render Module Search Dialog modal overlay on top if open
-    if (moduleSearchDialog_.isOpen() && ctx.renderer && ctx.theme) {
-        moduleSearchDialog_.render(*ctx.renderer, *ctx.theme);
     }
 }
 
@@ -1732,16 +1981,15 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
     const auto& theme = *ctx.theme;
     const auto& activeT = getActiveTarget();
 
-    renderOscilloscope(ctx, scopeBounds_);
-
     drawRect(r, editorHeaderBounds_.x, editorHeaderBounds_.y, editorHeaderBounds_.w, editorHeaderBounds_.h,
              0.13f, 0.15f, 0.19f, 1.0f);
     drawLine(r, editorHeaderBounds_.x, editorHeaderBounds_.y + editorHeaderBounds_.h,
              editorHeaderBounds_.x + editorHeaderBounds_.w, editorHeaderBounds_.y + editorHeaderBounds_.h,
              0.22f, 0.25f, 0.32f, 1.0f, 1.0f);
 
-    std::string targetLabel = "TARGET: " + activeT.title;
-    drawText(r, targetLabel, editorHeaderBounds_.x + 10.0f, editorHeaderBounds_.y + 8.0f, 10.5f,
+    char targetBuf[128];
+    std::snprintf(targetBuf, sizeof(targetBuf), "TARGET: %s", activeT.title.c_str());
+    drawText(r, targetBuf, editorHeaderBounds_.x + 10.0f, editorHeaderBounds_.y + 8.0f, 10.5f,
              activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
 
     drawButton(r, btnSelectAll_, "SELECT ALL", Color{0.12f, 0.14f, 0.18f, 0.8f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.7f, 0.75f, 0.85f, 1.0f}, 9.0f, 3.0f, 1.0f);
@@ -1755,12 +2003,15 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
                     0.05f, 0.22f, 0.12f, 0.85f);
     drawRoundedRectOutline(r, statusBannerBounds_.x, statusBannerBounds_.y, statusBannerBounds_.w, statusBannerBounds_.h, 4.0f,
                            0.0f, 0.95f, 0.45f, 0.7f, 1.0f);
-    drawText(r, "[OK] " + statusMsg_, statusBannerBounds_.x + 10.0f, statusBannerBounds_.y + 6.0f, 9.5f,
+    char statusBuf[128];
+    std::snprintf(statusBuf, sizeof(statusBuf), "[OK] %s", statusMsg_.c_str());
+    drawText(r, statusBuf, statusBannerBounds_.x + 10.0f, statusBannerBounds_.y + 6.0f, 9.5f,
              0.0f, 1.0f, 0.55f, 1.0f);
 
     float titleY = liveParamsSectionBounds_.y;
-    std::string paramHeader = "LIVE SCRIPT PARAMETERS (" + activeT.title + ")";
-    drawText(r, paramHeader, liveParamsSectionBounds_.x, titleY, 10.5f,
+    char paramHdrBuf[128];
+    std::snprintf(paramHdrBuf, sizeof(paramHdrBuf), "LIVE SCRIPT PARAMETERS (%s)", activeT.title.c_str());
+    drawText(r, paramHdrBuf, liveParamsSectionBounds_.x, titleY, 10.5f,
              activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
 
     for (size_t i = 0; i < currentParams_.size(); ++i) {
@@ -1773,9 +2024,9 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
 
         drawText(r, p.name, pb.x + 8.0f, pb.y + 6.0f, 10.0f, 0.95f, 0.95f, 0.95f, 1.0f);
 
-        std::ostringstream valOss;
-        valOss << std::fixed << std::setprecision(1) << p.currentVal;
-        drawText(r, valOss.str(), pb.x + pb.w - 36.0f, pb.y + 6.0f, 10.0f,
+        char valBuf[32];
+        std::snprintf(valBuf, sizeof(valBuf), "%.1f", p.currentVal);
+        drawText(r, valBuf, pb.x + pb.w - 36.0f, pb.y + 6.0f, 10.0f,
                  activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
 
         float trackX = pb.x + 8.0f;
@@ -1793,39 +2044,6 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
         drawCircle(r, thumbX, trackY + 3.0f, 6.0f, 0.95f, 0.95f, 0.95f, 1.0f);
         drawCircle(r, thumbX, trackY + 3.0f, 3.0f, activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
     }
-}
-
-void DesignView::renderOscilloscope(const ViewContext& ctx, const Rect2D& rect) {
-    auto& r = *ctx.renderer;
-
-    drawRoundedRect(r, rect.x, rect.y, rect.w, rect.h, 4.0f, 0.02f, 0.04f, 0.03f, 1.0f);
-    drawRoundedRectOutline(r, rect.x, rect.y, rect.w, rect.h, 4.0f, 0.0f, 0.65f, 0.35f, 0.8f, 1.2f);
-
-    float gridStep = rect.w / 12.0f;
-    for (float gx = rect.x + gridStep; gx < rect.x + rect.w; gx += gridStep) {
-        drawLine(r, gx, rect.y, gx, rect.y + rect.h, 0.0f, 0.22f, 0.12f, 0.4f, 1.0f);
-    }
-    float midY = rect.y + (rect.h * 0.5f);
-    drawLine(r, rect.x, midY, rect.x + rect.w, midY, 0.0f, 0.25f, 0.15f, 0.5f, 1.0f);
-
-    size_t count = !scopeSpan_.empty() ? scopeSpan_.size() : scopeSamples_.size();
-    const float* samples = !scopeSpan_.empty() ? scopeSpan_.data() : scopeSamples_.data();
-    if (count > 1 && samples) {
-        float prevX = rect.x;
-        float prevY = midY - (samples[0] * (rect.h * 0.42f));
-
-        for (size_t s = 1; s < count; ++s) {
-            float px = rect.x + (static_cast<float>(s) / (count - 1)) * rect.w;
-            float py = midY - (samples[s] * (rect.h * 0.42f));
-
-            drawLine(r, prevX, prevY, px, py, 0.0f, 1.0f, 0.60f, 0.95f, 2.0f);
-            prevX = px;
-            prevY = py;
-        }
-    }
-
-    std::string scopeTitle = "[*] OSCILLOSCOPE - " + getActiveTarget().title;
-    drawText(r, scopeTitle, rect.x + 10.0f, rect.y + 6.0f, 9.0f, 0.0f, 1.0f, 0.55f, 1.0f);
 }
 
 void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
@@ -2551,10 +2769,16 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
 }
 
 bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
+    if (projectDrawer_.handlePointer(ev, ctx)) {
+        isExplorerOpen_ = projectDrawer_.isExpanded();
+        return true;
+    }
+
     if (ev.action == PointerAction::Down) {
         // 1. Check Sub-Nav Header clicks
         if (explorerToggleBtn_.contains(ev.x, ev.y)) {
-            isExplorerOpen_ = !isExplorerOpen_;
+            projectDrawer_.toggleExpanded();
+            isExplorerOpen_ = projectDrawer_.isExpanded();
             layout(bounds_, ctx);
             return true;
         }
@@ -2645,11 +2869,33 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 
         // 2. Modular Rack interaction
         if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {
+            // Mobile multi-touch tracking
+            if (ev.isTouch()) {
+                auto it = std::find_if(activeTouches_.begin(), activeTouches_.end(),
+                                       [&](const ActiveTouch& t) { return t.id == ev.id; });
+                if (it == activeTouches_.end()) {
+                    activeTouches_.push_back({ev.id, ev.x, ev.y});
+                } else {
+                    it->x = ev.x;
+                    it->y = ev.y;
+                }
+                if (activeTouches_.size() >= 2) {
+                    isPinchZooming_ = true;
+                    isTouchPanning_ = false;
+                    isPanningCanvas_ = false;
+                    initialPinchDistance_ = std::hypot(activeTouches_[0].x - activeTouches_[1].x,
+                                                       activeTouches_[0].y - activeTouches_[1].y);
+                    lastPinchDistance_ = initialPinchDistance_;
+                    initialPinchZoom_ = modularZoomPan_.getZoomX();
+                    return true;
+                }
+            }
+
             // Modular toolbar buttons
             if (btnModularResetPatch_.contains(ev.x, ev.y)) {
                 resetPatch();
                 if (ctx.onShowNotification) {
-                    ctx.onShowNotification("Reset modular patch cables to default routing");
+                    ctx.onShowNotification("Reset patch to default for " + getActiveTarget().title);
                 }
                 return true;
             }
@@ -2802,11 +3048,17 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 }
             }
 
-            // Canvas Panning (Middle-mouse drag or Right-mouse drag / click)
-            if (ev.button == PointerButton::Middle || ev.button == PointerButton::Right) {
+            // Canvas Panning (Touch drag, Left click on empty canvas, Middle drag, or Right drag/click)
+            if (ev.isTouch() || ev.button == PointerButton::Left || ev.button == PointerButton::Middle || ev.button == PointerButton::Right) {
                 isPanningCanvas_ = true;
                 lastPanPointerX_ = ev.x;
                 lastPanPointerY_ = ev.y;
+                touchPanStartX_ = ev.x;
+                touchPanStartY_ = ev.y;
+                touchDownTimeMs_ = ev.timestampMs > 0.0 ? ev.timestampMs : 1.0;
+                touchDownWorldX_ = wx;
+                touchDownWorldY_ = wy;
+                touchMoved_ = false;
                 if (ev.button == PointerButton::Right) {
                     isRightClickCandidate_ = true;
                     rightClickStartX_ = ev.x;
@@ -3036,6 +3288,28 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (ev.isTouch()) {
+            for (auto& t : activeTouches_) {
+                if (t.id == ev.id) {
+                    t.x = ev.x;
+                    t.y = ev.y;
+                    break;
+                }
+            }
+            if (isPinchZooming_ && activeTouches_.size() >= 2) {
+                float curDist = std::hypot(activeTouches_[0].x - activeTouches_[1].x,
+                                           activeTouches_[0].y - activeTouches_[1].y);
+                if (lastPinchDistance_ > 1.0f && curDist > 1.0f) {
+                    float factor = curDist / lastPinchDistance_;
+                    float midX = (activeTouches_[0].x + activeTouches_[1].x) * 0.5f;
+                    float midY = (activeTouches_[0].y + activeTouches_[1].y) * 0.5f;
+                    modularZoomPan_.zoomAt(midX, midY, factor);
+                    lastPinchDistance_ = curDist;
+                }
+                return true;
+            }
+        }
+
         if (moduleSearchDialog_.isOpen()) {
             if (moduleSearchDialog_.handlePointer(ev)) return true;
         }
@@ -3051,7 +3325,8 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             modularZoomPan_.panByScreen(dx, dy);
             lastPanPointerX_ = ev.x;
             lastPanPointerY_ = ev.y;
-            if (isRightClickCandidate_ && (std::hypot(ev.x - rightClickStartX_, ev.y - rightClickStartY_) > 5.0f)) {
+            if (std::hypot(ev.x - touchPanStartX_, ev.y - touchPanStartY_) > 8.0f) {
+                touchMoved_ = true;
                 isRightClickCandidate_ = false;
             }
             return true;
@@ -3126,6 +3401,15 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
     } else if (ev.action == PointerAction::Up) {
+        if (ev.isTouch()) {
+            activeTouches_.erase(std::remove_if(activeTouches_.begin(), activeTouches_.end(),
+                                                [&](const ActiveTouch& t) { return t.id == ev.id; }),
+                                 activeTouches_.end());
+            if (activeTouches_.size() < 2) {
+                isPinchZooming_ = false;
+            }
+        }
+
         if (moduleSearchDialog_.isOpen()) {
             if (moduleSearchDialog_.handlePointer(ev)) return true;
         }
@@ -3139,6 +3423,11 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             if (isRightClickCandidate_) {
                 isRightClickCandidate_ = false;
                 openModuleSearchDialog(modularZoomPan_.screenToWorldX(ev.x), modularZoomPan_.screenToWorldY(ev.y));
+                return true;
+            }
+            double touchDuration = (ev.timestampMs > 0.0 && touchDownTimeMs_ > 0.0) ? (ev.timestampMs - touchDownTimeMs_) : 0.0;
+            if ((ev.isTouch() || ctx.isMobile) && !touchMoved_ && touchDuration >= 450.0) {
+                openModuleSearchDialog(touchDownWorldX_, touchDownWorldY_);
                 return true;
             }
             return true;

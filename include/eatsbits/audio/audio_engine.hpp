@@ -50,6 +50,7 @@ public:
     bool initialize(const AudioEngineConfig& config = {});
     bool start();
     bool stop();
+    void stopPlayback() noexcept;
     void shutdown();
 
     [[nodiscard]] bool isRunning() const noexcept;

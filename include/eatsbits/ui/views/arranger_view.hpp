@@ -135,6 +135,8 @@ public:
 
     TrackPropertiesDrawer& getPropertiesDrawer() noexcept { return propertiesDrawer_; }
     const TrackPropertiesDrawer& getPropertiesDrawer() const noexcept { return propertiesDrawer_; }
+    [[nodiscard]] TrackPropertiesDrawerData& getDrawerData() noexcept { return drawerData_; }
+    [[nodiscard]] const TrackPropertiesDrawerData& getDrawerData() const noexcept { return drawerData_; }
 
     // Docked Bottom Mixer Drawer Controls
     [[nodiscard]] bool isMixerDrawerOpen() const noexcept { return mixerDrawer_.isExpanded(); }
@@ -189,8 +191,6 @@ public:
     uint32_t extractChordsFromClip(uint32_t trackIdx, uint32_t clipIdx);
     void bakeChordsToTrack(uint32_t trackIdx);
     void syncDrawerDataForTrack(uint32_t trackIdx);
-    [[nodiscard]] TrackPropertiesDrawerData& getDrawerData() noexcept { return drawerData_; }
-    [[nodiscard]] const TrackPropertiesDrawerData& getDrawerData() const noexcept { return drawerData_; }
 
     // Dynamic Clip Chords & Track-to-Track Harmonic Sync
     void updateClipDetectedChords(ArrangerTimelineClip& clip);
@@ -213,6 +213,7 @@ public:
     std::function<void(uint32_t trackIdx, bool solo)> onSoloToggled;
     std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(const theory::ChordEvent& chord)> onAuditionChord;
+    std::function<void()> onAuditionChordEnd;
     std::function<void(uint32_t trackIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
     std::function<void()> onChordTrackChanged;
     std::function<void()> onClipsChanged;
@@ -247,6 +248,7 @@ private:
     void renderTrackHeaders(const ViewContext& ctx);
     void renderRulerAndMinimap(const ViewContext& ctx);
     void renderPropertiesDrawer(const ViewContext& ctx);
+    void syncDrawerData();
 
     float trackHeaderWidth_{190.0f};
     float trackRowHeight_{64.0f};
@@ -336,6 +338,7 @@ private:
     std::vector<theory::ChordEvent> chordTrack_;
     int songKeyRoot_{0}; // C
     bool isSongKeyMinor_{false};
+    bool isAuditioningChord_{false};
 
     // Shared Decoupled Track Properties Drawer
     TrackPropertiesDrawer propertiesDrawer_;

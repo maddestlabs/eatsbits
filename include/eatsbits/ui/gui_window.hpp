@@ -947,6 +947,7 @@ public:
     void syncTrackMidiFxToEngine(uint32_t trackIdx);
     void syncAllTracksFxToEngine();
     void bakeTrackChordsAndFx(uint32_t trackIdx);
+    void stopChordAudition() noexcept;
     [[nodiscard]] int getPreviewingPitch() const noexcept { return previewingPitch_; }
     [[nodiscard]] float getPreviewingVelocity() const noexcept { return previewingVelocity_; }
     void setPreviewingVelocity(float vel) noexcept { previewingVelocity_ = std::clamp(vel, 0.0f, 1.0f); }
@@ -1138,10 +1139,11 @@ private:
     // Interactive State
     WorkspaceView activeView_{WorkspaceView::Arranger};
     EditSubView editSubView_{EditSubView::PianoRoll};
-    DesignSubView designSubView_{DesignSubView::ModularRack};
+    DesignSubView designSubView_{DesignSubView::Eatscript};
     uint32_t selectedTrackIndex_{0};
     int previewingPitch_{-1};
     float previewingVelocity_{0.85f};
+    std::vector<uint8_t> auditionChordNotes_;
     bool mockShiftPressed_{false};
     bool loopEnabled_{false};
     bool metronomeEnabled_{false};

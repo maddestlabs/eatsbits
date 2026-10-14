@@ -3691,6 +3691,16 @@ void GuiWindow::bakeTrackChordsAndFx(uint32_t trackIdx) {
     setStatusMessage("Harmonic chords & MIDI FX baked into Track " + std::to_string(trackIdx + 1) + " Script");
 }
 
+void GuiWindow::stopChordAudition() noexcept {
+    if (!auditionChordNotes_.empty() && engine_) {
+        uint32_t tIdx = modularArrangerView_ ? modularArrangerView_->getActiveTrackIndex() : selectedTrackIndex_;
+        for (uint8_t note : auditionChordNotes_) {
+            engine_->postNoteOff(note, static_cast<int>(tIdx), false);
+        }
+        auditionChordNotes_.clear();
+    }
+}
+
 void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
     selectedTrackIndex_ = trackIndex;
     if (engine_) {
@@ -4099,8 +4109,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     transportHeaderWidget_->onOpenValueEdit = [this](const auto& req) { openValueEditDialog(req); };
     transportHeaderWidget_->onTogglePlay = [this]() {
         if (engine_) {
-            if (engine_->getSequencer().isPlaying()) engine_->getSequencer().stop();
+            if (engine_->getSequencer().isPlaying()) engine_->stopPlayback();
             else engine_->getSequencer().start();
+        }
+    };
+    transportHeaderWidget_->onStop = [this]() {
+        if (engine_) {
+            auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if ((nowMs - lastStopClickTimeMs_) < 400) {
+                engine_->panic();
+                setStatusMessage("[PANIC] Full Audio Stop: All buffers flushed & voices killed");
+            } else {
+                engine_->stopPlayback();
+            }
+            lastStopClickTimeMs_ = nowMs;
         }
     };
     projectBrowserDrawerWidget_->onClose = [this]() { setBrowserOpen(false); };
@@ -4442,7 +4465,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         "action.play_pause", "Play / Pause Transport", "Toggle global transport playback",
         CommandCategory::Action, "Space", [this]() {
             if (engine_) {
-                if (engine_->getSequencer().isPlaying()) engine_->getSequencer().stop();
+                if (engine_->getSequencer().isPlaying()) engine_->stopPlayback();
                 else engine_->getSequencer().start();
             }
         }
@@ -4626,11 +4649,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             }
         };
         modularArrangerView_->onAuditionChord = [this](const theory::ChordEvent& chord) {
+            stopChordAudition();
             if (engine_) {
-                for (int pc : chord.getPitchClasses()) {
-                    engine_->postNoteOn(static_cast<uint8_t>(60 + pc), 0.80f, false, false, static_cast<int>(selectedTrackIndex_));
+                uint32_t tIdx = modularArrangerView_ ? modularArrangerView_->getActiveTrackIndex() : selectedTrackIndex_;
+                auto notes = theory::ChordTheory::getAuditionMidiNotes(chord);
+                for (int note : notes) {
+                    if (note >= 0 && note <= 127) {
+                        uint8_t uNote = static_cast<uint8_t>(note);
+                        engine_->postNoteOn(uNote, 0.80f, false, false, static_cast<int>(tIdx), false);
+                        auditionChordNotes_.push_back(uNote);
+                    }
                 }
             }
+        };
+        modularArrangerView_->onAuditionChordEnd = [this]() {
+            stopChordAudition();
         };
         modularArrangerView_->onTrackSelected = [this](uint32_t idx) {
             setSelectedTrackIndex(idx);
@@ -6745,14 +6778,13 @@ void GuiWindow::renderFrame() {
                 float topY = 56.0f;
                 float bottomY = bPanelY - 6.0f;
 
-                const auto* preset = getActivePreset();
-                std::string_view pTitle = preset ? std::string_view(preset->guiRoot.title) : std::string_view("TB-303 Acid Bassline");
-                std::string_view pSub = preset ? std::string_view(preset->guiRoot.subtitle) : std::string_view("Diode Ladder Synthesizer");
+                uint32_t activeIdx = modularArrangerView_ ? modularArrangerView_->getActiveTrackIndex() : selectedTrackIndex_;
+                selectedTrackIndex_ = activeIdx;
+                if (modularArrangerView_) {
+                    modularArrangerView_->syncDrawerDataForTrack(activeIdx);
+                    modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                }
 
-                modularTrackInspectorView_->syncFromWindow(
-                    std::span<const ArrangerTrackData>(arrangerTracks_),
-                    selectedTrackIndex_, pTitle, pSub, activePresetIndex_, presets_.size(), trackInspectorScrollY_
-                );
                 modularTrackInspectorView_->setAudioScopeBuffer(std::span<const float>(scopeBuffer_, 256));
                 modularTrackInspectorView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
                 modularTrackInspectorView_->render(ctx);
@@ -9974,6 +10006,11 @@ void GuiWindow::setActiveView(WorkspaceView view) noexcept {
     if (view == WorkspaceView::Design) {
         syncDesignViewToProject();
     } else if (view == WorkspaceView::Track && modularTrackInspectorView_) {
+        if (modularArrangerView_) {
+            selectedTrackIndex_ = modularArrangerView_->getActiveTrackIndex();
+            modularArrangerView_->syncDrawerDataForTrack(selectedTrackIndex_);
+            modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+        }
         float topY = 56.0f;
         float bottomY = static_cast<float>(height_) - 32.0f;
         ViewContext ctx = createViewContext();
@@ -14260,7 +14297,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 case TransportAction::PlayPause:
                     if (engine_) {
                         if (engine_->getSequencer().isPlaying()) {
-                            engine_->getSequencer().stop();
+                            engine_->stopPlayback();
                         } else {
                             engine_->getSequencer().start();
                         }
@@ -14274,7 +14311,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                             engine_->panic();
                             setStatusMessage("[PANIC] Full Audio Stop: All buffers flushed & voices killed");
                         } else {
-                            engine_->getSequencer().stop();
+                            engine_->stopPlayback();
                         }
                         lastStopClickTimeMs_ = nowMs;
                     }
@@ -14415,7 +14452,13 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     setActiveView(WorkspaceView::Edit);
                     break;
                 case BottomNavAction::Track:
-                    syncTrackToPreset(selectedTrackIndex_);
+                    if (modularArrangerView_) {
+                        selectedTrackIndex_ = modularArrangerView_->getActiveTrackIndex();
+                        modularArrangerView_->syncDrawerDataForTrack(selectedTrackIndex_);
+                        if (modularTrackInspectorView_) {
+                            modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                        }
+                    }
                     setActiveView(WorkspaceView::Track);
                     break;
                 case BottomNavAction::Mixer:
@@ -14750,11 +14793,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
 
         if (activeView_ == WorkspaceView::HardwarePanel || activeView_ == WorkspaceView::Track) {
-            auto inspHit = hitTestTrackInspector(x, y);
-            if (inspHit.hit) {
-                handleTrackInspectorInteraction(inspHit, x, y);
-                return;
-            }
             if (modularTrackInspectorView_) {
                 ViewContext ctx = createViewContext();
                 PointerEvent pev;
@@ -15887,6 +15925,7 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
     }
 
     if (button == 0 || button == 2) {
+        stopChordAudition();
         if (previewingPitch_ != -1) {
             if (engine_) {
                 engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
@@ -16213,7 +16252,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     if (key == 32 && !isCtrl && !isAlt && !modalOrTerminalActive) {
         if (engine_) {
             if (engine_->getSequencer().isPlaying()) {
-                engine_->getSequencer().stop();
+                engine_->stopPlayback();
             } else {
                 engine_->getSequencer().start();
             }
@@ -16600,7 +16639,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
 
         // Escape (256): Panic stop
         if (key == 256) {
-            engine_->getSequencer().stop();
+            engine_->panic();
             return;
         }
 
@@ -16685,7 +16724,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
         // Escape (256): Panic stop
         if (key == 256) {
-            engine_->getSequencer().stop();
+            engine_->panic();
             return;
         }
         // Up Arrow (265)
@@ -16744,9 +16783,10 @@ void GuiWindow::onKeyDown(int key, int mods) {
             insertScriptNewLine();
             return;
         }
-        // Tab (258)
+        // Tab (258): Cycle active views when editor is not focused
         if (key == 258) {
-            insertScriptText("    ");
+            int next = (static_cast<int>(activeView_) + 1) % 5;
+            setActiveView(static_cast<WorkspaceView>(next));
             return;
         }
         // Space (32)
@@ -16781,7 +16821,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     // Spacebar (32): Toggle Sequencer Play / Stop
     if (key == 32) {
         if (engine_->getSequencer().isPlaying()) {
-            engine_->getSequencer().stop();
+            engine_->stopPlayback();
         } else {
             engine_->getSequencer().start();
         }
@@ -16805,7 +16845,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
         } else if (browserOpen_) {
             browserOpen_ = false;
         } else {
-            engine_->getSequencer().stop();
+            engine_->panic();
         }
     }
     // Tracker View Navigation & QWERTY Musical Note Entry
@@ -16887,7 +16927,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
     // 'R' (82): Panic Stop (outside tracker mode)
     else if (key == 82) {
-        engine_->getSequencer().stop();
+        engine_->panic();
     }
     // Tab / Function Keys for rapid view switching
     else if (key == 290 || key == 49) { // F1 or '1'

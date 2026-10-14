@@ -616,6 +616,17 @@ void TrackInspectorView::setPresetInfo(size_t activePresetIdx, size_t totalPrese
     if (presetSubtitle_ != presetSubtitle) presetSubtitle_ = presetSubtitle;
 }
 
+void TrackInspectorView::syncFromDrawerData(const TrackPropertiesDrawerData& data) {
+    selectedTrackIndex_ = data.trackIndex;
+    drawerData_ = data;
+    drawerData_.tab = TrackPropertiesTab::Track;
+    drawerData_.scopeBuffer = scopeSpan_.empty() ? scopeBuffer_ : scopeSpan_.data();
+    drawerData_.scopeBufferCount = scopeSpan_.empty() ? scopeBufferCount_ : scopeSpan_.size();
+    if (onPopulateClapData) {
+        onPopulateClapData(selectedTrackIndex_, drawerData_);
+    }
+}
+
 void TrackInspectorView::syncFromWindow(
     std::span<const ArrangerTrackData> tracks,
     uint32_t selectedTrackIdx,
@@ -749,12 +760,16 @@ void TrackInspectorView::render(const ViewContext& ctx) {
     drawRect(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h,
              theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
-    updateDrawerData();
+    if (drawerData_.totalTracks == 0 || drawerData_.instrumentEngine.empty()) {
+        updateDrawerData();
+    }
     panel_.render(r, theme, drawerData_, ctx.mouseX, ctx.mouseY);
 }
 
 bool TrackInspectorView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
-    updateDrawerData();
+    if (drawerData_.totalTracks == 0 || drawerData_.instrumentEngine.empty()) {
+        updateDrawerData();
+    }
     bool handled = panel_.handlePointer(ev, drawerData_, ctx);
     syncBackFromDrawerData(drawerData_);
     return handled;

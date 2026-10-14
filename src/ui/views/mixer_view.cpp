@@ -1244,8 +1244,9 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         return true;
     }
 
-    // 1. Sliding Track Properties Drawer (Pull-tab, Drag-resize, Controls)
-    if (propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
+    // 1. Sliding Track Properties Drawer (Active Drag, Pull-tab, Drag-resize, Controls)
+    if (propertiesDrawer_.isDragging() ||
+        propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
         (propertiesDrawer_.isExpanded() && propertiesDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
         if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
             if (onPropertiesDrawerStateChanged) {

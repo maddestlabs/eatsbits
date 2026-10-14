@@ -166,7 +166,7 @@ void TuiApp::stop() {
     if (!running_) return;
     running_ = false;
 
-    audioEngine_.getSequencer().stop();
+    audioEngine_.stopPlayback();
     audioEngine_.stop();
     audioEngine_.shutdown();
 
@@ -298,7 +298,7 @@ void TuiApp::handleMouseEvent(const MouseEvent& mouse) {
             return;
         }
         if (cachedStopBtn_.contains(mouse.x, mouse.y)) {
-            audioEngine_.getSequencer().stop();
+            audioEngine_.stopPlayback();
             recording_ = false;
             return;
         }

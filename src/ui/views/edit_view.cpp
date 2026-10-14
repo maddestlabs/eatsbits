@@ -909,264 +909,268 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
     drawSubBtn(btnTracker_, ctx.isMobile ? "TRACK" : "TRACKER", subView_ == EditSubViewMode::Tracker, theme.secondaryAccent);
     drawSubBtn(btnScore_, ctx.isMobile ? "SCORE" : "SCORE", subView_ == EditSubViewMode::Score, theme.secondaryAccent);
     drawSubBtn(btnScript_, ctx.isMobile ? "SCRIPT" : "SCRIPT", subView_ == EditSubViewMode::Script, theme.primaryAccent);
-}
-
-void EditView::renderPianoRoll(const ViewContext& ctx) {
+}void EditView::renderPianoRoll(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
-    // 1. Grid Background
-    drawRect(r, gridBounds_.x, gridBounds_.y, gridBounds_.w, gridBounds_.h, theme.backgroundDark);
+    // 1-6. Grid Area (Background, Rows, Steps, Ghosts, FX Evaluated Notes, Note Blocks, Marquee, Playhead)
+    {
+        BatchRenderer2D::ScissorScope gridScissor(r, gridBounds_);
 
-    for (int p = minPitch_; p <= maxPitch_; ++p) {
-        float py = gridBounds_.y + static_cast<float>(maxPitch_ - p) * semitoneHeight_ - scrollY_;
-        if (py + semitoneHeight_ < gridBounds_.y || py > gridBounds_.y + gridBounds_.h) continue;
+        // 1. Grid Background
+        drawRect(r, gridBounds_.x, gridBounds_.y, gridBounds_.w, gridBounds_.h, theme.backgroundDark);
 
-        bool isBlack = PianoKeyboard::isBlackKey(p);
-        if (isBlack) {
-            drawRect(r, gridBounds_.x, py, gridBounds_.w, semitoneHeight_, theme.backgroundDark * 0.75f, 0.7f);
-        } else {
-            drawRect(r, gridBounds_.x, py, gridBounds_.w, semitoneHeight_, theme.panelBackground * 0.85f, 0.35f);
-        }
+        for (int p = minPitch_; p <= maxPitch_; ++p) {
+            float py = gridBounds_.y + static_cast<float>(maxPitch_ - p) * semitoneHeight_ - scrollY_;
+            if (py + semitoneHeight_ < gridBounds_.y || py > gridBounds_.y + gridBounds_.h) continue;
 
-        float alpha = (p % 12 == 0) ? 0.6f : 0.2f;
-        drawLine(r, gridBounds_.x, py + semitoneHeight_, gridBounds_.x + gridBounds_.w, py + semitoneHeight_,
-                 theme.gridLineMinor, alpha, (p % 12 == 0) ? 1.5f : 1.0f);
-    }
-
-    // 2. Vertical Grid Steps & Bar Lines
-    float maxNoteStep = 64.0f;
-    for (const auto& n : notes_) {
-        maxNoteStep = std::max(maxNoteStep, n.startStep + n.durationSteps);
-    }
-    int totalGridSteps = std::clamp(static_cast<int>(std::ceil(maxNoteStep / 16.0f) * 16.0f), 64, 128);
-
-    for (int s = 0; s < totalGridSteps; ++s) {
-        float sx = gridBounds_.x + static_cast<float>(s) * stepWidth_ - scrollX_;
-        if (sx < gridBounds_.x || sx > gridBounds_.x + gridBounds_.w) continue;
-
-        bool isBar = (s % 16 == 0);
-        bool isBeat = (s % 4 == 0);
-        float alpha = isBar ? 0.8f : (isBeat ? 0.4f : 0.15f);
-        float lineW = isBar ? 1.8f : 1.0f;
-
-        drawLine(r, sx, gridBounds_.y, sx, gridBounds_.y + gridBounds_.h,
-                 isBar ? theme.primaryAccent : theme.gridLineMinor, alpha, lineW);
-
-        if (isBeat) {
-            std::string stepLabel = std::to_string(s / 4 + 1) + (isBar ? ".1" : ("." + std::to_string(s % 4 + 1)));
-            drawText(r, stepLabel, sx + 4.0f, gridBounds_.y + 4.0f, 8.5f,
-                     isBar ? theme.highlight : theme.textMuted, 0.7f);
-        }
-    }
-
-    // 3. Ghost Notes
-    if (ghostOpacity_ > 0.01f) {
-        for (const auto& gn : ghostNotes_) {
-            float gx = gridBounds_.x + gn.startStep * stepWidth_ - scrollX_;
-            float gw = gn.durationSteps * stepWidth_ - 2.0f;
-            float gy = gridBounds_.y + static_cast<float>(maxPitch_ - gn.pitch) * semitoneHeight_ - scrollY_ + 2.0f;
-            float gh = semitoneHeight_ - 4.0f;
-
-            if (gx + gw < gridBounds_.x || gx > gridBounds_.x + gridBounds_.w) continue;
-            if (gy + gh < gridBounds_.y || gy > gridBounds_.y + gridBounds_.h) continue;
-
-            drawRoundedRect(r, gx, gy, gw, gh, 3.0f, theme.secondaryAccent, 0.35f * ghostOpacity_);
-            drawRoundedRectOutline(r, gx, gy, gw, gh, 3.0f, theme.secondaryAccent, 0.75f * ghostOpacity_, 1.0f);
-        }
-    }
-
-    // 3.5 Real-Time Harmonic Chord Follow & MIDI FX Evaluated Notes Layer (Eatsbeats parity)
-    if (hasActiveChordFollowOrMidiFx()) {
-        for (const auto& ev : evaluatedFxNotes_) {
-            bool matchesBase = false;
-            for (const auto& bn : notes_) {
-                if (std::abs(bn.startStep - ev.startStep) < 0.05f && bn.pitch == ev.pitch) {
-                    matchesBase = true;
-                    break;
-                }
+            bool isBlack = PianoKeyboard::isBlackKey(p);
+            if (isBlack) {
+                drawRect(r, gridBounds_.x, py, gridBounds_.w, semitoneHeight_, theme.backgroundDark * 0.75f, 0.7f);
+            } else {
+                drawRect(r, gridBounds_.x, py, gridBounds_.w, semitoneHeight_, theme.panelBackground * 0.85f, 0.35f);
             }
-            if (matchesBase) continue; // Unchanged base note
 
-            float ex = gridBounds_.x + ev.startStep * stepWidth_ - scrollX_;
-            float ew = std::max(6.0f, ev.durationSteps * stepWidth_ - 2.0f);
-            float ey = gridBounds_.y + static_cast<float>(maxPitch_ - ev.pitch) * semitoneHeight_ - scrollY_ + 1.5f;
-            float eh = semitoneHeight_ - 3.0f;
-
-            if (ex + ew < gridBounds_.x || ex > gridBounds_.x + gridBounds_.w) continue;
-            if (ey + eh < gridBounds_.y || ey > gridBounds_.y + gridBounds_.h) continue;
-
-            bool isChordMode = (chordFollowMode_ != theory::ChordFollowMode::Off);
-            Color fxBodyCol = isChordMode ? Color(0.95f, 0.72f, 0.12f, 0.28f) : Color(0.0f, 0.88f, 0.98f, 0.25f);
-            Color fxOutlineCol = isChordMode ? Color(1.0f, 0.85f, 0.25f, 0.92f) : Color(0.0f, 0.95f, 1.0f, 0.92f);
-
-            drawRoundedRect(r, ex, ey, ew, eh, 3.5f, fxBodyCol, 0.90f);
-            drawRoundedRectOutline(r, ex, ey, ew, eh, 3.5f, fxOutlineCol, 0.95f, 1.5f);
-
-            std::string evLabel = PianoKeyboard::getNoteName(ev.pitch);
-            if (isChordMode) evLabel += " ~CHORD";
-            else evLabel += " ~FX";
-
-            drawText(r, evLabel, ex + 4.0f, ey + 3.5f, 9.0f, fxOutlineCol, 0.95f);
+            float alpha = (p % 12 == 0) ? 0.6f : 0.2f;
+            drawLine(r, gridBounds_.x, py + semitoneHeight_, gridBounds_.x + gridBounds_.w, py + semitoneHeight_,
+                     theme.gridLineMinor, alpha, (p % 12 == 0) ? 1.5f : 1.0f);
         }
-    }
 
-    // 4. Interactive Note Blocks
-    for (const auto& n : notes_) {
-        float nx = gridBounds_.x + n.startStep * stepWidth_ - scrollX_;
-        float nw = n.durationSteps * stepWidth_ - 2.0f;
-        float ny = gridBounds_.y + static_cast<float>(maxPitch_ - n.pitch) * semitoneHeight_ - scrollY_ + 1.5f;
-        float nh = semitoneHeight_ - 3.0f;
+        // 2. Vertical Grid Steps & Bar Lines
+        float maxNoteStep = 64.0f;
+        for (const auto& n : notes_) {
+            maxNoteStep = std::max(maxNoteStep, n.startStep + n.durationSteps);
+        }
+        int totalGridSteps = std::clamp(static_cast<int>(std::ceil(maxNoteStep / 16.0f) * 16.0f), 64, 128);
 
-        if (nx + nw < gridBounds_.x || nx > gridBounds_.x + gridBounds_.w) continue;
-        if (ny + nh < gridBounds_.y || ny > gridBounds_.y + gridBounds_.h) continue;
+        for (int s = 0; s < totalGridSteps; ++s) {
+            float sx = gridBounds_.x + static_cast<float>(s) * stepWidth_ - scrollX_;
+            if (sx < gridBounds_.x || sx > gridBounds_.x + gridBounds_.w) continue;
 
-        // Check if pitch was harmonized/remapped by Chord Follow or MIDI FX
-        int harmonizedPitch = n.pitch;
-        bool isPitchRemapped = false;
+            bool isBar = (s % 16 == 0);
+            bool isBeat = (s % 4 == 0);
+            float alpha = isBar ? 0.8f : (isBeat ? 0.4f : 0.15f);
+            float lineW = isBar ? 1.8f : 1.0f;
+
+            drawLine(r, sx, gridBounds_.y, sx, gridBounds_.y + gridBounds_.h,
+                     isBar ? theme.primaryAccent : theme.gridLineMinor, alpha, lineW);
+
+            if (isBeat) {
+                std::string stepLabel = std::to_string(s / 4 + 1) + (isBar ? ".1" : ("." + std::to_string(s % 4 + 1)));
+                drawText(r, stepLabel, sx + 4.0f, gridBounds_.y + 4.0f, 8.5f,
+                         isBar ? theme.highlight : theme.textMuted, 0.7f);
+            }
+        }
+
+        // 3. Ghost Notes
+        if (ghostOpacity_ > 0.01f) {
+            for (const auto& gn : ghostNotes_) {
+                float gx = gridBounds_.x + gn.startStep * stepWidth_ - scrollX_;
+                float gw = gn.durationSteps * stepWidth_ - 2.0f;
+                float gy = gridBounds_.y + static_cast<float>(maxPitch_ - gn.pitch) * semitoneHeight_ - scrollY_ + 2.0f;
+                float gh = semitoneHeight_ - 4.0f;
+
+                if (gx + gw < gridBounds_.x || gx > gridBounds_.x + gridBounds_.w) continue;
+                if (gy + gh < gridBounds_.y || gy > gridBounds_.y + gridBounds_.h) continue;
+
+                drawRoundedRect(r, gx, gy, gw, gh, 3.0f, theme.secondaryAccent, 0.35f * ghostOpacity_);
+                drawRoundedRectOutline(r, gx, gy, gw, gh, 3.0f, theme.secondaryAccent, 0.75f * ghostOpacity_, 1.0f);
+            }
+        }
+
+        // 3.5 Real-Time Harmonic Chord Follow & MIDI FX Evaluated Notes Layer (Eatsbeats parity)
         if (hasActiveChordFollowOrMidiFx()) {
             for (const auto& ev : evaluatedFxNotes_) {
-                if (std::abs(ev.startStep - n.startStep) < 0.05f) {
-                    harmonizedPitch = ev.pitch;
-                    if (harmonizedPitch != n.pitch) {
-                        isPitchRemapped = true;
+                bool matchesBase = false;
+                for (const auto& bn : notes_) {
+                    if (std::abs(bn.startStep - ev.startStep) < 0.05f && bn.pitch == ev.pitch) {
+                        matchesBase = true;
+                        break;
                     }
-                    break;
                 }
+                if (matchesBase) continue; // Unchanged base note
+
+                float ex = gridBounds_.x + ev.startStep * stepWidth_ - scrollX_;
+                float ew = std::max(6.0f, ev.durationSteps * stepWidth_ - 2.0f);
+                float ey = gridBounds_.y + static_cast<float>(maxPitch_ - ev.pitch) * semitoneHeight_ - scrollY_ + 1.5f;
+                float eh = semitoneHeight_ - 3.0f;
+
+                if (ex + ew < gridBounds_.x || ex > gridBounds_.x + gridBounds_.w) continue;
+                if (ey + eh < gridBounds_.y || ey > gridBounds_.y + gridBounds_.h) continue;
+
+                bool isChordMode = (chordFollowMode_ != theory::ChordFollowMode::Off);
+                Color fxBodyCol = isChordMode ? Color(0.95f, 0.72f, 0.12f, 0.28f) : Color(0.0f, 0.88f, 0.98f, 0.25f);
+                Color fxOutlineCol = isChordMode ? Color(1.0f, 0.85f, 0.25f, 0.92f) : Color(0.0f, 0.95f, 1.0f, 0.92f);
+
+                drawRoundedRect(r, ex, ey, ew, eh, 3.5f, fxBodyCol, 0.90f);
+                drawRoundedRectOutline(r, ex, ey, ew, eh, 3.5f, fxOutlineCol, 0.95f, 1.5f);
+
+                std::string evLabel = PianoKeyboard::getNoteName(ev.pitch);
+                if (isChordMode) evLabel += " ~CHORD";
+                else evLabel += " ~FX";
+
+                drawText(r, evLabel, ex + 4.0f, ey + 3.5f, 9.0f, fxOutlineCol, 0.95f);
             }
         }
 
-        float alpha = n.isSelected ? 1.0f : 0.88f;
-        Color baseCol = n.isSlide ? theme.highlight : trackColor_;
-        float v = std::clamp(n.velocity, 0.08f, 1.0f);
-        // Vary color intensity based on velocity:
-        // Lower velocity = dimmer/subtler, higher velocity = bright/vivid/punchy
-        float velIntensity = 0.35f + 0.65f * v;
-        Color noteCol(std::clamp(baseCol.r * velIntensity, 0.0f, 1.0f),
-                      std::clamp(baseCol.g * velIntensity, 0.0f, 1.0f),
-                      std::clamp(baseCol.b * velIntensity, 0.0f, 1.0f),
-                      baseCol.a);
-        drawRoundedRect(r, nx, ny, nw, nh, 3.5f, noteCol, alpha);
+        // 4. Interactive Note Blocks
+        for (const auto& n : notes_) {
+            float nx = gridBounds_.x + n.startStep * stepWidth_ - scrollX_;
+            float nw = n.durationSteps * stepWidth_ - 2.0f;
+            float ny = gridBounds_.y + static_cast<float>(maxPitch_ - n.pitch) * semitoneHeight_ - scrollY_ + 1.5f;
+            float nh = semitoneHeight_ - 3.0f;
 
-        if (n.isSelected) {
-            drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, Color(1.0f, 1.0f, 1.0f), 1.0f, 2.0f);
-        } else if (isPitchRemapped) {
-            // Distinct glowing gold/cyan border for notes affected by Chord Follow / MIDI FX
-            Color harmCol = (chordFollowMode_ != theory::ChordFollowMode::Off)
-                ? Color(1.0f, 0.84f, 0.20f, 0.95f)
-                : Color(0.0f, 0.95f, 1.0f, 0.95f);
-            drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, harmCol, 1.0f, 1.8f);
+            if (nx + nw < gridBounds_.x || nx > gridBounds_.x + gridBounds_.w) continue;
+            if (ny + nh < gridBounds_.y || ny > gridBounds_.y + gridBounds_.h) continue;
 
-            // Connect base note to harmonized pitch location with subtle guide line
-            float targetY = gridBounds_.y + static_cast<float>(maxPitch_ - harmonizedPitch) * semitoneHeight_ - scrollY_ + 1.5f;
-            drawLine(r, nx + nw * 0.5f, ny + nh * 0.5f, nx + nw * 0.5f, targetY + nh * 0.5f,
-                     harmCol * 0.7f, 0.55f, 1.0f);
-        } else {
-            drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, noteCol * 1.3f, 0.5f + 0.4f * v, 1.0f);
+            // Check if pitch was harmonized/remapped by Chord Follow or MIDI FX
+            int harmonizedPitch = n.pitch;
+            bool isPitchRemapped = false;
+            if (hasActiveChordFollowOrMidiFx()) {
+                for (const auto& ev : evaluatedFxNotes_) {
+                    if (std::abs(ev.startStep - n.startStep) < 0.05f) {
+                        harmonizedPitch = ev.pitch;
+                        if (harmonizedPitch != n.pitch) {
+                            isPitchRemapped = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            float alpha = n.isSelected ? 1.0f : 0.88f;
+            Color baseCol = n.isSlide ? theme.highlight : trackColor_;
+            float v = std::clamp(n.velocity, 0.08f, 1.0f);
+            float velIntensity = 0.35f + 0.65f * v;
+            Color noteCol(std::clamp(baseCol.r * velIntensity, 0.0f, 1.0f),
+                          std::clamp(baseCol.g * velIntensity, 0.0f, 1.0f),
+                          std::clamp(baseCol.b * velIntensity, 0.0f, 1.0f),
+                          baseCol.a);
+            drawRoundedRect(r, nx, ny, nw, nh, 3.5f, noteCol, alpha);
+
+            if (n.isSelected) {
+                drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, Color(1.0f, 1.0f, 1.0f), 1.0f, 2.0f);
+            } else if (isPitchRemapped) {
+                Color harmCol = (chordFollowMode_ != theory::ChordFollowMode::Off)
+                    ? Color(1.0f, 0.84f, 0.20f, 0.95f)
+                    : Color(0.0f, 0.95f, 1.0f, 0.95f);
+                drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, harmCol, 1.0f, 1.8f);
+
+                float targetY = gridBounds_.y + static_cast<float>(maxPitch_ - harmonizedPitch) * semitoneHeight_ - scrollY_ + 1.5f;
+                drawLine(r, nx + nw * 0.5f, ny + nh * 0.5f, nx + nw * 0.5f, targetY + nh * 0.5f,
+                         harmCol * 0.7f, 0.55f, 1.0f);
+            } else {
+                drawRoundedRectOutline(r, nx, ny, nw, nh, 3.5f, noteCol * 1.3f, 0.5f + 0.4f * v, 1.0f);
+            }
+
+            std::string nName = PianoKeyboard::getNoteName(n.pitch);
+            if (isPitchRemapped) {
+                nName += " -> " + PianoKeyboard::getNoteName(harmonizedPitch);
+            } else if (chordFollowMode_ != theory::ChordFollowMode::Off) {
+                nName += " [H]";
+            }
+            if (n.isSlide) nName += " ~SLD";
+            drawText(r, nName, nx + 4.0f, ny + 3.5f, 9.5f, Color(0.1f, 0.1f, 0.1f), 0.95f);
+
+            if (n.isSlide) {
+                drawLine(r, nx + 4.0f, ny + nh - 4.0f, nx + std::min(nw - 4.0f, 32.0f), ny + 4.0f,
+                         Color(0.2f, 0.2f, 0.2f), 0.75f, 2.0f);
+            }
+            if (n.isAccent) {
+                drawCircle(r, nx + nw - 8.0f, ny + 6.0f, 2.5f, Color(0.95f, 0.2f, 0.2f));
+            }
+
+            if (nw > 14.0f) {
+                drawLine(r, nx + nw - 4.0f, ny + 3.0f, nx + nw - 4.0f, ny + nh - 3.0f,
+                         Color(0.0f, 0.0f, 0.0f), 0.45f, 1.5f);
+            }
         }
 
-        std::string nName = PianoKeyboard::getNoteName(n.pitch);
-        if (isPitchRemapped) {
-            nName += " -> " + PianoKeyboard::getNoteName(harmonizedPitch);
-        } else if (chordFollowMode_ != theory::ChordFollowMode::Off) {
-            nName += " [H]";
-        }
-        if (n.isSlide) nName += " ~SLD";
-        drawText(r, nName, nx + 4.0f, ny + 3.5f, 9.5f, Color(0.1f, 0.1f, 0.1f), 0.95f);
+        // 5. Marquee Selection Rectangle
+        if (dragMode_ == DragMode::MarqueeSelect) {
+            float mx = std::min(dragStartPoint_.x, marqueeCurrentPoint_.x);
+            float my = std::min(dragStartPoint_.y, marqueeCurrentPoint_.y);
+            float mw = std::abs(marqueeCurrentPoint_.x - dragStartPoint_.x);
+            float mh = std::abs(marqueeCurrentPoint_.y - dragStartPoint_.y);
 
-        if (n.isSlide) {
-            drawLine(r, nx + 4.0f, ny + nh - 4.0f, nx + std::min(nw - 4.0f, 32.0f), ny + 4.0f,
-                     Color(0.2f, 0.2f, 0.2f), 0.75f, 2.0f);
-        }
-        if (n.isAccent) {
-            drawCircle(r, nx + nw - 8.0f, ny + 6.0f, 2.5f, Color(0.95f, 0.2f, 0.2f));
+            drawRect(r, mx, my, mw, mh, theme.primaryAccent, 0.18f);
+            drawRoundedRectOutline(r, mx, my, mw, mh, 2.0f, theme.primaryAccent, 0.9f, 1.5f);
         }
 
-        if (nw > 14.0f) {
-            drawLine(r, nx + nw - 4.0f, ny + 3.0f, nx + nw - 4.0f, ny + nh - 3.0f,
-                     Color(0.0f, 0.0f, 0.0f), 0.45f, 1.5f);
-        }
-    }
-
-    // 5. Marquee Selection Rectangle
-    if (dragMode_ == DragMode::MarqueeSelect) {
-        float mx = std::min(dragStartPoint_.x, marqueeCurrentPoint_.x);
-        float my = std::min(dragStartPoint_.y, marqueeCurrentPoint_.y);
-        float mw = std::abs(marqueeCurrentPoint_.x - dragStartPoint_.x);
-        float mh = std::abs(marqueeCurrentPoint_.y - dragStartPoint_.y);
-
-        drawRect(r, mx, my, mw, mh, theme.primaryAccent, 0.18f);
-        drawRoundedRectOutline(r, mx, my, mw, mh, 2.0f, theme.primaryAccent, 0.9f, 1.5f);
-    }
-
-    // 6. Playhead Indicator
-    if (ctx.audioEngine && ctx.audioEngine->getSequencer().isPlaying()) {
-        float currentStep = static_cast<float>(ctx.audioEngine->getSequencer().getTransport().getCurrentStep());
-        float px = gridBounds_.x + currentStep * stepWidth_ - scrollX_;
-        if (px >= gridBounds_.x && px <= gridBounds_.x + gridBounds_.w) {
-            drawLine(r, px, gridBounds_.y, px, gridBounds_.y + gridBounds_.h,
-                     theme.playActive, 0.95f, 2.0f);
-            drawRoundedRect(r, px - 5.0f, gridBounds_.y, 10.0f, 8.0f, 2.0f, theme.playActive, 1.0f);
+        // 6. Playhead Indicator
+        if (ctx.audioEngine && ctx.audioEngine->getSequencer().isPlaying()) {
+            float currentStep = static_cast<float>(ctx.audioEngine->getSequencer().getTransport().getCurrentStep());
+            float px = gridBounds_.x + currentStep * stepWidth_ - scrollX_;
+            if (px >= gridBounds_.x && px <= gridBounds_.x + gridBounds_.w) {
+                drawLine(r, px, gridBounds_.y, px, gridBounds_.y + gridBounds_.h,
+                         theme.playActive, 0.95f, 2.0f);
+                drawRoundedRect(r, px - 5.0f, gridBounds_.y, 10.0f, 8.0f, 2.0f, theme.playActive, 1.0f);
+            }
         }
     }
 
     // 7. Left Piano Keyboard Gutter
-    drawRect(r, pianoGutterBounds_.x, pianoGutterBounds_.y, pianoGutterBounds_.w, pianoGutterBounds_.h, theme.panelHeader);
-    drawLine(r, pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y,
-             pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y + pianoGutterBounds_.h,
-             theme.borderSubtle, 0.9f, 1.5f);
+    {
+        BatchRenderer2D::ScissorScope gutterScissor(r, pianoGutterBounds_);
+        drawRect(r, pianoGutterBounds_.x, pianoGutterBounds_.y, pianoGutterBounds_.w, pianoGutterBounds_.h, theme.panelHeader);
+        drawLine(r, pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y,
+                 pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y + pianoGutterBounds_.h,
+                 theme.borderSubtle, 0.9f, 1.5f);
 
-    for (int p = minPitch_; p <= maxPitch_; ++p) {
-        float py = pianoGutterBounds_.y + static_cast<float>(maxPitch_ - p) * semitoneHeight_ - scrollY_;
-        if (py + semitoneHeight_ < pianoGutterBounds_.y || py > pianoGutterBounds_.y + pianoGutterBounds_.h) continue;
+        for (int p = minPitch_; p <= maxPitch_; ++p) {
+            float py = pianoGutterBounds_.y + static_cast<float>(maxPitch_ - p) * semitoneHeight_ - scrollY_;
+            if (py + semitoneHeight_ < pianoGutterBounds_.y || py > pianoGutterBounds_.y + pianoGutterBounds_.h) continue;
 
-        bool isBlack = PianoKeyboard::isBlackKey(p);
-        bool isAuditioning = (p == auditioningPitch_);
-        if (isBlack) {
-            Color keyCol = isAuditioning ? theme.highlight : Color(0.12f, 0.12f, 0.14f);
-            drawRect(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
-                     keyCol, 1.0f);
-            drawRoundedRectOutline(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
-                                   1.0f, isAuditioning ? theme.highlight : Color(0.25f, 0.25f, 0.28f), 0.8f, 1.0f);
-        } else {
-            Color keyCol = isAuditioning ? (theme.highlight * 0.85f) : Color(0.88f, 0.88f, 0.86f);
-            drawRect(r, pianoGutterBounds_.x, py, pianoGutterBounds_.w, semitoneHeight_,
-                     keyCol, 1.0f);
-            drawLine(r, pianoGutterBounds_.x, py + semitoneHeight_, pianoGutterBounds_.x + pianoGutterBounds_.w, py + semitoneHeight_,
-                     Color(0.35f, 0.35f, 0.35f), 0.5f, 1.0f);
+            bool isBlack = PianoKeyboard::isBlackKey(p);
+            bool isAuditioning = (p == auditioningPitch_);
+            if (isBlack) {
+                Color keyCol = isAuditioning ? theme.highlight : Color(0.12f, 0.12f, 0.14f);
+                drawRect(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
+                         keyCol, 1.0f);
+                drawRoundedRectOutline(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
+                                       1.0f, isAuditioning ? theme.highlight : Color(0.25f, 0.25f, 0.28f), 0.8f, 1.0f);
+            } else {
+                Color keyCol = isAuditioning ? (theme.highlight * 0.85f) : Color(0.88f, 0.88f, 0.86f);
+                drawRect(r, pianoGutterBounds_.x, py, pianoGutterBounds_.w, semitoneHeight_,
+                         keyCol, 1.0f);
+                drawLine(r, pianoGutterBounds_.x, py + semitoneHeight_, pianoGutterBounds_.x + pianoGutterBounds_.w, py + semitoneHeight_,
+                         Color(0.35f, 0.35f, 0.35f), 0.5f, 1.0f);
 
-            if (p % 12 == 0) {
-                std::string cLabel = "C" + std::to_string(p / 12 - 1);
-                drawText(r, cLabel, pianoGutterBounds_.x + pianoGutterBounds_.w - 24.0f, py + semitoneHeight_ - 15.0f, 9.5f,
-                         Color(0.15f, 0.15f, 0.15f), 1.0f);
+                if (p % 12 == 0) {
+                    std::string cLabel = "C" + std::to_string(p / 12 - 1);
+                    drawText(r, cLabel, pianoGutterBounds_.x + pianoGutterBounds_.w - 24.0f, py + semitoneHeight_ - 15.0f, 9.5f,
+                             Color(0.15f, 0.15f, 0.15f), 1.0f);
+                }
             }
         }
     }
 
     // 8. Velocity Lane
-    drawRect(r, velocityLaneBounds_.x, velocityLaneBounds_.y, velocityLaneBounds_.w, velocityLaneBounds_.h,
-             theme.panelBackground * 0.8f);
-    drawLine(r, velocityLaneBounds_.x, velocityLaneBounds_.y, velocityLaneBounds_.x + velocityLaneBounds_.w, velocityLaneBounds_.y,
-             theme.borderSubtle, 0.85f, 1.5f);
+    {
+        BatchRenderer2D::ScissorScope velScissor(r, velocityLaneBounds_);
+        drawRect(r, velocityLaneBounds_.x, velocityLaneBounds_.y, velocityLaneBounds_.w, velocityLaneBounds_.h,
+                 theme.panelBackground * 0.8f);
+        drawLine(r, velocityLaneBounds_.x, velocityLaneBounds_.y, velocityLaneBounds_.x + velocityLaneBounds_.w, velocityLaneBounds_.y,
+                 theme.borderSubtle, 0.85f, 1.5f);
 
-    drawText(r, "VELOCITY", velocityLaneBounds_.x + 8.0f, velocityLaneBounds_.y + 6.0f, 9.0f,
-             theme.textMuted, 0.7f);
+        drawText(r, "VELOCITY", velocityLaneBounds_.x + 8.0f, velocityLaneBounds_.y + 6.0f, 9.0f,
+                 theme.textMuted, 0.7f);
 
-    for (const auto& n : notes_) {
-        float sx = velocityLaneBounds_.x + n.startStep * stepWidth_ - scrollX_ + 4.0f;
-        if (sx < velocityLaneBounds_.x || sx > velocityLaneBounds_.x + velocityLaneBounds_.w) continue;
+        for (const auto& n : notes_) {
+            float sx = velocityLaneBounds_.x + n.startStep * stepWidth_ - scrollX_ + 4.0f;
+            if (sx < velocityLaneBounds_.x || sx > velocityLaneBounds_.x + velocityLaneBounds_.w) continue;
 
-        float stalkH = (velocityLaneBounds_.h - 26.0f) * n.velocity;
-        float sy = velocityLaneBounds_.y + velocityLaneBounds_.h - stalkH - 6.0f;
+            float stalkH = (velocityLaneBounds_.h - 26.0f) * n.velocity;
+            float sy = velocityLaneBounds_.y + velocityLaneBounds_.h - stalkH - 6.0f;
 
-        Color vCol = n.isSelected ? theme.highlight : trackColor_;
-        drawLine(r, sx, velocityLaneBounds_.y + velocityLaneBounds_.h - 6.0f, sx, sy, vCol, 0.85f, 2.0f);
-        drawCircle(r, sx, sy, 4.0f, vCol);
-        if (n.isSelected) {
-            drawCircleOutline(r, sx, sy, 4.0f, Color(1.0f, 1.0f, 1.0f), 1.0f, 1.5f);
+            Color vCol = n.isSelected ? theme.highlight : trackColor_;
+            drawLine(r, sx, velocityLaneBounds_.y + velocityLaneBounds_.h - 6.0f, sx, sy, vCol, 0.85f, 2.0f);
+            drawCircle(r, sx, sy, 4.0f, vCol);
+            if (n.isSelected) {
+                drawCircleOutline(r, sx, sy, 4.0f, Color(1.0f, 1.0f, 1.0f), 1.0f, 1.5f);
+            }
         }
     }
-
 }
 
 void EditView::renderTracker(const ViewContext& ctx) {
@@ -1817,6 +1821,7 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 
                     Rect2D noteRect(nx, ny, nw, nh);
                     if (noteRect.contains(ev.x, ev.y)) {
+                        lastGridClickHadNote_ = true;
                         if (ev.button == PointerButton::Right) {
                             deleteNoteAt(n.startStep, n.pitch);
                             return true;
@@ -1850,13 +1855,42 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     }
                 }
 
-                if (ev.type == PointerType::Touch) {
-                    dragMode_ = DragMode::TouchGridPending;
-                    touchDownPos_ = Point2D{ev.x, ev.y};
-                    touchDownTimeMs_ = ev.timestampMs;
-                    touchDownTimePoint_ = std::chrono::steady_clock::now();
-                    touchLongPressArmed_ = false;
-                    touchPanCommitted_ = false;
+                // Check double-click / double-tap on Down to create note and immediately arm resizing if held
+                auto now = std::chrono::steady_clock::now();
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGridClickTime_).count();
+                float clickDist = std::hypot(ev.x - lastGridClickPos_.x, ev.y - lastGridClickPos_.y);
+                bool isDouble = (elapsedMs < 400 && clickDist < 25.0f && !lastGridClickHadNote_);
+
+                if (isDouble) {
+                    float step = std::floor((ev.x - gridBounds_.x + scrollX_) / stepWidth_);
+                    int pitch = maxPitch_ - static_cast<int>((ev.y - gridBounds_.y + scrollY_) / semitoneHeight_);
+                    if (step >= 0.0f && step < 128.0f && pitch >= minPitch_ && pitch <= maxPitch_) {
+                        clearSelection();
+                        addNote(static_cast<uint8_t>(pitch), step, 1.0f, 0.85f);
+                        if (!notes_.empty()) {
+                            notes_.back().isSelected = true;
+                            dragMode_ = DragMode::ResizeNotes;
+                            activeDragNoteIdx_ = static_cast<int>(notes_.size() - 1);
+                            activeDragInitialDur_ = 1.0f;
+                            dragStartPoint_ = Point2D{ev.x, ev.y};
+                        }
+                        auditionPitch(pitch, 0.85f, ctx);
+                        if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
+                    }
+                    lastGridClickTime_ = std::chrono::steady_clock::time_point{};
+                    lastGridClickHadNote_ = false;
+                    return true;
+                }
+
+                // Not double-click: record single click/tap
+                lastGridClickTime_ = now;
+                lastGridClickPos_ = Point2D{ev.x, ev.y};
+                lastGridClickHadNote_ = false;
+
+                if (ev.type == PointerType::Touch || ctx.isMobile) {
+                    // Mobile: single tap/touch directly pans the piano roll just like middle mouse
+                    clearSelection();
+                    dragMode_ = DragMode::TouchPan;
                     dragStartPoint_ = Point2D{ev.x, ev.y};
                     panStartScrollX_ = scrollX_;
                     panStartScrollY_ = scrollY_;
@@ -2147,25 +2181,8 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 float clickDist = std::hypot(ev.x - lastGridClickPos_.x, ev.y - lastGridClickPos_.y);
 
                 if (subView_ == EditSubViewMode::PianoRoll && gridBounds_.contains(ev.x, ev.y)) {
-                    if (elapsedMs < 350 && clickDist < 14.0f) {
-                        // Double-click creates a note
-                        float step = std::floor((ev.x - gridBounds_.x + scrollX_) / stepWidth_);
-                        int pitch = maxPitch_ - static_cast<int>((ev.y - gridBounds_.y + scrollY_) / semitoneHeight_);
-                        if (step >= 0.0f && step < 128.0f && pitch >= minPitch_ && pitch <= maxPitch_) {
-                            addNote(static_cast<uint8_t>(pitch), step, 1.0f, 0.85f);
-                            if (!notes_.empty()) {
-                                notes_.back().isSelected = true;
-                            }
-                            auditionPitch(pitch, 0.85f, ctx);
-                            if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
-                        }
-                        lastGridClickTime_ = std::chrono::steady_clock::time_point{};
-                    } else {
-                        // Single click clears selection
-                        clearSelection();
-                        lastGridClickTime_ = now;
-                        lastGridClickPos_ = Point2D{ev.x, ev.y};
-                    }
+                    // Double-click note creation and hold-to-resize are handled on Down.
+                    // Preserve lastGridClickTime_ and lastGridClickPos_ for the second click Down event.
                 } else if (subView_ == EditSubViewMode::Score) {
                     float staffStartX = contentBounds_.x + 50.0f;
                     float staffEndX = contentBounds_.x + contentBounds_.w - 40.0f;

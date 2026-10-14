@@ -657,7 +657,7 @@ void testDesignView() {
     std::cout << "[Test 6/11] DesignView (Modular Rack & Visual GUI Designer)..." << std::endl;
 
     DesignView design;
-    assert(design.getSubMode() == DesignSubMode::ModularRack);
+    assert(design.getSubMode() == DesignSubMode::Code);
 
     design.setSubMode(DesignSubMode::Eatscript);
     assert(design.getSubMode() == DesignSubMode::Eatscript);
@@ -3494,7 +3494,135 @@ void testUnifiedSlidingDockAndDrawer() {
         assert(!bBounds.intersects(pBounds));
     }
 
-    std::cout << "  [PASS] Unified SlidingDrawer, Multi-Tab SlidingDock, Side-by-Side Drawers & Terminal validated." << std::endl;
+    // 6. TrackPropertiesDrawer pointer interaction, mousewheel scrolling, and knob interaction verification
+    {
+        TrackPropertiesDrawer props;
+        props.setExpanded(true);
+        props.setAnimProgress(1.0f);
+
+        Rect2D container(0.0f, 56.0f, 1920.0f, 1080.0f - 56.0f - 48.0f);
+        props.layout(container, 0.0f);
+
+        TrackPropertiesDrawerData data;
+        data.trackIndex = 0;
+        data.totalTracks = 3;
+        data.trackName = "Lead Synth";
+        data.instrument = "TB-303";
+        data.volume = 0.8f;
+        data.pan = 0.0f;
+        data.tab = TrackPropertiesTab::Track;
+        data.syncKnobsIfEmpty();
+
+        ViewContext ctx;
+        ctx.logicalWidth = 1920.0f;
+        ctx.logicalHeight = 1080.0f;
+
+        // Verify initial scroll is 0
+        assertNear(props.getScrollY(), 0.0f, 0.01f);
+
+        Rect2D drawerBounds = props.getDrawerBounds();
+        float insideX = drawerBounds.x + drawerBounds.w * 0.5f;
+        float insideY = drawerBounds.y + 120.0f;
+
+        // Verify mousewheel scroll down inside the drawer
+        PointerEvent scrollEv;
+        scrollEv.action = PointerAction::Scroll;
+        scrollEv.x = insideX;
+        scrollEv.y = insideY;
+        scrollEv.scrollX = 0.0f;
+        scrollEv.scrollY = -3.0f; // Scroll downwards
+        bool scrollHandled = props.handlePointer(scrollEv, data, ctx);
+        assert(scrollHandled);
+        assert(props.getScrollY() > 0.0f);
+
+        // Verify top tab switcher click to CLIP
+        float tabW = (drawerBounds.w - 60.0f) * 0.5f;
+        float clipTabX = drawerBounds.x + 14.0f + tabW * 1.5f;
+        float tabY = drawerBounds.y + 18.0f;
+
+        PointerEvent clickClipTab;
+        clickClipTab.action = PointerAction::Down;
+        clickClipTab.x = clipTabX;
+        clickClipTab.y = tabY;
+        clickClipTab.button = PointerButton::Left;
+        bool tabHandled = props.handlePointer(clickClipTab, data, ctx);
+        assert(tabHandled);
+        assert(data.tab == TrackPropertiesTab::Clip);
+
+        // Verify top tab switcher click back to TRACK
+        float trackTabX = drawerBounds.x + 10.0f + tabW * 0.5f;
+        PointerEvent clickTrackTab;
+        clickTrackTab.action = PointerAction::Down;
+        clickTrackTab.x = trackTabX;
+        clickTrackTab.y = tabY;
+        clickTrackTab.button = PointerButton::Left;
+        props.handlePointer(clickTrackTab, data, ctx);
+        assert(data.tab == TrackPropertiesTab::Track);
+
+        // Verify close button closes the drawer
+        Rect2D closeBtn = props.getCloseButtonBounds();
+        PointerEvent clickClose;
+        clickClose.action = PointerAction::Down;
+        clickClose.x = closeBtn.x + closeBtn.w * 0.5f;
+        clickClose.y = closeBtn.y + closeBtn.h * 0.5f;
+        clickClose.button = PointerButton::Left;
+        props.handlePointer(clickClose, data, ctx);
+        assert(!props.isExpanded());
+
+        // Verify pull-tab click toggles it open again
+        props.layout(container, 0.0f);
+        Rect2D pullTab = props.getPullTabBounds();
+        PointerEvent downPullTab;
+        downPullTab.action = PointerAction::Down;
+        downPullTab.x = pullTab.x + pullTab.w * 0.5f;
+        downPullTab.y = pullTab.y + 100.0f;
+        downPullTab.button = PointerButton::Left;
+        props.handlePointer(downPullTab, data, ctx);
+
+        PointerEvent upPullTab;
+        upPullTab.action = PointerAction::Up;
+        upPullTab.x = pullTab.x + pullTab.w * 0.5f;
+        upPullTab.y = pullTab.y + 100.0f;
+        upPullTab.button = PointerButton::Left;
+        props.handlePointer(upPullTab, data, ctx);
+        assert(props.isExpanded());
+    }
+
+    // 7. ArrangerView pointer dispatch to TrackPropertiesDrawer
+    {
+        ArrangerView arranger;
+        Rect2D screenRect(0.0f, 56.0f, 1920.0f, 1080.0f - 56.0f - 48.0f);
+        ViewContext ctx;
+        ctx.logicalWidth = 1920.0f;
+        ctx.logicalHeight = 1080.0f;
+        arranger.layout(screenRect, ctx);
+        arranger.setInspectorOpen(true);
+        arranger.getPropertiesDrawer().setAnimProgress(1.0f);
+        arranger.layout(screenRect, ctx);
+
+        auto& drawer = arranger.getPropertiesDrawer();
+        float initScroll = drawer.getScrollY();
+        assertNear(initScroll, 0.0f, 0.01f);
+
+        Rect2D dBounds = drawer.getDrawerBounds();
+        PointerEvent scrollEv;
+        scrollEv.action = PointerAction::Scroll;
+        scrollEv.x = dBounds.x + dBounds.w * 0.5f;
+        scrollEv.y = dBounds.y + 150.0f;
+        scrollEv.scrollX = 0.0f;
+        scrollEv.scrollY = -4.0f;
+
+        float arrScrollYBefore = arranger.getScrollY();
+        bool handled = arranger.handlePointer(scrollEv, ctx);
+        assert(handled);
+
+        // Properties drawer scrollY increased
+        assert(drawer.getScrollY() > 0.0f);
+        // Arranger timeline grid scroll was NOT affected
+        assertNear(arranger.getScrollY(), arrScrollYBefore, 0.01f);
+    }
+
+    std::cout << "  [PASS] Unified SlidingDrawer, Multi-Tab SlidingDock, Side-by-Side Drawers, Interaction & Scroll validated." << std::endl;
 }
 
 int main() {

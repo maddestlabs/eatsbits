@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <bitset>
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -61,7 +62,7 @@ public:
     // Real-Time Note and Parameter Event Handling
     void handleEvent(const AudioEvent& event) noexcept override;
     void noteOn(uint8_t note, float velocity, int16_t channel = 0) noexcept;
-    void noteOff(uint8_t note, int16_t channel = 0) noexcept;
+    void noteOff(int16_t note, int16_t channel = -1) noexcept;
     void allNotesOff() noexcept;
 
     // Transport & Tempo
@@ -234,16 +235,18 @@ private:
     clap_output_events_t outEventsList_{};
 
     // Ring-buffer / pre-allocated event caches for processBlock
-    static constexpr size_t kMaxEventsPerBlock = 256;
+    static constexpr size_t kMaxEventsPerBlock = 512;
     std::array<clap_event_note_t, kMaxEventsPerBlock> noteEventsCache_{};
+    std::array<clap_event_midi_t, 128> midiEventsCache_{};
     std::array<clap_event_param_value_t, kMaxEventsPerBlock> paramEventsCache_{};
-    std::array<const clap_event_header_t*, kMaxEventsPerBlock> eventHeadersCache_{};
+    std::array<const clap_event_header_t*, kMaxEventsPerBlock * 2> eventHeadersCache_{};
     uint32_t activeEventCount_{0};
+    std::array<std::bitset<128>, 16> activeNotesOnChannel_{};
 
     // Thread-safe pending events queue populated by handleEvent
     struct PendingEvent {
-        enum class Type { NoteOn, NoteOff, SetParam } type;
-        uint8_t note{60};
+        enum class Type { NoteOn, NoteOff, AllNotesOff, SetParam } type;
+        int16_t note{60};
         float velocity{0.8f};
         int16_t channel{0};
         clap_id paramId{0};
@@ -253,6 +256,8 @@ private:
     std::array<PendingEvent, kQueueCapacity> pendingQueue_{};
     std::atomic<uint32_t> queueWritePos_{0};
     std::atomic<uint32_t> queueReadPos_{0};
+
+    std::atomic<bool> needsPanicReset_{false};
 
     int64_t steadyTime_{0};
     std::atomic<bool> isActivated_{false};

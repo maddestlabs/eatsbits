@@ -153,9 +153,29 @@ void SlidingDrawer::updateGeometry() {
         const float drawerX = containerBounds_.x + edgeMargin_;
 
         drawerBounds_ = Rect2D(drawerX, containerBounds_.y, extent_ * progress, effectiveH);
-        pullTabBounds_ = Rect2D(drawerBounds_.x + drawerBounds_.w, containerBounds_.y + config_.tab.tabOffset, tabW, config_.tab.tabHeight);
+        if (config_.tab.fullEdgeTab) {
+            pullTabBounds_ = Rect2D(drawerBounds_.x + drawerBounds_.w, containerBounds_.y, tabW, effectiveH);
+        } else {
+            const float tabH = config_.tab.tabHeight;
+            float tabY = containerBounds_.y + config_.tab.tabOffset;
+            if (config_.tab.tabPlacement == DockTabPlacement::Center) {
+                tabY = containerBounds_.y + (effectiveH - tabH) * 0.5f + config_.tab.tabOffset;
+            }
+            pullTabBounds_ = Rect2D(drawerBounds_.x + drawerBounds_.w, tabY, tabW, tabH);
+        }
         resizeHandleBounds_ = Rect2D(drawerBounds_.x + drawerBounds_.w - 4.0f, containerBounds_.y, 8.0f, effectiveH);
-        contentBounds_ = drawerBounds_;
+
+        float headerH = config_.tab.showHeaderBar ? config_.tab.headerHeight : 0.0f;
+        if (headerH > 0.0f) {
+            headerBounds_ = Rect2D(drawerBounds_.x, containerBounds_.y, drawerBounds_.w, headerH);
+            closeButtonBounds_ = Rect2D(drawerBounds_.x + drawerBounds_.w - 28.0f, containerBounds_.y + (headerH - 22.0f) * 0.5f, 22.0f, 22.0f);
+        } else {
+            headerBounds_ = Rect2D();
+            closeButtonBounds_ = config_.tab.showCloseButton
+                ? Rect2D(drawerBounds_.x + drawerBounds_.w - 26.0f, containerBounds_.y + 3.0f, 20.0f, 18.0f)
+                : Rect2D();
+        }
+        contentBounds_ = Rect2D(drawerBounds_.x, containerBounds_.y + headerH, drawerBounds_.w, (std::max)(0.0f, effectiveH - headerH));
 
     } else if (config_.edge == DockEdge::Top) {
         const float effectiveW = containerBounds_.w;
@@ -208,7 +228,7 @@ void SlidingDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme, const V
             drawMonoText(r, config_.tab.title, pullTabBounds_.x + 28.0f, pullTabBounds_.y + 5.0f, 10.0f,
                          isExpanded_ ? theme.primaryAccent : theme.textPrimary);
         }
-    } else if (config_.edge == DockEdge::Right) {
+    } else if (config_.edge == DockEdge::Right || config_.edge == DockEdge::Left) {
         drawRoundedRect(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f, tabBg);
         drawRoundedRectOutline(r, pullTabBounds_.x, pullTabBounds_.y, pullTabBounds_.w, pullTabBounds_.h, 4.0f,
                                theme.borderSubtle, 1.0f);
@@ -216,7 +236,7 @@ void SlidingDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme, const V
         // Icon or Vertical Text
         if (!config_.tab.title.empty()) {
             drawRotatedText(r, config_.tab.title, pullTabBounds_.x + pullTabBounds_.w * 0.5f,
-                            pullTabBounds_.y + pullTabBounds_.h * 0.5f, 90.0f, 10.0f,
+                            pullTabBounds_.y + pullTabBounds_.h * 0.5f, config_.edge == DockEdge::Left ? -90.0f : 90.0f, 10.0f,
                             isExpanded_ ? theme.primaryAccent : theme.textPrimary);
         }
     }
@@ -256,9 +276,10 @@ void SlidingDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme, const V
             float handleCx = drawerBounds_.x + drawerBounds_.w * 0.5f;
             drawRoundedRect(r, handleCx - 24.0f, drawerBounds_.y + 1.0f, 48.0f, 3.0f, 1.5f,
                             isResizing_ ? theme.primaryAccent : theme.borderSubtle);
-        } else if (config_.edge == DockEdge::Right) {
+        } else if (config_.edge == DockEdge::Right || config_.edge == DockEdge::Left) {
             float handleCy = drawerBounds_.y + drawerBounds_.h * 0.5f;
-            drawRoundedRect(r, drawerBounds_.x + 1.0f, handleCy - 24.0f, 3.0f, 48.0f, 1.5f,
+            float handleX = (config_.edge == DockEdge::Right) ? (drawerBounds_.x + 1.0f) : (drawerBounds_.x + drawerBounds_.w - 4.0f);
+            drawRoundedRect(r, handleX, handleCy - 24.0f, 3.0f, 48.0f, 1.5f,
                             isResizing_ ? theme.primaryAccent : theme.borderSubtle);
         }
     }
@@ -364,10 +385,12 @@ bool SlidingDrawer::handlePointer(const PointerEvent& ev, const ViewContext& ctx
         if (config_.tab.content->onDrawerPointer(ev, ctx)) {
             return true;
         }
+        // If content is present but didn't handle it, absorb pointer inside drawer so it doesn't bleed through
+        return true;
     }
 
-    // Intercept clicks on drawer body so they don't bleed through to underlying arranger
-    if (isExpanded_ && drawerBounds_.contains(ev.x, ev.y)) {
+    // Intercept clicks on drawer body so they don't bleed through to underlying arranger only if content is hosted
+    if (isExpanded_ && config_.tab.content && drawerBounds_.contains(ev.x, ev.y)) {
         return true;
     }
 

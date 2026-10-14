@@ -36,6 +36,7 @@ public:
     std::function<void()> onToggleProjectHub;
     std::function<void()> onToggleBrowser;
     std::function<void()> onTogglePlay;
+    std::function<void()> onStop;
     std::function<void()> onToggleLoop;
     std::function<void()> onToggleMetronome;
     std::function<void(const ValueEditRequest&)> onOpenValueEdit;
