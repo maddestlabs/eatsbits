@@ -150,8 +150,8 @@ public:
                 const auto& w1 = vertices[(t + 1) * 3 + 1];
                 const auto& w2 = vertices[(t + 1) * 3 + 2];
 
-                // Fast path: standard quad emitted by drawRect / drawKnurledRing (solid mode == 0)
-                if (v0.mode == 0 && w0.mode == 0 &&
+                // Fast path: standard quad emitted by drawRect / drawKnurledRing (solid mode == 0 or 5)
+                if ((v0.mode == 0 || v0.mode == 5) && (w0.mode == 0 || w0.mode == 5) &&
                     std::abs(v0.x - w0.x) < 0.001f && std::abs(v0.y - w0.y) < 0.001f &&
                     std::abs(v2.x - w1.x) < 0.001f && std::abs(v2.y - w1.y) < 0.001f &&
                     v0.color == w0.color && v2.color == w1.color) {
@@ -161,7 +161,7 @@ public:
                 }
 
                 // Generalized quad detection: any 2 shared vertices between solid coplanar triangles
-                if (v0.mode == 0 && w0.mode == 0 &&
+                if ((v0.mode == 0 || v0.mode == 5) && (w0.mode == 0 || w0.mode == 5) &&
                     v0.color == v1.color && v0.color == v2.color &&
                     v0.color == w0.color && v0.color == w1.color && v0.color == w2.color) {
                     
@@ -807,7 +807,7 @@ private:
         const uint32_t c0_r = p0.color & 0xFF, c0_g = (p0.color >> 8) & 0xFF, c0_b = (p0.color >> 16) & 0xFF, c0_a = (p0.color >> 24) & 0xFF;
         const float startPx = static_cast<float>(minX) + 0.5f;
 
-        if (antiAliasingMode_ == 0) {
+        if (antiAliasingMode_ == 0 || p0.mode == 5 || p1.mode == 5 || p2.mode == 5 || p3.mode == 5) {
             // Fast 1-Sample Point Sampling
             for (int y = minY; y <= maxY; ++y) {
                 const float py = static_cast<float>(y) + 0.5f;
@@ -941,7 +941,7 @@ private:
 
         const float startPx = static_cast<float>(minX) + 0.5f;
 
-        if (antiAliasingMode_ == 0) {
+        if (antiAliasingMode_ == 0 || t0.mode == 5 || t1.mode == 5 || t2.mode == 5) {
             // Fast 1-Sample Point Sampling
             for (int y = minY; y <= maxY; ++y) {
                 const float py = static_cast<float>(y) + 0.5f;
@@ -1999,6 +1999,51 @@ ScissorScope BatchRenderer2D::makeScissorScope(const Rect2D& r) {
 }
 
 // ----------------------------------------------------------------------------
+// ScopedAntiAliasing RAII Implementation
+// ----------------------------------------------------------------------------
+ScopedAntiAliasing::ScopedAntiAliasing(BatchRenderer2D* renderer, int tempMode)
+    : renderer_(renderer), previousMode_(renderer ? renderer->getAntiAliasingMode() : 2) {
+    if (renderer_ && renderer_->getAntiAliasingMode() != tempMode) {
+        renderer_->setAntiAliasingMode(tempMode);
+    }
+}
+
+ScopedAntiAliasing::ScopedAntiAliasing(BatchRenderer2D& renderer, int tempMode)
+    : ScopedAntiAliasing(&renderer, tempMode) {}
+
+ScopedAntiAliasing::~ScopedAntiAliasing() {
+    reset();
+}
+
+ScopedAntiAliasing::ScopedAntiAliasing(ScopedAntiAliasing&& other) noexcept
+    : renderer_(other.renderer_), previousMode_(other.previousMode_) {
+    other.renderer_ = nullptr;
+}
+
+ScopedAntiAliasing& ScopedAntiAliasing::operator=(ScopedAntiAliasing&& other) noexcept {
+    if (this != &other) {
+        reset();
+        renderer_ = other.renderer_;
+        previousMode_ = other.previousMode_;
+        other.renderer_ = nullptr;
+    }
+    return *this;
+}
+
+void ScopedAntiAliasing::reset() noexcept {
+    if (renderer_) {
+        if (renderer_->getAntiAliasingMode() != previousMode_) {
+            renderer_->setAntiAliasingMode(previousMode_);
+        }
+        renderer_ = nullptr;
+    }
+}
+
+ScopedAntiAliasing BatchRenderer2D::makeAntiAliasingScope(int tempMode) {
+    return ScopedAntiAliasing(this, tempMode);
+}
+
+// ----------------------------------------------------------------------------
 // Static Chrome Offscreen Texture (FBO) Caching
 // ----------------------------------------------------------------------------
 void BatchRenderer2D::invalidateChromeCache() noexcept {
@@ -2261,7 +2306,7 @@ void BatchRenderer2D::drawCircleRadialGradient(float cx, float cy, float radius,
 
     float fx = cx + offX;
     float fy = cy + offY;
-    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 0, {0, 0}};
+    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 5, {0, 0}};
     applyTransform(centerV.x, centerV.y);
 
     const float step = 6.28318530718f / static_cast<float>(segs);
@@ -2269,8 +2314,8 @@ void BatchRenderer2D::drawCircleRadialGradient(float cx, float cy, float radius,
         float theta0 = static_cast<float>(i) * step;
         float theta1 = static_cast<float>(i + 1) * step;
 
-        Vertex2D p0{cx + radius * std::cos(theta0), cy + radius * std::sin(theta0), 0.0f, 0.0f, colOuter, 0, {0, 0}};
-        Vertex2D p1{cx + radius * std::cos(theta1), cy + radius * std::sin(theta1), 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        Vertex2D p0{cx + radius * std::cos(theta0), cy + radius * std::sin(theta0), 0.0f, 0.0f, colOuter, 5, {0, 0}};
+        Vertex2D p1{cx + radius * std::cos(theta1), cy + radius * std::sin(theta1), 0.0f, 0.0f, colOuter, 5, {0, 0}};
         applyTransform(p0.x, p0.y);
         applyTransform(p1.x, p1.y);
 
@@ -2303,7 +2348,7 @@ void BatchRenderer2D::drawCircleRadial3StopGradient(float cx, float cy, float ra
 
     float fx = cx + offX;
     float fy = cy + offY;
-    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 0, {0, 0}};
+    Vertex2D centerV{fx, fy, 0.0f, 0.0f, colInner, 5, {0, 0}};
     applyTransform(centerV.x, centerV.y);
 
     // Mid ring center interpolates smoothly from focal point towards circle center
@@ -2318,13 +2363,13 @@ void BatchRenderer2D::drawCircleRadial3StopGradient(float cx, float cy, float ra
         float c0 = std::cos(theta0), s0 = std::sin(theta0);
         float c1 = std::cos(theta1), s1 = std::sin(theta1);
 
-        Vertex2D m0{midCx + midRad * c0, midCy + midRad * s0, 0.0f, 0.0f, colMid, 0, {0, 0}};
-        Vertex2D m1{midCx + midRad * c1, midCy + midRad * s1, 0.0f, 0.0f, colMid, 0, {0, 0}};
+        Vertex2D m0{midCx + midRad * c0, midCy + midRad * s0, 0.0f, 0.0f, colMid, 5, {0, 0}};
+        Vertex2D m1{midCx + midRad * c1, midCy + midRad * s1, 0.0f, 0.0f, colMid, 5, {0, 0}};
         applyTransform(m0.x, m0.y);
         applyTransform(m1.x, m1.y);
 
-        Vertex2D p0{cx + radius * c0, cy + radius * s0, 0.0f, 0.0f, colOuter, 0, {0, 0}};
-        Vertex2D p1{cx + radius * c1, cy + radius * s1, 0.0f, 0.0f, colOuter, 0, {0, 0}};
+        Vertex2D p0{cx + radius * c0, cy + radius * s0, 0.0f, 0.0f, colOuter, 5, {0, 0}};
+        Vertex2D p1{cx + radius * c1, cy + radius * s1, 0.0f, 0.0f, colOuter, 5, {0, 0}};
         applyTransform(p0.x, p0.y);
         applyTransform(p1.x, p1.y);
 
@@ -2583,60 +2628,100 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
                     cornerRadius + blur * 0.60f, 0.0f, 0.0f, 0.0f, shadow.opacity * 0.16f, 3);
 }
 
-void BatchRenderer2D::drawKnurledRing(float cx, float cy, float rInner, float rOuter,
-                                      int numTeeth, float rotationAngle,
+void BatchRenderer2D::drawFlutedRing(float cx, float cy, float rInner, float rOuter, int numFlutes,
+                                      float fluteDepthRatio, float rotationAngle,
                                       const LightSource2D& light,
                                       float baseR, float baseG, float baseB,
                                       float highlightR, float highlightG, float highlightB,
                                       float shadowR, float shadowG, float shadowB) {
-    if (numTeeth < 6 || rInner >= rOuter) return;
+    if (numFlutes < 3 || rInner >= rOuter) return;
 
     Point lDir = light.getLightDirection(cx, cy);
-    const float step = 6.2831853f / static_cast<float>(numTeeth);
-    const float toothWidth = step * 0.58f;
+    float depth = std::clamp(fluteDepthRatio, 0.02f, 0.45f) * (rOuter - rInner);
+    float minR = rOuter - depth;
 
-    // Draw dark under-groove circle between teeth
-    drawCircle(cx, cy, (rInner + rOuter) * 0.5f, shadowR * 0.8f, shadowG * 0.8f, shadowB * 0.8f, 1.0f, 32);
+    // Determine sample density: 4 segments per flute, clamped to [32, 96]
+    int segs = std::clamp(numFlutes * 4, 32, 96);
+    float step = 6.283185307179586f / static_cast<float>(segs);
+    float fluteScale = static_cast<float>(numFlutes) * 0.5f;
 
-    for (int i = 0; i < numTeeth; ++i) {
-        float a0 = rotationAngle + static_cast<float>(i) * step;
-        float a1 = a0 + toothWidth;
-        float aMid = (a0 + a1) * 0.5f;
+    struct ContourPt {
+        float ox, oy;
+        float ix, iy;
+        uint32_t colOuter;
+        uint32_t colInner;
+    };
+    std::vector<ContourPt> pts;
+    pts.reserve(segs + 1);
 
-        float nx = std::cos(aMid);
-        float ny = std::sin(aMid);
-        float dotLight = nx * lDir.x + ny * lDir.y;
+    for (int i = 0; i <= segs; ++i) {
+        float a = rotationAngle + static_cast<float>(i) * step;
+        float phase = static_cast<float>(i) * step * fluteScale;
+        float s = std::sin(phase);
+        float fluteFactor = s * s; // [0, 1] smooth harmonic wave
+        float curR = rOuter - depth * fluteFactor;
 
-        float blendFactor = (std::clamp(dotLight, -1.0f, 1.0f) + 1.0f) * 0.5f; // [0, 1]
+        float ca = std::cos(a);
+        float sa = std::sin(a);
 
-        // Directional specular glint
-        float specular = 0.0f;
-        if (dotLight > 0.55f) {
-            specular = std::pow((dotLight - 0.55f) / 0.45f, 3.5f) * 0.42f;
+        // Compute surface normal with derivative for physical lighting
+        float dr_da = -depth * fluteScale * std::sin(2.0f * phase);
+        float tx = ca * dr_da - curR * sa;
+        float ty = sa * dr_da + curR * ca;
+        float tlen = std::hypot(tx, ty);
+        float nx = (tlen > 0.001f) ? (ty / tlen) : ca;
+        float ny = (tlen > 0.001f) ? (-tx / tlen) : sa;
+
+        float dotL = nx * lDir.x + ny * lDir.y;
+        float normDot = std::clamp(dotL, -1.0f, 1.0f);
+        float blend = (normDot + 1.0f) * 0.5f; // [0, 1]
+
+        // Ambient occlusion deepening in the flute troughs
+        float ao = 1.0f - (fluteFactor * 0.32f);
+
+        // Specular glint on crests
+        float spec = 0.0f;
+        if (dotL > 0.50f && fluteFactor < 0.35f) {
+            spec = std::pow((dotL - 0.50f) / 0.50f, 3.2f) * 0.38f;
         }
 
-        float rCol = shadowR + blendFactor * (baseR - shadowR);
-        float gCol = shadowG + blendFactor * (baseG - shadowG);
-        float bCol = shadowB + blendFactor * (baseB - shadowB);
+        float rCol = (shadowR + blend * (baseR - shadowR)) * ao;
+        float gCol = (shadowG + blend * (baseG - shadowG)) * ao;
+        float bCol = (shadowB + blend * (baseB - shadowB)) * ao;
 
-        if (dotLight > 0.0f) {
-            rCol += (highlightR - rCol) * (dotLight * 0.55f) + specular;
-            gCol += (highlightG - gCol) * (dotLight * 0.55f) + specular;
-            bCol += (highlightB - bCol) * (dotLight * 0.55f) + specular;
+        if (dotL > 0.0f) {
+            rCol += (highlightR - rCol) * (dotL * 0.45f) + spec;
+            gCol += (highlightG - gCol) * (dotL * 0.45f) + spec;
+            bCol += (highlightB - bCol) * (dotL * 0.45f) + spec;
         }
 
-        rCol = std::clamp(rCol, 0.0f, 1.0f);
-        gCol = std::clamp(gCol, 0.0f, 1.0f);
-        bCol = std::clamp(bCol, 0.0f, 1.0f);
-        uint32_t col = packColor(rCol, gCol, bCol, 1.0f);
+        uint32_t cOuter = packColor(std::clamp(rCol, 0.0f, 1.0f),
+                                    std::clamp(gCol, 0.0f, 1.0f),
+                                    std::clamp(bCol, 0.0f, 1.0f), 1.0f);
 
-        float c0 = std::cos(a0), s0 = std::sin(a0);
-        float c1 = std::cos(a1), s1 = std::sin(a1);
+        // Inner rim is subtly recessed
+        uint32_t cInner = packColor(std::clamp(rCol * 0.75f, 0.0f, 1.0f),
+                                    std::clamp(gCol * 0.75f, 0.0f, 1.0f),
+                                    std::clamp(bCol * 0.75f, 0.0f, 1.0f), 1.0f);
 
-        Vertex2D v0{cx + rInner * c0, cy + rInner * s0, 0.0f, 0.0f, col, 0, {0, 0}};
-        Vertex2D v1{cx + rOuter * c0, cy + rOuter * s0, 0.0f, 0.0f, col, 0, {0, 0}};
-        Vertex2D v2{cx + rOuter * c1, cy + rOuter * s1, 0.0f, 0.0f, col, 0, {0, 0}};
-        Vertex2D v3{cx + rInner * c1, cy + rInner * s1, 0.0f, 0.0f, col, 0, {0, 0}};
+        pts.push_back({cx + curR * ca, cy + curR * sa,
+                       cx + rInner * ca, cy + rInner * sa,
+                       cOuter, cInner});
+    }
+
+    // 1. Draw smooth anti-aliased base disc underneath using mode 2 analytical SDF.
+    // This seals the silhouette against the chassis and guarantees smooth AA outer rim.
+    drawCircle(cx, cy, rOuter, baseR, baseG, baseB, 1.0f);
+
+    // 2. Emit continuous fluted quad strip using mode 5 (point-sampled, zero internal seams)
+    for (size_t i = 0; i < pts.size() - 1; ++i) {
+        const auto& p0 = pts[i];
+        const auto& p1 = pts[i + 1];
+
+        Vertex2D v0{p0.ix, p0.iy, 0.0f, 0.0f, p0.colInner, 5, {0, 0}};
+        Vertex2D v1{p0.ox, p0.oy, 0.0f, 0.0f, p0.colOuter, 5, {0, 0}};
+        Vertex2D v2{p1.ox, p1.oy, 0.0f, 0.0f, p1.colOuter, 5, {0, 0}};
+        Vertex2D v3{p1.ix, p1.iy, 0.0f, 0.0f, p1.colInner, 5, {0, 0}};
 
         vertices_.push_back(v0);
         vertices_.push_back(v1);
@@ -2646,6 +2731,128 @@ void BatchRenderer2D::drawKnurledRing(float cx, float cy, float rInner, float rO
         vertices_.push_back(v2);
         vertices_.push_back(v3);
     }
+}
+
+void BatchRenderer2D::drawKnurledRing(float cx, float cy, float rInner, float rOuter,
+                                      int numTeeth, float rotationAngle,
+                                      const LightSource2D& light,
+                                      float baseR, float baseG, float baseB,
+                                      float highlightR, float highlightG, float highlightB,
+                                      float shadowR, float shadowG, float shadowB) {
+    if (numTeeth < 6 || rInner >= rOuter) return;
+    // Upgrade knurled ring to use continuous smooth fluted contouring
+    float depthRatio = std::clamp((rOuter - rInner) / rOuter * 0.45f, 0.10f, 0.28f);
+    drawFlutedRing(cx, cy, rInner, rOuter, numTeeth, depthRatio, rotationAngle, light,
+                   baseR, baseG, baseB, highlightR, highlightG, highlightB, shadowR, shadowG, shadowB);
+}
+
+void BatchRenderer2D::drawChickenHeadContour(float cx, float cy, float radius, float rotationAngle,
+                                            const LightSource2D& light,
+                                            float baseR, float baseG, float baseB,
+                                            float highlightR, float highlightG, float highlightB,
+                                            float shadowR, float shadowG, float shadowB,
+                                            float pointerR, float pointerG, float pointerB) {
+    if (radius < 4.0f) return;
+
+    Point lDir = light.getLightDirection(cx, cy);
+    float cosA = std::cos(rotationAngle);
+    float sinA = std::sin(rotationAngle);
+
+    // Coordinate transformation helper: local (x, y) where +Y is forward pointer direction
+    auto toScreen = [&](float lx, float ly) -> Point2D {
+        return {cx + (lx * cosA - ly * sinA),
+                cy + (lx * sinA + ly * cosA)};
+    };
+
+    // Authentic Davies chicken-head dimensions
+    float noseLen = radius * 1.25f;
+    float noseTipW = radius * 0.16f;
+    float midW = radius * 0.72f;
+    float rearR = radius * 0.65f;
+
+    // Bevel shading for left flank vs right flank
+    // Left flank normal tilts (-0.6, 0.35)
+    float dotLeft = (-0.6f * cosA - 0.35f * sinA) * lDir.x + (-0.6f * sinA + 0.35f * cosA) * lDir.y;
+    float blendLeft = (std::clamp(dotLeft, -1.0f, 1.0f) + 1.0f) * 0.5f;
+
+    // Right flank normal tilts (+0.6, 0.35)
+    float dotRight = (0.6f * cosA - 0.35f * sinA) * lDir.x + (0.6f * sinA + 0.35f * cosA) * lDir.y;
+    float blendRight = (std::clamp(dotRight, -1.0f, 1.0f) + 1.0f) * 0.5f;
+
+    uint32_t colLeft = packColor(std::clamp(shadowR + blendLeft * (highlightR - shadowR), 0.0f, 1.0f),
+                                 std::clamp(shadowG + blendLeft * (highlightG - shadowG), 0.0f, 1.0f),
+                                 std::clamp(shadowB + blendLeft * (highlightB - shadowB), 0.0f, 1.0f), 1.0f);
+
+    uint32_t colRight = packColor(std::clamp(shadowR + blendRight * (highlightR - shadowR), 0.0f, 1.0f),
+                                  std::clamp(shadowG + blendRight * (highlightG - shadowG), 0.0f, 1.0f),
+                                  std::clamp(shadowB + blendRight * (highlightB - shadowB), 0.0f, 1.0f), 1.0f);
+
+    uint32_t colCrest = packColor(baseR, baseG, baseB, 1.0f);
+
+    Point2D pNoseTip = toScreen(0.0f, -noseLen);
+    Point2D pNoseL = toScreen(-noseTipW, -noseLen + radius * 0.12f);
+    Point2D pNoseR = toScreen(noseTipW, -noseLen + radius * 0.12f);
+    Point2D pMidL = toScreen(-midW, -radius * 0.15f);
+    Point2D pMidR = toScreen(midW, -radius * 0.15f);
+    Point2D pCenter = toScreen(0.0f, 0.0f);
+    Point2D pRearCenter = toScreen(0.0f, rearR);
+
+    // Left flank triangle fan (mode 5: zero internal seam bleed)
+    Vertex2D vl0{pCenter.x, pCenter.y, 0.0f, 0.0f, colCrest, 5, {0, 0}};
+    Vertex2D vl1{pNoseTip.x, pNoseTip.y, 0.0f, 0.0f, colLeft, 5, {0, 0}};
+    Vertex2D vl2{pNoseL.x, pNoseL.y, 0.0f, 0.0f, colLeft, 5, {0, 0}};
+    Vertex2D vl3{pMidL.x, pMidL.y, 0.0f, 0.0f, colLeft, 5, {0, 0}};
+
+    vertices_.push_back(vl0); vertices_.push_back(vl1); vertices_.push_back(vl2);
+    vertices_.push_back(vl0); vertices_.push_back(vl2); vertices_.push_back(vl3);
+
+    // Right flank triangle fan (mode 5: zero internal seam bleed)
+    Vertex2D vr0{pCenter.x, pCenter.y, 0.0f, 0.0f, colCrest, 5, {0, 0}};
+    Vertex2D vr1{pNoseTip.x, pNoseTip.y, 0.0f, 0.0f, colRight, 5, {0, 0}};
+    Vertex2D vr2{pNoseR.x, pNoseR.y, 0.0f, 0.0f, colRight, 5, {0, 0}};
+    Vertex2D vr3{pMidR.x, pMidR.y, 0.0f, 0.0f, colRight, 5, {0, 0}};
+
+    vertices_.push_back(vr0); vertices_.push_back(vr2); vertices_.push_back(vr1);
+    vertices_.push_back(vr0); vertices_.push_back(vr3); vertices_.push_back(vr2);
+
+    // Rear semicircle heel (mode 5: zero internal seam bleed)
+    constexpr int kRearSegs = 14;
+    float rearStep = 3.14159265f / static_cast<float>(kRearSegs);
+    for (int i = 0; i < kRearSegs; ++i) {
+        float a0 = static_cast<float>(i) * rearStep;
+        float a1 = a0 + rearStep;
+        Point2D r0 = toScreen(std::cos(a0) * rearR, std::sin(a0) * rearR);
+        Point2D r1 = toScreen(std::cos(a1) * rearR, std::sin(a1) * rearR);
+
+        uint32_t colH = (i < kRearSegs / 2) ? colRight : colLeft;
+        Vertex2D vc{pCenter.x, pCenter.y, 0.0f, 0.0f, colCrest, 5, {0, 0}};
+        Vertex2D vrA{r0.x, r0.y, 0.0f, 0.0f, colH, 5, {0, 0}};
+        Vertex2D vrB{r1.x, r1.y, 0.0f, 0.0f, colH, 5, {0, 0}};
+
+        vertices_.push_back(vc);
+        vertices_.push_back(vrA);
+        vertices_.push_back(vrB);
+    }
+
+    // Outer perimeter bevel outline (anti-aliased outer silhouette)
+    drawLine(pNoseTip.x, pNoseTip.y, pNoseL.x, pNoseL.y, shadowR, shadowG, shadowB, 0.75f, 1.0f);
+    drawLine(pNoseL.x, pNoseL.y, pMidL.x, pMidL.y, shadowR, shadowG, shadowB, 0.75f, 1.0f);
+    drawLine(pNoseTip.x, pNoseTip.y, pNoseR.x, pNoseR.y, shadowR, shadowG, shadowB, 0.75f, 1.0f);
+    drawLine(pNoseR.x, pNoseR.y, pMidR.x, pMidR.y, shadowR, shadowG, shadowB, 0.75f, 1.0f);
+
+    // Central raised ridge pointer stripe (high contrast white or colored inlay)
+    Point2D pStripeStart = toScreen(0.0f, rearR * 0.70f);
+    Point2D pStripeEnd = toScreen(0.0f, -noseLen + 1.5f);
+    drawLine(pStripeStart.x, pStripeStart.y, pStripeEnd.x, pStripeEnd.y,
+             pointerR, pointerG, pointerB, 1.0f, std::clamp(radius * 0.09f, 1.8f, 3.5f));
+
+    // Center circular rotor cap
+    drawCircleRadial3StopGradient(cx, cy, radius * 0.44f,
+                                  highlightR, highlightG, highlightB, 1.0f,
+                                  baseR, baseG, baseB, 1.0f,
+                                  shadowR, shadowG, shadowB, 1.0f,
+                                  -radius * 0.12f, -radius * 0.12f, 0.50f, 20);
+    drawCircleOutline(cx, cy, radius * 0.44f, shadowR, shadowG, shadowB, 0.8f, 1.0f, 20);
 }
 
 // ============================================================================

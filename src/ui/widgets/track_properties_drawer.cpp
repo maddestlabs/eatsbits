@@ -67,6 +67,7 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onDeleteClip = [this](uint32_t tIdx, int cIdx) { if (onDeleteClip) onDeleteClip(tIdx, cIdx); };
     panel_.onChordFollowChanged = [this](uint32_t idx, ChordFollowMode mode) { if (onChordFollowChanged) onChordFollowChanged(idx, mode); };
     panel_.onBakeChords = [this](uint32_t idx) { if (onBakeChords) onBakeChords(idx); };
+    panel_.onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) { if (onAuditionNote) onAuditionNote(idx, note, vel); };
 }
 
 void TrackPropertiesDrawer::update(float dt) noexcept {

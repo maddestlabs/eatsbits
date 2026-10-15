@@ -656,7 +656,8 @@ NodeId AudioEngine::assignTrackInstrument(uint32_t trackIndex, const std::string
         } else if (key.find("sid") != std::string::npos || key.find("c64") != std::string::npos ||
                    key.find("chiptune") != std::string::npos) {
             newInstrument = std::make_shared<SidNode>(nodeName);
-        } else if (key.find("snes") != std::string::npos || key.find("spc") != std::string::npos) {
+        } else if (key.find("snes") != std::string::npos || key.find("spc") != std::string::npos ||
+                   key.find("sfxr") != std::string::npos) {
             newInstrument = std::make_shared<SnesNode>(nodeName);
         } else if (key.find("ym2612") != std::string::npos || key.find("genesis") != std::string::npos) {
             newInstrument = std::make_shared<Ym2612Node>(nodeName);

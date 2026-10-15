@@ -17,6 +17,10 @@
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
+#include "eatsbits/audio/graph/nodes/snes_node.hpp"
+#include "eatsbits/audio/graph/nodes/sid_node.hpp"
+#include "eatsbits/audio/graph/nodes/dx7_node.hpp"
+#include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
@@ -480,6 +484,18 @@ void drawKnurledRing(float cx, float cy, float rInner, float rOuter, int numTeet
         g_activeBatchRenderer->drawKnurledRing(cx, cy, rInner, rOuter, numTeeth, rotationAngle, light,
                                               baseR, baseG, baseB, highlightR, highlightG, highlightB,
                                               shadowR, shadowG, shadowB);
+    }
+}
+
+void drawFlutedRing(float cx, float cy, float rInner, float rOuter, int numFlutes,
+                    float fluteDepthRatio, float rotationAngle, const LightSource2D& light,
+                    float baseR, float baseG, float baseB,
+                    float highlightR = 1.0f, float highlightG = 1.0f, float highlightB = 1.0f,
+                    float shadowR = 0.08f, float shadowG = 0.09f, float shadowB = 0.11f) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawFlutedRing(cx, cy, rInner, rOuter, numFlutes, fluteDepthRatio, rotationAngle,
+                                             light, baseR, baseG, baseB, highlightR, highlightG, highlightB,
+                                             shadowR, shadowG, shadowB);
     }
 }
 
@@ -2057,7 +2073,7 @@ void GuiWindow::openFullscreenDevice(uint32_t trackIndex) {
         }
     } else {
         const auto* preset = getActivePreset();
-        if (preset && (data.instrumentEngine.empty() || preset->metadata.engineId == data.instrumentEngine)) {
+        if (preset) {
             data.instrument = preset->metadata.name.empty() ? preset->guiRoot.title : preset->metadata.name;
             data.instrumentEngine = preset->metadata.engineId;
             data.presetTitle = preset->guiRoot.title;
@@ -2391,7 +2407,7 @@ void GuiWindow::openDetachedInstrument(uint32_t trackIndex) {
             setSelectedTrackIndex(idx);
         }
         syncTrackToPreset(idx);
-        dispatchHardwareParam(paramName, normVal);
+        dispatchTrackParam(idx, paramName, normVal);
     };
 
     bool spawned = FloatingWindowManager::instance().openDetachedInstrument(tIdx, instName, panel, window_, false);
@@ -3820,232 +3836,356 @@ HitTestHardwareKnobResult GuiWindow::hitTestHardwareKnob(float x, float y, float
 }
 
 void GuiWindow::dispatchHardwareParam(const std::string& paramName, float normVal) noexcept {
-    if (engine_) {
-        auto clapNode = engine_->getTrackClapNode(selectedTrackIndex_);
-        if (clapNode) {
-            const auto& params = clapNode->getParameterList();
-            for (const auto& p : params) {
-                if (p.name == paramName) {
-                    double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
-                    clapNode->setParamValue(p.id, realVal);
-                    return;
-                }
-            }
-            if (paramName.rfind("param", 0) == 0 && paramName.size() > 5) {
-                try {
-                    size_t pIdx = std::stoul(paramName.substr(5)) - 1;
-                    if (pIdx < params.size()) {
-                        const auto& p = params[pIdx];
-                        double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
-                        clapNode->setParamValue(p.id, realVal);
-                        return;
-                    }
-                } catch (...) {}
-            }
-            std::string lowerParam = paramName;
-            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            for (const auto& p : params) {
-                std::string pLow = p.name;
-                for (char& c : pLow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (pLow.find(lowerParam) != std::string::npos) {
-                    double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
-                    clapNode->setParamValue(p.id, realVal);
-                    return;
-                }
-            }
-        }
-    }
+    dispatchTrackParam(selectedTrackIndex_, paramName, normVal);
+}
 
-    auto* preset = getActivePreset();
-    if (!preset) return;
-
-    std::string key = paramName;
-    auto* p = preset->findParam(key);
-    if (!p) {
-        // Try case-insensitive and common alias matching
-        std::string lowerParam = paramName;
-        for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        if (lowerParam == "tuning") lowerParam = "tune";
-        else if (lowerParam == "bright") lowerParam = "brightness";
-        else if (lowerParam == "snappy" || lowerParam == "punch") lowerParam = "drive";
-
-        for (auto& [k, v] : preset->params) {
-            std::string lk = k;
-            for (char& c : lk) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (lk == lowerParam) {
-                p = &v;
-                key = k;
-                break;
-            }
-        }
-    }
-
-    if (p) {
-        p->setNormalized(normVal);
-    }
-
+void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& paramName, float normVal) noexcept {
     if (!engine_) return;
 
-    std::string normKey = key;
+    // 1. Check if track uses a CLAP plugin
+    auto clapNode = engine_->getTrackClapNode(trackIndex);
+    if (clapNode) {
+        const auto& params = clapNode->getParameterList();
+        for (const auto& p : params) {
+            if (p.name == paramName) {
+                double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                clapNode->setParamValue(p.id, realVal);
+                return;
+            }
+        }
+        if (paramName.rfind("param", 0) == 0 && paramName.size() > 5) {
+            try {
+                size_t pIdx = std::stoul(paramName.substr(5)) - 1;
+                if (pIdx < params.size()) {
+                    const auto& p = params[pIdx];
+                    double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                    clapNode->setParamValue(p.id, realVal);
+                    return;
+                }
+            } catch (...) {}
+        }
+        std::string lowerParam = paramName;
+        for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        for (const auto& p : params) {
+            std::string pLow = p.name;
+            for (char& c : pLow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (pLow.find(lowerParam) != std::string::npos) {
+                double realVal = p.minValue + static_cast<double>(normVal) * (p.maxValue - p.minValue);
+                clapNode->setParamValue(p.id, realVal);
+                return;
+            }
+        }
+        return;
+    }
+
+    // 2. Locate active or track-associated preset and update parameter if matched
+    project::PresetDefinition* preset = (trackIndex == selectedTrackIndex_) ? getActivePreset() : nullptr;
+    project::PresetParam* p = nullptr;
+    if (preset) {
+        p = preset->findParam(paramName);
+        if (!p) {
+            std::string lowerParam = paramName;
+            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (lowerParam == "tuning") lowerParam = "tune";
+            else if (lowerParam == "bright") lowerParam = "brightness";
+            else if (lowerParam == "snappy" || lowerParam == "punch") lowerParam = "drive";
+
+            for (auto& [k, v] : preset->params) {
+                std::string lk = k;
+                for (char& c : lk) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (lk == lowerParam) {
+                    p = &v;
+                    break;
+                }
+            }
+        }
+        if (p) {
+            if (normVal > 1.0f) {
+                p->currentVal = std::clamp(normVal, p->minVal, p->maxVal);
+            } else {
+                p->setNormalized(normVal);
+            }
+        }
+    }
+
+    // 3. Resolve the target NodeId on this track
+    audio::NodeId srcId = engine_->getTrackSourceNodeId(trackIndex);
+    auto nodePtr = (srcId != audio::INVALID_NODE_ID) ? engine_->getGraph().getNode(srcId) : nullptr;
+
+    std::string normKey = paramName;
     for (char& c : normKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-    if (preset->metadata.id == "eats_303" || preset->metadata.engineId == "tb303") {
-        auto postTb303Param = [&](uint32_t paramId, float val) {
+    auto postParam = [&](uint32_t paramId, float realValue, std::string_view moduleType = "") {
+        if (srcId != audio::INVALID_NODE_ID) {
+            engine_->postNodeParameter(srcId, paramId, realValue);
+        }
+        if (!moduleType.empty()) {
             for (const auto& m : canvas_.getModules()) {
-                if (m.type == "tb303") engine_->postNodeParameter(m.id, paramId, val);
+                if (m.type == moduleType || m.name.find(std::string(moduleType)) != std::string::npos) {
+                    engine_->postNodeParameter(m.id, paramId, realValue);
+                }
             }
-            audio::NodeId srcId = engine_->getTrackSourceNodeId(selectedTrackIndex_);
-            if (srcId != audio::INVALID_NODE_ID) {
-                engine_->postNodeParameter(srcId, paramId, val);
-            }
-            audio::NodeId tbId = engine_->getGraph().findNodeByName("Tb303");
-            if (tbId != audio::INVALID_NODE_ID) {
-                engine_->postNodeParameter(tbId, paramId, val);
-            }
-        };
+        }
+    };
 
-        if (normKey == "cutoff" && p) {
-            engine_->setCutoff(p->currentVal);
-            postTb303Param(0, p->currentVal);
-        } else if (normKey == "resonance" && p) {
-            float resNorm = std::clamp((p->currentVal - p->minVal) / (p->maxVal - p->minVal), 0.0f, 0.98f);
-            engine_->setResonance(resNorm);
-            postTb303Param(1, resNorm);
-        } else if (normKey == "envmod" && p) {
-            postTb303Param(2, normVal);
-        } else if (normKey == "decay" && p) {
-            postTb303Param(3, normVal);
-        } else if (normKey == "accent" && p) {
-            postTb303Param(4, normVal);
-        } else if (normKey == "waveform" && p) {
+    // 4. Identify engine type: first from node dynamic_cast, then fallback to preset / arranger track
+    bool isSnes = (std::dynamic_pointer_cast<audio::SnesNode>(nodePtr) != nullptr);
+    bool isSid = (std::dynamic_pointer_cast<audio::SidNode>(nodePtr) != nullptr);
+    bool isDx7 = (std::dynamic_pointer_cast<audio::Dx7Node>(nodePtr) != nullptr);
+    bool isYm2612 = (std::dynamic_pointer_cast<audio::Ym2612Node>(nodePtr) != nullptr);
+    bool isDrums = (std::dynamic_pointer_cast<audio::DrumKitNode>(nodePtr) != nullptr);
+    bool isTb303 = (std::dynamic_pointer_cast<audio::Tb303Node>(nodePtr) != nullptr);
+    bool isPoly = (std::dynamic_pointer_cast<audio::PolySynthNode>(nodePtr) != nullptr);
+    bool isPhys = (std::dynamic_pointer_cast<audio::PhysicalInstrumentNode>(nodePtr) != nullptr);
+
+    if (!isSnes && !isSid && !isDx7 && !isYm2612 && !isDrums && !isTb303 && !isPoly && !isPhys) {
+        std::string engHint;
+        if (preset) {
+            engHint = preset->metadata.engineId + " " + preset->metadata.id;
+        }
+        if (trackIndex < arrangerTracks_.size()) {
+            engHint += " " + arrangerTracks_[trackIndex].instrumentEngine + " " + arrangerTracks_[trackIndex].instrument;
+        }
+        for (char& c : engHint) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (engHint.find("snes") != std::string::npos || engHint.find("sfxr") != std::string::npos || engHint.find("spc") != std::string::npos) isSnes = true;
+        else if (engHint.find("sid") != std::string::npos || engHint.find("c64") != std::string::npos) isSid = true;
+        else if (engHint.find("dx7") != std::string::npos || engHint.find("fm") != std::string::npos || engHint.find("rhodes") != std::string::npos) isDx7 = true;
+        else if (engHint.find("ym2612") != std::string::npos || engHint.find("genesis") != std::string::npos) isYm2612 = true;
+        else if (engHint.find("808") != std::string::npos || engHint.find("909") != std::string::npos || engHint.find("drum") != std::string::npos) isDrums = true;
+        else if (engHint.find("303") != std::string::npos || engHint.find("acid") != std::string::npos) isTb303 = true;
+        else if (engHint.find("piano") != std::string::npos || engHint.find("grand") != std::string::npos || engHint.find("guitar") != std::string::npos || engHint.find("upright") != std::string::npos) isPhys = true;
+        else isPoly = true;
+    }
+
+    if (isTb303) {
+        if (normKey == "cutoff") {
+            float val = p ? p->currentVal : (50.0f + normVal * 9000.0f);
+            if (trackIndex == 0) engine_->setCutoff(val);
+            postParam(0, val, "tb303");
+        } else if (normKey == "resonance") {
+            float val = p ? ((p->currentVal - p->minVal) / (p->maxVal - p->minVal)) : normVal;
+            val = std::clamp(val, 0.0f, 0.98f);
+            if (trackIndex == 0) engine_->setResonance(val);
+            postParam(1, val, "tb303");
+        } else if (normKey == "envmod" || normKey == "env_mod") {
+            postParam(2, normVal, "tb303");
+        } else if (normKey == "decay") {
+            postParam(3, normVal, "tb303");
+        } else if (normKey == "accent") {
+            postParam(4, normVal, "tb303");
+        } else if (normKey == "waveform") {
             float wave = (normVal >= 0.5f) ? 1.0f : 0.0f;
-            postTb303Param(5, wave);
-        } else if ((normKey == "drive" || normKey == "overdrive") && p) {
-            postTb303Param(6, normVal);
+            postParam(5, wave, "tb303");
+        } else if (normKey == "drive" || normKey == "overdrive") {
+            postParam(6, normVal, "tb303");
+        } else if (normKey == "volume" || normKey == "level") {
+            postParam(7, normVal, "tb303");
         }
-    } else if (preset->metadata.engineId == "drum_808" || preset->metadata.id == "analog_808_kick" || preset->metadata.engineId == "drum_kit") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "drum_kit" || m.name.find("Drum") != std::string::npos || m.name.find("808") != std::string::npos) {
-                if (normKey == "tune" || normKey == "pitch" || normKey == "tuning") {
-                    engine_->postNodeParameter(m.id, 1, normVal);
-                } else if (normKey == "decay") {
-                    engine_->postNodeParameter(m.id, 2, normVal);
-                } else if (normKey == "overdrive" || normKey == "drive" || normKey == "snappy" || normKey == "punch") {
-                    engine_->postNodeParameter(m.id, 3, normVal);
-                } else if (normKey == "tone" || normKey == "volume" || normKey == "level" || normKey == "attack") {
-                    engine_->postNodeParameter(m.id, 0, normVal * 1.5f);
-                }
+    } else if (isSnes) {
+        uint32_t paramId = 999;
+        float realVal = normVal;
+        if (normKey == "waveform" || normKey == "wavetable") {
+            paramId = 0;
+            if (normVal > 1.0f) {
+                realVal = std::clamp(normVal, 0.0f, 11.0f);
+            } else if (p) {
+                realVal = p->currentVal;
+            } else {
+                realVal = std::round(normVal * 11.0f);
             }
-        }
-    } else if (preset->metadata.engineId == "delay") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "delay") {
-                if (paramName == "TimeMs" && p) {
-                    engine_->postNodeParameter(m.id, 0, p->currentVal);
-                } else if (paramName == "Feedback" && p) {
-                    engine_->postNodeParameter(m.id, 1, p->currentVal);
-                } else if (paramName == "Mix" && p) {
-                    engine_->postNodeParameter(m.id, 2, p->currentVal);
-                }
+        } else if (normKey == "envelope" || normKey == "envmode") {
+            paramId = 1;
+            if (normVal > 1.0f) {
+                realVal = std::clamp(normVal, 0.0f, 5.0f);
+            } else if (p) {
+                realVal = p->currentVal;
+            } else {
+                realVal = std::round(normVal * 5.0f);
             }
+        } else if (normKey == "attack") {
+            paramId = 2;
+            realVal = p ? p->currentVal : (0.001f + normVal * 0.5f);
+        } else if (normKey == "decay") {
+            paramId = 3;
+            realVal = p ? p->currentVal : (0.01f + normVal * 2.0f);
+        } else if (normKey == "sustain") {
+            paramId = 4;
+            realVal = p ? p->currentVal : normVal;
+        } else if (normKey == "release") {
+            paramId = 5;
+            realVal = p ? p->currentVal : (0.01f + normVal * 2.0f);
+        } else if (normKey == "echoenabled" || normKey == "echo_on") {
+            paramId = 6;
+            realVal = (normVal > 0.5f) ? 1.0f : 0.0f;
+        } else if (normKey == "echodelay" || normKey == "echoms" || normKey == "echo_delay") {
+            paramId = 7;
+            realVal = p ? p->currentVal : (16.0f + normVal * 464.0f);
+        } else if (normKey == "echofeedback" || normKey == "echofdbk" || normKey == "feedback") {
+            paramId = 8;
+            realVal = p ? p->currentVal : (normVal * 0.95f);
+        } else if (normKey == "echovolume" || normKey == "echovol") {
+            paramId = 9;
+            realVal = p ? p->currentVal : normVal;
+        } else if (normKey == "noisemix") {
+            paramId = 12;
+            realVal = p ? p->currentVal : normVal;
+        } else if (normKey == "volume" || normKey == "mastervol") {
+            paramId = 14;
+            realVal = p ? p->currentVal : normVal;
+        } else if (normKey == "firprofile") {
+            paramId = 15;
+            if (normVal > 1.0f) {
+                realVal = std::clamp(normVal, 0.0f, 3.0f);
+            } else if (p) {
+                realVal = p->currentVal;
+            } else {
+                realVal = std::round(normVal * 3.0f);
+            }
+        } else if (normKey == "pitchsweep" || normKey == "sweep") {
+            paramId = 16;
+            realVal = p ? p->currentVal : (normVal * 4.0f - 2.0f);
+        } else if (normKey == "vibratorate" || normKey == "vibrate") {
+            paramId = 17;
+            realVal = p ? p->currentVal : (normVal * 20.0f);
+        } else if (normKey == "vibratodepth" || normKey == "vibdepth") {
+            paramId = 18;
+            realVal = p ? p->currentVal : normVal;
+        } else if (normKey == "sfxtype") {
+            paramId = 19;
+            if (normVal > 1.0f) {
+                realVal = std::clamp(normVal, 0.0f, 10.0f);
+            } else if (p) {
+                realVal = p->currentVal;
+            } else {
+                realVal = std::round(normVal * 10.0f);
+            }
+        } else if (normKey == "seed") {
+            paramId = 20;
+            if (normVal > 1.0f) {
+                realVal = std::clamp(normVal, 1.0f, 9999.0f);
+            } else if (p) {
+                realVal = p->currentVal;
+            } else {
+                realVal = std::round(1.0f + normVal * 9998.0f);
+            }
+        } else if (normKey == "randomize" || normKey == "randomizetrigger") {
+            paramId = 21;
+            realVal = 1.0f;
         }
-    } else if (preset->metadata.engineId == "sid" || preset->metadata.id == "c64_sid_synth") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "sid" || m.name.find("SID") != std::string::npos || m.name.find("Sid") != std::string::npos) {
-                uint32_t paramId = 999;
-                if (paramName == "Waveform") paramId = 0;
-                else if (paramName == "PulseWidth") paramId = 1;
-                else if (paramName == "PwmRate") paramId = 2;
-                else if (paramName == "PwmDepth") paramId = 3;
-                else if (paramName == "ArpMode") paramId = 4;
-                else if (paramName == "GlideSpeed") paramId = 5;
-                else if (paramName == "ChipModel") paramId = 6;
-                else if (paramName == "FilterMode") paramId = 7;
-                else if (paramName == "Cutoff") paramId = 8;
-                else if (paramName == "Resonance") paramId = 9;
-                else if (paramName == "Overdrive") paramId = 10;
-                else if (paramName == "Attack") paramId = 11;
-                else if (paramName == "Decay") paramId = 12;
-                else if (paramName == "Sustain") paramId = 13;
-                else if (paramName == "Release") paramId = 14;
 
-                if (paramId != 999 && p) {
-                    engine_->postNodeParameter(m.id, paramId, p->currentVal);
-                }
-            }
+        if (paramId != 999) {
+            postParam(paramId, realVal, "snes");
         }
-    } else if (preset->metadata.engineId == "dx7" || preset->metadata.id == "dx7_epiano") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "dx7" || m.name.find("DX7") != std::string::npos || m.name.find("Dx7") != std::string::npos) {
-                uint32_t paramId = 999;
-                if (paramName == "Algorithm") paramId = 0;
-                else if (paramName == "Feedback") paramId = 1;
-                else if (paramName == "Volume" || paramName == "MasterVolume") paramId = 2;
-                else if (paramName == "Brightness") paramId = 3;
-                else if (paramName == "TineBell") paramId = 4;
-                else if (paramName == "BodyWarmth") paramId = 5;
-
-                if (paramId != 999 && p) {
-                    engine_->postNodeParameter(m.id, paramId, p->currentVal);
-                }
-            }
+    } else if (isSid) {
+        uint32_t paramId = 999;
+        float realVal = p ? p->currentVal : normVal;
+        if (normKey == "waveform") paramId = 0;
+        else if (normKey == "pulsewidth") paramId = 1;
+        else if (normKey == "pwmrate") paramId = 2;
+        else if (normKey == "pwmdepth") paramId = 3;
+        else if (normKey == "arpmode") paramId = 4;
+        else if (normKey == "glidespeed") paramId = 5;
+        else if (normKey == "chipmodel") paramId = 6;
+        else if (normKey == "filtermode") paramId = 7;
+        else if (normKey == "cutoff") {
+            paramId = 8;
+            realVal = p ? p->currentVal : (30.0f + normVal * 12000.0f);
+        } else if (normKey == "resonance") paramId = 9;
+        else if (normKey == "overdrive") paramId = 10;
+        else if (normKey == "attack") {
+            paramId = 11;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
+        } else if (normKey == "decay") {
+            paramId = 12;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
+        } else if (normKey == "sustain") paramId = 13;
+        else if (normKey == "release") {
+            paramId = 14;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
         }
-    } else if (preset->metadata.engineId == "snes" || preset->metadata.id == "snes_dsp") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "snes" || m.name.find("SNES") != std::string::npos || m.name.find("Snes") != std::string::npos) {
-                uint32_t paramId = 999;
-                if (paramName == "Waveform") paramId = 0;
-                else if (paramName == "Attack") paramId = 2;
-                else if (paramName == "Decay") paramId = 3;
-                else if (paramName == "Sustain") paramId = 4;
-                else if (paramName == "Release") paramId = 5;
-                else if (paramName == "EchoDelay") paramId = 7;
-                else if (paramName == "EchoFeedback") paramId = 8;
-                else if (paramName == "EchoVolume") paramId = 9;
-                else if (paramName == "Volume") paramId = 14;
 
-                if (paramId != 999 && p) {
-                    engine_->postNodeParameter(m.id, paramId, p->currentVal);
-                }
-            }
+        if (paramId != 999) {
+            postParam(paramId, realVal, "sid");
         }
-    } else if (preset->metadata.engineId == "ym2612" || preset->metadata.id == "genesis_ym2612") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "ym2612" || m.name.find("YM2612") != std::string::npos || m.name.find("Ym2612") != std::string::npos || m.name.find("Genesis") != std::string::npos) {
-                uint32_t paramId = 999;
-                if (paramName == "Algorithm") paramId = 0;
-                else if (paramName == "Feedback") paramId = 1;
-                else if (paramName == "Volume") paramId = 2;
-                else if (paramName == "Op1TL") paramId = 4;
-                else if (paramName == "Op2TL") paramId = 6;
-                else if (paramName == "Op3TL") paramId = 8;
-                else if (paramName == "Op4TL") paramId = 10;
-                else if (paramName == "Attack") paramId = 11;
-                else if (paramName == "Decay") paramId = 12;
-                else if (paramName == "Sustain") paramId = 13;
-                else if (paramName == "Release") paramId = 14;
+    } else if (isDx7) {
+        uint32_t paramId = 999;
+        float realVal = p ? p->currentVal : normVal;
+        if (normKey == "algorithm") paramId = 0;
+        else if (normKey == "feedback") paramId = 1;
+        else if (normKey == "volume" || normKey == "mastervolume") paramId = 2;
+        else if (normKey == "brightness") paramId = 3;
+        else if (normKey == "tinebell") paramId = 4;
+        else if (normKey == "bodywarmth") paramId = 5;
+        else if (normKey == "oplevel1") paramId = 6;
+        else if (normKey == "oplevel2") paramId = 7;
+        else if (normKey == "oplevel3") paramId = 8;
+        else if (normKey == "oplevel4") paramId = 9;
+        else if (normKey == "oplevel5") paramId = 10;
+        else if (normKey == "oplevel6") paramId = 11;
+        else if (normKey == "opcoarse1") paramId = 12;
+        else if (normKey == "opcoarse2") paramId = 13;
+        else if (normKey == "opcoarse3") paramId = 14;
+        else if (normKey == "opcoarse4") paramId = 15;
+        else if (normKey == "opcoarse5") paramId = 16;
+        else if (normKey == "opcoarse6") paramId = 17;
 
-                if (paramId != 999 && p) {
-                    engine_->postNodeParameter(m.id, paramId, p->currentVal);
-                }
-            }
+        if (paramId != 999) {
+            postParam(paramId, realVal, "dx7");
         }
-    } else if (preset->metadata.engineId == "convolver" || preset->metadata.id == "convolver_space") {
-        for (const auto& m : canvas_.getModules()) {
-            if (m.type == "convolver" || m.name.find("Convolver") != std::string::npos || m.name.find("Space") != std::string::npos) {
-                uint32_t paramId = 999;
-                if (paramName == "Mix") paramId = 0;
-                else if (paramName == "Preset") paramId = 1;
-                else if (paramName == "PreDelay") paramId = 2;
-                else if (paramName == "Decay") paramId = 3;
-                else if (paramName == "HighCut") paramId = 4;
-                else if (paramName == "LowCut") paramId = 5;
+    } else if (isYm2612) {
+        uint32_t paramId = 999;
+        float realVal = p ? p->currentVal : normVal;
+        if (normKey == "algorithm") paramId = 0;
+        else if (normKey == "feedback") paramId = 1;
+        else if (normKey == "volume") paramId = 2;
+        else if (normKey == "op1tl") paramId = 4;
+        else if (normKey == "op2tl") paramId = 6;
+        else if (normKey == "op3tl") paramId = 8;
+        else if (normKey == "op4tl") paramId = 10;
+        else if (normKey == "attack") {
+            paramId = 11;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
+        } else if (normKey == "decay") {
+            paramId = 12;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
+        } else if (normKey == "sustain") paramId = 13;
+        else if (normKey == "release") {
+            paramId = 14;
+            realVal = p ? p->currentVal : (normVal * 2.0f);
+        } else if (normKey == "sfxr" || normKey == "sfx") paramId = 15;
 
-                if (paramId != 999 && p) {
-                    engine_->postNodeParameter(m.id, paramId, p->currentVal);
-                }
-            }
+        if (paramId != 999) {
+            postParam(paramId, realVal, "ym2612");
+        }
+    } else if (isDrums) {
+        if (normKey == "tune" || normKey == "pitch" || normKey == "tuning") {
+            postParam(1, normVal, "drum_kit");
+        } else if (normKey == "decay") {
+            postParam(2, normVal, "drum_kit");
+        } else if (normKey == "overdrive" || normKey == "drive" || normKey == "snappy" || normKey == "punch") {
+            postParam(3, normVal, "drum_kit");
+        } else if (normKey == "tone" || normKey == "volume" || normKey == "level" || normKey == "attack" || normKey == "mastergain") {
+            postParam(0, normVal * 1.5f, "drum_kit");
+        }
+    } else if (isPhys) {
+        if (normKey == "brightness" || normKey == "tone" || normKey == "cutoff") {
+            postParam(0, normVal, "piano");
+        } else if (normKey == "sustain" || normKey == "decay") {
+            postParam(1, 0.5f + normVal * 0.7f, "piano");
+        } else if (normKey == "hardness" || normKey == "hammerhardness" || normKey == "punch") {
+            postParam(2, 0.1f + normVal * 2.9f, "piano");
+        } else if (normKey == "strumspread" || normKey == "spread") {
+            postParam(3, 1.0f + normVal * 39.0f, "piano");
+        }
+    } else if (isPoly) {
+        if (normKey == "cutoff" || normKey == "filtercutoff") {
+            float val = p ? p->currentVal : (50.0f + normVal * 10000.0f);
+            postParam(0, val, "poly");
+        } else if (normKey == "resonance" || normKey == "filterresonance") {
+            postParam(1, normVal, "poly");
+        } else if (normKey == "waveform") {
+            postParam(2, std::round(normVal * 3.0f), "poly");
         }
     }
 }
@@ -4614,7 +4754,16 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 setSelectedTrackIndex(idx);
             }
             syncTrackToPreset(idx);
-            dispatchHardwareParam(paramName, normVal);
+            dispatchTrackParam(idx, paramName, normVal);
+        };
+        modularArrangerView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
+            if (engine_) {
+                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
+                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
+                    eng->postNoteOff(n, trackIdx);
+                }).detach();
+            }
         };
         modularArrangerView_->onClipsChanged = [this]() {
             syncArrangerToSequencer();
@@ -4893,7 +5042,16 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 setSelectedTrackIndex(idx);
             }
             syncTrackToPreset(idx);
-            dispatchHardwareParam(paramName, normVal);
+            dispatchTrackParam(idx, paramName, normVal);
+        };
+        modularTrackInspectorView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
+            if (engine_) {
+                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
+                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
+                    eng->postNoteOff(n, trackIdx);
+                }).detach();
+            }
         };
         modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
             if (modularArrangerView_ && modularTrackInspectorView_) {
@@ -5259,8 +5417,20 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         setStatusMessage("Applied Preset: " + pTitle);
     };
     fullscreenDeviceModal_.onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
-        (void)idx;
-        dispatchHardwareParam(paramName, normVal);
+        if (idx != selectedTrackIndex_) {
+            setSelectedTrackIndex(idx);
+            syncTrackToPreset(idx);
+        }
+        dispatchTrackParam(idx, paramName, normVal);
+    };
+    fullscreenDeviceModal_.onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
+        if (engine_) {
+            engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
+            std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(280));
+                eng->postNoteOff(n, trackIdx);
+            }).detach();
+        }
     };
     fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
         if (engine_) {
@@ -5373,7 +5543,16 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 setSelectedTrackIndex(idx);
             }
             syncTrackToPreset(idx);
-            dispatchHardwareParam(paramName, normVal);
+            dispatchTrackParam(idx, paramName, normVal);
+        };
+        modularMixerView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
+            if (engine_) {
+                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
+                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
+                    eng->postNoteOff(n, trackIdx);
+                }).detach();
+            }
         };
         modularMixerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
             setTrackMuteState(idx, mute);
@@ -6779,10 +6958,12 @@ void GuiWindow::renderFrame() {
                 float bottomY = bPanelY - 6.0f;
 
                 uint32_t activeIdx = modularArrangerView_ ? modularArrangerView_->getActiveTrackIndex() : selectedTrackIndex_;
-                selectedTrackIndex_ = activeIdx;
-                if (modularArrangerView_) {
-                    modularArrangerView_->syncDrawerDataForTrack(activeIdx);
-                    modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                if (selectedTrackIndex_ != activeIdx) {
+                    selectedTrackIndex_ = activeIdx;
+                    if (modularArrangerView_) {
+                        modularArrangerView_->syncDrawerDataForTrack(activeIdx);
+                        modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                    }
                 }
 
                 modularTrackInspectorView_->setAudioScopeBuffer(std::span<const float>(scopeBuffer_, 256));
@@ -8654,24 +8835,26 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                         std::string readout = p ? p->getFormatted() : "";
                         renderTb303Knob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light, node.hardwareStyle == "tb303_selector");
                     } else {
-                        drawCircleDropShadow(cx, cy, kRad + 2.0f, 6.0f, light, 0.45f);
-                        constexpr float minAngle = -2.35619449f;
-                        constexpr float maxAngle = 2.35619449f;
-                        float currentAngle = minAngle + normVal * (maxAngle - minAngle);
+                        GuiKnobStyle kStyle = GuiKnobStyle::Standard;
+                        const std::string& s = node.hardwareStyle;
+                        if (s == "davies" || s == "davies_fluted" || s == "chromeFluted" || s == "chrome") kStyle = GuiKnobStyle::DaviesFluted;
+                        else if (s == "rogan" || s == "rogan_moog") kStyle = GuiKnobStyle::RoganMoog;
+                        else if (s == "chicken" || s == "chicken_head") kStyle = GuiKnobStyle::ChickenHead;
+                        else if (s == "pastel" || s == "pastel_dimple") kStyle = GuiKnobStyle::PastelDimple;
+                        else if (s == "encoder" || s == "modern_encoder") kStyle = GuiKnobStyle::ModernEncoder;
+                        else if (s == "cream_fluted") kStyle = GuiKnobStyle::CreamFluted;
+                        else if (s == "bakelite" || s == "bakelite_skirt") kStyle = GuiKnobStyle::BakeliteSkirt;
+                        else if (s == "anodized") kStyle = GuiKnobStyle::AnodizedKnurled;
+                        else if (s == "twoToneStepped" || s == "two_tone_stepped") kStyle = GuiKnobStyle::TwoToneStepped;
 
-                        drawCircle(cx, cy, kRad + 3.0f, 0.06f, 0.07f, 0.09f);
-                        drawArc(cx, cy, kRad + 2.0f, minAngle, maxAngle, 0.20f, 0.22f, 0.28f, 1.0f, 1.5f);
-                        if (normVal > 0.01f) {
-                            drawArc(cx, cy, kRad + 2.0f, minAngle, currentAngle, isActive ? 1.0f : 0.0f,
-                                                                                  isActive ? 0.85f : 0.85f,
-                                                                                  isActive ? 0.1f : 1.0f, 1.0f, 1.8f);
+                        if (g_activeBatchRenderer) {
+                            GuiWidgetDef w;
+                            w.knobStyle = kStyle;
+                            w.label = node.label;
+                            w.accentColor = Color(0.0f, 0.95f, 1.0f);
+                            drawKnobWidget(*g_activeBatchRenderer, cx, cy, kRad, normVal, w, light, isActive, isHovered, false);
+                            drawVectorString(node.label, cx - node.label.size() * 2.5f, cy + kRad + 5.0f, 0.48f, Color(0.70f, 0.75f, 0.85f));
                         }
-                        drawCircle(cx, cy, kRad, 0.16f, 0.18f, 0.24f);
-                        drawCircleOutline(cx, cy, kRad, 0.28f, 0.32f, 0.42f, 1.0f, 1.0f);
-                        float indX = cx + std::sin(currentAngle) * (kRad - 1.5f);
-                        float indY = cy - std::cos(currentAngle) * (kRad - 1.5f);
-                        drawLine(cx, cy, indX, indY, Color(0.0f, 0.95f, 1.0f), 1.5f);
-                        drawVectorString(node.label, cx - node.label.size() * 2.5f, cy + kRad + 5.0f, 0.48f, Color(0.70f, 0.75f, 0.85f));
                     }
                 } else if (node.type == project::GuiNodeType::Nixie) {
                     float cx = adjNodeX + adjNodeW * 0.5f;
@@ -8778,24 +8961,26 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                     std::string readout = p ? p->getFormatted() : "";
                     renderTb303Knob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light, node.hardwareStyle == "tb303_selector");
                 } else {
-                    drawCircleDropShadow(cx, cy, kRad + 3.0f, 8.0f, light, 0.48f);
-                    constexpr float minAngle = -2.35619449f;
-                    constexpr float maxAngle = 2.35619449f;
-                    float currentAngle = minAngle + normVal * (maxAngle - minAngle);
+                    GuiKnobStyle kStyle = GuiKnobStyle::Standard;
+                    const std::string& s = node.hardwareStyle;
+                    if (s == "davies" || s == "davies_fluted" || s == "chromeFluted" || s == "chrome") kStyle = GuiKnobStyle::DaviesFluted;
+                    else if (s == "rogan" || s == "rogan_moog") kStyle = GuiKnobStyle::RoganMoog;
+                    else if (s == "chicken" || s == "chicken_head") kStyle = GuiKnobStyle::ChickenHead;
+                    else if (s == "pastel" || s == "pastel_dimple") kStyle = GuiKnobStyle::PastelDimple;
+                    else if (s == "encoder" || s == "modern_encoder") kStyle = GuiKnobStyle::ModernEncoder;
+                    else if (s == "cream_fluted") kStyle = GuiKnobStyle::CreamFluted;
+                    else if (s == "bakelite" || s == "bakelite_skirt") kStyle = GuiKnobStyle::BakeliteSkirt;
+                    else if (s == "anodized") kStyle = GuiKnobStyle::AnodizedKnurled;
+                    else if (s == "twoToneStepped" || s == "two_tone_stepped") kStyle = GuiKnobStyle::TwoToneStepped;
 
-                    drawCircle(cx, cy, kRad + 5.0f, 0.06f, 0.07f, 0.09f);
-                    drawArc(cx, cy, kRad + 3.0f, minAngle, maxAngle, 0.20f, 0.22f, 0.28f, 1.0f, 1.8f);
-                    if (normVal > 0.01f) {
-                        drawArc(cx, cy, kRad + 3.0f, minAngle, currentAngle, isActive ? 1.0f : 0.0f,
-                                                                              isActive ? 0.85f : 0.85f,
-                                                                              isActive ? 0.1f : 1.0f, 1.0f, 2.2f);
+                    if (g_activeBatchRenderer) {
+                        GuiWidgetDef w;
+                        w.knobStyle = kStyle;
+                        w.label = node.label;
+                        w.accentColor = Color(0.0f, 0.95f, 1.0f);
+                        drawKnobWidget(*g_activeBatchRenderer, cx, cy, kRad, normVal, w, light, isActive, isHovered, false);
+                        drawVectorString(node.label, cx - node.label.size() * 3.0f, cy + kRad + 8.0f, 0.55f, Color(0.70f, 0.75f, 0.85f));
                     }
-                    drawCircle(cx, cy, kRad, 0.16f, 0.18f, 0.24f);
-                    drawCircleOutline(cx, cy, kRad, 0.28f, 0.32f, 0.42f, 1.0f, 1.0f);
-                    float indX = cx + std::sin(currentAngle) * (kRad - 2.5f);
-                    float indY = cy - std::cos(currentAngle) * (kRad - 2.5f);
-                    drawLine(cx, cy, indX, indY, Color(0.0f, 0.95f, 1.0f), 1.8f);
-                    drawVectorString(node.label, cx - node.label.size() * 3.0f, cy + kRad + 8.0f, 0.55f, Color(0.70f, 0.75f, 0.85f));
                 }
             } else if (node.type == project::GuiNodeType::Nixie) {
                 float cx = adjNodeX + node.boundsW * 0.5f;
@@ -11296,10 +11481,13 @@ void GuiWindow::loadPresetToSelectedTrack(size_t presetIndex) {
     }
 
     for (const auto& [paramName, param] : p.params) {
-        dispatchHardwareParam(paramName, param.getNormalized());
+        dispatchTrackParam(selectedTrackIndex_, paramName, param.getNormalized());
     }
 
     setSelectedTrackIndex(selectedTrackIndex_);
+    if (fullscreenDeviceModal_.isOpen() && fullscreenDeviceModal_.getTarget().trackIndex == selectedTrackIndex_) {
+        openFullscreenDevice(selectedTrackIndex_);
+    }
     lastStatusMessage_ = "LOADED: " + p.metadata.name;
     recordProjectHistory("Loaded Preset: " + p.metadata.name, "PRESET");
 }
@@ -13144,6 +13332,7 @@ void GuiWindow::onMouseMove(float x, float y) {
         mouseX_ = x;
         mouseY_ = y;
         fullscreenDeviceModal_.handlePointer(pev);
+        markNeedsRedraw();
         return;
     }
 
@@ -13827,7 +14016,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (fullscreenDeviceModal_.handlePointer(pev)) return;
+        fullscreenDeviceModal_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (themeBrowserDialog_.isOpen()) {
@@ -14793,6 +14984,11 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
 
         if (activeView_ == WorkspaceView::HardwarePanel || activeView_ == WorkspaceView::Track) {
+            auto inspHit = hitTestTrackInspector(x, y);
+            if (inspHit.hit) {
+                handleTrackInspectorInteraction(inspHit, x, y);
+                return;
+            }
             if (modularTrackInspectorView_) {
                 ViewContext ctx = createViewContext();
                 PointerEvent pev;
@@ -15749,6 +15945,7 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         fullscreenDeviceModal_.handlePointer(pev);
+        markNeedsRedraw();
         return;
     }
 
@@ -16032,7 +16229,9 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
 
     // 1. Modals & Dialogs (ensure context-based scroll and absorb scroll so it never leaks to DAW)
     if (fullscreenDeviceModal_.isOpen()) {
-        if (fullscreenDeviceModal_.handlePointer(pev)) return;
+        fullscreenDeviceModal_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
     if (commandPaletteDialog_.isOpen()) {
         commandPaletteDialog_.handlePointer(pev);
@@ -16244,7 +16443,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
                                  commandPaletteDialog_.isOpen() ||
                                  audioToMidiDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
-                                 fullscreenDeviceModal_.isOpen() ||
                                  (activePluginDialog && activePluginDialog->isOpen()) ||
                                  (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded());
 
@@ -16387,6 +16585,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     // Intercept keyboard input if Dedicated Full-Display Device GUI is open
     if (fullscreenDeviceModal_.isOpen()) {
         if (fullscreenDeviceModal_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
             return;
         }
         if (key == 256) { // GLFW_KEY_ESCAPE
@@ -16397,6 +16596,8 @@ void GuiWindow::onKeyDown(int key, int mods) {
             closeFullscreenDevice();
             return;
         }
+        // Absorb all other non-global keys while modal is open
+        return;
     }
 
     // Ctrl+M: Open Audio to MIDI Converter Modal Dialog

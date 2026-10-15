@@ -3697,6 +3697,77 @@ void testStaticChromeFboCachingAndVisualParity() {
     std::cout << "  [PASS] Static Chrome Offscreen Texture (FBO) Caching and Invalidation passed." << std::endl;
 }
 
+void testTrackParameterDispatchToSynths() {
+    std::cout << "[Test] Track parameter dispatch to AudioGraph instrument nodes..." << std::endl;
+    AudioEngine engine;
+    GuiWindow window(1280, 800, "Track Param Dispatch Test");
+    bool initOk = window.initialize(engine);
+    REQUIRE(initOk);
+
+    // Track 0: TB-303 Acid
+    window.dispatchTrackParam(0, "Cutoff", 0.75f);
+    window.dispatchTrackParam(0, "Resonance", 0.60f);
+
+    // Track 1: 808 Drums
+    window.dispatchTrackParam(1, "Tune", 0.85f);
+    window.dispatchTrackParam(1, "Overdrive", 0.45f);
+
+    // Track 2: Assign to SNES Synth & test all 12 waveforms
+    engine.assignTrackInstrument(2, "SNES Synth");
+    for (int w = 0; w < 12; ++w) {
+        float normRatio = static_cast<float>(w) / 11.0f;
+        window.dispatchTrackParam(2, "Waveform", normRatio);
+        engine.postNoteOn(60, 0.85f, false, false, 2);
+        float snesOutL[128], snesOutR[128];
+        std::fill_n(snesOutL, 128, 0.0f);
+        std::fill_n(snesOutR, 128, 0.0f);
+        engine.renderOfflineBlock(snesOutL, snesOutR, 128);
+        float wPeak = 0.0f;
+        for (int i = 0; i < 128; ++i) {
+            REQUIRE(!std::isnan(snesOutL[i]));
+            wPeak = std::max(wPeak, std::max(std::abs(snesOutL[i]), std::abs(snesOutR[i])));
+        }
+        REQUIRE(wPeak > 0.001f);
+        engine.postNoteOff(60, 2);
+    }
+
+    // Also test SFXR parameter updates
+    window.dispatchTrackParam(2, "SFXType", 0.1f);
+    window.dispatchTrackParam(2, "Seed", 0.5f);
+    window.dispatchTrackParam(2, "PitchSweep", 0.8f);
+    window.dispatchTrackParam(2, "EchoDelay", 0.5f);
+
+    // Track 3: Assign to DX7
+    engine.assignTrackInstrument(3, "Yamaha DX7");
+    window.dispatchTrackParam(3, "Brightness", 0.90f);
+    window.dispatchTrackParam(3, "Feedback", 0.50f);
+
+    // Track 4: Assign to Grand Piano
+    engine.assignTrackInstrument(4, "Concert Grand");
+    window.dispatchTrackParam(4, "Brightness", 0.70f);
+    window.dispatchTrackParam(4, "Hardness", 0.80f);
+
+    // Audition notes on each track to verify synthesis and parameter processing
+    for (int t = 0; t < 5; ++t) {
+        engine.postNoteOn(60, 0.85f, false, false, t);
+    }
+
+    float outL[256], outR[256];
+    std::fill_n(outL, 256, 0.0f);
+    std::fill_n(outR, 256, 0.0f);
+    engine.renderOfflineBlock(outL, outR, 256);
+
+    float peak = 0.0f;
+    for (int i = 0; i < 256; ++i) {
+        REQUIRE(!std::isnan(outL[i]) && !std::isinf(outL[i]));
+        REQUIRE(!std::isnan(outR[i]) && !std::isinf(outR[i]));
+        peak = std::max(peak, std::max(std::abs(outL[i]), std::abs(outR[i])));
+    }
+    REQUIRE(peak > 0.001f);
+
+    std::cout << "  [PASS] Track parameter dispatch to AudioGraph instrument nodes verified." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Phase 6 GUI Interaction Tests ===" << std::endl;
     testDawnBridgeLifecycle();
@@ -3729,6 +3800,7 @@ int main() {
     testFullscreenDeviceModal();
     testZeroAllocationGuiRenderLoop();
     testStaticChromeFboCachingAndVisualParity();
+    testTrackParameterDispatchToSynths();
     std::cout << "=== All Phase 6 GUI Interaction Tests Passed! ===" << std::endl;
     return 0;
 }

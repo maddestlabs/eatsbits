@@ -17,7 +17,8 @@ enum class GuiWidgetType {
     VuMeter,
     ActionButton,
     ScopeScreen,
-    Divider
+    Divider,
+    ListBox
 };
 
 enum class GuiKnobStyle {
@@ -30,7 +31,57 @@ enum class GuiKnobStyle {
     Tb303Potentiometer,
     Tb303SelectorSilver,
     Tb303SelectorBlack,
-    MiniPotCream
+    MiniPotCream,
+    DaviesFluted,
+    RoganMoog,
+    ChickenHead,
+    PastelDimple,
+    ModernEncoder,
+    CustomShape
+};
+
+enum class KnobBodyShape : uint8_t {
+    Round = 0,           // Standard cylindrical smooth rotor
+    FlutedScalloped = 1, // Rogan / Davies 1900H style continuous scalloped ridges
+    RibbedKnurled = 2,   // Fine micro-flutes / knurled grip teeth
+    ChickenHead = 3,     // Asymmetrical vintage pointer wing / beak
+    FacetedPolygon = 4,  // Hexagonal, octagonal, or dodecagonal faceted knob
+    SkirtedVintage = 5   // Flared base skirt + fluted rotor with graduation markings
+};
+
+enum class KnobCapStyle : uint8_t {
+    Flat = 0,            // Clean minimalist / matte cap
+    LatheMetallic = 1,   // Brushed concentric lathe machining rings with specular highlight
+    Domed = 2,           // Spherical 3D highlight
+    IndentedDimple = 3,  // Soft fingertip dish / center dimple (e.g. Joni style)
+    InlayDisc = 4        // Contrasting color or metallic inlay disc
+};
+
+enum class KnobIndicatorType : uint8_t {
+    LineGroove = 0,      // Molded or painted line extending across cap and body
+    DotPip = 1,          // Circular pip or jewel marker near rim
+    PointerNotch = 2,    // Physical notch cutout on skirt / perimeter edge
+    PointerNose = 3,     // Triangular nose point (e.g. chicken head tip)
+    None = 4
+};
+
+struct KnobShapeDef {
+    KnobBodyShape shape{KnobBodyShape::FlutedScalloped};
+    int flutes{12};               // Scallop or facet count (e.g. 6, 8, 12, 18, 24)
+    float fluteDepth{0.14f};      // Depth of flutes relative to radius [0.0, 0.35]
+    float cornerRadius{1.0f};     // Softness/bevel of facet corners
+    bool hasSkirt{false};         // Flared base skirt underneath
+    float skirtRatio{1.25f};      // Skirt radius relative to knob radius
+    int skirtTicks{0};            // Graduation ticks printed on skirt (e.g. 11 ticks)
+    KnobCapStyle capStyle{KnobCapStyle::LatheMetallic};
+    float capRatio{0.72f};        // Cap radius relative to body
+    KnobIndicatorType indicator{KnobIndicatorType::LineGroove};
+    float indicatorLength{0.80f}; // Fraction of radius
+    float indicatorWidth{2.2f};   // Width in pixels
+    Color bodyColor{0.16f, 0.17f, 0.20f, 1.0f};    // Main knob body color
+    Color capColor{0.82f, 0.84f, 0.88f, 1.0f};     // Cap / inlay color
+    Color indicatorColor{0.0f, 0.95f, 1.0f, 1.0f}; // Needle / glow color
+    bool showHaloArc{true};                        // LED progress arc around dial
 };
 
 enum class GuiChassisStyle {
@@ -73,6 +124,11 @@ struct GuiWidgetDef {
     uint8_t macroOrder{0};
     Rect2D designBounds{0.0f, 0.0f, 0.0f, 0.0f};
     float designSize{56.0f};
+    std::vector<std::string> options;
+    int selectedIndex{0};
+    float scrollOffset{0.0f};
+    std::string action; // e.g. "randomize"
+    std::optional<KnobShapeDef> customShape{std::nullopt};
 };
 
 struct GuiRowDef {
@@ -159,6 +215,24 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                       const float* scopeBuffer = nullptr,
                       size_t scopeBufferCount = 0,
                       int draggingRow = -1,
-                      int draggingWidget = -1);
+                      int draggingWidget = -1,
+                      const std::string& focusedWidgetId = "");
+
+/**
+ * Returns default KnobShapeDef corresponding to a GuiKnobStyle.
+ */
+KnobShapeDef getKnobShapeDef(GuiKnobStyle style, const Color& accent = Color(0.0f, 0.95f, 1.0f));
+
+/**
+ * High-performance vector skeuomorphic knob renderer.
+ * Handles continuous fluted contours, chicken-head pointers, faceted polygons,
+ * skirts with graduation ticks, 3D lathe caps, and glowing indicator needle/grooves.
+ */
+void drawKnobWidget(BatchRenderer2D& r,
+                    float cx, float cy, float radius, float normVal,
+                    const GuiWidgetDef& w,
+                    const LightSource2D& light,
+                    bool isActive = false, bool isHovered = false,
+                    bool isLightChassis = false);
 
 } // namespace eatsbits::ui

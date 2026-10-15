@@ -15,12 +15,12 @@ namespace eatsbits::audio {
 
 /// Authentic SNES 16-Bit S-DSP Waveform Types (BRR encoded single-cycle & multi-cycle wavetables).
 enum class SNESWaveform : uint8_t {
-    Sine = 0,
-    Square,
+    Square = 0,
     Pulse25,
     Pulse12,
     Sawtooth,
     Triangle,
+    Sine,
     Organ,
     Strings,
     Flute,
@@ -266,9 +266,6 @@ public:
         const float normPos = normPhase * kInvTwoPi; // 0.0 to 1.0
 
         switch (waveform) {
-            case SNESWaveform::Sine:
-                return std::sin(normPhase);
-
             case SNESWaveform::Square: {
                 const float sqr = normPos < 0.5f ? 1.0f : -1.0f;
                 return gaussianSmooth(sqr, normPos, 0.5f);
@@ -289,6 +286,9 @@ public:
 
             case SNESWaveform::Triangle:
                 return (2.0f / std::numbers::pi_v<float>) * std::asin(std::clamp(std::sin(normPhase), -1.0f, 1.0f));
+
+            case SNESWaveform::Sine:
+                return std::sin(normPhase);
 
             case SNESWaveform::Organ: {
                 const float s1 = std::sin(normPhase);
@@ -563,7 +563,7 @@ public:
             float sample = voice.evaluateWaveform(voice.phase);
 
             // S-DSP Noise
-            if (voice.noiseEnabled) {
+            if (voice.noiseEnabled || voice.waveform == SNESWaveform::Noise) {
                 const float noise = stepNoise(voice.noiseRate);
                 sample = voice.waveform == SNESWaveform::Noise
                     ? noise

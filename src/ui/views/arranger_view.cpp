@@ -278,6 +278,11 @@ ArrangerView::ArrangerView() {
             onParamChanged(trackIdx, paramName, normVal);
         }
     };
+    propertiesDrawer_.onAuditionNote = [this](uint32_t trackIdx, uint8_t note, float vel) {
+        if (onAuditionNote) {
+            onAuditionNote(trackIdx, note, vel);
+        }
+    };
     propertiesDrawer_.onTabSelected = [this](TrackPropertiesTab tab) {
         inspectorTab_ = (tab == TrackPropertiesTab::Clip) ? ArrangerInspectorTab::Clip : ArrangerInspectorTab::Track;
         drawerData_.tab = tab;
@@ -568,10 +573,15 @@ void ArrangerView::syncDrawerDataForTrack(uint32_t trackIdx) {
         drawerData_.mute = track.mute;
         drawerData_.solo = track.solo;
         drawerData_.chordFollowMode = track.chordFollowMode;
-        drawerData_.knobs.clear();
+        if (track.knobs.empty()) {
+            drawerData_.knobs.clear();
+            drawerData_.syncKnobsIfEmpty();
+            track.knobs = drawerData_.knobs;
+        } else {
+            drawerData_.knobs = track.knobs;
+        }
         drawerData_.midiFx = track.midiFx;
         drawerData_.audioFx = track.audioFx;
-        drawerData_.syncKnobsIfEmpty();
     }
 }
 
@@ -1555,7 +1565,13 @@ void ArrangerView::syncDrawerData() {
                              drawerData_.instrument != track.instrument ||
                              drawerData_.instrumentEngine != expectedEngine);
         if (trackChanged) {
-            drawerData_.knobs.clear();
+            if (track.knobs.empty()) {
+                drawerData_.knobs.clear();
+                drawerData_.syncKnobsIfEmpty();
+                track.knobs = drawerData_.knobs;
+            } else {
+                drawerData_.knobs = track.knobs;
+            }
             drawerData_.midiFx = track.midiFx;
             drawerData_.audioFx = track.audioFx;
             drawerData_.trackIndex = activeTrackIndex_;
@@ -1710,6 +1726,9 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         syncDrawerData();
         if (propertiesDrawer_.handlePointer(ev, drawerData_, ctx)) {
             inspectorOpen_ = propertiesDrawer_.isExpanded();
+            if (activeTrackIndex_ < tracks_.size()) {
+                tracks_[activeTrackIndex_].knobs = drawerData_.knobs;
+            }
         }
         return true;
     }
@@ -2399,8 +2418,8 @@ bool ArrangerView::handleKey(int key, [[maybe_unused]] int scancode, int action,
     if (pluginDialog_.isOpen()) {
         return pluginDialog_.handleKey(key, scancode, action, mods);
     }
-    if (propertiesDrawer_.isPluginDialogOpen()) {
-        return propertiesDrawer_.handleKey(key, scancode, action, mods, ctx);
+    if (propertiesDrawer_.isPluginDialogOpen() || inspectorOpen_ || propertiesDrawer_.isExpanded()) {
+        if (propertiesDrawer_.handleKey(key, scancode, action, mods, ctx)) return true;
     }
     if (circleOfFifthsDialog_.isOpen()) {
         return circleOfFifthsDialog_.handleKey(key, scancode, action, mods);

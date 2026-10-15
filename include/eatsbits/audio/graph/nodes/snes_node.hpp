@@ -3,6 +3,7 @@
 
 #include "../graph_node.hpp"
 #include "../../dsp/snes_dsp_core.hpp"
+#include "../../dsp/snes_sfxr_generator.hpp"
 
 namespace eatsbits::audio {
 
@@ -102,6 +103,51 @@ public:
                 else snes_.echo.setFIRProfile("surround_reverb");
                 break;
             }
+            case 16: { // PitchSweep (-2.0..2.0)
+                pitchSweep_ = std::clamp(value, -2.0f, 2.0f);
+                for (auto& v : snes_.voices) {
+                    if (std::abs(pitchSweep_) > 0.02f) {
+                        if (pitchSweep_ < 0.0f) {
+                            v.startFreqMult = 1.0f - pitchSweep_ * 1.5f;
+                            v.endFreqMult = 0.15f;
+                        } else {
+                            v.startFreqMult = 0.45f;
+                            v.endFreqMult = 1.0f + pitchSweep_ * 1.5f;
+                        }
+                        v.sweepDuration = 0.14f;
+                    } else {
+                        v.startFreqMult = 1.0f;
+                        v.endFreqMult = 1.0f;
+                        v.sweepDuration = 0.0f;
+                    }
+                }
+                break;
+            }
+            case 17: { // VibratoRate (0..20)
+                for (auto& v : snes_.voices) v.vibratoRate = std::clamp(value, 0.0f, 20.0f);
+                break;
+            }
+            case 18: { // VibratoDepth (0..1)
+                for (auto& v : snes_.voices) v.vibratoDepth = std::clamp(value, 0.0f, 1.0f);
+                break;
+            }
+            case 19: { // SFXType (0..10)
+                currentSfxType_ = std::clamp(static_cast<int>(value), 0, 10);
+                SNESSFXRGenerator::configureFromType(snes_, currentSfxType_, currentSeed_);
+                break;
+            }
+            case 20: { // Seed (1..9999)
+                currentSeed_ = static_cast<uint32_t>(std::clamp(value, 1.0f, 9999.0f));
+                snes_.setSeed(currentSeed_);
+                break;
+            }
+            case 21: { // RandomizeTrigger (1.0f = trigger new random seed & configure)
+                if (value > 0.5f) {
+                    currentSeed_ = snes_.prng.nextInt(1, 9999);
+                    SNESSFXRGenerator::configureFromType(snes_, currentSfxType_, currentSeed_);
+                }
+                break;
+            }
             default: break;
         }
     }
@@ -147,6 +193,9 @@ public:
 
 private:
     SNESDSPEngine snes_;
+    float pitchSweep_{0.0f};
+    int currentSfxType_{0};
+    uint32_t currentSeed_{42};
 };
 
 } // namespace eatsbits::audio

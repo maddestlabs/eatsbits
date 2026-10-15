@@ -116,6 +116,7 @@ public:
     std::function<void(uint32_t trackIndex, int clipIndex)> onDeleteClip;
     std::function<void(uint32_t trackIndex, ChordFollowMode mode)> onChordFollowChanged;
     std::function<void(uint32_t trackIndex)> onBakeChords;
+    std::function<void(uint32_t trackIndex, uint8_t note, float velocity)> onAuditionNote;
 
 private:
     SlidingDrawer drawer_;

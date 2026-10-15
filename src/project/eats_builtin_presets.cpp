@@ -51,7 +51,8 @@ static const std::vector<PresetInfo> s_catalog = {
     {"eats_303", "Eats-303 Acid Bassline", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Authentic Roland TB-303 diode ladder filter emulation with accent and slide.", "Eatsbits DSP", "preset:inst_303"},
     {"c64_sid_synth", "C64 MOS 6581 SID Synth", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Commodore 64 chiptune synthesizer with wave combining, ring mod, and analog multi-mode filter.", "Eatsbits DSP", "preset:inst_synth"},
     {"dx7_epiano", "Yamaha DX7 FM E-Piano", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "6-Operator classic 1983 frequency modulation electric piano.", "Eatsbits DSP", "preset:inst_epiano"},
-    {"snes_console_synth", "SNES Sony SPC700 Console", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "16-bit Super Nintendo 32kHz BRR sample synth with 8-tap FIR gaussian echo.", "Eatsbits DSP", "preset:inst_snes"},
+    {"snes_console_synth", "SNES Synth", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Authentic 16-bit polyphonic S-DSP console synthesizer with selectable waveforms, ADSR envelope, vibrato, and hardware echo DSP.", "Eatsbits DSP", "preset:inst_snes"},
+    {"eats_sfxr", "SNES Sfxr", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "16-Bit retro arcade and console sound effect synthesizer with procedural presets, random seeds, and SNES echo DSP.", "Eatsbits DSP", "preset:inst_snes"},
     {"ym2612_synth", "Sega Genesis YM2612 FM", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Sega Genesis 4-Operator OPN2 FM synthesis with 8 routing algorithms.", "Eatsbits DSP", "preset:inst_genesis"},
 
     // Drum Machines & MPC Workstations
@@ -137,6 +138,7 @@ std::optional<PresetDefinition> BuiltinPresetRegistry::createPresetById(const st
     if (id == "c64_sid_synth") return PresetLoader::createC64SidPreset();
     if (id == "dx7_epiano") return PresetLoader::createYamahaDx7Preset();
     if (id == "snes_console_synth") return PresetLoader::createSnesPreset();
+    if (id == "eats_sfxr") return PresetLoader::createSnesSfxrPreset();
     if (id == "ym2612_synth") return PresetLoader::createYm2612Preset();
 
     return std::nullopt;

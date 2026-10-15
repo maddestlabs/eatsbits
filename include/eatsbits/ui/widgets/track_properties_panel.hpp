@@ -468,6 +468,34 @@ struct TrackPropertiesDrawerData {
                 {"pedal", "PEDAL", 0.0f, "Off"},
                 {"reverb", "REVERB", 0.40f, "40%"}
             };
+        } else if (instrumentEngine == "sfxr" || instrument.find("sfxr") != std::string::npos || presetTitle.find("Sfxr") != std::string::npos) {
+            knobs = {
+                {"SFXType", "SFX TYPE", 0.0f, "Laser"},
+                {"Seed", "RNG SEED", 42.0f / 9999.0f, "42"},
+                {"Waveform", "WAVETABLE", 1.0f / 11.0f, "Square"},
+                {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+                {"Decay", "DECAY", 0.35f / 2.0f, "350 ms"},
+                {"Sustain", "SUSTAIN", 0.20f, "20%"},
+                {"Release", "RELEASE", 0.20f / 2.0f, "200 ms"},
+                {"PitchSweep", "SWEEP", (-0.45f + 2.0f) / 4.0f, "-0.45"},
+                {"VibratoRate", "VIB RATE", 0.0f, "0 Hz"},
+                {"VibratoDepth", "VIB DEPTH", 0.0f, "0%"},
+                {"EchoDelay", "ECHO MS", 120.0f / 480.0f, "120 ms"},
+                {"EchoVolume", "ECHO VOL", 0.35f, "35%"}
+            };
+        } else if (instrumentEngine == "snes" || instrument.find("snes") != std::string::npos || presetTitle.find("SNES") != std::string::npos) {
+            knobs = {
+                {"Waveform", "WAVETABLE", 0.0f, "Square"},
+                {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+                {"Decay", "DECAY", 0.30f / 2.0f, "300 ms"},
+                {"Sustain", "SUSTAIN", 0.50f, "50%"},
+                {"Release", "RELEASE", 0.25f / 2.0f, "250 ms"},
+                {"VibratoRate", "VIB RATE", 5.5f / 20.0f, "5.5 Hz"},
+                {"VibratoDepth", "VIB DEPTH", 0.10f, "10%"},
+                {"EchoDelay", "ECHO MS", 140.0f / 480.0f, "140 ms"},
+                {"EchoFeedback", "ECHO FDBK", 0.55f / 0.90f, "55%"},
+                {"EchoVolume", "ECHO VOL", 0.40f, "40%"}
+            };
         } else {
             knobs = {
                 {"param1", knob1Name, knob1, std::to_string(static_cast<int>(std::round(knob1 * 100.0f))) + "%"},
@@ -633,6 +661,7 @@ public:
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIndex, size_t fxIndex, const std::string& paramName, float normVal)> onAudioFxParamChanged;
+    std::function<void(uint32_t trackIndex, uint8_t note, float velocity)> onAuditionNote;
     std::function<void(uint32_t trackIndex)> onChangeInstrument;
     std::function<void(uint32_t trackIndex)> onOpenDesign;
     std::function<void(uint32_t trackIndex)> onOpenPresets;
@@ -761,9 +790,12 @@ private:
     GuiPanelDef guiPanel_;
     int draggingRow_{-1};
     int draggingWidget_{-1};
+    std::string focusedWidgetId_{""};
     uint32_t lastTrackIndex_{0xFFFFFFFF};
     std::string lastInstrumentEngine_;
     std::string lastInstrument_;
+
+    void selectListBoxOption(GuiWidgetDef& w, int newIdx, TrackPropertiesDrawerData& data);
 
     PluginSearchDialog pluginDialog_;
     ColorPickerDialog colorPickerDialog_;

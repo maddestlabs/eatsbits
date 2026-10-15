@@ -157,6 +157,26 @@ public:
                 else if (t == "scope") node.type = GuiNodeType::Scope;
                 else if (t == "divider") node.type = GuiNodeType::Divider;
                 else if (t == "spacer") node.type = GuiNodeType::Spacer;
+                else if (t == "listbox") node.type = GuiNodeType::ListBox;
+                else if (t == "button") node.type = GuiNodeType::Button;
+            } else if (key == "action") {
+                node.action = current_.str; advance();
+            } else if (key == "options") {
+                if (current_.type == TokType::LBracket) {
+                    advance();
+                    while (current_.type != TokType::RBracket && current_.type != TokType::Eof) {
+                        if (current_.type == TokType::String || current_.type == TokType::Identifier) {
+                            node.options.push_back(current_.str);
+                            advance();
+                        } else {
+                            advance();
+                        }
+                        if (current_.type == TokType::Comma) advance();
+                    }
+                    if (current_.type == TokType::RBracket) advance();
+                } else {
+                    skipValue();
+                }
             } else if (key == "title") {
                 node.title = current_.str; advance();
             } else if (key == "subtitle") {
@@ -269,11 +289,20 @@ GuiLayoutNode convertValueToGuiNode(const eatscript::Value& val) {
     else if (t == "scope") node.type = GuiNodeType::Scope;
     else if (t == "divider") node.type = GuiNodeType::Divider;
     else if (t == "spacer") node.type = GuiNodeType::Spacer;
+    else if (t == "listbox") node.type = GuiNodeType::ListBox;
+    else if (t == "button") node.type = GuiNodeType::Button;
 
     node.title = val.get("title").asString();
     node.subtitle = val.get("subtitle").asString();
     node.background = val.get("background").asString();
     node.accent = val.get("accent").asString();
+    node.action = val.get("action").asString();
+
+    if (val.hasKey("options") && val.get("options").isList()) {
+        for (const auto& opt : val.get("options").listVal) {
+            node.options.push_back(opt.asString());
+        }
+    }
 
     if (val.hasKey("knobStyle")) {
         node.defaultKnobStyle = val.get("knobStyle").asString();
@@ -889,78 +918,160 @@ PresetDefinition PresetLoader::createYamahaDx7Preset() {
 
 PresetDefinition PresetLoader::createSnesPreset() {
     PresetDefinition p{};
-    p.metadata.id = "snes_dsp";
-    p.metadata.name = "SUPER NINTENDO S-DSP";
+    p.metadata.id = "snes_console_synth";
+    p.metadata.name = "SNES Synth";
     p.metadata.category = "instrument";
-    p.metadata.description = "Authentic Sony SPC700 16-bit sound chip with 12 BRR waveforms, 8-tap FIR echo, PMOD modulation, and LFSR noise.";
+    p.metadata.description = "Authentic 16-bit polyphonic S-DSP console synthesizer with selectable waveforms, ADSR envelope, vibrato, and hardware echo DSP.";
     p.metadata.engineId = "snes";
 
-    p.params["Waveform"] = {"Waveform", 0.0f, 11.0f, 1.0f, 1.0f, 1.0f, "", false};
-    p.params["Attack"] = {"Attack", 0.001f, 1.0f, 0.005f, 0.005f, 0.0f, "s", true};
-    p.params["Decay"] = {"Decay", 0.01f, 1.0f, 0.25f, 0.25f, 0.0f, "s", true};
-    p.params["Sustain"] = {"Sustain", 0.0f, 1.0f, 0.40f, 0.40f, 0.0f, "", true};
-    p.params["Release"] = {"Release", 0.01f, 1.0f, 0.20f, 0.20f, 0.0f, "s", true};
-    p.params["EchoDelay"] = {"EchoDelay", 16.0f, 480.0f, 120.0f, 120.0f, 16.0f, "ms", false};
-    p.params["EchoFeedback"] = {"EchoFeedback", 0.0f, 1.0f, 0.45f, 0.45f, 0.0f, "", true};
+    p.params["Waveform"] = {"Waveform", 0.0f, 11.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["Attack"] = {"Attack", 0.001f, 0.5f, 0.005f, 0.005f, 0.0f, "s", true};
+    p.params["Decay"] = {"Decay", 0.01f, 2.0f, 0.30f, 0.30f, 0.0f, "s", true};
+    p.params["Sustain"] = {"Sustain", 0.0f, 1.0f, 0.50f, 0.50f, 0.0f, "", true};
+    p.params["Release"] = {"Release", 0.01f, 2.0f, 0.25f, 0.25f, 0.0f, "s", true};
+    p.params["VibratoRate"] = {"VibratoRate", 0.0f, 20.0f, 5.5f, 5.5f, 0.0f, "Hz", true};
+    p.params["VibratoDepth"] = {"VibratoDepth", 0.0f, 1.0f, 0.1f, 0.1f, 0.0f, "", true};
+    p.params["EchoDelay"] = {"EchoDelay", 16.0f, 480.0f, 140.0f, 140.0f, 16.0f, "ms", false};
+    p.params["EchoFeedback"] = {"EchoFeedback", 0.0f, 0.90f, 0.55f, 0.55f, 0.0f, "", true};
     p.params["EchoVolume"] = {"EchoVolume", 0.0f, 1.0f, 0.40f, 0.40f, 0.0f, "", true};
-    p.params["Volume"] = {"Volume", 0.0f, 2.0f, 0.85f, 0.85f, 0.0f, "", true};
 
     p.guiRoot.type = GuiNodeType::Panel;
-    p.guiRoot.title = "SUPER NINTENDO S-SMP / SPC700";
-    p.guiRoot.subtitle = "16-Bit Sony S-DSP • 8-Tap FIR Hardware Echo • 32kHz Sample Clock";
-    p.guiRoot.background = "snes_faceplate";
-    p.guiRoot.accent = "#7A6CB8";
+    p.guiRoot.title = "SNES Synth";
+    p.guiRoot.subtitle = "16-Bit Polyphonic S-DSP Console Synthesizer";
+    p.guiRoot.background = "snes";
+    p.guiRoot.accent = "#E52521";
+    p.guiRoot.defaultKnobStyle = "snes";
 
-    // Row 1: S-DSP BRR Synthesis & Envelope
-    GuiLayoutNode gOsc{};
-    gOsc.type = GuiNodeType::Group;
-    gOsc.title = "S-DSP BRR SYNTHESIS & HARDWARE ENVELOPE";
-    GuiLayoutNode rOsc{};
-    rOsc.type = GuiNodeType::Row;
-    rOsc.align = "space_around";
-    rOsc.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "Waveform", "WAVEFORM", "", 52.0f, "twoToneStepped", false});
-    rOsc.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Attack", "ATTACK", "s", 52.0f, "chromeFluted", true});
-    rOsc.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Decay", "DECAY", "s", 52.0f, "chromeFluted", true});
-    rOsc.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Sustain", "SUSTAIN", "", 52.0f, "chromeFluted", true});
-    rOsc.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Release", "RELEASE", "s", 52.0f, "chromeFluted", true});
-    gOsc.children.push_back(rOsc);
+    GuiLayoutNode r1{};
+    r1.type = GuiNodeType::Row;
+    r1.align = "space_around";
+    GuiLayoutNode lbWave{};
+    lbWave.type = GuiNodeType::ListBox;
+    lbWave.paramName = "Waveform";
+    lbWave.label = "Wavetable";
+    lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
+    r1.children.push_back(lbWave);
+    p.guiRoot.children.push_back(r1);
 
-    // Row 2: 8-Tap FIR Echo & Master Gain
-    GuiLayoutNode gEcho{};
-    gEcho.type = GuiNodeType::Group;
-    gEcho.title = "8-TAP FIR HARDWARE ECHO & REVERB";
-    GuiLayoutNode rEcho{};
-    rEcho.type = GuiNodeType::Row;
-    rEcho.align = "space_around";
-    rEcho.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "EchoDelay", "ECHO DELAY", "ms", 52.0f, "twoToneStepped", false});
-    rEcho.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "EchoFeedback", "FEEDBACK", "", 52.0f, "chromeFluted", true});
-    rEcho.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "EchoVolume", "ECHO VOL", "", 52.0f, "chromeFluted", true});
-    rEcho.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Volume", "MASTER VOL", "", 52.0f, "chromeFluted", true});
-    gEcho.children.push_back(rEcho);
+    GuiLayoutNode r2{};
+    r2.type = GuiNodeType::Row;
+    r2.align = "space_around";
+    auto addKnob = [&](const std::string& param, const std::string& label, const std::string& unit) {
+        GuiLayoutNode k{};
+        k.type = GuiNodeType::Knob;
+        k.paramName = param;
+        k.label = label;
+        k.unit = unit;
+        k.size = 40.0f;
+        k.hardwareStyle = "two_tone_stepped";
+        k.showValue = false;
+        r2.children.push_back(k);
+    };
+    addKnob("Attack", "ATTACK", "s");
+    addKnob("Decay", "DECAY", "s");
+    addKnob("Sustain", "SUSTAIN", "");
+    addKnob("Release", "RELEASE", "s");
+    addKnob("VibratoRate", "VIB RATE", "Hz");
+    addKnob("VibratoDepth", "VIB DEPTH", "");
+    addKnob("EchoDelay", "ECHO MS", "ms");
+    addKnob("EchoFeedback", "ECHO FDBK", "");
+    addKnob("EchoVolume", "ECHO VOL", "");
+    p.guiRoot.children.push_back(r2);
 
-    p.guiRoot.children.push_back(gOsc);
-    p.guiRoot.children.push_back(gEcho);
+    return p;
+}
 
-    p.rawScript =
-        "# Eatsbeats Instrument Definition\n"
-        "# @id: snes_dsp\n"
-        "# @name: SUPER NINTENDO S-DSP\n"
-        "# @category: instrument\n"
-        "# @engine: snes\n\n"
-        "snesDsp = True\n\n"
-        "def init():\n"
-        "    params['Waveform'] = 1.0\n"
-        "    params['Attack'] = 0.005\n"
-        "    params['Decay'] = 0.25\n"
-        "    params['Sustain'] = 0.40\n"
-        "    params['Release'] = 0.20\n"
-        "    params['EchoDelay'] = 120.0\n"
-        "    params['EchoFeedback'] = 0.45\n"
-        "    params['EchoVolume'] = 0.40\n"
-        "    params['Volume'] = 0.85\n\n"
-        "def process(time, freq, note, params):\n"
-        "    # Native Sony SPC700 16-Bit S-DSP & 8-Tap FIR Echo\n"
-        "    pass\n";
+PresetDefinition PresetLoader::createSnesSfxrPreset() {
+    PresetDefinition p{};
+    p.metadata.id = "eats_sfxr";
+    p.metadata.name = "SNES Sfxr";
+    p.metadata.category = "instrument";
+    p.metadata.description = "16-Bit retro arcade and console sound effect synthesizer with procedural presets, random seeds, and SNES echo DSP.";
+    p.metadata.engineId = "snes";
+
+    p.params["SFXType"] = {"SFXType", 0.0f, 10.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["Seed"] = {"Seed", 1.0f, 9999.0f, 42.0f, 42.0f, 1.0f, "", false};
+    p.params["Waveform"] = {"Waveform", 0.0f, 11.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["Attack"] = {"Attack", 0.001f, 0.5f, 0.005f, 0.005f, 0.0f, "s", true};
+    p.params["Decay"] = {"Decay", 0.01f, 2.0f, 0.35f, 0.35f, 0.0f, "s", true};
+    p.params["Sustain"] = {"Sustain", 0.0f, 1.0f, 0.20f, 0.20f, 0.0f, "", true};
+    p.params["Release"] = {"Release", 0.01f, 2.0f, 0.20f, 0.20f, 0.0f, "s", true};
+    p.params["PitchSweep"] = {"PitchSweep", -2.0f, 2.0f, -0.45f, -0.45f, 0.0f, "", true};
+    p.params["VibratoRate"] = {"VibratoRate", 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, "Hz", true};
+    p.params["VibratoDepth"] = {"VibratoDepth", 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, "", true};
+    p.params["EchoDelay"] = {"EchoDelay", 16.0f, 480.0f, 120.0f, 120.0f, 16.0f, "ms", false};
+    p.params["EchoFeedback"] = {"EchoFeedback", 0.0f, 0.95f, 0.45f, 0.45f, 0.0f, "", true};
+    p.params["EchoVolume"] = {"EchoVolume", 0.0f, 1.0f, 0.35f, 0.35f, 0.0f, "", true};
+    p.params["NoiseMix"] = {"NoiseMix", 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, "", true};
+
+    p.guiRoot.type = GuiNodeType::Panel;
+    p.guiRoot.title = "SNES Sfxr";
+    p.guiRoot.subtitle = "16-Bit Procedural Sound Engine";
+    p.guiRoot.background = "snes";
+    p.guiRoot.accent = "#E52521";
+    p.guiRoot.defaultKnobStyle = "snes";
+
+    GuiLayoutNode r1{};
+    r1.type = GuiNodeType::Row;
+    r1.align = "space_around";
+
+    GuiLayoutNode lbType{};
+    lbType.type = GuiNodeType::ListBox;
+    lbType.paramName = "SFXType";
+    lbType.label = "SFX Type";
+    lbType.options = {"Laser", "Explosion", "Powerup", "Coin", "Jump", "Hurt", "Lose", "Button", "Warp", "Mutate", "Custom SNES"};
+    r1.children.push_back(lbType);
+
+    GuiLayoutNode lbWave{};
+    lbWave.type = GuiNodeType::ListBox;
+    lbWave.paramName = "Waveform";
+    lbWave.label = "Wavetable";
+    lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
+    r1.children.push_back(lbWave);
+
+    GuiLayoutNode colRng{};
+    colRng.type = GuiNodeType::Column;
+    colRng.orientation = "vertical";
+    colRng.align = "space_around";
+    GuiLayoutNode nixie{};
+    nixie.type = GuiNodeType::Nixie;
+    nixie.paramName = "Seed";
+    nixie.label = "RNG SEED";
+    colRng.children.push_back(nixie);
+
+    GuiLayoutNode btnRand{};
+    btnRand.type = GuiNodeType::Button;
+    btnRand.action = "randomize";
+    btnRand.label = "RANDOMIZE";
+    colRng.children.push_back(btnRand);
+    r1.children.push_back(colRng);
+
+    p.guiRoot.children.push_back(r1);
+
+    GuiLayoutNode r2{};
+    r2.type = GuiNodeType::Row;
+    r2.align = "space_around";
+    auto addKnob = [&](const std::string& param, const std::string& label, const std::string& unit) {
+        GuiLayoutNode k{};
+        k.type = GuiNodeType::Knob;
+        k.paramName = param;
+        k.label = label;
+        k.unit = unit;
+        k.size = 38.0f;
+        k.hardwareStyle = "two_tone_stepped";
+        k.showValue = false;
+        r2.children.push_back(k);
+    };
+    addKnob("Attack", "ATTACK", "s");
+    addKnob("Decay", "DECAY", "s");
+    addKnob("Sustain", "SUSTAIN", "");
+    addKnob("Release", "RELEASE", "s");
+    addKnob("PitchSweep", "SWEEP", "");
+    addKnob("VibratoRate", "VIB RATE", "Hz");
+    addKnob("VibratoDepth", "VIB DEPTH", "");
+    addKnob("EchoDelay", "ECHO MS", "ms");
+    addKnob("EchoVolume", "ECHO VOL", "");
+    p.guiRoot.children.push_back(r2);
 
     return p;
 }
@@ -1390,6 +1501,7 @@ std::vector<PresetDefinition> PresetLoader::getBuiltinPresets() {
         createC64SidPreset(),
         createYamahaDx7Preset(),
         createSnesPreset(),
+        createSnesSfxrPreset(),
         createYm2612Preset(),
         createConvolverPreset(),
         createAnalog808KickPreset(),
@@ -1448,7 +1560,9 @@ void PresetLoader::computeLayoutBounds(GuiLayoutNode& node, float x, float y, fl
                 computeLayoutBounds(node.children[i], x + 10.0f + i * slotW, innerY, slotW, innerH);
             }
         }
-    } else if (node.type == GuiNodeType::Knob || node.type == GuiNodeType::Nixie) {
+    } else if (node.type == GuiNodeType::Knob || node.type == GuiNodeType::Nixie ||
+               node.type == GuiNodeType::ListBox || node.type == GuiNodeType::Button ||
+               node.type == GuiNodeType::Switch || node.type == GuiNodeType::Slider) {
         // Centered within available cell
         node.boundsW = availableW;
         node.boundsH = availableH;

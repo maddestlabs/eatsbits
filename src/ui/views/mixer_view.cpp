@@ -245,6 +245,9 @@ MixerView::MixerView() {
         }
         if (onBakeChords) onBakeChords(trackIdx);
     };
+    propertiesDrawer_.onAuditionNote = [this](uint32_t trackIdx, uint8_t note, float vel) {
+        if (onAuditionNote) onAuditionNote(trackIdx, note, vel);
+    };
 
     ViewContext defaultCtx;
     layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), defaultCtx);

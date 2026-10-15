@@ -95,6 +95,7 @@ public:
     std::function<void(uint32_t trackIndex)> onOpenPluginGui;
     std::function<void(uint32_t trackIndex)> onOpenDetachedWindow;
     std::function<void(const ValueEditRequest& req)> onOpenValueEdit;
+    std::function<void(uint32_t trackIndex, uint8_t note, float velocity)> onAuditionNote;
 
 private:
     void renderHeaderBar(BatchRenderer2D& r, const ThemeTokens& theme) noexcept;
@@ -164,7 +165,9 @@ private:
     GuiPanelDef guiPanel_{};
     Rect2D oscBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     bool isGuiEmbedded_{false};
+    std::string focusedWidgetId_{};
     void syncGuiPanelFromTrackData() noexcept;
+    void selectListBoxOption(GuiWidgetDef& w, int newIdx) noexcept;
 };
 
 } // namespace eatsbits::ui

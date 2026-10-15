@@ -167,6 +167,9 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onDeleteClip = [this](uint32_t trackIdx, int clipIdx) {
         if (onDeleteClip) onDeleteClip(trackIdx, clipIdx);
     };
+    panel_.onAuditionNote = [this](uint32_t trackIdx, uint8_t note, float vel) {
+        if (onAuditionNote) onAuditionNote(trackIdx, note, vel);
+    };
 
     // Configure embedded PluginSearchDialog callback to sync track identity
     panel_.getPluginSearchDialog().onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t trackIndex) {
@@ -398,6 +401,34 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
             {"damping", "DAMP", 0.30f, "30%"},
             {"pedal", "PEDAL", 0.0f, "Off"},
             {"reverb", "REVERB", 0.40f, "40%"}
+        };
+    } else if (trk.instrumentEngine == "sfxr" || trk.instrument.find("sfxr") != std::string::npos) {
+        trk.knobs = {
+            {"SFXType", "SFX TYPE", 0.0f, "Laser"},
+            {"Seed", "RNG SEED", 42.0f, "42"},
+            {"Waveform", "WAVETABLE", 0.0f, "Square"},
+            {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+            {"Decay", "DECAY", 0.35f / 2.0f, "350 ms"},
+            {"Sustain", "SUSTAIN", 0.20f, "20%"},
+            {"Release", "RELEASE", 0.20f / 2.0f, "200 ms"},
+            {"PitchSweep", "SWEEP", (-0.45f + 2.0f) / 4.0f, "-0.45"},
+            {"VibratoRate", "VIB RATE", 0.0f, "0 Hz"},
+            {"VibratoDepth", "VIB DEPTH", 0.0f, "0%"},
+            {"EchoDelay", "ECHO MS", 120.0f / 480.0f, "120 ms"},
+            {"EchoVolume", "ECHO VOL", 0.35f, "35%"}
+        };
+    } else if (trk.instrumentEngine == "snes" || trk.instrumentEngine == "snes_synth" || trk.instrumentEngine == "snes_console_synth" || trk.instrument.find("snes") != std::string::npos) {
+        trk.knobs = {
+            {"Waveform", "WAVETABLE", 0.0f, "Square"},
+            {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+            {"Decay", "DECAY", 0.30f / 2.0f, "300 ms"},
+            {"Sustain", "SUSTAIN", 0.50f, "50%"},
+            {"Release", "RELEASE", 0.25f / 2.0f, "250 ms"},
+            {"VibratoRate", "VIB RATE", 5.5f / 20.0f, "5.5 Hz"},
+            {"VibratoDepth", "VIB DEPTH", 0.10f, "10%"},
+            {"EchoDelay", "ECHO MS", 140.0f / 480.0f, "140 ms"},
+            {"EchoFeedback", "ECHO FDBK", 0.55f / 0.90f, "55%"},
+            {"EchoVolume", "ECHO VOL", 0.40f, "40%"}
         };
     } else {
         trk.knobs = {

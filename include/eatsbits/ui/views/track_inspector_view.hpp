@@ -30,6 +30,17 @@ struct InspectorTrackChannel {
     TrackAudioFxData audioFx;
     std::vector<TrackMidiFxItem> midiFxList;
     std::vector<TrackAudioFxItem> audioFxList;
+
+    void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
+        for (auto& k : knobs) {
+            if (stringEqualsIgnoreCase(k.name, paramName) || stringEqualsIgnoreCase(k.label, paramName)) {
+                k.value = val;
+                if (!disp.empty()) k.display = disp;
+                return;
+            }
+        }
+        knobs.push_back({paramName, paramName, val, disp.empty() ? std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%" : disp, ""});
+    }
 };
 
 /**
@@ -146,6 +157,7 @@ public:
     std::function<void(uint32_t trackIdx)> onDuplicateTrack;
     std::function<void(uint32_t trackIdx, int clipIdx)> onDuplicateClip;
     std::function<void(uint32_t trackIdx, int clipIdx)> onDeleteClip;
+    std::function<void(uint32_t trackIndex, uint8_t note, float velocity)> onAuditionNote;
 
     [[nodiscard]] float getScrollY() const noexcept { return panel_.getScrollY(); }
     void setScrollY(float y) noexcept { panel_.setScrollY(y); }

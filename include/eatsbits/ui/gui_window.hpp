@@ -973,6 +973,7 @@ public:
     [[nodiscard]] const project::PresetDefinition* getActivePreset() const noexcept;
     [[nodiscard]] project::PresetDefinition* getActivePreset() noexcept;
     void dispatchHardwareParam(const std::string& paramName, float normVal) noexcept;
+    void dispatchTrackParam(uint32_t trackIndex, const std::string& paramName, float normVal) noexcept;
 
     // Mixer Strips
     struct MixerStrip {

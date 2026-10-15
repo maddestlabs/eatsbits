@@ -2536,9 +2536,14 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
             py += 30.0f;
         };
 
-        drawText(r, "HARDWARE CONSOLE (5)", palR.x + 10.0f, py, 8.5f, 1.0f, 0.85f, 0.0f, 1.0f);
+        drawText(r, "HARDWARE CONSOLE (10)", palR.x + 10.0f, py, 8.5f, 1.0f, 0.85f, 0.0f, 1.0f);
         py += 15.0f;
         addPaletteItem("hw_cream", "Cream Fluted Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::CreamFluted);
+        addPaletteItem("hw_davies", "Davies 1900H Fluted", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::DaviesFluted);
+        addPaletteItem("hw_rogan", "Rogan Moog Skirted", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::RoganMoog);
+        addPaletteItem("hw_chicken", "Chicken-Head Pointer", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::ChickenHead);
+        addPaletteItem("hw_pastel", "Pastel Dimple Touch", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::PastelDimple);
+        addPaletteItem("hw_encoder", "Modern LED Encoder", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::ModernEncoder);
         addPaletteItem("hw_bakelite", "Bakelite Skirt Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::BakeliteSkirt);
         addPaletteItem("hw_knurled", "Anodized Knurled Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::AnodizedKnurled);
         addPaletteItem("hw_stepped", "Two-Tone Stepped Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::TwoToneStepped);
@@ -2699,6 +2704,11 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                     };
 
                     addKStyle("Cream Fluted", GuiKnobStyle::CreamFluted);
+                    addKStyle("Davies 1900H Fluted", GuiKnobStyle::DaviesFluted);
+                    addKStyle("Rogan Moog Skirted", GuiKnobStyle::RoganMoog);
+                    addKStyle("Chicken-Head Pointer", GuiKnobStyle::ChickenHead);
+                    addKStyle("Pastel Dimple Touch", GuiKnobStyle::PastelDimple);
+                    addKStyle("Modern LED Encoder", GuiKnobStyle::ModernEncoder);
                     addKStyle("Bakelite Skirt", GuiKnobStyle::BakeliteSkirt);
                     addKStyle("Anodized Knurled", GuiKnobStyle::AnodizedKnurled);
                     addKStyle("Two-Tone Stepped", GuiKnobStyle::TwoToneStepped);

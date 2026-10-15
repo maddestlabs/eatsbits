@@ -5,9 +5,11 @@
 #include <cassert>
 
 #include "eatsbits/audio/dsp/snes_dsp_core.hpp"
+#include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
 #include "eatsbits/audio/graph/audio_graph.hpp"
 #include "eatsbits/audio/graph/nodes/snes_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/project/preset_loader.hpp"
 
 using namespace eatsbits::audio;
 
@@ -226,6 +228,154 @@ int main() {
                   << " ms (" << speedup << "x real-time speedup)\n";
         assert(speedup > 10.0);
         std::cout << "  -> PASSED: Real-time S-DSP synthesis exceeds performance threshold.\n";
+    }
+
+    // [Test 8] SNESSFXRGenerator: 11 Iconic Archetypes & Param Generation
+    {
+        std::cout << "[Test 8] Testing SNESSFXRGenerator Archetypes & Param Maps...\n";
+        for (int type = 0; type < 11; ++type) {
+            auto params = SNESSFXRGenerator::generateParamsForType(type, 42);
+            assert(!params.empty());
+            assert(params.find("Attack") != params.end());
+            assert(params.find("Decay") != params.end());
+            assert(params.find("Sustain") != params.end());
+            assert(params.find("Release") != params.end());
+            assert(params.find("PitchSweep") != params.end());
+            assert(params.find("Waveform") != params.end());
+
+            for (const auto& [k, v] : params) {
+                assert(!std::isnan(v) && !std::isinf(v));
+            }
+
+            auto cands = SNESSFXRGenerator::getCandidateWaveformsForType(type);
+            assert(!cands.empty());
+        }
+        std::cout << "  All 11 SFX archetypes and parameter maps verified -> PASSED\n";
+    }
+
+    // [Test 9] SNESSFXRGenerator: Configure SNESDSPEngine & Render Audio
+    {
+        std::cout << "[Test 9] Testing SNESSFXRGenerator::configureFromType & Audio Synthesis...\n";
+        SNESDSPEngine engine;
+        for (int type = 0; type < 11; ++type) {
+            SNESSFXRGenerator::configureFromType(engine, type, 1234 + type);
+            engine.noteOn(0, 523.25f, 0.85f, 0.5f); // C5
+            float outL = 0.0f, outR = 0.0f;
+            float maxAmp = 0.0f;
+            for (int s = 0; s < 4800; ++s) {
+                engine.processStereo(48000.0f, outL, outR);
+                assert(!std::isnan(outL) && !std::isnan(outR));
+                maxAmp = std::max(maxAmp, std::abs(outL));
+            }
+            assert(maxAmp > 0.01f);
+        }
+        std::cout << "  All 11 archetypes successfully rendered audio without NaNs -> PASSED\n";
+    }
+
+    // [Test 10] SnesNode: Parameter Dispatch (IDs 16-21) in Audio Graph
+    {
+        std::cout << "[Test 10] Testing SnesNode Parameter Dispatch (IDs 16-21)...\n";
+        AudioGraph graph;
+        graph.prepare(48000.0, 128);
+        auto snes = std::make_shared<SnesNode>("SnesSfxrNode");
+        auto master = std::make_shared<GainNode>("Master_Out");
+
+        NodeId snesId = graph.addNode(snes);
+        NodeId masterId = graph.addNode(master);
+        assert(graph.connect(snesId, 0, masterId, 0));
+
+        // Set SFXType (ID 19)
+        snes->setParameter(19, 0.0f); // Laser
+        // Set Seed (ID 20)
+        snes->setParameter(20, 777.0f);
+        // Set PitchSweep (ID 16)
+        snes->setParameter(16, -1.2f);
+        // Set VibratoRate (ID 17)
+        snes->setParameter(17, 8.0f);
+        // Set VibratoDepth (ID 18)
+        snes->setParameter(18, 0.25f);
+        // Trigger Randomize (ID 21)
+        snes->setParameter(21, 1.0f);
+
+        snes->noteOn(72, 0.9f); // C5
+
+        float outL[128]{0};
+        float outR[128]{0};
+        float peak = 0.0f;
+        for (int b = 0; b < 20; ++b) {
+            graph.process(outL, outR, 128);
+            for (int i = 0; i < 128; ++i) {
+                assert(!std::isnan(outL[i]) && !std::isinf(outL[i]));
+                peak = std::max(peak, std::abs(outL[i]));
+            }
+        }
+        assert(peak > 0.02f);
+        std::cout << "  SnesNode parameter dispatch & graph execution -> PASSED\n";
+    }
+
+    // [Test 11] PresetLoader: createSnesSfxrPreset & createSnesPreset Layouts
+    {
+        std::cout << "[Test 11] Testing PresetLoader SNES Sfxr & SNES Synth Layout Definitions...\n";
+        auto sfxrPreset = eatsbits::project::PresetLoader::createSnesSfxrPreset();
+        assert(sfxrPreset.metadata.id == "eats_sfxr");
+        assert(sfxrPreset.metadata.name == "SNES Sfxr");
+        assert(sfxrPreset.metadata.engineId == "snes");
+        assert(sfxrPreset.guiRoot.children.size() == 2);
+        // Row 1 has ListBox(SFXType), ListBox(Waveform), and Column(Nixie + Button)
+        const auto& r1 = sfxrPreset.guiRoot.children[0];
+        assert(r1.children.size() == 3);
+        assert(r1.children[0].type == eatsbits::project::GuiNodeType::ListBox);
+        assert(r1.children[1].type == eatsbits::project::GuiNodeType::ListBox);
+        assert(r1.children[2].type == eatsbits::project::GuiNodeType::Column);
+        // Row 2 has 9 Knobs
+        const auto& r2 = sfxrPreset.guiRoot.children[1];
+        assert(r2.children.size() == 9);
+
+        auto synthPreset = eatsbits::project::PresetLoader::createSnesPreset();
+        assert(synthPreset.metadata.id == "snes_console_synth");
+        assert(synthPreset.metadata.name == "SNES Synth");
+        assert(synthPreset.guiRoot.children.size() == 2);
+
+        std::cout << "  Preset layouts for SNES Sfxr and SNES Synth verified -> PASSED\n";
+    }
+
+    // [Test 12] SnesNode: All 12 Waveforms Produce Audible Audio (No Silence)
+    {
+        std::cout << "[Test 12] Testing SnesNode: All 12 Waveforms Produce Audible Audio...\n";
+        AudioGraph graph;
+        graph.prepare(48000.0, 128);
+        auto snes = std::make_shared<SnesNode>("SnesWaveformTest");
+        auto master = std::make_shared<GainNode>("Master_Out");
+
+        NodeId snesId = graph.addNode(snes);
+        NodeId masterId = graph.addNode(master);
+        assert(graph.connect(snesId, 0, masterId, 0));
+
+        const char* waveNames[12] = {
+            "Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine",
+            "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"
+        };
+
+        for (int w = 0; w < 12; ++w) {
+            // Test setting waveform parameter
+            snes->setParameter(0, static_cast<float>(w));
+            snes->noteOn(60, 0.85f); // Middle C
+
+            float outL[128]{0};
+            float outR[128]{0};
+            float peak = 0.0f;
+            for (int b = 0; b < 10; ++b) {
+                graph.process(outL, outR, 128);
+                for (int i = 0; i < 128; ++i) {
+                    assert(!std::isnan(outL[i]) && !std::isinf(outL[i]));
+                    peak = std::max(peak, std::abs(outL[i]));
+                }
+            }
+            assert(peak > 0.01f);
+            std::cout << "    Waveform [" << w << "] " << waveNames[w] << " peak: " << peak << " -> OK\n";
+            snes->noteOff(60);
+        }
+        std::cout << "  All 12 waveforms generate audible sound without silence -> PASSED\n";
     }
 
     std::cout << "==================================================\n";

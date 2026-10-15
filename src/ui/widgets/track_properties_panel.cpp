@@ -13,6 +13,7 @@
 #include <sstream>
 #include <iomanip>
 #include "eatsbits/presenter/track_properties_presenter.hpp"
+#include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
 #include <atomic>
 
 namespace {
@@ -202,6 +203,15 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
         return def;
     };
 
+    auto getListBoxVal = [&](const GuiWidgetDef& wid, float def) -> float {
+        float raw = findKnobVal(wid.param, "", def);
+        int totalOpts = static_cast<int>(wid.options.size());
+        if (totalOpts > 1 && raw > 0.0f && raw < 1.0f) {
+            raw = std::round(raw * static_cast<float>(totalOpts - 1));
+        }
+        return std::clamp(raw, 0.0f, static_cast<float>(std::max(0, totalOpts - 1)));
+    };
+
     if (is303) {
         guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
         guiPanel_.woodCheeks = false;
@@ -233,10 +243,212 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
             r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "drive", GuiKnobStyle::MiniPotCream, 48.0f, findKnobVal("drive", "overdrive", 0.25f), 0.0f, 1.0f, "", guiPanel_.accentColor});
             guiPanel_.rows.push_back(r2);
         } else {
-            for (auto& row : guiPanel_.rows) {
-                for (auto& w : row.widgets) {
+            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+                auto& row = guiPanel_.rows[rIdx];
+                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                    auto& w = row.widgets[wIdx];
                     if (w.type == GuiWidgetType::Divider) continue;
+                    if (dragMode_ == DragMode::InstrumentKnob && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
                     w.currentVal = findKnobVal(w.param, "", w.currentVal);
+                }
+            }
+        }
+        return;
+    }
+
+    auto containsSfxr = [](std::string_view s) noexcept -> bool {
+        std::string lower;
+        lower.reserve(s.size());
+        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        return lower.find("sfxr") != std::string::npos;
+    };
+    auto containsSnes = [](std::string_view s) noexcept -> bool {
+        std::string lower;
+        lower.reserve(s.size());
+        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        return lower.find("snes") != std::string::npos;
+    };
+    bool isSfxr = (stringEqualsIgnoreCase(eng, "sfxr") || containsSfxr(data.instrument) || containsSfxr(data.presetTitle));
+    bool isSnes = !isSfxr && (stringEqualsIgnoreCase(eng, "snes") || stringEqualsIgnoreCase(eng, "snes_synth") ||
+                              stringEqualsIgnoreCase(eng, "snes_console_synth") || containsSnes(data.instrument) || containsSnes(data.presetTitle));
+
+    if (isSfxr) {
+        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+        guiPanel_.woodCheeks = false;
+        guiPanel_.hideHeader = true;
+        guiPanel_.cornerRadius = 10.0f;
+        guiPanel_.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
+
+        if (trackOrEngineChanged || guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 4 || guiPanel_.rows[1].widgets.size() != 9) {
+            guiPanel_.rows.clear();
+
+            GuiRowDef r1;
+            GuiWidgetDef lbType;
+            lbType.id = "w_sfxtype";
+            lbType.type = GuiWidgetType::ListBox;
+            lbType.label = "SFX TYPE";
+            lbType.param = "SFXType";
+            lbType.options = {"Laser", "Explosion", "Powerup", "Coin", "Jump", "Hurt", "Lose", "Button", "Warp", "Mutate", "Custom SNES"};
+            lbType.currentVal = getListBoxVal(lbType, 0.0f);
+            lbType.minVal = 0.0f;
+            lbType.maxVal = 10.0f;
+            r1.widgets.push_back(lbType);
+
+            GuiWidgetDef lbWave;
+            lbWave.id = "w_wavetable";
+            lbWave.type = GuiWidgetType::ListBox;
+            lbWave.label = "WAVETABLE";
+            lbWave.param = "Waveform";
+            lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
+            lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
+            lbWave.minVal = 0.0f;
+            lbWave.maxVal = 11.0f;
+            r1.widgets.push_back(lbWave);
+
+            GuiWidgetDef wSeed;
+            wSeed.id = "w_seed";
+            wSeed.type = GuiWidgetType::NixieDisplay;
+            wSeed.label = "RNG SEED";
+            wSeed.param = "Seed";
+            wSeed.currentVal = findKnobVal("Seed", "seed", 42.0f);
+            wSeed.minVal = 1.0f;
+            wSeed.maxVal = 9999.0f;
+            r1.widgets.push_back(wSeed);
+
+            GuiWidgetDef wRand;
+            wRand.id = "w_randomize";
+            wRand.type = GuiWidgetType::ActionButton;
+            wRand.label = "RANDOMIZE";
+            wRand.action = "randomize";
+            r1.widgets.push_back(wRand);
+            guiPanel_.rows.push_back(r1);
+
+            GuiRowDef r2;
+            auto addKnob = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
+                GuiWidgetDef k;
+                k.id = id;
+                k.type = GuiWidgetType::Knob;
+                k.label = label;
+                k.param = param;
+                k.knobStyle = GuiKnobStyle::TwoToneStepped;
+                k.size = 46.0f;
+                k.currentVal = findKnobVal(param, "", defVal);
+                k.minVal = minV;
+                k.maxVal = maxV;
+                k.unit = unit;
+                k.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
+                r2.widgets.push_back(k);
+            };
+
+            addKnob("w_attack", "ATTACK", "Attack", 0.01f, 0.0f, 1.0f, "s");
+            addKnob("w_decay", "DECAY", "Decay", 0.18f, 0.0f, 1.0f, "s");
+            addKnob("w_sustain", "SUSTAIN", "Sustain", 0.20f, 0.0f, 1.0f, "");
+            addKnob("w_release", "RELEASE", "Release", 0.10f, 0.0f, 1.0f, "s");
+            addKnob("w_sweep", "SWEEP", "PitchSweep", 0.38f, 0.0f, 1.0f, "");
+            addKnob("w_vibrate", "VIB RATE", "VibratoRate", 0.0f, 0.0f, 1.0f, "Hz");
+            addKnob("w_vibdepth", "VIB DEPTH", "VibratoDepth", 0.0f, 0.0f, 1.0f, "");
+            addKnob("w_echoms", "ECHO MS", "EchoDelay", 0.25f, 0.0f, 1.0f, "ms");
+            addKnob("w_echovol", "ECHO VOL", "EchoVolume", 0.35f, 0.0f, 1.0f, "");
+
+            guiPanel_.rows.push_back(r2);
+        } else {
+            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+                auto& row = guiPanel_.rows[rIdx];
+                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                    auto& w = row.widgets[wIdx];
+                    if (w.type == GuiWidgetType::Divider || w.type == GuiWidgetType::ActionButton) continue;
+                    if (dragMode_ == DragMode::InstrumentKnob && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
+                    if (w.type == GuiWidgetType::ListBox) {
+                        w.currentVal = getListBoxVal(w, w.currentVal);
+                    } else {
+                        w.currentVal = findKnobVal(w.param, "", w.currentVal);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    if (isSnes) {
+        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
+        guiPanel_.woodCheeks = false;
+        guiPanel_.hideHeader = true;
+        guiPanel_.cornerRadius = 10.0f;
+        guiPanel_.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
+
+        if (trackOrEngineChanged || guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 3 || guiPanel_.rows[1].widgets.size() != 9) {
+            guiPanel_.rows.clear();
+
+            GuiRowDef r1;
+            GuiWidgetDef lbWave;
+            lbWave.id = "w_wavetable";
+            lbWave.type = GuiWidgetType::ListBox;
+            lbWave.label = "WAVETABLE";
+            lbWave.param = "Waveform";
+            lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
+            lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
+            lbWave.minVal = 0.0f;
+            lbWave.maxVal = 11.0f;
+            r1.widgets.push_back(lbWave);
+
+            GuiWidgetDef wSeed;
+            wSeed.id = "w_seed";
+            wSeed.type = GuiWidgetType::NixieDisplay;
+            wSeed.label = "RNG SEED";
+            wSeed.param = "Seed";
+            wSeed.currentVal = findKnobVal("Seed", "seed", 42.0f);
+            wSeed.minVal = 1.0f;
+            wSeed.maxVal = 9999.0f;
+            r1.widgets.push_back(wSeed);
+
+            GuiWidgetDef wRand;
+            wRand.id = "w_randomize";
+            wRand.type = GuiWidgetType::ActionButton;
+            wRand.label = "RANDOMIZE";
+            wRand.action = "randomize";
+            r1.widgets.push_back(wRand);
+            guiPanel_.rows.push_back(r1);
+
+            GuiRowDef r2;
+            auto addKnob = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
+                GuiWidgetDef k;
+                k.id = id;
+                k.type = GuiWidgetType::Knob;
+                k.label = label;
+                k.param = param;
+                k.knobStyle = GuiKnobStyle::TwoToneStepped;
+                k.size = 46.0f;
+                k.currentVal = findKnobVal(param, "", defVal);
+                k.minVal = minV;
+                k.maxVal = maxV;
+                k.unit = unit;
+                k.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
+                r2.widgets.push_back(k);
+            };
+
+            addKnob("w_attack", "ATTACK", "Attack", 0.01f, 0.0f, 1.0f, "s");
+            addKnob("w_decay", "DECAY", "Decay", 0.15f, 0.0f, 1.0f, "s");
+            addKnob("w_sustain", "SUSTAIN", "Sustain", 0.50f, 0.0f, 1.0f, "");
+            addKnob("w_release", "RELEASE", "Release", 0.12f, 0.0f, 1.0f, "s");
+            addKnob("w_vibrate", "VIB RATE", "VibratoRate", 0.28f, 0.0f, 1.0f, "Hz");
+            addKnob("w_vibdepth", "VIB DEPTH", "VibratoDepth", 0.10f, 0.0f, 1.0f, "");
+            addKnob("w_echoms", "ECHO MS", "EchoDelay", 0.29f, 0.0f, 1.0f, "ms");
+            addKnob("w_echofdbk", "ECHO FDBK", "EchoFeedback", 0.55f, 0.0f, 1.0f, "");
+            addKnob("w_echovol", "ECHO VOL", "EchoVolume", 0.40f, 0.0f, 1.0f, "");
+
+            guiPanel_.rows.push_back(r2);
+        } else {
+            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
+                auto& row = guiPanel_.rows[rIdx];
+                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
+                    auto& w = row.widgets[wIdx];
+                    if (w.type == GuiWidgetType::Divider || w.type == GuiWidgetType::ActionButton) continue;
+                    if (dragMode_ == DragMode::InstrumentKnob && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
+                    if (w.type == GuiWidgetType::ListBox) {
+                        w.currentVal = getListBoxVal(w, w.currentVal);
+                    } else {
+                        w.currentVal = findKnobVal(w.param, "", w.currentVal);
+                    }
                 }
             }
         }
@@ -861,7 +1073,7 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
 
         syncGuiPanelFromTrackData(data);
         Rect2D fpRect(guiX, guiY, guiW, guiH);
-        drawGuiFaceplate(r, guiPanel_, fpRect, theme, data.scopeBuffer, data.scopeBufferCount, draggingRow_, draggingWidget_);
+        drawGuiFaceplate(r, guiPanel_, fpRect, theme, data.scopeBuffer, data.scopeBufferCount, draggingRow_, draggingWidget_, focusedWidgetId_);
 
         // 3. Below the GUI, right-aligned 'Change Instrument' option
         float chgBtnW = 145.0f;
@@ -2907,6 +3119,96 @@ bool TrackPropertiesPanel::openValueEditForHit(const TrackPropertiesHitResult& h
     return false;
 }
 
+void TrackPropertiesPanel::selectListBoxOption(GuiWidgetDef& w, int newIdx, TrackPropertiesDrawerData& data) {
+    int totalOpts = static_cast<int>(w.options.size());
+    if (totalOpts <= 0) return;
+    newIdx = std::clamp(newIdx, 0, totalOpts - 1);
+    w.currentVal = static_cast<float>(newIdx);
+    focusedWidgetId_ = w.id;
+
+    // Scroll offset tracking
+    int visibleRows = 4;
+    if (static_cast<float>(newIdx) < w.scrollOffset) {
+        w.scrollOffset = static_cast<float>(newIdx);
+    } else if (static_cast<float>(newIdx) >= w.scrollOffset + static_cast<float>(visibleRows)) {
+        w.scrollOffset = static_cast<float>(newIdx - visibleRows + 1);
+    }
+    w.scrollOffset = std::clamp(w.scrollOffset, 0.0f, static_cast<float>(std::max(0, totalOpts - visibleRows)));
+
+    float normRatio = static_cast<float>(newIdx) / std::max(1.0f, static_cast<float>(totalOpts - 1));
+    for (auto& k : data.knobs) {
+        if (stringEqualsIgnoreCase(k.name, w.param)) {
+            k.value = normRatio;
+            k.display = (newIdx < static_cast<int>(w.options.size())) ? w.options[newIdx] : std::to_string(newIdx);
+            break;
+        }
+    }
+    if (onParamChanged) {
+        onParamChanged(data.trackIndex, w.param, normRatio);
+    }
+
+    auto containsSfxr = [](std::string_view s) noexcept -> bool {
+        std::string lower;
+        lower.reserve(s.size());
+        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        return lower.find("sfxr") != std::string::npos;
+    };
+    bool isSfxr = (stringEqualsIgnoreCase(data.instrumentEngine, "sfxr") ||
+                   containsSfxr(data.instrument) || containsSfxr(data.presetTitle));
+
+    if (w.id == "w_sfxtype" || stringEqualsIgnoreCase(w.param, "SFXType")) {
+        uint32_t seed = 42;
+        for (const auto& rw : guiPanel_.rows) {
+            for (const auto& wid : rw.widgets) {
+                if (wid.id == "w_seed" || stringEqualsIgnoreCase(wid.param, "Seed")) {
+                    seed = static_cast<uint32_t>(std::clamp(wid.currentVal, 1.0f, 9999.0f));
+                    break;
+                }
+            }
+        }
+
+        auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(newIdx, seed);
+        auto applyParam = [&](const std::string& widId, const std::string& pName, float normVal) {
+            for (auto& rw : guiPanel_.rows) {
+                for (auto& wid : rw.widgets) {
+                    if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                        wid.currentVal = normVal;
+                    }
+                }
+            }
+            for (auto& k : data.knobs) {
+                if (stringEqualsIgnoreCase(k.name, pName)) {
+                    k.value = normVal;
+                    k.display = std::to_string(static_cast<int>(std::round(normVal * 100.0f))) + "%";
+                    break;
+                }
+            }
+            if (onParamChanged) {
+                onParamChanged(data.trackIndex, pName, normVal);
+            }
+        };
+
+        applyParam("w_wavetable", "Waveform", pMap["Waveform"] / 11.0f);
+        applyParam("w_attack", "Attack", std::clamp(pMap["Attack"] / 0.5f, 0.0f, 1.0f));
+        applyParam("w_decay", "Decay", std::clamp(pMap["Decay"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sustain", "Sustain", std::clamp(pMap["Sustain"], 0.0f, 1.0f));
+        applyParam("w_release", "Release", std::clamp(pMap["Release"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sweep", "PitchSweep", std::clamp((pMap["PitchSweep"] + 2.0f) / 4.0f, 0.0f, 1.0f));
+        applyParam("w_vibrate", "VibratoRate", std::clamp(pMap["VibratoRate"] / 20.0f, 0.0f, 1.0f));
+        applyParam("w_vibdepth", "VibratoDepth", std::clamp(pMap["VibratoDepth"], 0.0f, 1.0f));
+        applyParam("w_echoms", "EchoDelay", std::clamp(pMap["EchoDelay"] / 480.0f, 0.0f, 1.0f));
+        applyParam("w_echovol", "EchoVolume", std::clamp(pMap["EchoVolume"], 0.0f, 1.0f));
+
+        if (onAuditionNote) {
+            onAuditionNote(data.trackIndex, 72, 0.85f);
+        }
+    } else if (w.id == "w_wavetable" || stringEqualsIgnoreCase(w.param, "Waveform")) {
+        if (onAuditionNote) {
+            onAuditionNote(data.trackIndex, isSfxr ? 72 : 60, 0.85f);
+        }
+    }
+}
+
 bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackPropertiesDrawerData& data,
                                          const ViewContext& ctx) {
     data.syncKnobsIfEmpty();
@@ -2923,6 +3225,24 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
     // Mouse Wheel Scrolling
     if (ev.action == PointerAction::Scroll) {
+        // First check if mouse wheel is hovering over any ListBox widget
+        for (auto& row : guiPanel_.rows) {
+            for (auto& w : row.widgets) {
+                if (w.type == GuiWidgetType::ListBox && w.bounds.contains(ev.x, ev.y)) {
+                    int totalOpts = static_cast<int>(w.options.size());
+                    if (totalOpts > 0) {
+                        int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
+                        int delta = (ev.scrollY > 0.0f) ? -1 : 1;
+                        int newIdx = std::clamp(currentIdx + delta, 0, totalOpts - 1);
+                        if (newIdx != currentIdx) {
+                            selectListBoxOption(w, newIdx, data);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+
         float maxScroll = std::max(0.0f, totalContentHeight_ - bounds_.h);
         scrollY_ = std::clamp(scrollY_ - ev.scrollY * 28.0f, 0.0f, maxScroll);
         if (onScrollChanged) onScrollChanged(scrollY_);
@@ -3068,6 +3388,175 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                         }
                         if (onParamChanged) {
                             onParamChanged(data.trackIndex, w.param, newVal);
+                        }
+                        dragMode_ = DragMode::None;
+                        return true;
+                    }
+
+                    if (w.type == GuiWidgetType::ActionButton || (w.type == GuiWidgetType::NixieDisplay && w.id == "w_seed")) {
+                        // RANDOMIZE seed & parameters + immediate audition
+                        uint32_t newSeed = static_cast<uint32_t>((std::rand() % 9990) + 10);
+
+                        for (auto& rw : guiPanel_.rows) {
+                            for (auto& wid : rw.widgets) {
+                                if (wid.id == "w_seed" || stringEqualsIgnoreCase(wid.param, "Seed")) {
+                                    wid.currentVal = static_cast<float>(newSeed);
+                                }
+                            }
+                        }
+                        for (auto& k : data.knobs) {
+                            if (stringEqualsIgnoreCase(k.name, "Seed")) {
+                                k.value = static_cast<float>(newSeed) / 9999.0f;
+                                k.display = std::to_string(newSeed);
+                                break;
+                            }
+                        }
+                        if (onParamChanged) {
+                            onParamChanged(data.trackIndex, "Seed", static_cast<float>(newSeed));
+                        }
+
+                        auto containsSfxr = [](std::string_view s) noexcept -> bool {
+                            std::string lower;
+                            lower.reserve(s.size());
+                            for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+                            return lower.find("sfxr") != std::string::npos;
+                        };
+                        bool isSfxr = (stringEqualsIgnoreCase(data.instrumentEngine, "sfxr") ||
+                                       containsSfxr(data.instrument) || containsSfxr(data.presetTitle));
+
+                        if (isSfxr) {
+                            int sfxType = 0;
+                            for (const auto& rw : guiPanel_.rows) {
+                                for (const auto& wid : rw.widgets) {
+                                    if (wid.id == "w_sfxtype" || stringEqualsIgnoreCase(wid.param, "SFXType")) {
+                                        sfxType = std::clamp(static_cast<int>(std::round(wid.currentVal)), 0, 10);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(sfxType, newSeed);
+                            auto applyParam = [&](const std::string& widId, const std::string& pName, float normVal) {
+                                for (auto& rw : guiPanel_.rows) {
+                                    for (auto& wid : rw.widgets) {
+                                        if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                                            wid.currentVal = normVal;
+                                        }
+                                    }
+                                }
+                                for (auto& k : data.knobs) {
+                                    if (stringEqualsIgnoreCase(k.name, pName)) {
+                                        k.value = normVal;
+                                        k.display = std::to_string(static_cast<int>(std::round(normVal * 100.0f))) + "%";
+                                        break;
+                                    }
+                                }
+                                if (onParamChanged) {
+                                    onParamChanged(data.trackIndex, pName, normVal);
+                                }
+                            };
+
+                            applyParam("w_wavetable", "Waveform", pMap["Waveform"] / 11.0f);
+                            applyParam("w_attack", "Attack", std::clamp(pMap["Attack"] / 0.5f, 0.0f, 1.0f));
+                            applyParam("w_decay", "Decay", std::clamp(pMap["Decay"] / 2.0f, 0.0f, 1.0f));
+                            applyParam("w_sustain", "Sustain", std::clamp(pMap["Sustain"], 0.0f, 1.0f));
+                            applyParam("w_release", "Release", std::clamp(pMap["Release"] / 2.0f, 0.0f, 1.0f));
+                            applyParam("w_sweep", "PitchSweep", std::clamp((pMap["PitchSweep"] + 2.0f) / 4.0f, 0.0f, 1.0f));
+                            applyParam("w_vibrate", "VibratoRate", std::clamp(pMap["VibratoRate"] / 20.0f, 0.0f, 1.0f));
+                            applyParam("w_vibdepth", "VibratoDepth", std::clamp(pMap["VibratoDepth"], 0.0f, 1.0f));
+                            applyParam("w_echoms", "EchoDelay", std::clamp(pMap["EchoDelay"] / 480.0f, 0.0f, 1.0f));
+                            applyParam("w_echovol", "EchoVolume", std::clamp(pMap["EchoVolume"], 0.0f, 1.0f));
+
+                            if (onAuditionNote) {
+                                onAuditionNote(data.trackIndex, 72, 0.85f);
+                            }
+                        } else {
+                            eatsbits::audio::DeterministicPRNG prng(newSeed);
+                            int wave = prng.nextInt(0, 11);
+                            float att = prng.nextRange(0.002f, 0.12f) / 0.5f;
+                            float dec = prng.nextRange(0.10f, 0.80f) / 2.0f;
+                            float sus = prng.nextRange(0.20f, 0.90f);
+                            float rel = prng.nextRange(0.08f, 0.60f) / 2.0f;
+                            float vibR = prng.nextRange(3.0f, 9.0f) / 20.0f;
+                            float vibD = prng.nextRange(0.0f, 0.25f);
+                            float echD = prng.nextRange(60.0f, 260.0f) / 480.0f;
+                            float echF = prng.nextRange(0.20f, 0.70f);
+                            float echV = prng.nextRange(0.15f, 0.55f);
+
+                            auto applyParam = [&](const std::string& widId, const std::string& pName, float normVal) {
+                                for (auto& rw : guiPanel_.rows) {
+                                    for (auto& wid : rw.widgets) {
+                                        if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                                            wid.currentVal = normVal;
+                                        }
+                                    }
+                                }
+                                for (auto& k : data.knobs) {
+                                    if (stringEqualsIgnoreCase(k.name, pName)) {
+                                        k.value = normVal;
+                                        k.display = std::to_string(static_cast<int>(std::round(normVal * 100.0f))) + "%";
+                                        break;
+                                    }
+                                }
+                                if (onParamChanged) {
+                                    onParamChanged(data.trackIndex, pName, normVal);
+                                }
+                            };
+
+                            applyParam("w_wavetable", "Waveform", static_cast<float>(wave) / 11.0f);
+                            applyParam("w_attack", "Attack", att);
+                            applyParam("w_decay", "Decay", dec);
+                            applyParam("w_sustain", "Sustain", sus);
+                            applyParam("w_release", "Release", rel);
+                            applyParam("w_vibrate", "VibratoRate", vibR);
+                            applyParam("w_vibdepth", "VibratoDepth", vibD);
+                            applyParam("w_echoms", "EchoDelay", echD);
+                            applyParam("w_echofdbk", "EchoFeedback", echF);
+                            applyParam("w_echovol", "EchoVolume", echV);
+
+                            if (onAuditionNote) {
+                                onAuditionNote(data.trackIndex, 60, 0.85f);
+                            }
+                        }
+
+                        dragMode_ = DragMode::None;
+                        return true;
+                    }
+
+                    if (w.type == GuiWidgetType::ListBox) {
+                        int totalOpts = static_cast<int>(w.options.size());
+                        if (totalOpts > 0) {
+                            int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
+                            float boxX = w.bounds.x + 4.0f;
+                            float boxY = w.bounds.y + 16.0f;
+                            float boxW = w.bounds.w - 8.0f;
+                            float boxH = w.bounds.h - 20.0f;
+                            float stripX = boxX + boxW - 13.0f;
+                            int newIdx = currentIdx;
+
+                            if (ev.x >= stripX && ev.x <= boxX + boxW) {
+                                if (ev.y <= boxY + 14.0f) {
+                                    newIdx = std::max(0, currentIdx - 1);
+                                } else if (ev.y >= boxY + boxH - 14.0f) {
+                                    newIdx = std::min(totalOpts - 1, currentIdx + 1);
+                                } else {
+                                    float rel = (ev.y - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
+                                    newIdx = std::clamp(static_cast<int>(std::round(rel * (totalOpts - 1))), 0, totalOpts - 1);
+                                }
+                            } else if (ev.y >= boxY + 2.0f && ev.y <= boxY + boxH) {
+                                int visibleRows = 4;
+                                float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+                                int scrollStart = w.scrollOffset;
+                                int clickedRow = static_cast<int>((ev.y - (boxY + 2.0f)) / rowH);
+                                if (clickedRow >= 0 && clickedRow < visibleRows) {
+                                    int targetIdx = scrollStart + clickedRow;
+                                    if (targetIdx >= 0 && targetIdx < totalOpts) {
+                                        newIdx = targetIdx;
+                                    }
+                                }
+                            }
+
+                            selectListBoxOption(w, newIdx, data);
                         }
                         dragMode_ = DragMode::None;
                         return true;
@@ -3377,7 +3866,78 @@ bool TrackPropertiesPanel::handleKey(int key, int scancode, int action, int mods
     }
     if (pluginDialog_.isOpen()) {
         if (pluginDialog_.handleKey(key, scancode, action, mods)) return true;
+        return true;
     }
+
+    if (action == 1 /* GLFW_PRESS */ || action == 2 /* GLFW_REPEAT */) {
+        // If a ListBox is focused, handle arrow keys and selection
+        for (auto& row : guiPanel_.rows) {
+            for (auto& w : row.widgets) {
+                if (w.type == GuiWidgetType::ListBox && !focusedWidgetId_.empty() &&
+                    (w.id == focusedWidgetId_ || w.param == focusedWidgetId_)) {
+                    int totalOpts = static_cast<int>(w.options.size());
+                    if (totalOpts > 0) {
+                        int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
+                        int newIdx = currentIdx;
+
+                        if (key == 265 /* GLFW_KEY_UP */) {
+                            newIdx = std::max(0, currentIdx - 1);
+                        } else if (key == 264 /* GLFW_KEY_DOWN */) {
+                            newIdx = std::min(totalOpts - 1, currentIdx + 1);
+                        } else if (key == 266 /* GLFW_KEY_PAGE_UP */) {
+                            newIdx = std::max(0, currentIdx - 4);
+                        } else if (key == 267 /* GLFW_KEY_PAGE_DOWN */) {
+                            newIdx = std::min(totalOpts - 1, currentIdx + 4);
+                        } else if (key == 268 /* GLFW_KEY_HOME */) {
+                            newIdx = 0;
+                        } else if (key == 269 /* GLFW_KEY_END */) {
+                            newIdx = totalOpts - 1;
+                        } else if (key == 257 /* GLFW_KEY_ENTER */ || key == 32 /* GLFW_KEY_SPACE */) {
+                            auto containsSfxr = [](std::string_view s) noexcept -> bool {
+                                std::string lower;
+                                lower.reserve(s.size());
+                                for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+                                return lower.find("sfxr") != std::string::npos;
+                            };
+                            bool isSfxr = (stringEqualsIgnoreCase(lastInstrumentEngine_, "sfxr") ||
+                                           containsSfxr(lastInstrument_));
+                            if (onAuditionNote) {
+                                onAuditionNote(lastTrackIndex_, isSfxr ? 72 : 60, 0.85f);
+                            }
+                            return true;
+                        } else if (key == 258 /* GLFW_KEY_TAB */) {
+                            for (const auto& r2 : guiPanel_.rows) {
+                                for (const auto& w2 : r2.widgets) {
+                                    if (w2.type == GuiWidgetType::ListBox && w2.id != w.id) {
+                                        focusedWidgetId_ = w2.id;
+                                        return true;
+                                    }
+                                }
+                            }
+                            return true;
+                        }
+
+                        if (newIdx != currentIdx) {
+                            TrackPropertiesDrawerData dummyData;
+                            dummyData.trackIndex = lastTrackIndex_;
+                            dummyData.instrumentEngine = lastInstrumentEngine_;
+                            dummyData.instrument = lastInstrument_;
+                            for (const auto& r2 : guiPanel_.rows) {
+                                for (const auto& w2 : r2.widgets) {
+                                    if (!w2.param.empty()) {
+                                        dummyData.knobs.push_back({w2.param, w2.label, w2.currentVal, ""});
+                                    }
+                                }
+                            }
+                            selectListBoxOption(w, newIdx, dummyData);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return false;
 }
 

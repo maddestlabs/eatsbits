@@ -76,6 +76,19 @@ struct MixerChannelStrip {
     // FX Racks
     std::vector<TrackMidiFxItem> midiFx;
     std::vector<TrackAudioFxItem> audioFx;
+
+    std::vector<TrackPropertiesKnob> knobs;
+
+    void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
+        for (auto& k : knobs) {
+            if (stringEqualsIgnoreCase(k.name, paramName) || stringEqualsIgnoreCase(k.label, paramName)) {
+                k.value = val;
+                if (!disp.empty()) k.display = disp;
+                return;
+            }
+        }
+        knobs.push_back({paramName, paramName, val, disp.empty() ? std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%" : disp, ""});
+    }
 };
 
 /**
@@ -202,6 +215,7 @@ public:
     std::function<void(uint32_t channelIdx)> onDuplicateTrack;
     std::function<void(uint32_t channelIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
     std::function<void(uint32_t channelIdx)> onBakeChords;
+    std::function<void(uint32_t channelIdx, uint8_t note, float velocity)> onAuditionNote;
 
     // Structured Fader Geometry & Hit-Testing
     struct FaderGeometry {

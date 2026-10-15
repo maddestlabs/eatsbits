@@ -72,16 +72,18 @@ enum class GuiNodeType {
     Scope,
     Divider,
     Spacer,
-    Switch
+    Switch,
+    ListBox,
+    Button
 };
 
 struct GuiLayoutNode {
     GuiNodeType type{GuiNodeType::Panel};
     std::string title;
     std::string subtitle;
-    std::string background{"dark"}; // "minimal_white", "dark", "silver", "wood", "grunge"
+    std::string background{"dark"}; // "minimal_white", "dark", "silver", "wood", "grunge", "snes"
     std::string accent{"#00FFE0"};
-    std::string defaultKnobStyle{"chrome"}; // "chrome", "standard", "hardware", "minimalWhite"
+    std::string defaultKnobStyle{"chrome"}; // "chrome", "standard", "hardware", "minimalWhite", "snes"
 
     // Layout properties
     std::string orientation{"horizontal"}; // "horizontal", "vertical"
@@ -93,8 +95,12 @@ struct GuiLayoutNode {
     std::string label;
     std::string unit;
     float size{52.0f};
-    std::string hardwareStyle{"standard"}; // "tb303_selector", "tb303_potentiometer", "chromeFluted", "vintageBakelite"
+    std::string hardwareStyle{"standard"}; // "tb303_selector", "tb303_potentiometer", "chromeFluted", "vintageBakelite", "two_tone_stepped"
     bool showValue{true};
+
+    // ListBox and Button properties
+    std::vector<std::string> options;
+    std::string action; // "randomize"
 
     // Computed layout bounds (in local/faceplate coordinate space)
     float boundsX{0.0f};
@@ -142,6 +148,7 @@ public:
     static PresetDefinition createC64SidPreset();
     static PresetDefinition createYamahaDx7Preset();
     static PresetDefinition createSnesPreset();
+    static PresetDefinition createSnesSfxrPreset();
     static PresetDefinition createYm2612Preset();
     static PresetDefinition createConvolverPreset();
     static PresetDefinition createStereoDelayPreset();

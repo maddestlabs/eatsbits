@@ -3625,6 +3625,145 @@ void testUnifiedSlidingDockAndDrawer() {
     std::cout << "  [PASS] Unified SlidingDrawer, Multi-Tab SlidingDock, Side-by-Side Drawers, Interaction & Scroll validated." << std::endl;
 }
 
+void testShapedKnobVectorEngine() {
+    std::cout << "[Test 28] High-Performance Shaped Rotating Knobs & Vector Core..." << std::endl;
+
+    // 1. Validate getKnobShapeDef presets
+    {
+        auto davies = getKnobShapeDef(GuiKnobStyle::DaviesFluted);
+        assert(davies.shape == KnobBodyShape::FlutedScalloped);
+        assert(davies.flutes == 18);
+        assert(davies.hasSkirt == true);
+        assert(davies.skirtTicks == 11);
+        assert(davies.indicator == KnobIndicatorType::LineGroove);
+
+        auto rogan = getKnobShapeDef(GuiKnobStyle::RoganMoog);
+        assert(rogan.shape == KnobBodyShape::FlutedScalloped);
+        assert(rogan.flutes == 12);
+        assert(rogan.hasSkirt == true);
+        assert(rogan.skirtTicks == 24);
+        assert(rogan.capStyle == KnobCapStyle::LatheMetallic);
+
+        auto chicken = getKnobShapeDef(GuiKnobStyle::ChickenHead);
+        assert(chicken.shape == KnobBodyShape::ChickenHead);
+        assert(chicken.indicator == KnobIndicatorType::PointerNose);
+
+        auto pastel = getKnobShapeDef(GuiKnobStyle::PastelDimple);
+        assert(pastel.shape == KnobBodyShape::Round);
+        assert(pastel.capStyle == KnobCapStyle::IndentedDimple);
+        assert(pastel.indicator == KnobIndicatorType::DotPip);
+
+        auto encoder = getKnobShapeDef(GuiKnobStyle::ModernEncoder);
+        assert(encoder.shape == KnobBodyShape::RibbedKnurled);
+        assert(encoder.flutes == 32);
+        assert(encoder.showHaloArc == true);
+
+        auto cream = getKnobShapeDef(GuiKnobStyle::CreamFluted);
+        assert(cream.shape == KnobBodyShape::FlutedScalloped);
+        assert(cream.flutes == 14);
+    }
+
+    // 2. Validate custom shape configuration on GuiWidgetDef
+    {
+        GuiWidgetDef w;
+        w.type = GuiWidgetType::Knob;
+        w.knobStyle = GuiKnobStyle::CustomShape;
+        KnobShapeDef custom;
+        custom.shape = KnobBodyShape::FlutedScalloped;
+        custom.flutes = 8;
+        custom.fluteDepth = 0.25f;
+        custom.capStyle = KnobCapStyle::LatheMetallic;
+        custom.bodyColor = Color(0.9f, 0.4f, 0.1f);
+        w.customShape = custom;
+
+        assert(w.customShape.has_value());
+        assert(w.customShape->flutes == 8);
+        assertNear(w.customShape->fluteDepth, 0.25f, 0.001f);
+    }
+
+    // 3. Validate BatchRenderer2D vector primitives & drawKnobWidget
+    {
+        BatchRenderer2D r;
+        r.beginFrame(800.0f, 600.0f);
+
+        const auto& light = Theme::current().globalLight;
+
+        // Test drawFlutedRing directly
+        r.drawFlutedRing(150.0f, 150.0f, 16.0f, 32.0f, 14, 0.15f, 0.785f, light,
+                         0.2f, 0.2f, 0.22f, 1.0f, 1.0f, 1.0f, 0.05f, 0.05f, 0.06f);
+
+        // Test drawChickenHeadContour directly
+        r.drawChickenHeadContour(300.0f, 150.0f, 28.0f, -0.785f, light,
+                                 0.15f, 0.15f, 0.18f, 0.8f, 0.8f, 0.85f, 0.05f, 0.05f, 0.06f,
+                                 1.0f, 0.9f, 0.1f);
+
+        // Test drawKnobWidget across multiple presets
+        GuiWidgetDef wDavies;
+        wDavies.knobStyle = GuiKnobStyle::DaviesFluted;
+        wDavies.currentVal = 0.75f;
+        drawKnobWidget(r, 100.0f, 300.0f, 26.0f, 0.75f, wDavies, light, false, false, false);
+
+        GuiWidgetDef wRogan;
+        wRogan.knobStyle = GuiKnobStyle::RoganMoog;
+        wRogan.currentVal = 0.35f;
+        drawKnobWidget(r, 200.0f, 300.0f, 26.0f, 0.35f, wRogan, light, true, false, false);
+
+        GuiWidgetDef wChicken;
+        wChicken.knobStyle = GuiKnobStyle::ChickenHead;
+        wChicken.currentVal = 0.50f;
+        drawKnobWidget(r, 300.0f, 300.0f, 26.0f, 0.50f, wChicken, light, false, true, false);
+
+        GuiWidgetDef wPastel;
+        wPastel.knobStyle = GuiKnobStyle::PastelDimple;
+        wPastel.accentColor = Color(0.95f, 0.45f, 0.65f);
+        drawKnobWidget(r, 400.0f, 300.0f, 26.0f, 0.20f, wPastel, light, false, false, false);
+
+        GuiWidgetDef wEncoder;
+        wEncoder.knobStyle = GuiKnobStyle::ModernEncoder;
+        wEncoder.accentColor = Color(0.0f, 0.95f, 1.0f);
+        drawKnobWidget(r, 500.0f, 300.0f, 26.0f, 0.85f, wEncoder, light, true, true, false);
+
+        // Verify vertex emission and mode 5 (seamless interior mesh)
+        assert(!r.getVertices().empty());
+        bool hasMode5 = false;
+        for (const auto& v : r.getVertices()) {
+            assert(!std::isnan(v.x) && !std::isinf(v.x));
+            assert(!std::isnan(v.y) && !std::isinf(v.y));
+            if (v.mode == 5) hasMode5 = true;
+        }
+        assert(hasMode5); // Fluted and chicken-head contours use mode 5 for seamless rendering
+
+        // Verify ScopedAntiAliasing RAII helper
+        assert(r.getAntiAliasingMode() == 2);
+        {
+            auto scope = r.makeAntiAliasingScope(0);
+            assert(r.getAntiAliasingMode() == 0);
+            assert(scope.isActive());
+        }
+        assert(r.getAntiAliasingMode() == 2); // Automatically restored
+
+        r.endFrame();
+    }
+
+    // 4. Validate DesignView integrates new knob styles
+    {
+        DesignView design;
+        design.setGuiDesignMode(true);
+        design.addGuiRow();
+        design.addGuiWidget(GuiWidgetType::Knob, GuiKnobStyle::DaviesFluted, "FILTER TUNE", "Cutoff");
+        design.addGuiWidget(GuiWidgetType::Knob, GuiKnobStyle::ChickenHead, "MODE SELECT", "Waveform");
+        design.addGuiWidget(GuiWidgetType::Knob, GuiKnobStyle::PastelDimple, "REVERB SPACE", "Decay");
+
+        const auto& panel = design.getGuiPanel();
+        assert(panel.rows.back().widgets.size() >= 3);
+        assert(panel.rows.back().widgets[0].knobStyle == GuiKnobStyle::DaviesFluted);
+        assert(panel.rows.back().widgets[1].knobStyle == GuiKnobStyle::ChickenHead);
+        assert(panel.rows.back().widgets[2].knobStyle == GuiKnobStyle::PastelDimple);
+    }
+
+    std::cout << "  [PASS] Shaped rotating knob vector core, skeuomorphic styles, and designer integration validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -3657,8 +3796,9 @@ int main() {
     testChangeInstrumentSwapIconAndImmediateGuiRefresh();
     testPanningFxDeletionAndHeaderDoubleClick();
     testUnifiedSlidingDockAndDrawer();
+    testShapedKnobVectorEngine();
 
-    std::cout << "\n>>> ALL 27 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 28 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

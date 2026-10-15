@@ -110,7 +110,8 @@ void PluginSearchDialog::initLibrary() {
             {"dx7_epiano", "Yamaha DX7 FM E-Piano", "INSTRUMENTS", "6-Operator FM", "Lush crystalline 1980s FM electric piano with velocity timbre dynamics.", 0.62f, 0.31f, 0.87f},
             {"concert_grand_piano", "Concert Grand Piano", "INSTRUMENTS", "Waveguide Physical", "Acoustic grand piano commuted physical modeling with bridge coupling.", 0.88f, 0.66f, 0.43f},
             {"c64_sid_synth", "Commodore 64 SID 8580", "INSTRUMENTS", "Chiptune SVF", "Retro chiptune 3-voice synth with hardware arpeggiator and LFSR noise.", 0.30f, 0.70f, 1.0f},
-            {"snes_console_synth", "Super Nintendo S-DSP", "INSTRUMENTS", "16-Bit BRR", "Authentic 8-channel BRR sample synthesis with 8-tap FIR echo chamber.", 0.95f, 0.35f, 0.75f}
+            {"snes_console_synth", "SNES Synth", "INSTRUMENTS", "16-Bit BRR", "Authentic 16-bit polyphonic S-DSP console synthesizer with selectable waveforms, ADSR envelope, vibrato, and 8-tap FIR echo.", 0.95f, 0.35f, 0.75f},
+            {"eats_sfxr", "SNES Sfxr", "INSTRUMENTS", "16-Bit SFXR", "16-Bit retro arcade and console sound effect synthesizer with procedural presets, random seeds, and SNES echo DSP.", 0.95f, 0.20f, 0.20f}
         };
         allPresetLibrary_ = instrumentLibrary_;
     }

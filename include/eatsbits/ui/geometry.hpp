@@ -3,8 +3,21 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <string_view>
+#include <cctype>
 
 namespace eatsbits::ui {
+
+inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 /**
  * 2D Point structure with basic arithmetic operations.

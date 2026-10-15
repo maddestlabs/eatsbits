@@ -21,9 +21,18 @@ struct alignas(16) Vertex2D {
     float u{0.0f};
     float v{0.0f};
     uint32_t color{0xFFFFFFFF}; // RGBA8 packed
-    uint32_t mode{0};          // 0 = solid/gradient color, 1 = font atlas texture, 2 = analytical, 3 = rgba texture, 4 = monospace font atlas
+    uint32_t mode{0};          // 0 = solid/gradient color, 1 = font atlas texture, 2 = analytical, 3 = rgba texture, 4 = monospace font atlas, 5 = opaque mesh (point-sampled, zero-seam)
     float pad[2]{0.0f, 0.0f};  // 32-byte uniform alignment
 };
+
+namespace VertexMode {
+    inline constexpr uint32_t Color = 0;
+    inline constexpr uint32_t FontAtlas = 1;
+    inline constexpr uint32_t AnalyticalSdf = 2;
+    inline constexpr uint32_t RgbaTexture = 3;
+    inline constexpr uint32_t MonospaceAtlas = 4;
+    inline constexpr uint32_t OpaqueMeshNoAA = 5;
+}
 
 enum class BlendMode : uint8_t {
     Normal = 0,
@@ -108,6 +117,32 @@ private:
 };
 
 /**
+ * @brief RAII Scoped Anti-Aliasing Guard for temporarily overriding AA mode.
+ * Flushes active batch on construction, sets new AA mode, and flushes and
+ * restores previous AA mode on destruction.
+ */
+class ScopedAntiAliasing {
+public:
+    ScopedAntiAliasing() noexcept = default;
+    ScopedAntiAliasing(BatchRenderer2D* renderer, int tempMode);
+    ScopedAntiAliasing(BatchRenderer2D& renderer, int tempMode);
+    ~ScopedAntiAliasing();
+
+    ScopedAntiAliasing(const ScopedAntiAliasing&) = delete;
+    ScopedAntiAliasing& operator=(const ScopedAntiAliasing&) = delete;
+
+    ScopedAntiAliasing(ScopedAntiAliasing&& other) noexcept;
+    ScopedAntiAliasing& operator=(ScopedAntiAliasing&& other) noexcept;
+
+    void reset() noexcept;
+    [[nodiscard]] bool isActive() const noexcept { return renderer_ != nullptr; }
+
+private:
+    BatchRenderer2D* renderer_{nullptr};
+    int previousMode_{2};
+};
+
+/**
  * @brief High-performance batched 2D vector renderer.
  * Collects 2D quads, circles, lines, and textured font glyphs into a single vertex buffer,
  * flushing them to the GPU in minimal draw passes.
@@ -115,6 +150,7 @@ private:
 class BatchRenderer2D {
 public:
     using ScissorScope = eatsbits::ui::ScissorScope;
+    using ScopedAntiAliasing = eatsbits::ui::ScopedAntiAliasing;
 
     BatchRenderer2D();
     ~BatchRenderer2D();
@@ -210,6 +246,17 @@ public:
                          const LightSource2D& light, float baseR, float baseG, float baseB,
                          float highlightR = 1.0f, float highlightG = 1.0f, float highlightB = 1.0f,
                          float shadowR = 0.08f, float shadowG = 0.09f, float shadowB = 0.11f);
+    void drawFlutedRing(float cx, float cy, float rInner, float rOuter, int numFlutes,
+                        float fluteDepthRatio, float rotationAngle,
+                        const LightSource2D& light, float baseR, float baseG, float baseB,
+                        float highlightR = 1.0f, float highlightG = 1.0f, float highlightB = 1.0f,
+                        float shadowR = 0.08f, float shadowG = 0.09f, float shadowB = 0.11f);
+    void drawChickenHeadContour(float cx, float cy, float radius, float rotationAngle,
+                                const LightSource2D& light,
+                                float baseR, float baseG, float baseB,
+                                float highlightR, float highlightG, float highlightB,
+                                float shadowR, float shadowG, float shadowB,
+                                float pointerR = 1.0f, float pointerG = 1.0f, float pointerB = 1.0f);
 
     // --- Font & Texture Atlas ---
     void updateFontAtlas(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH);
@@ -250,10 +297,13 @@ public:
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
     void setDirectPresent(bool enable) noexcept { if (backend_) backend_->setDirectPresent(enable); }
     void setAntiAliasingMode(int mode) noexcept {
+        if (antiAliasingMode_ == mode) return;
+        flush();
         antiAliasingMode_ = mode;
         if (backend_) backend_->setAntiAliasingMode(mode);
     }
     [[nodiscard]] int getAntiAliasingMode() const noexcept { return antiAliasingMode_; }
+    [[nodiscard]] ScopedAntiAliasing makeAntiAliasingScope(int tempMode);
     [[nodiscard]] void* getNativeDevice() const noexcept { return backend_ ? backend_->getNativeDevice() : nullptr; }
     [[nodiscard]] void* getNativeSurface() const noexcept { return backend_ ? backend_->getNativeSurface() : nullptr; }
     void setCustomRenderTargetView(void* view) noexcept { if (backend_) backend_->setCustomRenderTargetView(view); }
