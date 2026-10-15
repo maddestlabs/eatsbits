@@ -283,6 +283,8 @@ public:
                            float subpixelOffsetX = 0.0f,
                            float subpixelOffsetY = 0.0f);
 
+    [[nodiscard]] static bool isBoxDrawingOrBlock(char32_t cp) noexcept;
+
     void drawTerminalGrid(float startX, float startY, float cellW, float cellH,
                           const void* cells, int cols, int rows,
                           float subpixelOffsetX = 0.0f, float subpixelOffsetY = 0.0f);

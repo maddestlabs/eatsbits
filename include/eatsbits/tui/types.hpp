@@ -8,12 +8,13 @@
 namespace eatsbits::tui {
 
 enum class TextAttr : uint8_t {
-    None      = 0,
-    Bold      = 1 << 0,
-    Dim       = 1 << 1,
-    Underline = 1 << 2,
-    Reverse   = 1 << 3,
-    Blink     = 1 << 4
+    None         = 0,
+    Bold         = 1 << 0,
+    Dim          = 1 << 1,
+    Underline    = 1 << 2,
+    Reverse      = 1 << 3,
+    Blink        = 1 << 4,
+    Continuation = 1 << 5 // Non-rendering continuation cell (for multi-cell ligatures/wide chars)
 };
 
 inline constexpr TextAttr operator|(TextAttr a, TextAttr b) {
@@ -22,6 +23,10 @@ inline constexpr TextAttr operator|(TextAttr a, TextAttr b) {
 
 inline constexpr TextAttr operator&(TextAttr a, TextAttr b) {
     return static_cast<TextAttr>(static_cast<uint8_t>(a) & static_cast<uint8_t>(b));
+}
+
+inline constexpr TextAttr operator~(TextAttr a) {
+    return static_cast<TextAttr>(~static_cast<uint8_t>(a));
 }
 
 struct Color {

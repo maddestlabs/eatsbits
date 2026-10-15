@@ -2863,7 +2863,7 @@ void BatchRenderer2D::initDefaultMonospaceAtlas() {
     monospaceAtlasReady_ = true;
 }
 
-static bool isBoxDrawingOrBlock(char32_t cp) noexcept {
+bool BatchRenderer2D::isBoxDrawingOrBlock(char32_t cp) noexcept {
     return (cp >= 0x2500 && cp <= 0x257F) || // Box Drawing
            (cp >= 0x2580 && cp <= 0x259F) || // Block Elements
            (cp >= 0x2800 && cp <= 0x28FF);   // Braille Patterns
@@ -2892,6 +2892,11 @@ void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
 
     if (bgA > 0.001f) {
         drawRect(cx, cy, w, h, bgR, bgG, bgB, bgA);
+    }
+
+    // Continuation cell: multi-cell ligature span continuation (non-rendering)
+    if (attrs & static_cast<uint8_t>(tui::TextAttr::Continuation)) {
+        return;
     }
 
     // Space or null codepoint: only background
@@ -2964,6 +2969,13 @@ void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
                 case 0x256E: left = bottom = true; break;  // ╮
                 case 0x256F: left = top = true; break;     // ╯
                 case 0x2570: right = top = true; break;    // ╰
+                // Half lines
+                case 0x2574: case 0x2578: left = true; break; // ╴ ╸
+                case 0x2575: case 0x2579: top = true; break;  // ╵ ╹
+                case 0x2576: case 0x257A: right = true; break; // ╶ ╺
+                case 0x2577: case 0x257B: bottom = true; break; // ╷ ╻
+                case 0x257C: case 0x257E: left = right = true; break;
+                case 0x257D: case 0x257F: top = bottom = true; break;
                 default: left = right = true; break;
             }
 
@@ -3022,14 +3034,56 @@ void BatchRenderer2D::drawMonospaceCell(float x, float y, float w, float h,
                 case 0x2580: // ▀ Upper half block
                     drawRect(cx, cy, w, halfH, fgR, fgG, fgB, fgA);
                     break;
+                case 0x2581: //   Lower 1/8
+                    drawRect(cx, cy + std::round(h * 0.875f), w, h - std::round(h * 0.875f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2582: // ▂ Lower 1/4
+                    drawRect(cx, cy + std::round(h * 0.75f), w, h - std::round(h * 0.75f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2583: // ▃ Lower 3/8
+                    drawRect(cx, cy + std::round(h * 0.625f), w, h - std::round(h * 0.625f), fgR, fgG, fgB, fgA);
+                    break;
                 case 0x2584: // ▄ Lower half block
                     drawRect(cx, cy + halfH, w, h - halfH, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2585: // ▅ Lower 5/8
+                    drawRect(cx, cy + std::round(h * 0.375f), w, h - std::round(h * 0.375f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2586: // ▆ Lower 3/4
+                    drawRect(cx, cy + std::round(h * 0.25f), w, h - std::round(h * 0.25f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2587: // ▇ Lower 7/8
+                    drawRect(cx, cy + std::round(h * 0.125f), w, h - std::round(h * 0.125f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2589: // ▉ Left 7/8
+                    drawRect(cx, cy, std::round(w * 0.875f), h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x258A: // ▊ Left 3/4
+                    drawRect(cx, cy, std::round(w * 0.75f), h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x258B: // ▋ Left 5/8
+                    drawRect(cx, cy, std::round(w * 0.625f), h, fgR, fgG, fgB, fgA);
                     break;
                 case 0x258C: // ▌ Left half block
                     drawRect(cx, cy, halfW, h, fgR, fgG, fgB, fgA);
                     break;
+                case 0x258D: // ▍ Left 3/8
+                    drawRect(cx, cy, std::round(w * 0.375f), h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x258E: // ▎ Left 1/4
+                    drawRect(cx, cy, std::round(w * 0.25f), h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x258F: // ▏ Left 1/8
+                    drawRect(cx, cy, std::round(w * 0.125f), h, fgR, fgG, fgB, fgA);
+                    break;
                 case 0x2590: // ▐ Right half block
                     drawRect(cx + halfW, cy, w - halfW, h, fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2594: // ▔ Upper 1/8
+                    drawRect(cx, cy, w, std::round(h * 0.125f), fgR, fgG, fgB, fgA);
+                    break;
+                case 0x2595: // ▕ Right 1/8
+                    drawRect(cx + std::round(w * 0.875f), cy, w - std::round(w * 0.875f), h, fgR, fgG, fgB, fgA);
                     break;
                 // Quadrants
                 case 0x2596: // ▖ Lower left

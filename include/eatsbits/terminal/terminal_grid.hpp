@@ -75,6 +75,10 @@ public:
     // Text Streaming & Cursor Flow
     void writeCodepoint(char32_t cp);
     void writeString(std::string_view str);
+    void writeLigature(std::string_view str);
+    void sliceLigature(int startCol, int row, int colSpan);
+    [[nodiscard]] bool isContinuationCell(int col, int row) const noexcept;
+    [[nodiscard]] int getCellSpan(int col, int row) const noexcept;
     void newline();
     void carriageReturn() noexcept;
     void backspace() noexcept;

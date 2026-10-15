@@ -262,6 +262,7 @@ add_library(eats_text STATIC
     src/text/font_manager.cpp
     src/text/text_shaper.cpp
     src/text/glyph_atlas.cpp
+    src/text/monospace_grid_layout.cpp
 )
 target_include_directories(eats_text PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -664,6 +665,10 @@ add_test(NAME TextEngineTest COMMAND test_text_engine)
 add_executable(test_text_shaping tests/test_text_shaping.cpp)
 target_link_libraries(test_text_shaping PRIVATE eats_text eats_core)
 add_test(NAME TextShapingTest COMMAND test_text_shaping)
+
+add_executable(test_terminal_grid tests/test_terminal_grid.cpp)
+target_link_libraries(test_terminal_grid PRIVATE eatsbits_gui_core eatsbits_tui_core eats_text eats_core)
+add_test(NAME TerminalGridTest COMMAND test_terminal_grid)
 
 add_executable(test_vector_surfaces tests/test_vector_surfaces.cpp)
 target_link_libraries(test_vector_surfaces PRIVATE eatsbits_gui_core)

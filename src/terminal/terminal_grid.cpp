@@ -188,20 +188,105 @@ void TerminalGrid::writeCodepoint(char32_t cp) {
     cursor_.x++;
 }
 
+static inline char32_t decodeNextUtf8Codepoint(const char*& ptr, const char* end) noexcept {
+    if (ptr >= end) return 0;
+    const unsigned char c = static_cast<unsigned char>(*ptr);
+    if (c < 0x80) {
+        ptr++;
+        return c;
+    }
+    if ((c & 0xE0) == 0xC0 && (ptr + 1 < end)) {
+        char32_t cp = (c & 0x1F) << 6;
+        cp |= (static_cast<unsigned char>(ptr[1]) & 0x3F);
+        ptr += 2;
+        return cp;
+    }
+    if ((c & 0xF0) == 0xE0 && (ptr + 2 < end)) {
+        char32_t cp = (c & 0x0F) << 12;
+        cp |= (static_cast<unsigned char>(ptr[1]) & 0x3F) << 6;
+        cp |= (static_cast<unsigned char>(ptr[2]) & 0x3F);
+        ptr += 3;
+        return cp;
+    }
+    if ((c & 0xF8) == 0xF0 && (ptr + 3 < end)) {
+        char32_t cp = (c & 0x07) << 18;
+        cp |= (static_cast<unsigned char>(ptr[1]) & 0x3F) << 12;
+        cp |= (static_cast<unsigned char>(ptr[2]) & 0x3F) << 6;
+        cp |= (static_cast<unsigned char>(ptr[3]) & 0x3F);
+        ptr += 4;
+        return cp;
+    }
+    ptr++;
+    return c;
+}
+
 void TerminalGrid::writeString(std::string_view str) {
-    for (char ch : str) {
+    const char* ptr = str.data();
+    const char* end = ptr + str.size();
+    while (ptr < end) {
+        char ch = *ptr;
         if (ch == '\r') {
+            ptr++;
             carriageReturn();
         } else if (ch == '\n') {
+            ptr++;
             newline();
         } else if (ch == '\b') {
+            ptr++;
             backspace();
         } else if (ch == '\t') {
+            ptr++;
             tab();
         } else {
-            writeCodepoint(static_cast<char32_t>(static_cast<uint8_t>(ch)));
+            char32_t cp = decodeNextUtf8Codepoint(ptr, end);
+            writeCodepoint(cp);
         }
     }
+}
+
+void TerminalGrid::writeLigature(std::string_view str) {
+    if (str.empty()) return;
+    std::vector<char32_t> cps;
+    const char* p = str.data();
+    const char* end = p + str.size();
+    while (p < end) {
+        cps.push_back(decodeNextUtf8Codepoint(p, end));
+    }
+    if (cps.empty()) return;
+
+    for (size_t i = 0; i < cps.size(); ++i) {
+        uint8_t oldAttrs = activeAttrs_;
+        if (i > 0) {
+            activeAttrs_ |= static_cast<uint8_t>(tui::TextAttr::Continuation);
+        }
+        writeCodepoint(cps[i]);
+        activeAttrs_ = oldAttrs;
+    }
+}
+
+void TerminalGrid::sliceLigature(int startCol, int row, int colSpan) {
+    if (colSpan <= 1 || row < 0 || row >= rows_ || startCol < 0 || startCol >= cols_) return;
+    int endCol = std::min(cols_, startCol + colSpan);
+    for (int c = startCol + 1; c < endCol; ++c) {
+        tui::Cell cell = getCell(c, row);
+        cell.attrs |= static_cast<uint8_t>(tui::TextAttr::Continuation);
+        setCell(c, row, cell);
+    }
+}
+
+bool TerminalGrid::isContinuationCell(int col, int row) const noexcept {
+    if (col < 0 || col >= cols_ || row < 0 || row >= rows_) return false;
+    return (getCell(col, row).attrs & static_cast<uint8_t>(tui::TextAttr::Continuation)) != 0;
+}
+
+int TerminalGrid::getCellSpan(int col, int row) const noexcept {
+    if (col < 0 || col >= cols_ || row < 0 || row >= rows_) return 1;
+    if (isContinuationCell(col, row)) return 1;
+    int span = 1;
+    while (col + span < cols_ && isContinuationCell(col + span, row)) {
+        span++;
+    }
+    return span;
 }
 
 void TerminalGrid::newline() {
