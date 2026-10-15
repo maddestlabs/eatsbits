@@ -260,6 +260,9 @@ endif()
 # 4b. Modern FreeType + HarfBuzz Advanced Text Shaping Engine
 add_library(eats_text STATIC
     src/text/text_engine.cpp
+    src/text/font_manager.cpp
+    src/text/text_shaper.cpp
+    src/text/glyph_atlas.cpp
 )
 target_include_directories(eats_text PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
