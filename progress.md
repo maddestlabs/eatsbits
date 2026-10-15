@@ -1293,6 +1293,19 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **Documentation (`README.md`)**: Updated directory architecture diagrams and interface descriptions.
     - **Backend Interfaces (`nanovg_backend.hpp`, `dawn_bridge.hpp`)**: Renamed `INanoVGBackend` to `IRenderBatchBackend`, eliminating legacy naming cruft.
     - **Automated Verification**: 100% build pass and 100% test pass (48/48 test suites) via `ctest`.
+- **Item Completed**: "Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)" (commit `a1ae617`, 2026-10-15)
+  - **Summary**:
+    - Configured modern CMake `FetchContent` integration for FreeType (`VER-2-13-3`) and HarfBuzz (`10.1.0`) with minimal dependency flags (disabled brotli, bzip2, png, zlib, tests, and CLI utils) for rapid compilation and cross-platform native + WebAssembly support.
+    - Created `eats_text` static library target linking FreeType, HarfBuzz, and `eats_core`, exporting include directories to `include/eatsbits/text`.
+    - Generated `embedded_fonts.hpp` embedding `ShareTechMono-Regular.ttf` (43,272 bytes) as binary byte array for zero-file-dependency execution on desktop and WebAssembly.
+    - Implemented and added automated unit smoke test `tests/test_text_shaping.cpp` (`TextShapingTest`), testing `FT_Init_FreeType`, memory font face instantiation, `hb_ft_font_create`, and HarfBuzz text shaping with uniform advances.
+    - Resolved pre-existing GUI render loop heap allocation regression in `BatchRenderer2D::drawFlutedRing` and `IconRegistry`, re-establishing 0 heap allocations across all DAW views during live playback in `test_gui_interaction`.
+  - **Key Changes Implemented**:
+    - **CMake Build System (`CMakeLists.txt`)**: Configured FreeType and HarfBuzz `FetchContent`, created `eats_text` library, linked into `eatsbits_gui_core`, and registered `TextShapingTest`.
+    - **Embedded Font (`embedded_fonts.hpp`)**: Hex byte-array representation of `ShareTechMono-Regular.ttf` for standalone fallback.
+    - **Zero-Allocation Invariants (`batch_renderer_2d.cpp`, `icon_registry.cpp`)**: Converted quad-strip point generation in `drawFlutedRing` to zero-heap stream processing; cached contours in `IconRegistry` fallback path.
+    - **Automated Verification**: 100% test pass (49/49 test suites) via `ctest`.
+
 
 ---
 

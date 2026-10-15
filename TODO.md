@@ -16,15 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)**
-  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [build.ps1](file:///c:/git/eatsbits/build.ps1), [tests/CMakeLists.txt](file:///c:/git/eatsbits/tests/CMakeLists.txt)
-  - **Scope & Objectives**:
-    1. **CMake FetchContent Configuration**: Add `FetchContent` for `freetype` (`VER-2-13-3`) and `harfbuzz` (`10.1.0`) with minimal dependency flags (disable unnecessary zlib/png/bzip2 bindings, tests, and CLI utils).
-    2. **Cross-Platform Compilation Support**: Ensure clean compilation across MSVC (Windows /openmp /O2), Clang/GCC (macOS/Linux), and Emscripten WebAssembly (`EMSCRIPTEN=1`).
-    3. **Create `eats_text` Static Library Target**: Define a dedicated CMake target `eats_text` linking FreeType, HarfBuzz, and `eats_core`. Export include paths to `include/eatsbits/text`.
-    4. **Automated Smoke Test**: Add `tests/test_text_shaping.cpp` verifying `FT_Init_FreeType`, `hb_buffer_create`, loading an embedded TTF font from a memory buffer, and successfully shaping a basic string (`!=`, `->`) with valid glyph indices and advances.
-  - **Verification**: Run `.\build.ps1 -Test` and verify that `test_text_shaping` builds and passes on both MSVC Release and Debug configurations.
-
 - [ ] **Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)**
   - **Context/Files**: [include/eatsbits/text/font_manager.hpp](file:///c:/git/eatsbits/include/eatsbits/text/font_manager.hpp), [src/text/font_manager.cpp](file:///c:/git/eatsbits/src/text/font_manager.cpp), [include/eatsbits/text/text_shaper.hpp](file:///c:/git/eatsbits/include/eatsbits/text/text_shaper.hpp), [src/text/text_shaper.cpp](file:///c:/git/eatsbits/src/text/text_shaper.cpp), [include/eatsbits/text/glyph_atlas.hpp](file:///c:/git/eatsbits/include/eatsbits/text/glyph_atlas.hpp), [src/text/glyph_atlas.cpp](file:///c:/git/eatsbits/src/text/glyph_atlas.cpp), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp)
   - **Scope & Objectives**:
@@ -59,6 +50,24 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)** (commit `a1ae617`, 2026-10-15)
+  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [src/text/text_engine.cpp](file:///c:/git/eatsbits/src/text/text_engine.cpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp)
+  - **Acceptance Criteria**:
+    1. **CMake FetchContent Configuration**:
+       - Configured `FetchContent` for `freetype` (`VER-2-13-3`) and `harfbuzz` (`10.1.0`) with minimal dependency flags (brotli/bzip2/png/zlib and extra utilities disabled).
+       - Created `eats_text` static library target linking FreeType, HarfBuzz, and `eats_core`.
+       - Linked `eats_text` into `eatsbits_gui_core`.
+    2. **Embedded Fallback Font Asset**:
+       - Embedded `ShareTechMono-Regular.ttf` as binary hex byte array in `embedded_fonts.hpp` for zero-file-dependency runtime execution across desktop and WebAssembly.
+    3. **Automated Smoke Test (`TextShapingTest`)**:
+       - Added `tests/test_text_shaping.cpp` verifying `FT_Init_FreeType`, memory font face instantiation, `hb_ft_font_create`, and shaping strings with valid glyph indices and advances.
+    4. **Zero-Allocation GUI Render Invariant Protection**:
+       - Fixed `BatchRenderer2D::drawFlutedRing` to compute point-sampled fluted quad strips on the fly, eliminating `std::vector` heap allocations per knob per frame.
+       - Cached contours in `IconRegistry` fallback path to prevent repetitive SVG parsing on stroke icons.
+       - Verified 0 allocations across 20 consecutive frames in all 4 DAW views during active playback in `test_gui_interaction`.
+    5. **Automated Verification**:
+       - 100% pass across all 49 test suites via `ctest`.
 
 - [x] **Purge Dead NanoVG Engine & Decouple Legacy Backend Interfaces** (commit `b21c403`, 2026-10-15)
   - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [README.md](file:///c:/git/eatsbits/README.md), [include/eatsbits/ui/nanovg_backend.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp), [include/eatsbits/ui/dawn_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/dawn_bridge.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/gui_main.cpp](file:///c:/git/eatsbits/src/gui_main.cpp)
@@ -116,21 +125,6 @@ To execute items automatically, run in Antigravity:
        - Implemented double-click detection (<350ms, <6px) routing to `ValueEditDialog` for direct numeric and keyboard input across presenters and views.
     3. **Automated Verification**:
        - Added unit test `testInfiniteRotaryDeltaDragAndFineAdjustment()` in `tests/test_presenters.cpp` verifying relative deltas, unbounded motion, GLFW capture callbacks, shift modifier $0.10\times$ scaling, Ctrl+click reset, and double-click dispatch.
-       - Verified 100% test pass (48/48 test suites) via `ctest`.
-
-- [x] **Eliminate Per-Frame Heap Allocations in GUI Render Loop (`std::span` & Direct Model References)** (commit `39deacb`, 2026-10-11)
-  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/views/mixer_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/mixer_view.hpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [include/eatsbits/ui/views/track_inspector_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/track_inspector_view.hpp), [src/ui/views/track_inspector_view.cpp](file:///c:/git/eatsbits/src/ui/views/track_inspector_view.cpp), [src/ui/views/arranger_view.cpp](file:///c:/git/eatsbits/src/ui/views/arranger_view.cpp), [src/ui/views/design_view.cpp](file:///c:/git/eatsbits/src/ui/views/design_view.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/icon_registry.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/icon_registry.hpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp), [src/ui/dawn_bridge.cpp](file:///c:/git/eatsbits/src/ui/dawn_bridge.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
-  - **Acceptance Criteria**:
-    1. **Zero Heap Allocations in `renderFrame()`**:
-       - Removed temporary `std::vector<std::string>`, `std::vector<float>`, and `std::vector<Color>` constructions in `GuiWindow::renderFrame` across Mixer and Track Inspector view rendering paths.
-       - Refactored `syncFromWindow(...)` and view layout calls to directly consume existing track data via `std::span` and direct read-only references to `arrangerTracks_` / sequencer models.
-       - Replaced Win32/CRT `std::filesystem::last_write_time` shader polling in `DawnBridge` with `GetFileAttributesExA` / `stat` to avoid per-second heap allocations.
-       - Replaced icon registry lookups with transparent hash/equality `std::string_view` lookups and mesh caching.
-       - Optimized `drawMonoText`, `drawMonoTextClipped`, and `drawTooltipBadge` to take `std::string_view`, eliminating per-frame temporary string allocations in Design view search bars, headers, knob badges, and track properties drawer.
-    2. **Telemetry & Audio Scope Buffer Passing**:
-       - Ensured scope and meter buffers are passed as lightweight non-owning views (`std::span<const float>`) rather than copying sample vectors.
-    3. **Automated Verification**:
-       - Added verification test in `tests/test_gui_interaction.cpp` confirming that invoking `renderFrame()` across Arranger (View 0), Mixer (View 3), Track Inspector (View 2), and Design (View 4) views during live playback results in **0 heap allocations** across 20 rendered frames per view.
        - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)

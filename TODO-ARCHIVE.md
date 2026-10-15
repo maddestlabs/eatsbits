@@ -7,7 +7,21 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
-- [x] **Eliminate Startup Eatscript Parser Errors & Implement Subscript Indexing / Trailing Commas in DSL Grammar** (2026-10-11)
+- [x] **Eliminate Per-Frame Heap Allocations in GUI Render Loop (`std::span` & Direct Model References)** (commit `39deacb`, 2026-10-11)
+  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/views/mixer_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/mixer_view.hpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [include/eatsbits/ui/views/track_inspector_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/track_inspector_view.hpp), [src/ui/views/track_inspector_view.cpp](file:///c:/git/eatsbits/src/ui/views/track_inspector_view.cpp), [src/ui/views/arranger_view.cpp](file:///c:/git/eatsbits/src/ui/views/arranger_view.cpp), [src/ui/views/design_view.cpp](file:///c:/git/eatsbits/src/ui/views/design_view.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/icon_registry.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/icon_registry.hpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp), [src/ui/dawn_bridge.cpp](file:///c:/git/eatsbits/src/ui/dawn_bridge.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
+  - **Acceptance Criteria**:
+    1. **Zero Heap Allocations in `renderFrame()`**:
+       - Removed temporary `std::vector<std::string>`, `std::vector<float>`, and `std::vector<Color>` constructions in `GuiWindow::renderFrame` across Mixer and Track Inspector view rendering paths.
+       - Refactored `syncFromWindow(...)` and view layout calls to directly consume existing track data via `std::span` and direct read-only references to `arrangerTracks_` / sequencer models.
+       - Replaced Win32/CRT `std::filesystem::last_write_time` shader polling in `DawnBridge` with `GetFileAttributesExA` / `stat` to avoid per-second heap allocations.
+       - Replaced icon registry lookups with transparent hash/equality `std::string_view` lookups and mesh caching.
+       - Optimized `drawMonoText`, `drawMonoTextClipped`, and `drawTooltipBadge` to take `std::string_view`, eliminating per-frame temporary string allocations in Design view search bars, headers, knob badges, and track properties drawer.
+    2. **Telemetry & Audio Scope Buffer Passing**:
+       - Ensured scope and meter buffers are passed as lightweight non-owning views (`std::span<const float>`) rather than copying sample vectors.
+    3. **Automated Verification**:
+       - Added verification test in `tests/test_gui_interaction.cpp` confirming that invoking `renderFrame()` across Arranger (View 0), Mixer (View 3), Track Inspector (View 2), and Design (View 4) views during live playback results in **0 heap allocations** across 20 rendered frames per view.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
+
   - **Context/Files**: [include/eatsbits/eatscript/ast.hpp](file:///c:/git/eatsbits/include/eatsbits/eatscript/ast.hpp), [src/eatscript/parser.cpp](file:///c:/git/eatsbits/src/eatscript/parser.cpp), [src/eatscript/evaluator.cpp](file:///c:/git/eatsbits/src/eatscript/evaluator.cpp), [src/eatscript/transpiler.cpp](file:///c:/git/eatsbits/src/eatscript/transpiler.cpp), [src/eatscript/dispatch_scanner.cpp](file:///c:/git/eatsbits/src/eatscript/dispatch_scanner.cpp), [src/eatscript/vm.cpp](file:///c:/git/eatsbits/src/eatscript/vm.cpp), [src/project/preset_loader.cpp](file:///c:/git/eatsbits/src/project/preset_loader.cpp), [src/project/preset_manager.cpp](file:///c:/git/eatsbits/src/project/preset_manager.cpp), [presets/midi_fx/arpeggiator_midi_fx.eats](file:///c:/git/eatsbits/presets/midi_fx/arpeggiator_midi_fx.eats), [presets/midi_fx/euclidean_acid_generator.eats](file:///c:/git/eatsbits/presets/midi_fx/euclidean_acid_generator.eats), [tests/test_eatscript_vm.cpp](file:///c:/git/eatsbits/tests/test_eatscript_vm.cpp)
   - **Acceptance Criteria**:
     1. **Dictionary Subscript Indexing & Assignment (`params['Key'] = val`)**:
