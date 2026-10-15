@@ -1282,6 +1282,17 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **Automated Verification**:
       - Added unit test `testTooltipDomainClampingAndAutoFlipping()` in `tests/test_ui_canvas.cpp` verifying vertex bounds for top panel tooltips, top seam downward auto-flipping, and bottom chin upward auto-flipping.
       - 100% test pass across all 48 test suites in `ctest`.
+- **Item Completed**: "Purge Dead NanoVG Engine & Decouple Legacy Backend Interfaces" (commit `b21c403`, 2026-10-15)
+  - **Summary**:
+    - Purged dead NanoVG C/H source files (`third_party/nanovg/nanovg.c`, `nanovg.h`) and removed the `third_party/nanovg/` folder from the repository.
+    - Decoupled FontStash and STB headers into standalone directories (`third_party/fontstash/` and `third_party/stb/`) with isolated C translation units (`fontstash.c`, `stb_image.c`).
+    - Renamed legacy `INanoVGBackend` to `IRenderBatchBackend` in `nanovg_backend.hpp` and `dawn_bridge.hpp`, maintaining backward compatibility aliases.
+    - Updated console startup banners and About modal text to reflect the native WebGPU / BatchRenderer2D architecture.
+  - **Key Changes Implemented**:
+    - **Build System (`CMakeLists.txt`)**: Replaced `third_party/nanovg` include directory with `third_party/fontstash` and `third_party/stb`; updated `eats_render_wgpu` sources.
+    - **Documentation (`README.md`)**: Updated directory architecture diagrams and interface descriptions.
+    - **Backend Interfaces (`nanovg_backend.hpp`, `dawn_bridge.hpp`)**: Renamed `INanoVGBackend` to `IRenderBatchBackend`, eliminating legacy naming cruft.
+    - **Automated Verification**: 100% build pass and 100% test pass (48/48 test suites) via `ctest`.
 
 ---
 

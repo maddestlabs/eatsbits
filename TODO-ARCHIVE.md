@@ -7,6 +7,26 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Eliminate Startup Eatscript Parser Errors & Implement Subscript Indexing / Trailing Commas in DSL Grammar** (2026-10-11)
+  - **Context/Files**: [include/eatsbits/eatscript/ast.hpp](file:///c:/git/eatsbits/include/eatsbits/eatscript/ast.hpp), [src/eatscript/parser.cpp](file:///c:/git/eatsbits/src/eatscript/parser.cpp), [src/eatscript/evaluator.cpp](file:///c:/git/eatsbits/src/eatscript/evaluator.cpp), [src/eatscript/transpiler.cpp](file:///c:/git/eatsbits/src/eatscript/transpiler.cpp), [src/eatscript/dispatch_scanner.cpp](file:///c:/git/eatsbits/src/eatscript/dispatch_scanner.cpp), [src/eatscript/vm.cpp](file:///c:/git/eatsbits/src/eatscript/vm.cpp), [src/project/preset_loader.cpp](file:///c:/git/eatsbits/src/project/preset_loader.cpp), [src/project/preset_manager.cpp](file:///c:/git/eatsbits/src/project/preset_manager.cpp), [presets/midi_fx/arpeggiator_midi_fx.eats](file:///c:/git/eatsbits/presets/midi_fx/arpeggiator_midi_fx.eats), [presets/midi_fx/euclidean_acid_generator.eats](file:///c:/git/eatsbits/presets/midi_fx/euclidean_acid_generator.eats), [tests/test_eatscript_vm.cpp](file:///c:/git/eatsbits/tests/test_eatscript_vm.cpp)
+  - **Acceptance Criteria**:
+    1. **Dictionary Subscript Indexing & Assignment (`params['Key'] = val`)**:
+       - Added `ExprKind::Index` (`IndexExpr`) and `StmtKind::IndexAssign` (`IndexAssignStmt`) to AST.
+       - Implemented parser lookahead in `parseExpressionOrAssignment()` to distinguish subscript assignment from standalone expressions.
+       - Implemented AST Evaluator, VM Bytecode emission, AOT C++ Transpiler, and Dispatch Scanner support for subscript assignments and lookups.
+    2. **Grammar Support for Trailing Commas**:
+       - Updated `parseCall()` and `parseFunctionDef()` to gracefully handle trailing commas before `)` in argument lists and parameter lists.
+    3. **Preset Directory Filtering**:
+       - Added guards in `PresetManager::scanDirectory` and `PresetLoader::parseFromEatscript` to ignore non-preset INI/song project files (`[project]`, `return eatsbeats.song`, `"format": "eatsbits"`) so project files are never misparsed as Eatscript presets.
+       - Removed stray INI project file `presets/default.eats`.
+    4. **Preset Script Refactoring**:
+       - Removed trailing comma in `presets/midi_fx/arpeggiator_midi_fx.eats`.
+       - Updated `presets/midi_fx/euclidean_acid_generator.eats` to standard host processor call `eat.euclidean()`.
+    5. **Automated Verification**:
+       - Added unit test `testParserTrailingCommasAndSubscripts()` in `test_eatscript_vm.cpp`.
+       - Verified all 37 preset files in `presets/` parse with 0 errors via `eatscript_cli.exe`.
+       - Verified clean application startup with 0 parser errors.
+
 - [x] **Optimize CLAP Plugin Scanning & Add Portable App / Binary Directory Setting (Reaper Mode)** (2026-10-11)
   - **Context/Files**: `include/eatsbits/audio/clap/clap_plugin_loader.hpp`, `src/audio/clap/clap_plugin_loader.cpp`, `include/eatsbits/ui/widgets/plugin_search_dialog.hpp`, `src/ui/widgets/plugin_search_dialog.cpp`, `include/eatsbits/ui/gui_window.hpp`, `src/ui/gui_window.cpp`, `tests/test_clap_host.cpp`
   - **Acceptance Criteria**:

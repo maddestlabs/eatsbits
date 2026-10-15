@@ -16,15 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Purge Dead NanoVG Engine & Decouple Legacy Backend Interfaces**
-  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [README.md](file:///c:/git/eatsbits/README.md), [include/eatsbits/ui/nanovg_backend.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp), [include/eatsbits/ui/dawn_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/dawn_bridge.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/gui_main.cpp](file:///c:/git/eatsbits/src/gui_main.cpp)
-  - **Scope & Objectives**:
-    1. **Remove NanoVG C Code from Build**: Remove `third_party/nanovg/nanovg.c` from the `eats_render_wgpu` target in [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt#L226). Remove `${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg` from global `include_directories`.
-    2. **Isolate Interim FontStash**: Move `fontstash.h` and `stb_truetype.h` into a dedicated `third_party/fontstash/` directory; delete `third_party/nanovg/nanovg.c` and `third_party/nanovg/nanovg.h`, and remove the `third_party/nanovg/` folder entirely. Update includes in [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp#L172).
-    3. **Rename Legacy Interfaces**: Rename [`INanoVGBackend`](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp#L35) in [nanovg_backend.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp) and [dawn_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/dawn_bridge.hpp) to `IRenderBatchBackend` (or alias it) to eliminate misleading nomenclature.
-    4. **Clean Diagnostic & About Strings**: Update startup banners and About modal text in [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp#L7742) and [src/gui_main.cpp](file:///c:/git/eatsbits/src/gui_main.cpp#L55) to reflect the native WebGPU / BatchRenderer2D architecture.
-  - **Verification**: Run `.\build.ps1 -Test` or `ctest --test-dir build --output-on-failure -C Release`. Ensure 100% build pass across all targets and 0 regressions in existing GUI test suites.
-
 - [ ] **Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)**
   - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [build.ps1](file:///c:/git/eatsbits/build.ps1), [tests/CMakeLists.txt](file:///c:/git/eatsbits/tests/CMakeLists.txt)
   - **Scope & Objectives**:
@@ -68,6 +59,24 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Purge Dead NanoVG Engine & Decouple Legacy Backend Interfaces** (commit `b21c403`, 2026-10-15)
+  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [README.md](file:///c:/git/eatsbits/README.md), [include/eatsbits/ui/nanovg_backend.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp), [include/eatsbits/ui/dawn_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/dawn_bridge.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/gui_main.cpp](file:///c:/git/eatsbits/src/gui_main.cpp)
+  - **Acceptance Criteria**:
+    1. **Removed NanoVG C Code from Build**:
+       - Purged `third_party/nanovg/nanovg.c` and `third_party/nanovg/nanovg.h` from repository and CMake build system.
+       - Removed `${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg` from global `include_directories`.
+    2. **Isolated Interim FontStash & STB**:
+       - Moved `fontstash.h` and `stb_truetype.h` into dedicated `third_party/fontstash/` directory, backed by a clean `fontstash.c` translation unit.
+       - Moved `stb_image.h` into dedicated `third_party/stb/` directory backed by `stb_image.c`.
+       - Completely deleted `third_party/nanovg/` directory.
+    3. **Decoupled Backend Interfaces**:
+       - Renamed legacy `INanoVGBackend` to `IRenderBatchBackend` in `nanovg_backend.hpp` and `dawn_bridge.hpp`, maintaining `using INanoVGBackend = IRenderBatchBackend` alias for zero-regression compatibility.
+    4. **Refined Diagnostic Banners & About Dialog**:
+       - Updated GUI startup console banner and About modal text to reflect native WebGPU / BatchRenderer2D architecture.
+    5. **Automated Verification**:
+       - Verified 100% build pass across all static libraries and executables.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 - [x] **Implement Static Chrome Offscreen Texture (FBO) Caching** (commit `0f5d700`, 2026-10-11)
   - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
@@ -123,26 +132,6 @@ To execute items automatically, run in Antigravity:
     3. **Automated Verification**:
        - Added verification test in `tests/test_gui_interaction.cpp` confirming that invoking `renderFrame()` across Arranger (View 0), Mixer (View 3), Track Inspector (View 2), and Design (View 4) views during live playback results in **0 heap allocations** across 20 rendered frames per view.
        - Verified 100% test pass (48/48 test suites) via `ctest`.
-
-- [x] **Eliminate Startup Eatscript Parser Errors & Implement Subscript Indexing / Trailing Commas in DSL Grammar** (2026-10-11)
-  - **Context/Files**: [include/eatsbits/eatscript/ast.hpp](file:///c:/git/eatsbits/include/eatsbits/eatscript/ast.hpp), [src/eatscript/parser.cpp](file:///c:/git/eatsbits/src/eatscript/parser.cpp), [src/eatscript/evaluator.cpp](file:///c:/git/eatsbits/src/eatscript/evaluator.cpp), [src/eatscript/transpiler.cpp](file:///c:/git/eatsbits/src/eatscript/transpiler.cpp), [src/eatscript/dispatch_scanner.cpp](file:///c:/git/eatsbits/src/eatscript/dispatch_scanner.cpp), [src/eatscript/vm.cpp](file:///c:/git/eatsbits/src/eatscript/vm.cpp), [src/project/preset_loader.cpp](file:///c:/git/eatsbits/src/project/preset_loader.cpp), [src/project/preset_manager.cpp](file:///c:/git/eatsbits/src/project/preset_manager.cpp), [presets/midi_fx/arpeggiator_midi_fx.eats](file:///c:/git/eatsbits/presets/midi_fx/arpeggiator_midi_fx.eats), [presets/midi_fx/euclidean_acid_generator.eats](file:///c:/git/eatsbits/presets/midi_fx/euclidean_acid_generator.eats), [tests/test_eatscript_vm.cpp](file:///c:/git/eatsbits/tests/test_eatscript_vm.cpp)
-  - **Acceptance Criteria**:
-    1. **Dictionary Subscript Indexing & Assignment (`params['Key'] = val`)**:
-       - Added `ExprKind::Index` (`IndexExpr`) and `StmtKind::IndexAssign` (`IndexAssignStmt`) to AST.
-       - Implemented parser lookahead in `parseExpressionOrAssignment()` to distinguish subscript assignment from standalone expressions.
-       - Implemented AST Evaluator, VM Bytecode emission, AOT C++ Transpiler, and Dispatch Scanner support for subscript assignments and lookups.
-    2. **Grammar Support for Trailing Commas**:
-       - Updated `parseCall()` and `parseFunctionDef()` to gracefully handle trailing commas before `)` in argument lists and parameter lists.
-    3. **Preset Directory Filtering**:
-       - Added guards in `PresetManager::scanDirectory` and `PresetLoader::parseFromEatscript` to ignore non-preset INI/song project files (`[project]`, `return eatsbeats.song`, `"format": "eatsbits"`) so project files are never misparsed as Eatscript presets.
-       - Removed stray INI project file `presets/default.eats`.
-    4. **Preset Script Refactoring**:
-       - Removed trailing comma in `presets/midi_fx/arpeggiator_midi_fx.eats`.
-       - Updated `presets/midi_fx/euclidean_acid_generator.eats` to standard host processor call `eat.euclidean()`.
-    5. **Automated Verification**:
-       - Added unit test `testParserTrailingCommasAndSubscripts()` in `test_eatscript_vm.cpp`.
-       - Verified all 37 preset files in `presets/` parse with 0 errors via `eatscript_cli.exe`.
-       - Verified clean application startup with 0 parser errors.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**
