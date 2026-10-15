@@ -7,6 +7,20 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Implement Static Chrome Offscreen Texture (FBO) Caching** (commit `0f5d700`, 2026-10-11)
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
+  - **Acceptance Criteria**:
+    1. **Offscreen Chrome Backing Store & Blit Pipeline**:
+       - Added `snapshotFramebuffer`, `restoreFramebuffer`, and `restoreFramebufferRegion` to `IBatchRenderBackend` and implemented high-throughput CPU/GPU raster snapshotting in `FilamentBatchBackend`.
+       - Implemented `BatchRenderer2D::beginChromeRecording()`, `endChromeRecording()`, `drawCachedChrome()`, and `drawCachedChromeRegion()`, enabling static background chrome (top transport metal faceplate, machined bevels, hex fasteners, bottom navigation strip) to be rendered once and restored in $O(1)$ block copies.
+       - Wired region blitting into `drawTopTransportBar()` and chin chassis in `GuiWindow::renderFrame()`, avoiding redundant procedural draw calls for static chrome on subsequent frames.
+    2. **Dirty Invalidation Lifecycle**:
+       - Added automatic chrome cache invalidation in `BatchRenderer2D::resize()` and `BatchRenderer2D::shutdown()`.
+       - Integrated cache invalidation into `GuiWindow` upon window resize (`onWindowResize`), theme changes (`setActiveThemePreset`), view changes (`setActiveView`), side browser toggle (`toggleBrowser`, `setBrowserOpen`), and project hub toggle (`toggleProjectHub`, `setProjectHubOpen`).
+    3. **Automated Verification**:
+       - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
+
 - [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
   - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
   - **Acceptance Criteria**:

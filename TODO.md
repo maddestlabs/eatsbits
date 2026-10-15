@@ -16,14 +16,7 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Implement Monospace Terminal Grid Invariants (Ligature Cell Slicing & Box Primitives)**
-  - **Context/Files**: [include/eatsbits/text/monospace_grid_layout.hpp](file:///c:/git/eatsbits/include/eatsbits/text/monospace_grid_layout.hpp), [src/text/monospace_grid_layout.cpp](file:///c:/git/eatsbits/src/text/monospace_grid_layout.cpp), [include/eatsbits/terminal/terminal_grid.hpp](file:///c:/git/eatsbits/include/eatsbits/terminal/terminal_grid.hpp), [src/terminal/terminal_grid.cpp](file:///c:/git/eatsbits/src/terminal/terminal_grid.cpp), [tests/test_terminal_grid.cpp](file:///c:/git/eatsbits/tests/test_terminal_grid.cpp)
-  - **Scope & Objectives**:
-    1. **Ligature Cell Slicing**: Implement monospace grid layout helper for the terminal (`eatsterm`) and code editor (`eatscode`). When HarfBuzz collapses $N$ ASCII characters into a single compound ligature (e.g. `==` -> 2 cells, `===` -> 3 cells, `<!--` -> 4 cells), map the primary glyph to cell 0 and mark cells $1 \dots N-1$ as non-rendering continuation cells with proper cursor hit testing.
-    2. **Sub-Ligature Caret Navigation**: Map cursor column index directly to the UTF-8 cluster offset, allowing the editor/terminal cursor to seamlessly navigate inside multi-character ligatures without breaking visual shaping.
-    3. **Analytical Zero-Seam Box & Block Geometry**: Route Unicode box drawing (`U+2500`–`U+257F`) and block characters (`U+2580`–`U+259F`) to analytical vector quad rendering (`VertexMode::OpaqueMeshNoAA` / `Color`) in [BatchRenderer2D](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), completely eliminating font-rounding pixel seams in terminal windows and TUI frames.
-  - **Verification**: Add comprehensive unit tests in `tests/test_terminal_grid.cpp` testing ligature cell spans, cluster caret hit-testing, and analytical box-drawing mesh generation.
-
+*All prioritized backlog tasks are complete! Add new items here to process in the autonomous refinement loop.*
 
 ---
 
@@ -31,93 +24,22 @@ To execute items automatically, run in Antigravity:
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
 
-- [x] **Migrate GUI Window & Drawing Utilities from FontStash to `eatsbits::text`** (commit `be41290`, 2026-10-15)
-  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [third_party/fontstash/](file:///c:/git/eatsbits/third_party/fontstash/)
+- [x] **Implement Monospace Terminal Grid Invariants (Ligature Cell Slicing & Box Primitives)** (commit `81a0b16`, 2026-10-15)
+  - **Context/Files**: [include/eatsbits/text/monospace_grid_layout.hpp](file:///c:/git/eatsbits/include/eatsbits/text/monospace_grid_layout.hpp), [src/text/monospace_grid_layout.cpp](file:///c:/git/eatsbits/src/text/monospace_grid_layout.cpp), [include/eatsbits/terminal/terminal_grid.hpp](file:///c:/git/eatsbits/include/eatsbits/terminal/terminal_grid.hpp), [src/terminal/terminal_grid.cpp](file:///c:/git/eatsbits/src/terminal/terminal_grid.cpp), [tests/test_terminal_grid.cpp](file:///c:/git/eatsbits/tests/test_terminal_grid.cpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [include/eatsbits/tui/types.hpp](file:///c:/git/eatsbits/include/eatsbits/tui/types.hpp)
   - **Acceptance Criteria**:
-    1. **Replaced FontStash in `FontRendererState`**:
-       - Converted `FontRendererState` in `GuiWindow` to own `FontManager`, `TextShaper`, and `GlyphAtlas`.
-       - Pre-allocated `ShapedRun` glyph buffer (`reserve(512)`) and glyph staging arrays for steady-state zero-allocation text rendering.
-    2. **Refactored Text Drawing Utilities**:
-       - Rewrote `drawVectorString`, `drawVectorStringCentered`, `drawSyntaxString`, and `drawMonoString` in `draw_utils.cpp` to shape UTF-8 text via `TextShaper` and batch textured quads (`VertexMode::FontAtlas`) in 64-glyph stack chunks into `BatchRenderer2D`.
-       - Implemented subpixel baseline alignment using FreeType font metrics (`FT_Face::size->metrics.ascender`).
-       - Hooked monospace text rendering directly into `batchRenderer_->setMonospaceGlyphHook`.
-    3. **Deleted Legacy FontStash Subsystem**:
-       - Completely removed `third_party/fontstash/` (saving 7,006 lines of legacy C code).
-       - Updated `CMakeLists.txt` to remove `fontstash` static library target and include paths, linking `eats_text` directly into `eats_render_wgpu`.
+    1. **Ligature Cell Slicing (`MonospaceGridLayout`)**:
+       - Implemented HarfBuzz and rule-based cell slicing in `MonospaceGridLayout`. When HarfBuzz collapses $N$ ASCII characters into a single compound ligature (e.g. `==` -> 2 cells, `===` -> 3 cells, `<!--` -> 4 cells), maps primary glyph to cell 0 and marks cells $1 \dots N-1$ as non-rendering continuation cells (`isContinuation = true`).
+       - Added `TextAttr::Continuation` attribute in `tui::types.hpp` and updated `TerminalGrid` with `sliceLigature`, `writeLigature`, `isContinuationCell`, and `getCellSpan`.
+    2. **Sub-Ligature Caret Navigation & Hit-Testing**:
+       - Implemented `columnToByteOffset` and `byteOffsetToColumn`, mapping cursor column indices directly to sub-character UTF-8 cluster byte offsets without breaking visual shaping.
+       - Implemented `hitTestColumn` with subpixel cell width clamping.
+    3. **Analytical Zero-Seam Box & Block Mesh Generation**:
+       - Implemented exact vector quad generation (`VertexMode::Color` / `OpaqueMeshNoAA`) in `BatchRenderer2D::drawMonospaceCell` covering all Unicode Box Drawing (`U+2500`–`U+257F`, including light, heavy, double, arc, and half lines) and Block Elements (`U+2580`–`U+259F`, including fractional 1/8 to 7/8 horizontal and vertical steps and quadrants).
+       - Connected adjacent cells with bit-accurate integer boundaries, completely eliminating font-rounding hairline seams.
+       - Early-exited glyph drawing on continuation cells to guarantee zero glyph overdraw.
     4. **Automated Verification**:
-       - Verified `test_gui_interaction` passes with **0 allocations** across 20 frames in all 4 DAW views during active playback.
-       - Verified 100% test pass across all 49/49 CTest test suites.
-
-- [x] **Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)** (commit `ee962ae`, 2026-10-15)
-  - **Context/Files**: [include/eatsbits/text/font_manager.hpp](file:///c:/git/eatsbits/include/eatsbits/text/font_manager.hpp), [src/text/font_manager.cpp](file:///c:/git/eatsbits/src/text/font_manager.cpp), [include/eatsbits/text/text_shaper.hpp](file:///c:/git/eatsbits/include/eatsbits/text/text_shaper.hpp), [src/text/text_shaper.cpp](file:///c:/git/eatsbits/src/text/text_shaper.cpp), [include/eatsbits/text/glyph_atlas.hpp](file:///c:/git/eatsbits/include/eatsbits/text/glyph_atlas.hpp), [src/text/glyph_atlas.cpp](file:///c:/git/eatsbits/src/text/glyph_atlas.cpp), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp)
-  - **Acceptance Criteria**:
-    1. **`FontManager`**:
-       - Implemented thread-safe manager maintaining `FT_Library`, dynamic font loading from memory buffers or file paths, caching `FT_Face` and `hb_font_t` instances.
-       - Integrated embedded fallback font (`ShareTechMono-Regular.ttf`) for zero-file-dependency runtime execution on desktop and WebAssembly.
-       - Implemented fallback font chaining (`setFallbackFont`/`getFallbackFont`).
-    2. **`TextShaper`**:
-       - Implemented HarfBuzz-backed shaping engine reusing `hb_buffer_t` to guarantee zero allocations during steady-state text shaping.
-       - Populates `ShapedRun` with per-glyph metadata: `glyphIndex`, `cluster` (UTF-8 byte offset for cursor/caret hit-testing), subpixel offsets, advances, and font ID.
-       - Seamless fallback resolution: automatically resolves `.notdef` (glyph 0) missing characters via the configured fallback font chain.
-       - Provided `measureWidth` utility for rapid text measurement without layout side effects.
-    3. **`GlyphAtlas`**:
-       - Implemented shelf bin packing with 1px border padding to prevent bilinear texture bleed.
-       - Supported 4 subpixel horizontal bins (`subpixelBin = 0..3`, quarter-pixel offsets) using FreeType subpixel vector transformation for crisp text at small point sizes.
-       - Implemented LRU/frame timestamp caching keyed by `(fontId, glyphIndex, pixelSize, subpixelBin)`.
-       - Maintained dirty rectangle tracking (`getDirtyBounds`/`clearDirty`) for efficient delta GPU texture updates.
-    4. **Automated Verification**:
-       - Expanded `tests/test_text_shaping.cpp` verifying `FontManager` loading and chaining, `TextShaper` UTF-8 cluster mapping and advances, and `GlyphAtlas` cache hits/misses and dirty bounds.
-       - Verified 100% test pass (49/49 test suites) via `ctest`.
-
-- [x] **Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)** (commit `a1ae617`, 2026-10-15)
-  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [src/text/text_engine.cpp](file:///c:/git/eatsbits/src/text/text_engine.cpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp)
-  - **Acceptance Criteria**:
-    1. **CMake FetchContent Configuration**:
-       - Configured `FetchContent` for `freetype` (`VER-2-13-3`) and `harfbuzz` (`10.1.0`) with minimal dependency flags (brotli/bzip2/png/zlib and extra utilities disabled).
-       - Created `eats_text` static library target linking FreeType, HarfBuzz, and `eats_core`.
-       - Linked `eats_text` into `eatsbits_gui_core`.
-    2. **Embedded Fallback Font Asset**:
-       - Embedded `ShareTechMono-Regular.ttf` as binary hex byte array in `embedded_fonts.hpp` for zero-file-dependency runtime execution across desktop and WebAssembly.
-    3. **Automated Smoke Test (`TextShapingTest`)**:
-       - Added `tests/test_text_shaping.cpp` verifying `FT_Init_FreeType`, memory font face instantiation, `hb_ft_font_create`, and shaping strings with valid glyph indices and advances.
-    4. **Zero-Allocation GUI Render Invariant Protection**:
-       - Fixed `BatchRenderer2D::drawFlutedRing` to compute point-sampled fluted quad strips on the fly, eliminating `std::vector` heap allocations per knob per frame.
-       - Cached contours in `IconRegistry` fallback path to prevent repetitive SVG parsing on stroke icons.
-       - Verified 0 allocations across 20 consecutive frames in all 4 DAW views during active playback in `test_gui_interaction`.
-    5. **Automated Verification**:
-       - 100% pass across all 49 test suites via `ctest`.
-
-- [x] **Purge Dead NanoVG Engine & Decouple Legacy Backend Interfaces** (commit `b21c403`, 2026-10-15)
-  - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [README.md](file:///c:/git/eatsbits/README.md), [include/eatsbits/ui/nanovg_backend.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/nanovg_backend.hpp), [include/eatsbits/ui/dawn_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/dawn_bridge.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/gui_main.cpp](file:///c:/git/eatsbits/src/gui_main.cpp)
-  - **Acceptance Criteria**:
-    1. **Removed NanoVG C Code from Build**:
-       - Purged `third_party/nanovg/nanovg.c` and `third_party/nanovg/nanovg.h` from repository and CMake build system.
-       - Removed `${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg` from global `include_directories`.
-    2. **Isolated Interim FontStash & STB**:
-       - Moved `fontstash.h` and `stb_truetype.h` into dedicated `third_party/fontstash/` directory, backed by a clean `fontstash.c` translation unit.
-       - Moved `stb_image.h` into dedicated `third_party/stb/` directory backed by `stb_image.c`.
-       - Completely deleted `third_party/nanovg/` directory.
-    3. **Decoupled Backend Interfaces**:
-       - Renamed legacy `INanoVGBackend` to `IRenderBatchBackend` in `nanovg_backend.hpp` and `dawn_bridge.hpp`, maintaining `using INanoVGBackend = IRenderBatchBackend` alias for zero-regression compatibility.
-    4. **Refined Diagnostic Banners & About Dialog**:
-       - Updated GUI startup console banner and About modal text to reflect native WebGPU / BatchRenderer2D architecture.
-    5. **Automated Verification**:
-       - Verified 100% build pass across all static libraries and executables.
-       - Verified 100% test pass (48/48 test suites) via `ctest`.
-
-- [x] **Implement Static Chrome Offscreen Texture (FBO) Caching** (commit `0f5d700`, 2026-10-11)
-  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [tests/test_gui_interaction.cpp](file:///c:/git/eatsbits/tests/test_gui_interaction.cpp)
-  - **Acceptance Criteria**:
-    1. **Offscreen Chrome Backing Store & Blit Pipeline**:
-       - Added `snapshotFramebuffer`, `restoreFramebuffer`, and `restoreFramebufferRegion` to `IBatchRenderBackend` and implemented high-throughput CPU/GPU raster snapshotting in `FilamentBatchBackend`.
-       - Implemented `BatchRenderer2D::beginChromeRecording()`, `endChromeRecording()`, `drawCachedChrome()`, and `drawCachedChromeRegion()`, enabling static background chrome (top transport metal faceplate, machined bevels, hex fasteners, bottom navigation strip) to be rendered once and restored in $O(1)$ block copies.
-       - Wired region blitting into `drawTopTransportBar()` and chin chassis in `GuiWindow::renderFrame()`, avoiding redundant procedural draw calls for static chrome on subsequent frames.
-    2. **Dirty Invalidation Lifecycle**:
-       - Added automatic chrome cache invalidation in `BatchRenderer2D::resize()` and `BatchRenderer2D::shutdown()`.
-       - Integrated cache invalidation into `GuiWindow` upon window resize (`onWindowResize`), theme changes (`setActiveThemePreset`), view changes (`setActiveView`), side browser toggle (`toggleBrowser`, `setBrowserOpen`), and project hub toggle (`toggleProjectHub`, `setProjectHubOpen`).
-    3. **Automated Verification**:
-       - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
-       - Verified 100% test pass (48/48 test suites) via `ctest`.
+       - Added automated test suite `tests/test_terminal_grid.cpp` (`TerminalGridTest`) verifying cell slicing, caret hit-testing, terminal grid dual buffers, and zero-seam quad mesh generation.
+       - Verified 100% test pass (50/50 test suites) via `ctest`.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
 - [x] **Phase 1: Header-Only CLAP Shell Adapter & Static DSP Export Reference**

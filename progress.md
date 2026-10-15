@@ -1327,6 +1327,17 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **Text Drawing Primitives (`draw_utils.cpp`, `draw_utils.hpp`)**: Refactored `drawVectorString`, `drawVectorStringCentered`, `drawSyntaxString`, and `drawMonoString` to shape text and stream textured quads (`VertexMode::FontAtlas`) in 64-glyph chunks into `BatchRenderer2D`. Baseline aligned accurately using `FT_Face::size->metrics.ascender`.
     - **Legacy Code Purge (`third_party/fontstash/`, `CMakeLists.txt`)**: Removed `third_party/fontstash/` folder completely; updated build configuration.
     - **Automated Verification**: Ran `test_gui_interaction`, verifying 0 allocations across 20 frames in all 4 DAW views; 100% test pass (49/49 test suites) via `ctest`.
+- **Item Completed**: "Implement Monospace Terminal Grid Invariants (Ligature Cell Slicing & Box Primitives)" (commit `81a0b16`, 2026-10-15)
+  - **Summary**:
+    - Architected and implemented `MonospaceGridLayout` for terminal (`eatsterm`) and code editor (`eatscode`), handling HarfBuzz and rule-based multi-cell ligature slicing, sub-ligature caret navigation, and analytical zero-seam vector quad rendering.
+    - Added `TextAttr::Continuation` attribute in `tui::types.hpp` and updated `TerminalGrid` with `sliceLigature`, `writeLigature`, `isContinuationCell`, `getCellSpan`, and UTF-8 multibyte codepoint streaming.
+    - Implemented analytical vector quad rendering (`VertexMode::Color` / `OpaqueMeshNoAA`) in `BatchRenderer2D::drawMonospaceCell` for all Unicode Box Drawing (`U+2500`–`U+257F`) and Block Elements (`U+2580`–`U+259F`), completely eliminating font-rounding pixel seams between adjacent cells.
+    - Verified 100% test pass across all 50 CTest test suites.
+  - **Key Changes Implemented**:
+    - **`MonospaceGridLayout` (`include/eatsbits/text/monospace_grid_layout.hpp`, `src/text/monospace_grid_layout.cpp`)**: Ligature cell slicing into primary and continuation cells, `columnToByteOffset`, `byteOffsetToColumn`, and `hitTestColumn`.
+    - **`TerminalGrid` (`include/eatsbits/terminal/terminal_grid.hpp`, `src/terminal/terminal_grid.cpp`)**: Added ligature slicing methods, continuation cell tracking, and UTF-8 multibyte stream parsing.
+    - **`BatchRenderer2D` (`include/eatsbits/ui/batch_renderer_2d.hpp`, `src/ui/batch_renderer_2d.cpp`)**: Early exit on continuation cells (zero glyph overdraw); analytical mesh generation for all box drawing and block characters; exposed `isBoxDrawingOrBlock`.
+    - **Automated Verification**: Added `tests/test_terminal_grid.cpp` (`TerminalGridTest`) testing ligature slicing, caret hit testing, terminal dual buffers, and zero-seam geometry. Verified 100% pass across all 50 test suites via `ctest`.
 
 ---
 
