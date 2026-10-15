@@ -7,6 +7,7 @@ namespace eatsbits::text {
 
 TextShaper::TextShaper() {
     hbBuffer_ = hb_buffer_create();
+    hbFallbackBuffer_ = hb_buffer_create();
 }
 
 TextShaper::~TextShaper() {
@@ -14,11 +15,17 @@ TextShaper::~TextShaper() {
         hb_buffer_destroy(hbBuffer_);
         hbBuffer_ = nullptr;
     }
+    if (hbFallbackBuffer_) {
+        hb_buffer_destroy(hbFallbackBuffer_);
+        hbFallbackBuffer_ = nullptr;
+    }
 }
 
 TextShaper::TextShaper(TextShaper&& o) noexcept {
     hbBuffer_ = o.hbBuffer_;
     o.hbBuffer_ = nullptr;
+    hbFallbackBuffer_ = o.hbFallbackBuffer_;
+    o.hbFallbackBuffer_ = nullptr;
 }
 
 TextShaper& TextShaper::operator=(TextShaper&& o) noexcept {
@@ -26,8 +33,13 @@ TextShaper& TextShaper::operator=(TextShaper&& o) noexcept {
         if (hbBuffer_) {
             hb_buffer_destroy(hbBuffer_);
         }
+        if (hbFallbackBuffer_) {
+            hb_buffer_destroy(hbFallbackBuffer_);
+        }
         hbBuffer_ = o.hbBuffer_;
         o.hbBuffer_ = nullptr;
+        hbFallbackBuffer_ = o.hbFallbackBuffer_;
+        o.hbFallbackBuffer_ = nullptr;
     }
     return *this;
 }
@@ -99,16 +111,16 @@ bool TextShaper::shapeText(FontManager& fontMgr, FontId fontId, float fontSize,
             if (clusterEnd > clusterStart && clusterEnd <= utf8Text.size()) {
                 std::string_view clusterSlice = utf8Text.substr(clusterStart, clusterEnd - clusterStart);
 
-                hb_buffer_t* fbBuf = hb_buffer_create();
-                hb_buffer_add_utf8(fbBuf, clusterSlice.data(), static_cast<int>(clusterSlice.size()), 0, static_cast<int>(clusterSlice.size()));
-                hb_buffer_set_direction(fbBuf, HB_DIRECTION_LTR);
-                hb_buffer_set_script(fbBuf, HB_SCRIPT_LATIN);
-                hb_buffer_set_language(fbBuf, hb_language_from_string("en", -1));
-                hb_shape(fallbackHbFont, fbBuf, features, numFeatures);
+                hb_buffer_reset(hbFallbackBuffer_);
+                hb_buffer_add_utf8(hbFallbackBuffer_, clusterSlice.data(), static_cast<int>(clusterSlice.size()), 0, static_cast<int>(clusterSlice.size()));
+                hb_buffer_set_direction(hbFallbackBuffer_, HB_DIRECTION_LTR);
+                hb_buffer_set_script(hbFallbackBuffer_, HB_SCRIPT_LATIN);
+                hb_buffer_set_language(hbFallbackBuffer_, hb_language_from_string("en", -1));
+                hb_shape(fallbackHbFont, hbFallbackBuffer_, features, numFeatures);
 
                 unsigned int fbCount = 0;
-                hb_glyph_info_t* fbInfo = hb_buffer_get_glyph_infos(fbBuf, &fbCount);
-                hb_glyph_position_t* fbPos = hb_buffer_get_glyph_positions(fbBuf, &fbCount);
+                hb_glyph_info_t* fbInfo = hb_buffer_get_glyph_infos(hbFallbackBuffer_, &fbCount);
+                hb_glyph_position_t* fbPos = hb_buffer_get_glyph_positions(hbFallbackBuffer_, &fbCount);
 
                 for (unsigned int f = 0; f < fbCount; ++f) {
                     ShapedGlyph g;
@@ -124,8 +136,6 @@ bool TextShaper::shapeText(FontManager& fontMgr, FontId fontId, float fontSize,
                     outRun.totalAdvanceY += g.yAdvance;
                     outRun.glyphs.push_back(g);
                 }
-
-                hb_buffer_destroy(fbBuf);
                 continue;
             }
         }

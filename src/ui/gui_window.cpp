@@ -168,11 +168,10 @@ using GLuint = unsigned int;
 #include <sstream>
 #include <cstring>
 #include "eatsbits/ui/monospace_font_8x16.hpp"
-extern "C" {
-#include "fontstash.h"
-int fonsAddFallbackFont(FONScontext* stash, int base, int fallback);
-void fonsResetFallbackFont(FONScontext* stash, int base);
-}
+#include "eatsbits/text/font_manager.hpp"
+#include "eatsbits/text/text_shaper.hpp"
+#include "eatsbits/text/glyph_atlas.hpp"
+#include "eatsbits/text/embedded_fonts.hpp"
 
 namespace eatsbits::ui {
 
@@ -291,60 +290,132 @@ static std::vector<TokenSegment> colorizeEatscriptLine(const std::string& line) 
 }
 
 struct FontRendererState {
-    FONScontext* fs{nullptr};
-    GLuint tex{1};
-    int width{1024};
-    int height{1024};
-    int fontNormal{FONS_INVALID};
-    int fontFallback{FONS_INVALID};
-    int fontMono{FONS_INVALID};
+    eatsbits::text::FontManager fontMgr;
+    eatsbits::text::TextShaper textShaper;
+    eatsbits::text::GlyphAtlas glyphAtlas{1024, 1024};
+    eatsbits::text::ShapedRun shapedRun;
+    eatsbits::text::FontId fontNormal{eatsbits::text::kInvalidFontId};
+    eatsbits::text::FontId fontFallback{eatsbits::text::kInvalidFontId};
+    eatsbits::text::FontId fontMono{eatsbits::text::kInvalidFontId};
     std::string loadedFontPath;
     std::string loadedMonoFontPath;
 
-    ~FontRendererState() {
-        if (fs) {
-            fonsDeleteInternal(fs);
-            fs = nullptr;
-        }
-        tex = 0;
+    FontRendererState() {
+        fontMgr.initialize();
+        shapedRun.glyphs.reserve(512);
     }
 };
 
 static FontRendererState* g_activeFontRenderer = nullptr;
 static BatchRenderer2D* g_activeBatchRenderer = nullptr;
 
-static int glfons__renderCreate(void* uptr, int width, int height) {
-    auto* s = static_cast<FontRendererState*>(uptr);
-    if (!s) return 0;
-    s->width = width;
-    s->height = height;
-    s->tex = 1;
-    return 1;
-}
+static void renderShapedGlyphs(BatchRenderer2D& renderer, FontRendererState& state,
+                               eatsbits::text::FontId primaryFontId, float fontSize,
+                               float startX, float baselineY, uint32_t color) {
+    if (state.shapedRun.glyphs.empty()) return;
 
-static int glfons__renderResize(void* uptr, int width, int height) {
-    return glfons__renderCreate(uptr, width, height);
-}
+    float curX = startX;
+    for (const auto& g : state.shapedRun.glyphs) {
+        if (g.glyphIndex == 0) {
+            curX += g.xAdvance;
+            continue;
+        }
 
-static void glfons__renderUpdate(void* uptr, int* rect, const unsigned char* data) {
-    auto* s = static_cast<FontRendererState*>(uptr);
-    if (!s) return;
-    int w = rect[2] - rect[0];
-    int h = rect[3] - rect[1];
-    if (g_activeBatchRenderer) {
-        g_activeBatchRenderer->updateFontAtlas(rect[0], rect[1], w, h, data, s->width, s->height);
+        float glyphX = curX + g.xOffset;
+        eatsbits::text::FontId fid = (g.fontId != eatsbits::text::kInvalidFontId) ? g.fontId : primaryFontId;
+        const auto* ag = state.glyphAtlas.getOrLoadGlyph(state.fontMgr, fid, g.glyphIndex, fontSize, glyphX);
+        if (!ag || ag->width <= 0 || ag->height <= 0) {
+            curX += g.xAdvance;
+            continue;
+        }
+
+        curX += g.xAdvance;
     }
-}
 
-static void glfons__renderDraw(void* /*uptr*/, const float* verts, const float* tcoords, const unsigned int* colors, int nverts) {
-    if (g_activeBatchRenderer) {
-        g_activeBatchRenderer->drawTexturedTriangles(verts, tcoords, colors, nverts);
+    if (state.glyphAtlas.isDirty()) {
+        int dx = 0, dy = 0, dw = 0, dh = 0;
+        state.glyphAtlas.getDirtyBounds(dx, dy, dw, dh);
+        if (dw > 0 && dh > 0) {
+            renderer.updateFontAtlas(dx, dy, dw, dh, state.glyphAtlas.getBuffer(),
+                                     state.glyphAtlas.getWidth(), state.glyphAtlas.getHeight());
+            state.glyphAtlas.clearDirty();
+        }
     }
-}
 
-static void glfons__renderDelete(void* uptr) {
-    auto* s = static_cast<FontRendererState*>(uptr);
-    if (s) s->tex = 0;
+    constexpr int kMaxBatchGlyphs = 64;
+    float verts[kMaxBatchGlyphs * 12];
+    float uvs[kMaxBatchGlyphs * 12];
+    unsigned int cols[kMaxBatchGlyphs * 6];
+    int queued = 0;
+
+    auto flushBatch = [&]() {
+        if (queued > 0) {
+            renderer.drawTexturedTriangles(verts, uvs, cols, queued * 6);
+            queued = 0;
+        }
+    };
+
+    curX = startX;
+    for (const auto& g : state.shapedRun.glyphs) {
+        if (g.glyphIndex == 0) {
+            curX += g.xAdvance;
+            continue;
+        }
+
+        float glyphX = curX + g.xOffset;
+        eatsbits::text::FontId fid = (g.fontId != eatsbits::text::kInvalidFontId) ? g.fontId : primaryFontId;
+        const auto* ag = state.glyphAtlas.getOrLoadGlyph(state.fontMgr, fid, g.glyphIndex, fontSize, glyphX);
+        if (!ag || ag->width <= 0 || ag->height <= 0) {
+            curX += g.xAdvance;
+            continue;
+        }
+
+        float qx0 = std::floor(glyphX) + ag->bearingX;
+        float qy0 = baselineY - ag->bearingY;
+        float qx1 = qx0 + static_cast<float>(ag->width);
+        float qy1 = qy0 + static_cast<float>(ag->height);
+
+        float u0 = ag->u0;
+        float v0 = ag->v0;
+        float u1 = ag->u1;
+        float v1 = ag->v1;
+
+        int vi = queued * 12;
+        int ci = queued * 6;
+
+        // Triangle 1: (x0, y0), (x1, y0), (x0, y1)
+        verts[vi + 0] = qx0; verts[vi + 1] = qy0;
+        uvs[vi + 0]   = u0;  uvs[vi + 1]   = v0;
+
+        verts[vi + 2] = qx1; verts[vi + 3] = qy0;
+        uvs[vi + 2]   = u1;  uvs[vi + 3]   = v0;
+
+        verts[vi + 4] = qx0; verts[vi + 5] = qy1;
+        uvs[vi + 4]   = u0;  uvs[vi + 5]   = v1;
+
+        // Triangle 2: (x1, y0), (x1, y1), (x0, y1)
+        verts[vi + 6] = qx1; verts[vi + 7] = qy0;
+        uvs[vi + 6]   = u1;  uvs[vi + 7]   = v0;
+
+        verts[vi + 8] = qx1; verts[vi + 9] = qy1;
+        uvs[vi + 8]   = u1;  uvs[vi + 9]   = v1;
+
+        verts[vi + 10] = qx0; verts[vi + 11] = qy1;
+        uvs[vi + 10]   = u0;  uvs[vi + 11]   = v1;
+
+        for (int k = 0; k < 6; ++k) {
+            cols[ci + k] = color;
+        }
+
+        ++queued;
+        if (queued >= kMaxBatchGlyphs) {
+            flushBatch();
+        }
+
+        curX += g.xAdvance;
+    }
+
+    flushBatch();
 }
 
 inline void parseHexColor(const std::string& hex, float& r, float& g, float& b) {
@@ -1131,6 +1202,8 @@ inline bool isSpecialSymbol(uint32_t cp) {
 }
 
 void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
+    if (str.empty()) return;
+
     bool hasSpecial = false;
     for (unsigned char c : str) {
         if (c >= 0x80) {
@@ -1139,66 +1212,96 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
         }
     }
 
-    if (!hasSpecial && g_activeFontRenderer && g_activeFontRenderer->fs && g_activeFontRenderer->fontNormal != FONS_INVALID) {
-        FONScontext* fs = g_activeFontRenderer->fs;
-        fonsClearState(fs);
-        float fontSize = std::max(11.0f, scale * 15.5f);
-        fonsSetSize(fs, fontSize);
-        fonsSetFont(fs, g_activeFontRenderer->fontNormal);
-        fonsSetAlign(fs, FONS_ALIGN_LEFT | FONS_ALIGN_TOP);
-
+    if (g_activeFontRenderer && g_activeBatchRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
         uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
         uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
-        unsigned int col = static_cast<unsigned int>(cr) |
-                          (static_cast<unsigned int>(cg) << 8) |
-                          (static_cast<unsigned int>(cb) << 16) |
-                          (static_cast<unsigned int>(ca) << 24);
-        fonsSetColor(fs, col);
-        fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
-        return;
+        uint32_t col = static_cast<uint32_t>(cr) |
+                      (static_cast<uint32_t>(cg) << 8) |
+                      (static_cast<uint32_t>(cb) << 16) |
+                      (static_cast<uint32_t>(ca) << 24);
+
+        if (!hasSpecial) {
+            if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                           g_activeFontRenderer->fontNormal,
+                                                           fontSize, str,
+                                                           g_activeFontRenderer->shapedRun)) {
+                FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(g_activeFontRenderer->fontNormal);
+                float ascender = fontSize * 0.82f;
+                if (face && face->size) {
+                    float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                    if (ftAsc > 0.0f) ascender = ftAsc;
+                }
+                float baselineY = y + ascender;
+                renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                                   g_activeFontRenderer->fontNormal, fontSize, x, baselineY, col);
+                return;
+            }
+        } else {
+            // Hybrid UTF-8 processor: shapes non-special chunks via HarfBuzz and routes special symbols to vector glyphs
+            const char* ptr = str.data();
+            const char* end = ptr + str.size();
+            float curX = x;
+            const float charW = 7.5f * scale;
+
+            FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(g_activeFontRenderer->fontNormal);
+            float ascender = fontSize * 0.82f;
+            if (face && face->size) {
+                float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                if (ftAsc > 0.0f) ascender = ftAsc;
+            }
+            float baselineY = y + ascender;
+
+            while (ptr < end) {
+                const char* prevPtr = ptr;
+                uint32_t cp = decodeNextUtf8(ptr, end);
+                if (cp == ' ') {
+                    curX += charW;
+                    continue;
+                }
+                if (isSpecialSymbol(cp)) {
+                    drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+                    curX += charW;
+                } else {
+                    std::string_view chunk(prevPtr, static_cast<size_t>(ptr - prevPtr));
+                    if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                                   g_activeFontRenderer->fontNormal,
+                                                                   fontSize, chunk,
+                                                                   g_activeFontRenderer->shapedRun)) {
+                        renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                                           g_activeFontRenderer->fontNormal, fontSize, curX, baselineY, col);
+                        curX += g_activeFontRenderer->shapedRun.totalAdvanceX;
+                    } else {
+                        drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+                        curX += charW;
+                    }
+                }
+            }
+            return;
+        }
     }
 
-    // Hybrid UTF-8 processor: renders FontStash chunks or vector glyphs
+    // Pure vector fallback
     const char* ptr = str.data();
     const char* end = ptr + str.size();
     float curX = x;
     const float charW = 7.5f * scale;
-
     while (ptr < end) {
-        const char* prevPtr = ptr;
         uint32_t cp = decodeNextUtf8(ptr, end);
         if (cp == ' ') {
             curX += charW;
             continue;
         }
-        if (isSpecialSymbol(cp) || !(g_activeFontRenderer && g_activeFontRenderer->fs && g_activeFontRenderer->fontNormal != FONS_INVALID)) {
-            drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
-            curX += charW;
-        } else {
-            // Draw regular glyph chunk via FontStash with zero allocations
-            FONScontext* fs = g_activeFontRenderer->fs;
-            fonsClearState(fs);
-            float fontSize = std::max(11.0f, scale * 15.5f);
-            fonsSetSize(fs, fontSize);
-            fonsSetFont(fs, g_activeFontRenderer->fontNormal);
-            fonsSetAlign(fs, FONS_ALIGN_LEFT | FONS_ALIGN_TOP);
-            uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
-            uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
-            uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
-            uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
-            unsigned int col = static_cast<unsigned int>(cr) |
-                              (static_cast<unsigned int>(cg) << 8) |
-                              (static_cast<unsigned int>(cb) << 16) |
-                              (static_cast<unsigned int>(ca) << 24);
-            fonsSetColor(fs, col);
-            curX = fonsDrawText(fs, curX, y, prevPtr, ptr);
-        }
+        drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+        curX += charW;
     }
 }
 
 void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
+    if (str.empty()) return;
+
     bool hasSpecial = false;
     for (unsigned char c : str) {
         if (c >= 0x80) {
@@ -1207,25 +1310,34 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
         }
     }
 
-    if (!hasSpecial && g_activeFontRenderer && g_activeFontRenderer->fs && g_activeFontRenderer->fontNormal != FONS_INVALID) {
-        FONScontext* fs = g_activeFontRenderer->fs;
-        fonsClearState(fs);
-        float fontSize = std::max(11.0f, scale * 15.5f);
-        fonsSetSize(fs, fontSize);
-        fonsSetFont(fs, g_activeFontRenderer->fontNormal);
-        fonsSetAlign(fs, FONS_ALIGN_CENTER | FONS_ALIGN_MIDDLE);
-
+    if (!hasSpecial && g_activeFontRenderer && g_activeBatchRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
         uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
         uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
-        unsigned int col = static_cast<unsigned int>(cr) |
-                          (static_cast<unsigned int>(cg) << 8) |
-                          (static_cast<unsigned int>(cb) << 16) |
-                          (static_cast<unsigned int>(ca) << 24);
-        fonsSetColor(fs, col);
-        fonsDrawText(fs, cx, cy + 0.5f, str.data(), str.data() + str.size());
-        return;
+        uint32_t col = static_cast<uint32_t>(cr) |
+                      (static_cast<uint32_t>(cg) << 8) |
+                      (static_cast<uint32_t>(cb) << 16) |
+                      (static_cast<uint32_t>(ca) << 24);
+
+        if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                       g_activeFontRenderer->fontNormal,
+                                                       fontSize, str,
+                                                       g_activeFontRenderer->shapedRun)) {
+            FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(g_activeFontRenderer->fontNormal);
+            float ascender = fontSize * 0.82f;
+            if (face && face->size) {
+                float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                if (ftAsc > 0.0f) ascender = ftAsc;
+            }
+            float totalW = g_activeFontRenderer->shapedRun.totalAdvanceX;
+            float startX = cx - (totalW * 0.5f);
+            float baselineY = cy + (ascender * 0.35f);
+            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                               g_activeFontRenderer->fontNormal, fontSize, startX, baselineY, col);
+            return;
+        }
     }
 
     const float charW = 7.5f * scale;
@@ -1236,52 +1348,77 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
 }
 
 float drawSyntaxString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
-    if (g_activeFontRenderer && g_activeFontRenderer->fs && (g_activeFontRenderer->fontMono != FONS_INVALID || g_activeFontRenderer->fontNormal != FONS_INVALID)) {
-        int fid = (g_activeFontRenderer->fontMono != FONS_INVALID) ? g_activeFontRenderer->fontMono : g_activeFontRenderer->fontNormal;
-        FONScontext* fs = g_activeFontRenderer->fs;
-        fonsClearState(fs);
-        float fontSize = std::max(11.0f, scale * 15.5f);
-        fonsSetSize(fs, fontSize);
-        fonsSetFont(fs, fid);
-        fonsSetAlign(fs, FONS_ALIGN_LEFT | FONS_ALIGN_TOP);
+    if (str.empty()) return x;
 
+    if (g_activeFontRenderer && g_activeBatchRenderer &&
+        (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
+        eatsbits::text::FontId fid = (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId)
+                                     ? g_activeFontRenderer->fontMono
+                                     : g_activeFontRenderer->fontNormal;
+        float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
         uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
         uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
-        unsigned int col = static_cast<unsigned int>(cr) |
-                          (static_cast<unsigned int>(cg) << 8) |
-                          (static_cast<unsigned int>(cb) << 16) |
-                          (static_cast<unsigned int>(ca) << 24);
-        fonsSetColor(fs, col);
-        return fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
+        uint32_t col = static_cast<uint32_t>(cr) |
+                      (static_cast<uint32_t>(cg) << 8) |
+                      (static_cast<uint32_t>(cb) << 16) |
+                      (static_cast<uint32_t>(ca) << 24);
+
+        if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                       fid, fontSize, str,
+                                                       g_activeFontRenderer->shapedRun)) {
+            FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(fid);
+            float ascender = fontSize * 0.82f;
+            if (face && face->size) {
+                float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                if (ftAsc > 0.0f) ascender = ftAsc;
+            }
+            float baselineY = y + ascender;
+            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                               fid, fontSize, x, baselineY, col);
+            return x + g_activeFontRenderer->shapedRun.totalAdvanceX;
+        }
     }
+
     drawVectorString(str, x, y, scale, r, g, b, a);
     return x + static_cast<float>(str.size()) * (7.0f * scale);
 }
 
 void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
-    if (g_activeFontRenderer && g_activeFontRenderer->fs && (g_activeFontRenderer->fontMono != FONS_INVALID || g_activeFontRenderer->fontNormal != FONS_INVALID)) {
-        int fid = (g_activeFontRenderer->fontMono != FONS_INVALID) ? g_activeFontRenderer->fontMono : g_activeFontRenderer->fontNormal;
-        FONScontext* fs = g_activeFontRenderer->fs;
-        fonsClearState(fs);
-        float fontSize = std::max(11.0f, scale * 15.5f);
-        fonsSetSize(fs, fontSize);
-        fonsSetFont(fs, fid);
-        fonsSetAlign(fs, FONS_ALIGN_LEFT | FONS_ALIGN_TOP);
+    if (str.empty()) return;
 
+    if (g_activeFontRenderer && g_activeBatchRenderer &&
+        (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
+        eatsbits::text::FontId fid = (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId)
+                                     ? g_activeFontRenderer->fontMono
+                                     : g_activeFontRenderer->fontNormal;
+        float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
         uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
         uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
-        unsigned int col = static_cast<unsigned int>(cr) |
-                          (static_cast<unsigned int>(cg) << 8) |
-                          (static_cast<unsigned int>(cb) << 16) |
-                          (static_cast<unsigned int>(ca) << 24);
-        fonsSetColor(fs, col);
-        fonsDrawText(fs, x, y, str.data(), str.data() + str.size());
-        return;
+        uint32_t col = static_cast<uint32_t>(cr) |
+                      (static_cast<uint32_t>(cg) << 8) |
+                      (static_cast<uint32_t>(cb) << 16) |
+                      (static_cast<uint32_t>(ca) << 24);
+
+        if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                       fid, fontSize, str,
+                                                       g_activeFontRenderer->shapedRun)) {
+            FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(fid);
+            float ascender = fontSize * 0.82f;
+            if (face && face->size) {
+                float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                if (ftAsc > 0.0f) ascender = ftAsc;
+            }
+            float baselineY = y + ascender;
+            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                               fid, fontSize, x, baselineY, col);
+            return;
+        }
     }
+
     drawVectorString(str, x, y, scale, r, g, b, a);
 }
 #endif
@@ -5934,9 +6071,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     g_activeBatchRenderer = batchRenderer_.get();
 
     batchRenderer_->setMonospaceGlyphHook([this](float x, float y, float w, float h, char32_t codepoint, uint32_t fgColor) -> bool {
-        if (!fontRenderer_ || !fontRenderer_->fs) return false;
-        int fid = (fontRenderer_->fontMono != FONS_INVALID) ? fontRenderer_->fontMono : fontRenderer_->fontNormal;
-        if (fid == FONS_INVALID) return false;
+        if (!fontRenderer_) return false;
+        eatsbits::text::FontId fid = (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) ? fontRenderer_->fontMono : fontRenderer_->fontNormal;
+        if (fid == eatsbits::text::kInvalidFontId) return false;
         if (codepoint <= 32) return true;
 
         char utf8[8] = {0};
@@ -5962,16 +6099,23 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             g_activeBatchRenderer = batchRenderer_.get();
         }
 
-        FONScontext* fs = fontRenderer_->fs;
-        fonsClearState(fs);
         float fontSize = std::min(h * 0.90f, w / 0.585f);
         if (fontSize < 9.0f) fontSize = 9.0f;
-        fonsSetSize(fs, fontSize);
-        fonsSetFont(fs, fid);
-        fonsSetAlign(fs, FONS_ALIGN_CENTER | FONS_ALIGN_MIDDLE);
-        fonsSetColor(fs, fgColor);
-        fonsDrawText(fs, x + w * 0.5f, y + h * 0.5f, utf8, nullptr);
-        return true;
+
+        if (fontRenderer_->textShaper.shapeText(fontRenderer_->fontMgr, fid, fontSize, utf8, fontRenderer_->shapedRun)) {
+            FT_Face face = fontRenderer_->fontMgr.getFtFace(fid);
+            float ascender = fontSize * 0.82f;
+            if (face && face->size) {
+                float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+                if (ftAsc > 0.0f) ascender = ftAsc;
+            }
+            float totalW = fontRenderer_->shapedRun.totalAdvanceX;
+            float startX = x + (w - totalW) * 0.5f;
+            float baselineY = y + (h - (ascender * 0.7f)) * 0.5f + ascender * 0.7f;
+            renderShapedGlyphs(*g_activeBatchRenderer, *fontRenderer_, fid, fontSize, startX, baselineY, fgColor);
+            return true;
+        }
+        return false;
     });
 
 #if defined(__EMSCRIPTEN__)
@@ -7933,25 +8077,6 @@ void GuiWindow::initFontRenderer() {
 #if EATS_HAS_GLFW
     fontRenderer_ = std::make_unique<FontRendererState>();
 
-    FONSparams params;
-    std::memset(&params, 0, sizeof(params));
-    params.width = 1024;
-    params.height = 1024;
-    params.flags = FONS_ZERO_TOPLEFT;
-    params.renderCreate = glfons__renderCreate;
-    params.renderResize = glfons__renderResize;
-    params.renderUpdate = glfons__renderUpdate;
-    params.renderDraw = glfons__renderDraw;
-    params.renderDelete = glfons__renderDelete;
-    params.userPtr = fontRenderer_.get();
-
-    fontRenderer_->fs = fonsCreateInternal(&params);
-    if (!fontRenderer_->fs) {
-        std::cerr << "[GuiWindow] Warning: Could not initialize FontStash context" << std::endl;
-        fontRenderer_.reset();
-        return;
-    }
-
     // Prioritize Oswald for primary UI typography
     std::vector<std::string> searchPaths;
     if (!pendingFontPath_.empty()) {
@@ -7974,7 +8099,7 @@ void GuiWindow::initFontRenderer() {
     }
 
     // Fallback UI font (e.g. Oswald-Regular if Oswald-Medium is primary)
-    if (fontRenderer_->fontNormal != FONS_INVALID) {
+    if (fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId) {
         const std::vector<std::string> fallbackPaths = {
             "assets/fonts/Oswald-Regular.ttf",
             "../assets/fonts/Oswald-Regular.ttf",
@@ -7983,9 +8108,9 @@ void GuiWindow::initFontRenderer() {
         };
         for (const auto& fbPath : fallbackPaths) {
             if (std::filesystem::exists(fbPath) && fbPath != fontRenderer_->loadedFontPath) {
-                int fbId = fonsAddFont(fontRenderer_->fs, "fallback", fbPath.c_str(), 0);
-                if (fbId != FONS_INVALID) {
-                    fonsAddFallbackFont(fontRenderer_->fs, fontRenderer_->fontNormal, fbId);
+                eatsbits::text::FontId fbId = fontRenderer_->fontMgr.loadFontFromFile("fallback", fbPath);
+                if (fbId != eatsbits::text::kInvalidFontId) {
+                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontNormal, fbId);
                     fontRenderer_->fontFallback = fbId;
                     std::cout << "[GuiWindow] Loaded fallback font from " << fbPath << std::endl;
                     break;
@@ -8012,6 +8137,17 @@ void GuiWindow::initFontRenderer() {
             }
         }
     }
+
+    // If mono font was not found on disk, load the embedded Share Tech Mono!
+    if (fontRenderer_->fontMono == eatsbits::text::kInvalidFontId) {
+        fontRenderer_->fontMono = fontRenderer_->fontMgr.loadEmbeddedFallback("embedded_mono");
+        std::cout << "[GuiWindow] Loaded embedded Share Tech Mono fallback font." << std::endl;
+    }
+
+    // If primary font was not found on disk, use embedded font as primary!
+    if (fontRenderer_->fontNormal == eatsbits::text::kInvalidFontId) {
+        fontRenderer_->fontNormal = fontRenderer_->fontMono;
+    }
 #endif
 }
 
@@ -8019,7 +8155,7 @@ bool GuiWindow::loadFont(const std::string& fontPath, const std::string& fontNam
     activeFontName_ = fontName;
     activeFontPath_ = fontPath;
 
-    if (!fontRenderer_ || !fontRenderer_->fs) {
+    if (!fontRenderer_) {
         pendingFontPath_ = fontPath;
         pendingFontName_ = fontName;
         return false;
@@ -8030,16 +8166,16 @@ bool GuiWindow::loadFont(const std::string& fontPath, const std::string& fontNam
         return false;
     }
 
-    int fid = fonsAddFont(fontRenderer_->fs, fontName.c_str(), fontPath.c_str(), 0);
-    if (fid == FONS_INVALID) {
+    eatsbits::text::FontId fid = fontRenderer_->fontMgr.loadFontFromFile(fontName, fontPath);
+    if (fid == eatsbits::text::kInvalidFontId) {
         std::cerr << "[GuiWindow] Error: Failed to parse font file " << fontPath << std::endl;
         return false;
     }
 
     fontRenderer_->fontNormal = fid;
     fontRenderer_->loadedFontPath = fontPath;
-    if (fontRenderer_->fontMono != FONS_INVALID) {
-        fonsAddFallbackFont(fontRenderer_->fs, fontRenderer_->fontMono, fontRenderer_->fontNormal);
+    if (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) {
+        fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, fontRenderer_->fontNormal);
     }
     std::cout << "[GuiWindow] Successfully loaded font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
@@ -8049,7 +8185,7 @@ bool GuiWindow::loadMonoFont(const std::string& fontPath, const std::string& fon
     activeMonoFontName_ = fontName;
     activeMonoFontPath_ = fontPath;
 
-    if (!fontRenderer_ || !fontRenderer_->fs) {
+    if (!fontRenderer_) {
         pendingMonoFontPath_ = fontPath;
         pendingMonoFontName_ = fontName;
         return false;
@@ -8060,27 +8196,27 @@ bool GuiWindow::loadMonoFont(const std::string& fontPath, const std::string& fon
         return false;
     }
 
-    int fid = fonsAddFont(fontRenderer_->fs, fontName.c_str(), fontPath.c_str(), 0);
-    if (fid == FONS_INVALID) {
+    eatsbits::text::FontId fid = fontRenderer_->fontMgr.loadFontFromFile(fontName, fontPath);
+    if (fid == eatsbits::text::kInvalidFontId) {
         std::cerr << "[GuiWindow] Error: Failed to parse mono font file " << fontPath << std::endl;
         return false;
     }
 
     fontRenderer_->fontMono = fid;
     fontRenderer_->loadedMonoFontPath = fontPath;
-    if (fontRenderer_->fontNormal != FONS_INVALID) {
-        fonsAddFallbackFont(fontRenderer_->fs, fontRenderer_->fontMono, fontRenderer_->fontNormal);
+    if (fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId) {
+        fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, fontRenderer_->fontNormal);
     }
     std::cout << "[GuiWindow] Successfully loaded mono font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
 }
 
 bool GuiWindow::isFontLoaded() const noexcept {
-    return fontRenderer_ && fontRenderer_->fontNormal != FONS_INVALID;
+    return fontRenderer_ && fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId;
 }
 
 bool GuiWindow::isMonoFontLoaded() const noexcept {
-    return fontRenderer_ && fontRenderer_->fontMono != FONS_INVALID;
+    return fontRenderer_ && fontRenderer_->fontMono != eatsbits::text::kInvalidFontId;
 }
 
 std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {

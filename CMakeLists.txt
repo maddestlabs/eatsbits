@@ -21,7 +21,6 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fontstash
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source
@@ -281,10 +280,9 @@ add_library(eats_render_wgpu STATIC
     src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
-    third_party/fontstash/fontstash.c
     third_party/stb/stb_image.c
 )
-target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter)
+target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter eats_text)
 
 if(EMSCRIPTEN)
     target_compile_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -fexceptions)

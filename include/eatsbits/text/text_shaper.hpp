@@ -56,6 +56,7 @@ public:
 
 private:
     hb_buffer_t* hbBuffer_{nullptr};
+    hb_buffer_t* hbFallbackBuffer_{nullptr};
 };
 
 } // namespace eatsbits::text
