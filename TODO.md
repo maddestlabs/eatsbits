@@ -16,17 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)**
-  - **Context/Files**: [include/eatsbits/text/font_manager.hpp](file:///c:/git/eatsbits/include/eatsbits/text/font_manager.hpp), [src/text/font_manager.cpp](file:///c:/git/eatsbits/src/text/font_manager.cpp), [include/eatsbits/text/text_shaper.hpp](file:///c:/git/eatsbits/include/eatsbits/text/text_shaper.hpp), [src/text/text_shaper.cpp](file:///c:/git/eatsbits/src/text/text_shaper.cpp), [include/eatsbits/text/glyph_atlas.hpp](file:///c:/git/eatsbits/include/eatsbits/text/glyph_atlas.hpp), [src/text/glyph_atlas.cpp](file:///c:/git/eatsbits/src/text/glyph_atlas.cpp), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp)
-  - **Scope & Objectives**:
-    1. **`FontManager`**: Thread-safe manager holding `FT_Library`, loading TTF/OTF files from disk or memory buffers, creating `FT_Face` and `hb_font_t` handles, and providing fallback font chains. Include embedded compressed fallback monospace font data in [embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp) for zero-file-dependency execution on both desktop and WebAssembly.
-    2. **`TextShaper`**: Wrapper around HarfBuzz shaping engine. Takes UTF-8 text, font ID, font size, and feature flags (`liga`, `calt`, `dlig`). Returns `ShapedRun` with vector of `ShapedGlyph` containing `glyphIndex`, `cluster` (byte offset in UTF-8 string for cursor mapping), `xOffset`, `yOffset`, `xAdvance`, and `yAdvance`.
-    3. **`GlyphAtlas`**: Dynamic 2048x2048 GPU texture atlas with 2D shelf/bin packing. Features LRU cache keyed by `(fontId, glyphIndex, pixelSize, subpixelBin)`. Supports 4 subpixel horizontal bins (`x % 0.25f`) for razor-sharp rendering at small font sizes (11px–14px). Rasterizes glyphs using FreeType LCD subpixel or antialiased modes, streaming dirty bounding boxes to [IBatchRenderBackend::updateFontTexture](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp#L59).
-  - **Verification**: Expand `tests/test_text_shaping.cpp` to verify:
-    - Accurate cluster byte offset mapping for multi-byte UTF-8 and multi-character ligatures.
-    - Glyph atlas packing, cache hits vs misses, and dirty rect eviction.
-    - Zero heap allocations during repeated shaping runs of cached text.
-
 - [ ] **Migrate GUI Window & Drawing Utilities from FontStash to `eatsbits::text`**
   - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [third_party/fontstash/](file:///c:/git/eatsbits/third_party/fontstash/)
   - **Scope & Objectives**:
@@ -50,6 +39,27 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)** (commit `ee962ae`, 2026-10-15)
+  - **Context/Files**: [include/eatsbits/text/font_manager.hpp](file:///c:/git/eatsbits/include/eatsbits/text/font_manager.hpp), [src/text/font_manager.cpp](file:///c:/git/eatsbits/src/text/font_manager.cpp), [include/eatsbits/text/text_shaper.hpp](file:///c:/git/eatsbits/include/eatsbits/text/text_shaper.hpp), [src/text/text_shaper.cpp](file:///c:/git/eatsbits/src/text/text_shaper.cpp), [include/eatsbits/text/glyph_atlas.hpp](file:///c:/git/eatsbits/include/eatsbits/text/glyph_atlas.hpp), [src/text/glyph_atlas.cpp](file:///c:/git/eatsbits/src/text/glyph_atlas.cpp), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp)
+  - **Acceptance Criteria**:
+    1. **`FontManager`**:
+       - Implemented thread-safe manager maintaining `FT_Library`, dynamic font loading from memory buffers or file paths, caching `FT_Face` and `hb_font_t` instances.
+       - Integrated embedded fallback font (`ShareTechMono-Regular.ttf`) for zero-file-dependency runtime execution on desktop and WebAssembly.
+       - Implemented fallback font chaining (`setFallbackFont`/`getFallbackFont`).
+    2. **`TextShaper`**:
+       - Implemented HarfBuzz-backed shaping engine reusing `hb_buffer_t` to guarantee zero allocations during steady-state text shaping.
+       - Populates `ShapedRun` with per-glyph metadata: `glyphIndex`, `cluster` (UTF-8 byte offset for cursor/caret hit-testing), subpixel offsets, advances, and font ID.
+       - Seamless fallback resolution: automatically resolves `.notdef` (glyph 0) missing characters via the configured fallback font chain.
+       - Provided `measureWidth` utility for rapid text measurement without layout side effects.
+    3. **`GlyphAtlas`**:
+       - Implemented shelf bin packing with 1px border padding to prevent bilinear texture bleed.
+       - Supported 4 subpixel horizontal bins (`subpixelBin = 0..3`, quarter-pixel offsets) using FreeType subpixel vector transformation for crisp text at small point sizes.
+       - Implemented LRU/frame timestamp caching keyed by `(fontId, glyphIndex, pixelSize, subpixelBin)`.
+       - Maintained dirty rectangle tracking (`getDirtyBounds`/`clearDirty`) for efficient delta GPU texture updates.
+    4. **Automated Verification**:
+       - Expanded `tests/test_text_shaping.cpp` verifying `FontManager` loading and chaining, `TextShaper` UTF-8 cluster mapping and advances, and `GlyphAtlas` cache hits/misses and dirty bounds.
+       - Verified 100% test pass (49/49 test suites) via `ctest`.
 
 - [x] **Integrate FreeType and HarfBuzz into CMake Build Pipeline (Native + Wasm)** (commit `a1ae617`, 2026-10-15)
   - **Context/Files**: [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [src/text/text_engine.cpp](file:///c:/git/eatsbits/src/text/text_engine.cpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [src/ui/icon_registry.cpp](file:///c:/git/eatsbits/src/ui/icon_registry.cpp)
@@ -98,7 +108,7 @@ To execute items automatically, run in Antigravity:
        - Added automatic chrome cache invalidation in `BatchRenderer2D::resize()` and `BatchRenderer2D::shutdown()`.
        - Integrated cache invalidation into `GuiWindow` upon window resize (`onWindowResize`), theme changes (`setActiveThemePreset`), view changes (`setActiveView`), side browser toggle (`toggleBrowser`, `setBrowserOpen`), and project hub toggle (`toggleProjectHub`, `setProjectHubOpen`).
     3. **Automated Verification**:
-       - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` to `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
+       - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
        - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 - [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
@@ -112,19 +122,6 @@ To execute items automatically, run in Antigravity:
        - Refactored manual `pushScissor`/`popScissor` calls across `DesignView`, `ArrangerMixerDrawer`, `IconSearchDialog`, `PluginSearchDialog`, `ThemeBrowserDialog`, `TrackPropertiesDrawer`, and `TextEditorWidget` to use `ScissorScope`.
     3. **Automated Verification**:
        - Added comprehensive unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
-       - Verified 100% test pass (48/48 test suites) via `ctest`.
-
-- [x] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers** (commit `a8ef98c`, 2026-10-11)
-  - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/presenter/drag_handler.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/drag_handler.hpp), [include/eatsbits/ui/widgets/track_properties_panel.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/track_properties_panel.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [src/ui/widgets/track_properties_panel.cpp](file:///c:/git/eatsbits/src/ui/widgets/track_properties_panel.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
-  - **Acceptance Criteria**:
-    1. **Virtual Relative Delta Drag Mode**:
-       - Implemented relative mouse drag for knobs, sliders, and faders in `ScalarDragPresenter`: captures cursor via GLFW on drag start, accumulates unbounded relative deltas without border clamping, clamps `accumulatedDelta_` to parameter travel limits to ensure instantaneous reversal without deadzone lag, and restores original cursor coordinates on drag release.
-    2. **Industry-Standard Gesture Modifiers**:
-       - Implemented `Shift` modifier precision scaling across presenter, widgets, MixerView, and TrackPropertiesPanel with standard $0.10\times$ sensitivity ratio.
-       - Implemented `Ctrl` / `Cmd` + click instant default reset: restores volume/faders to 1.0 (0 dB unity gain), pan to 0.0 (center), and EQ/knobs to their default parameters.
-       - Implemented double-click detection (<350ms, <6px) routing to `ValueEditDialog` for direct numeric and keyboard input across presenters and views.
-    3. **Automated Verification**:
-       - Added unit test `testInfiniteRotaryDeltaDragAndFineAdjustment()` in `tests/test_presenters.cpp` verifying relative deltas, unbounded motion, GLFW capture callbacks, shift modifier $0.10\times$ scaling, Ctrl+click reset, and double-click dispatch.
        - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)

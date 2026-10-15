@@ -1304,7 +1304,18 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **CMake Build System (`CMakeLists.txt`)**: Configured FreeType and HarfBuzz `FetchContent`, created `eats_text` library, linked into `eatsbits_gui_core`, and registered `TextShapingTest`.
     - **Embedded Font (`embedded_fonts.hpp`)**: Hex byte-array representation of `ShareTechMono-Regular.ttf` for standalone fallback.
     - **Zero-Allocation Invariants (`batch_renderer_2d.cpp`, `icon_registry.cpp`)**: Converted quad-strip point generation in `drawFlutedRing` to zero-heap stream processing; cached contours in `IconRegistry` fallback path.
-    - **Automated Verification**: 100% test pass (49/49 test suites) via `ctest`.
+- **Item Completed**: "Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)" (commit `ee962ae`, 2026-10-15)
+  - **Summary**:
+    - Architected and implemented the core `eatsbits::text` subsystem, providing modern FreeType font management, HarfBuzz text shaping, and a high-performance GPU texture atlas with subpixel positioning.
+    - Implemented `FontManager` with thread-safe font loading from disk and memory buffers, handle caching for `FT_Face` and `hb_font_t`, fallback font chaining, and embedded fallback font support.
+    - Implemented `TextShaper` with reusable `hb_buffer_t` instances for zero steady-state heap allocations, populating `ShapedRun` with UTF-8 byte offset cluster indices, subpixel offsets, advances, font IDs, and automated missing glyph fallback resolution.
+    - Implemented `GlyphAtlas` with 2D shelf/bin packing, 1px anti-bleed borders, LRU/frame timestamp caching, 4-bin horizontal subpixel fractional offsets (`0..3`), and dirty rectangle bounding box tracking for streaming to GPU backends.
+  - **Key Changes Implemented**:
+    - **`FontManager` (`include/eatsbits/text/font_manager.hpp`, `src/text/font_manager.cpp`)**: Full FreeType library lifecycle, memory buffer lifetime management, fallback chains.
+    - **`TextShaper` (`include/eatsbits/text/text_shaper.hpp`, `src/text/text_shaper.cpp`)**: HarfBuzz shaping, cluster byte offset mapping, missing glyph `.notdef` fallback delegation, `measureWidth` calculation.
+    - **`GlyphAtlas` (`include/eatsbits/text/glyph_atlas.hpp`, `src/text/glyph_atlas.cpp`)**: Dynamic shelf bin packing, 4-bin quarter-pixel subpixel rasterization, dirty rectangle tracking, cache hit/miss statistics.
+    - **CMake Build System (`CMakeLists.txt`)**: Added `font_manager.cpp`, `text_shaper.cpp`, and `glyph_atlas.cpp` to the `eats_text` target.
+    - **Automated Verification**: Expanded `tests/test_text_shaping.cpp` with unit tests for `FontManager`, `TextShaper`, and `GlyphAtlas`; verified 100% pass across all 49 test suites via `ctest`.
 
 
 ---
