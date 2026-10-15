@@ -29,12 +29,12 @@ struct VectorDrawCall {
 };
 
 /**
- * Abstract Render Backend for NanoVG.
- * Bridges NanoVG tessellation into Filament vertex/index buffers.
+ * Abstract Render Backend for 2D Vector Batches.
+ * Bridges vector tessellation into Filament/WebGPU vertex/index buffers.
  */
-class INanoVGBackend {
+class IRenderBatchBackend {
 public:
-    virtual ~INanoVGBackend() = default;
+    virtual ~IRenderBatchBackend() = default;
     virtual bool initialize(uint32_t width, uint32_t height) = 0;
     virtual void beginFrame(float width, float height, float pixelRatio) = 0;
     virtual void submitBatch(const VectorVertex2D* vertices, size_t vCount,
@@ -42,6 +42,8 @@ public:
                              const VectorDrawCall& call) = 0;
     virtual void endFrame() = 0;
 };
+
+using INanoVGBackend = IRenderBatchBackend;
 
 /**
  * Core DAW vector widget definitions.

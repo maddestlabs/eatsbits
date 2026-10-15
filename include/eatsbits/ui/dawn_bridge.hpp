@@ -26,9 +26,9 @@ struct VectorDrawCall {
     bool scissorEnabled{false};
 };
 
-class INanoVGBackend {
+class IRenderBatchBackend {
 public:
-    virtual ~INanoVGBackend() = default;
+    virtual ~IRenderBatchBackend() = default;
     virtual bool initialize(uint32_t width, uint32_t height) = 0;
     virtual void beginFrame(float width, float height, float pixelRatio) = 0;
     virtual void submitBatch(const VectorVertex2D* vertices, size_t vCount,
@@ -36,6 +36,8 @@ public:
                              const VectorDrawCall& call) = 0;
     virtual void endFrame() = 0;
 };
+
+using INanoVGBackend = IRenderBatchBackend;
 
 struct CrtMaterialConfig {
     float scanlineIntensity{0.38f};  // Authentic CRT scanline depth (0.0 = removed, 1.0 = deep)
@@ -66,7 +68,7 @@ struct CrtMaterialConfig {
  * Manages the native WebGPU rendering pipeline and applies the pure WGSL
  * Apocalypse CRT shader pass directly to the window surface.
  */
-class DawnBridge : public INanoVGBackend {
+class DawnBridge : public IRenderBatchBackend {
 public:
     DawnBridge(uint32_t fboWidth = 1024, uint32_t fboHeight = 768);
     virtual ~DawnBridge() override;

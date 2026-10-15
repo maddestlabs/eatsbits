@@ -185,7 +185,7 @@ eatsbits/
 │           ├── canvas_renderer.hpp        # Modular Eurorack canvas, catenary cables, oscilloscope & SVG/ANSI visualizer
 │           ├── dawn_bridge.hpp            # Google Dawn & WebGPU pipeline bridge, pure WGSL Apocalypse CRT shader
 │           ├── gui_window.hpp             # GLFW 3 desktop window, knob drag, cable patch & sequencer hit-test
-│           └── nanovg_backend.hpp         # Decoupled NanoVG backend & vector widget models
+│           └── nanovg_backend.hpp         # Decoupled batch render backend & vector widget models
 │       ├── export/
 │       │   └── wav_exporter.hpp           # High-speed RIFF/WAVE 16/24/32-bit exporter with TPDF dither
 │       ├── sequencer/
@@ -227,16 +227,13 @@ eatsbits/
 │   ├── plugins/
 │   │   └── builtin_303.cpp                # Native TB-303 C-ABI plugin implementation
 │   ├── main.cpp                           # Interactive CLI REPL, sequencer, and audio test harness
-│   └── gui_main.cpp                       # Interactive desktop GUI workstation (GLFW + WebGPU/NanoVG)
+│   └── gui_main.cpp                       # Interactive desktop GUI workstation (GLFW + WebGPU/BatchRenderer2D)
 ├── third_party/
 │   ├── miniaudio/
 │   │   └── miniaudio.h                    # Vendored single-header audio library
-│   └── nanovg/
-│       ├── nanovg.h                       # NanoVG public vector canvas API
-│       ├── nanovg.c
-│       ├── fontstash.h
-│       ├── stb_image.h
-│       └── stb_truetype.h
+│   └── fontstash/
+│       ├── fontstash.h                    # Interim fontstash text rasterizer header
+│       └── stb_truetype.h                 # Embedded TrueType font rasterizer
 └── tests/
     ├── test_audio_realtime.cpp            # 32/64/128-sample buffer stress tests & latency benchmarks
     ├── test_audio_graph.cpp               # Modular DAG topological sort, cycle detection & node benchmarks

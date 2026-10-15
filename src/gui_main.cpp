@@ -52,7 +52,7 @@ int main(int /*argc*/, char** /*argv*/) {
 #endif
 
     std::cout << "=====================================================" << std::endl;
-    std::cout << " Eatsbits Modular Workstation (GLFW + Filament/NanoVG)" << std::endl;
+    std::cout << " Eatsbits Modular Workstation (GLFW + WebGPU / BatchRenderer2D)" << std::endl;
     std::cout << "=====================================================" << std::endl;
 
 #if defined(__EMSCRIPTEN__)

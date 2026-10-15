@@ -7739,7 +7739,7 @@ void GuiWindow::renderFrame() {
                         drawVectorString("• Roland TB-303 diode ladder acid core & analog 60ms slide modeling.", hubX + 32.0f, contentY + 30.0f, 0.70f, theme.textPrimary);
                         drawVectorString("• Vintage Soundchips: Commodore 64 MOS 6581 SID, SPC700, Yamaha YM2612 & DX7.", hubX + 32.0f, contentY + 46.0f, 0.70f, theme.textPrimary);
                         drawVectorString("• Studio FX: Convolution Reverb procedural IR simulator & 5-band parametric EQ.", hubX + 32.0f, contentY + 62.0f, 0.70f, theme.textPrimary);
-                        drawVectorString("• Built with pure C++20, miniaudio, Google Filament, and NanoVG vector graphics.", hubX + 32.0f, contentY + 78.0f, 0.70f, theme.textPrimary);
+                        drawVectorString("• Built with pure C++20, miniaudio, WebGPU BatchRenderer2D, and Google Filament.", hubX + 32.0f, contentY + 78.0f, 0.70f, theme.textPrimary);
                     }
                 }
             }
