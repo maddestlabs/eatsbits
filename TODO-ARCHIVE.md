@@ -7,6 +7,19 @@ It serves as historical context and regression-prevention reference for develope
 
 ## 📦 Archived Tasks
 
+- [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
+  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
+  - **Acceptance Criteria**:
+    1. **RAII `ScissorScope`**:
+       - Implemented `ScissorScope` class in `BatchRenderer2D` with move semantics, `reset()`, and constructor variants taking `(x, y, w, h)` or `const Rect2D&`.
+       - ScissorScope pushes scissor clipping rectangle on construction, computes hardware intersection with parent rectangles in the scissor stack, and automatically pops/restores previous scissor state on scope destruction or early `reset()`.
+    2. **Refactored Scissor Calls Across Views and Dialogs**:
+       - Added `makeScissorScope(BatchRenderer2D&)` helper to `ScrollableArea` to bind viewport clipping directly into RAII scopes.
+       - Refactored manual `pushScissor`/`popScissor` calls across `DesignView`, `ArrangerMixerDrawer`, `IconSearchDialog`, `PluginSearchDialog`, `ThemeBrowserDialog`, `TrackPropertiesDrawer`, and `TextEditorWidget` to use `ScissorScope`.
+    3. **Automated Verification**:
+       - Added comprehensive unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
+       - Verified 100% test pass (48/48 test suites) via `ctest`.
+
 - [x] **Implement DAW-Standard Infinite Rotary Delta Drag & Fine Adjustment Modifiers** (commit `a8ef98c`, 2026-10-11)
   - **Context/Files**: [include/eatsbits/presenter/scalar_drag_presenter.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/scalar_drag_presenter.hpp), [src/presenter/scalar_drag_presenter.cpp](file:///c:/git/eatsbits/src/presenter/scalar_drag_presenter.cpp), [include/eatsbits/ui/widgets/skeuomorphic_knob.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_knob.hpp), [include/eatsbits/ui/widgets/skeuomorphic_slider.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/skeuomorphic_slider.hpp), [include/eatsbits/presenter/drag_handler.hpp](file:///c:/git/eatsbits/include/eatsbits/presenter/drag_handler.hpp), [include/eatsbits/ui/widgets/track_properties_panel.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/track_properties_panel.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [src/ui/widgets/track_properties_panel.cpp](file:///c:/git/eatsbits/src/ui/widgets/track_properties_panel.cpp), [tests/test_presenters.cpp](file:///c:/git/eatsbits/tests/test_presenters.cpp)
   - **Acceptance Criteria**:

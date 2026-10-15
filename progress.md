@@ -1316,7 +1316,17 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
     - **`GlyphAtlas` (`include/eatsbits/text/glyph_atlas.hpp`, `src/text/glyph_atlas.cpp`)**: Dynamic shelf bin packing, 4-bin quarter-pixel subpixel rasterization, dirty rectangle tracking, cache hit/miss statistics.
     - **CMake Build System (`CMakeLists.txt`)**: Added `font_manager.cpp`, `text_shaper.cpp`, and `glyph_atlas.cpp` to the `eats_text` target.
     - **Automated Verification**: Expanded `tests/test_text_shaping.cpp` with unit tests for `FontManager`, `TextShaper`, and `GlyphAtlas`; verified 100% pass across all 49 test suites via `ctest`.
-
+- **Item Completed**: "Migrate GUI Window & Drawing Utilities from FontStash to `eatsbits::text`" (commit `be41290`, 2026-10-15)
+  - **Summary**:
+    - Completely replaced the legacy FontStash text rendering pipeline in `GuiWindow` and `draw_utils` with `eatsbits::text` (`FontManager`, `TextShaper`, `GlyphAtlas`), backed by FreeType and HarfBuzz.
+    - Deleted the entire legacy `third_party/fontstash/` directory, saving 7,006 lines of code and removing interim C libraries.
+    - Updated `CMakeLists.txt` to remove `fontstash` static library target and linked `eats_text` directly into `eats_render_wgpu` and `eatsbits_gui_core`.
+    - Maintained the zero-heap-allocation invariant during GUI steady-state rendering (`renderFrame()`) across all 4 DAW views during active playback by pre-allocating glyph storage, reusing HarfBuzz buffers, and batching quads via stack chunks into `BatchRenderer2D`.
+  - **Key Changes Implemented**:
+    - **`FontRendererState` (`gui_window.cpp`)**: Replaced FontStash context with `FontManager`, `TextShaper`, `GlyphAtlas`, and pre-allocated `ShapedRun` glyph buffer (`reserve(512)`).
+    - **Text Drawing Primitives (`draw_utils.cpp`, `draw_utils.hpp`)**: Refactored `drawVectorString`, `drawVectorStringCentered`, `drawSyntaxString`, and `drawMonoString` to shape text and stream textured quads (`VertexMode::FontAtlas`) in 64-glyph chunks into `BatchRenderer2D`. Baseline aligned accurately using `FT_Face::size->metrics.ascender`.
+    - **Legacy Code Purge (`third_party/fontstash/`, `CMakeLists.txt`)**: Removed `third_party/fontstash/` folder completely; updated build configuration.
+    - **Automated Verification**: Ran `test_gui_interaction`, verifying 0 allocations across 20 frames in all 4 DAW views; 100% test pass (49/49 test suites) via `ctest`.
 
 ---
 

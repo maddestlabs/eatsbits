@@ -16,15 +16,6 @@ To execute items automatically, run in Antigravity:
 
 <!-- Add your todo notes and improvements here. Items at the top are processed first. -->
 
-- [ ] **Migrate GUI Window & Drawing Utilities from FontStash to `eatsbits::text`**
-  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [third_party/fontstash/](file:///c:/git/eatsbits/third_party/fontstash/)
-  - **Scope & Objectives**:
-    1. **Replace `FontRendererState`**: Replace FontStash context in `GuiWindow` with `eatsbits::text::FontManager`, `TextShaper`, and `GlyphAtlas`.
-    2. **Refactor Text Drawing Functions**: Update `drawVectorString`, `drawVectorStringCentered`, `drawMonoString`, and tooltip helpers to shape via `TextShaper` and emit `Vertex2D` quads (`VertexMode::FontAtlas`) directly into `BatchRenderer2D`.
-    3. **Remove FontStash Dependency**: Delete `third_party/fontstash/` entirely from the codebase once all rendering is routed through `eatsbits::text`.
-    4. **Visual Parity & Crispness**: Ensure UI typography across Arranger, Mixer, Track Inspector, and modal dialogs renders with enhanced subpixel clarity and accurate baseline alignment.
-  - **Verification**: Run `.\build.ps1 -Test`. Verify that `test_gui_interaction` passes with zero heap allocations during `renderFrame()` across all 4 primary DAW views.
-
 - [ ] **Implement Monospace Terminal Grid Invariants (Ligature Cell Slicing & Box Primitives)**
   - **Context/Files**: [include/eatsbits/text/monospace_grid_layout.hpp](file:///c:/git/eatsbits/include/eatsbits/text/monospace_grid_layout.hpp), [src/text/monospace_grid_layout.cpp](file:///c:/git/eatsbits/src/text/monospace_grid_layout.cpp), [include/eatsbits/terminal/terminal_grid.hpp](file:///c:/git/eatsbits/include/eatsbits/terminal/terminal_grid.hpp), [src/terminal/terminal_grid.cpp](file:///c:/git/eatsbits/src/terminal/terminal_grid.cpp), [tests/test_terminal_grid.cpp](file:///c:/git/eatsbits/tests/test_terminal_grid.cpp)
   - **Scope & Objectives**:
@@ -39,6 +30,23 @@ To execute items automatically, run in Antigravity:
 ## 🕒 Recent Completions (Reference Context)
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
+
+- [x] **Migrate GUI Window & Drawing Utilities from FontStash to `eatsbits::text`** (commit `be41290`, 2026-10-15)
+  - **Context/Files**: [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/draw_utils.cpp](file:///c:/git/eatsbits/src/ui/draw_utils.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [CMakeLists.txt](file:///c:/git/eatsbits/CMakeLists.txt), [third_party/fontstash/](file:///c:/git/eatsbits/third_party/fontstash/)
+  - **Acceptance Criteria**:
+    1. **Replaced FontStash in `FontRendererState`**:
+       - Converted `FontRendererState` in `GuiWindow` to own `FontManager`, `TextShaper`, and `GlyphAtlas`.
+       - Pre-allocated `ShapedRun` glyph buffer (`reserve(512)`) and glyph staging arrays for steady-state zero-allocation text rendering.
+    2. **Refactored Text Drawing Utilities**:
+       - Rewrote `drawVectorString`, `drawVectorStringCentered`, `drawSyntaxString`, and `drawMonoString` in `draw_utils.cpp` to shape UTF-8 text via `TextShaper` and batch textured quads (`VertexMode::FontAtlas`) in 64-glyph stack chunks into `BatchRenderer2D`.
+       - Implemented subpixel baseline alignment using FreeType font metrics (`FT_Face::size->metrics.ascender`).
+       - Hooked monospace text rendering directly into `batchRenderer_->setMonospaceGlyphHook`.
+    3. **Deleted Legacy FontStash Subsystem**:
+       - Completely removed `third_party/fontstash/` (saving 7,006 lines of legacy C code).
+       - Updated `CMakeLists.txt` to remove `fontstash` static library target and include paths, linking `eats_text` directly into `eats_render_wgpu`.
+    4. **Automated Verification**:
+       - Verified `test_gui_interaction` passes with **0 allocations** across 20 frames in all 4 DAW views during active playback.
+       - Verified 100% test pass across all 49/49 CTest test suites.
 
 - [x] **Implement Modular `eatsbits::text` Core (`FontManager`, `TextShaper`, and `GlyphAtlas`)** (commit `ee962ae`, 2026-10-15)
   - **Context/Files**: [include/eatsbits/text/font_manager.hpp](file:///c:/git/eatsbits/include/eatsbits/text/font_manager.hpp), [src/text/font_manager.cpp](file:///c:/git/eatsbits/src/text/font_manager.cpp), [include/eatsbits/text/text_shaper.hpp](file:///c:/git/eatsbits/include/eatsbits/text/text_shaper.hpp), [src/text/text_shaper.cpp](file:///c:/git/eatsbits/src/text/text_shaper.cpp), [include/eatsbits/text/glyph_atlas.hpp](file:///c:/git/eatsbits/include/eatsbits/text/glyph_atlas.hpp), [src/text/glyph_atlas.cpp](file:///c:/git/eatsbits/src/text/glyph_atlas.cpp), [include/eatsbits/text/embedded_fonts.hpp](file:///c:/git/eatsbits/include/eatsbits/text/embedded_fonts.hpp), [tests/test_text_shaping.cpp](file:///c:/git/eatsbits/tests/test_text_shaping.cpp)
@@ -109,19 +117,6 @@ To execute items automatically, run in Antigravity:
        - Integrated cache invalidation into `GuiWindow` upon window resize (`onWindowResize`), theme changes (`setActiveThemePreset`), view changes (`setActiveView`), side browser toggle (`toggleBrowser`, `setBrowserOpen`), and project hub toggle (`toggleProjectHub`, `setProjectHubOpen`).
     3. **Automated Verification**:
        - Added automated unit test `testStaticChromeFboCachingAndVisualParity()` in `tests/test_gui_interaction.cpp` verifying standalone `BatchRenderer2D` recording, cache metrics (`getChromeDrawCallsAvoided`), bit-for-bit parity (`std::memcmp == 0`), sub-region blitting, and `GuiWindow` event lifecycle invalidation across resize, view, theme, and drawer events.
-       - Verified 100% test pass (48/48 test suites) via `ctest`.
-
-- [x] **Add RAII Scissor Scope Management to `BatchRenderer2D`** (commit `f6d3139`, 2026-10-11)
-  - **Context/Files**: [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/draw_utils.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/draw_utils.hpp), [include/eatsbits/ui/widgets/scrollable_area.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/scrollable_area.hpp), [tests/test_ui_canvas.cpp](file:///c:/git/eatsbits/tests/test_ui_canvas.cpp)
-  - **Acceptance Criteria**:
-    1. **RAII `ScissorScope`**:
-       - Implemented `ScissorScope` class in `BatchRenderer2D` with move semantics, `reset()`, and constructor variants taking `(x, y, w, h)` or `const Rect2D&`.
-       - ScissorScope pushes scissor clipping rectangle on construction, computes hardware intersection with parent rectangles in the scissor stack, and automatically pops/restores previous scissor state on scope destruction or early `reset()`.
-    2. **Refactored Scissor Calls Across Views and Dialogs**:
-       - Added `makeScissorScope(BatchRenderer2D&)` helper to `ScrollableArea` to bind viewport clipping directly into RAII scopes.
-       - Refactored manual `pushScissor`/`popScissor` calls across `DesignView`, `ArrangerMixerDrawer`, `IconSearchDialog`, `PluginSearchDialog`, `ThemeBrowserDialog`, `TrackPropertiesDrawer`, and `TextEditorWidget` to use `ScissorScope`.
-    3. **Automated Verification**:
-       - Added comprehensive unit test `testScissorScopeNestedClippingAndRaii()` in `tests/test_ui_canvas.cpp` testing single scope push/pop, nested parent/child rectangle intersection, empty intersection handling, RAII automatic unwinding, move semantics, early `reset()`, and `ScrollableArea::makeScissorScope()`.
        - Verified 100% test pass (48/48 test suites) via `ctest`.
 
 ## Planned / Up Next: CLAP Plugin Export & Hosting (See clap-blueprint.md)
