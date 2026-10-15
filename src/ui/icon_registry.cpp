@@ -237,6 +237,9 @@ void IconRegistry::renderIcon(BatchRenderer2D& r, std::string_view iconRef,
         SvgPath path = SvgPath::parse(pathData);
         CachedMesh mesh;
         mesh.triangles = path.triangulate();
+        if (mesh.triangles.empty()) {
+            mesh.contours = path.getContours();
+        }
         mesh.bounds = path.getBounds();
         if (mesh.bounds.isEmpty()) {
             mesh.bounds = viewBox;
@@ -272,10 +275,9 @@ void IconRegistry::renderIcon(BatchRenderer2D& r, std::string_view iconRef,
                            tint.r, tint.g, tint.b, tint.a);
         }
     } else {
-        // Fallback for stroke-based paths: draw contours as lines
-        SvgPath path = SvgPath::parse(pathData);
+        // Fallback for stroke-based paths: draw cached contours as lines
         float lineWidth = std::max(1.0f, scale * 1.5f);
-        for (const auto& contour : path.getContours()) {
+        for (const auto& contour : mesh.contours) {
             if (contour.size() < 2) continue;
             for (size_t i = 0; i < contour.size() - 1; ++i) {
                 r.drawLine(contour[i].x * scale + offsetX, contour[i].y * scale + offsetY,

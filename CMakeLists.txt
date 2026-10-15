@@ -194,13 +194,57 @@ add_library(eats_presenter STATIC
 )
 target_link_libraries(eats_presenter PUBLIC eats_core eats_audio)
 
-# Windowing and Graphics Toolchain (GUI only)
+# Windowing and Graphics Toolchain (GUI & Text Shaping)
+include(FetchContent)
+
+# FreeType 2.13.3 (Minimal configuration, no zlib/bzip2/png/brotli/harfbuzz circular dependency)
+set(FT_REQUIRE_ZLIB OFF CACHE BOOL "" FORCE)
+set(FT_REQUIRE_BZIP2 OFF CACHE BOOL "" FORCE)
+set(FT_REQUIRE_PNG OFF CACHE BOOL "" FORCE)
+set(FT_REQUIRE_HARFBUZZ OFF CACHE BOOL "" FORCE)
+set(FT_REQUIRE_BROTLI OFF CACHE BOOL "" FORCE)
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_ZLIB ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_BZip2 ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_PNG ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_HarfBuzz ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_BrotliDec ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG VER-2-13-3
+)
+
+# HarfBuzz 10.1.0 (Linked with FreeType, without glib/icu/tests/utils)
+set(HB_HAVE_FREETYPE ON CACHE BOOL "" FORCE)
+set(HB_BUILD_UTILS OFF CACHE BOOL "" FORCE)
+set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_GLIB OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_GOBJECT OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_CORETEXT OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_DIRECTWRITE OFF CACHE BOOL "" FORCE)
+set(HB_HAVE_UNISCRIBE OFF CACHE BOOL "" FORCE)
+set(HB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(HB_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    harfbuzz
+    GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git
+    GIT_TAG 10.1.0
+)
+
 if (EMSCRIPTEN)
     # Emscripten WebAssembly & WebGPU configuration
     add_compile_definitions(EATS_ENABLE_WEBGPU=1)
+    FetchContent_MakeAvailable(freetype harfbuzz)
 else()
     # GLFW Library (cross-platform desktop windowing)
-    include(FetchContent)
     FetchContent_Declare(
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -210,8 +254,18 @@ else()
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(glfw)
+    FetchContent_MakeAvailable(freetype harfbuzz glfw)
 endif()
+
+# 4b. Modern FreeType + HarfBuzz Advanced Text Shaping Engine
+add_library(eats_text STATIC
+    src/text/text_engine.cpp
+)
+target_include_directories(eats_text PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/eatsbits/text
+)
+target_link_libraries(eats_text PUBLIC freetype harfbuzz eats_core)
 
 # 5. Hardware-Accelerated 2D Batch Renderer (Dawn/WebGPU & Monospace Glyph Engine)
 add_library(eats_render_wgpu STATIC
@@ -301,7 +355,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/views/mixer_view.cpp
     src/ui/views/design_view.cpp
 )
-target_link_libraries(eatsbits_gui_core PUBLIC eats_render_wgpu eats_render_tui eats_video_export eats_presenter eats_audio eats_core)
+target_link_libraries(eatsbits_gui_core PUBLIC eats_render_wgpu eats_render_tui eats_video_export eats_presenter eats_audio eats_core eats_text)
 
 # TUI Views and App Library
 add_library(eatsbits_tui_core STATIC
@@ -605,6 +659,10 @@ add_test(NAME TerminalConsoleTest COMMAND test_terminal_console)
 add_executable(test_text_engine tests/test_text_engine.cpp)
 target_link_libraries(test_text_engine PRIVATE eats_core)
 add_test(NAME TextEngineTest COMMAND test_text_engine)
+
+add_executable(test_text_shaping tests/test_text_shaping.cpp)
+target_link_libraries(test_text_shaping PRIVATE eats_text eats_core)
+add_test(NAME TextShapingTest COMMAND test_text_shaping)
 
 add_executable(test_vector_surfaces tests/test_vector_surfaces.cpp)
 target_link_libraries(test_vector_surfaces PRIVATE eatsbits_gui_core)

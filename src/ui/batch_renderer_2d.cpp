@@ -2651,10 +2651,8 @@ void BatchRenderer2D::drawFlutedRing(float cx, float cy, float rInner, float rOu
         uint32_t colOuter;
         uint32_t colInner;
     };
-    std::vector<ContourPt> pts;
-    pts.reserve(segs + 1);
 
-    for (int i = 0; i <= segs; ++i) {
+    auto computePt = [&](int i) -> ContourPt {
         float a = rotationAngle + static_cast<float>(i) * step;
         float phase = static_cast<float>(i) * step * fluteScale;
         float s = std::sin(phase);
@@ -2704,24 +2702,24 @@ void BatchRenderer2D::drawFlutedRing(float cx, float cy, float rInner, float rOu
                                     std::clamp(gCol * 0.75f, 0.0f, 1.0f),
                                     std::clamp(bCol * 0.75f, 0.0f, 1.0f), 1.0f);
 
-        pts.push_back({cx + curR * ca, cy + curR * sa,
-                       cx + rInner * ca, cy + rInner * sa,
-                       cOuter, cInner});
-    }
+        return {cx + curR * ca, cy + curR * sa,
+                cx + rInner * ca, cy + rInner * sa,
+                cOuter, cInner};
+    };
 
     // 1. Draw smooth anti-aliased base disc underneath using mode 2 analytical SDF.
     // This seals the silhouette against the chassis and guarantees smooth AA outer rim.
     drawCircle(cx, cy, rOuter, baseR, baseG, baseB, 1.0f);
 
     // 2. Emit continuous fluted quad strip using mode 5 (point-sampled, zero internal seams)
-    for (size_t i = 0; i < pts.size() - 1; ++i) {
-        const auto& p0 = pts[i];
-        const auto& p1 = pts[i + 1];
+    ContourPt prev = computePt(0);
+    for (int i = 1; i <= segs; ++i) {
+        ContourPt curr = computePt(i);
 
-        Vertex2D v0{p0.ix, p0.iy, 0.0f, 0.0f, p0.colInner, 5, {0, 0}};
-        Vertex2D v1{p0.ox, p0.oy, 0.0f, 0.0f, p0.colOuter, 5, {0, 0}};
-        Vertex2D v2{p1.ox, p1.oy, 0.0f, 0.0f, p1.colOuter, 5, {0, 0}};
-        Vertex2D v3{p1.ix, p1.iy, 0.0f, 0.0f, p1.colInner, 5, {0, 0}};
+        Vertex2D v0{prev.ix, prev.iy, 0.0f, 0.0f, prev.colInner, 5, {0, 0}};
+        Vertex2D v1{prev.ox, prev.oy, 0.0f, 0.0f, prev.colOuter, 5, {0, 0}};
+        Vertex2D v2{curr.ox, curr.oy, 0.0f, 0.0f, curr.colOuter, 5, {0, 0}};
+        Vertex2D v3{curr.ix, curr.iy, 0.0f, 0.0f, curr.colInner, 5, {0, 0}};
 
         vertices_.push_back(v0);
         vertices_.push_back(v1);
@@ -2730,6 +2728,8 @@ void BatchRenderer2D::drawFlutedRing(float cx, float cy, float rInner, float rOu
         vertices_.push_back(v0);
         vertices_.push_back(v2);
         vertices_.push_back(v3);
+
+        prev = curr;
     }
 }
 

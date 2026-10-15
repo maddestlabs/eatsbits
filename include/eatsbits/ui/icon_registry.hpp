@@ -81,6 +81,7 @@ private:
     // Cached triangulated vector geometry for zero-allocation rendering
     struct CachedMesh {
         std::vector<SvgPoint> triangles;
+        std::vector<std::vector<SvgPoint>> contours;
         SvgRect bounds;
     };
     mutable std::unordered_map<std::string, CachedMesh, StringHash, std::equal_to<>> meshCache_;

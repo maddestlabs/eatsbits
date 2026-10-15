@@ -80,6 +80,9 @@ public:
 
     [[nodiscard]] const Rect2D& getBodyBounds() const noexcept { return bodyBounds_; }
     [[nodiscard]] const Rect2D& getHeaderBounds() const noexcept { return headerBounds_; }
+    [[nodiscard]] const Rect2D& getDesignBtnBounds() const noexcept { return designBtnBounds_; }
+    [[nodiscard]] const Rect2D& getPresetBtnBounds() const noexcept { return presetBtnBounds_; }
+    [[nodiscard]] const Rect2D& getCloseBtnBounds() const noexcept { return closeBtnBounds_; }
     [[nodiscard]] bool isGuiEmbedded() const noexcept { return isGuiEmbedded_; }
     void setIsGuiEmbedded(bool emb) noexcept { isGuiEmbedded_ = emb; }
 

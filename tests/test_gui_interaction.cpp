@@ -3,14 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <dbghelp.h>
-#pragma comment(lib, "dbghelp.lib")
-#endif
-// Trigger PDB rebuild
+
 
 #include "eatsbits/ui/dawn_bridge.hpp"
 #include "eatsbits/ui/gui_window.hpp"
@@ -3446,20 +3439,16 @@ void testFullscreenDeviceModal() {
     REQUIRE(window.isFullscreenDeviceOpen());
 
     // 6. Test Preset Button Click (opens Preset Dialog)
-    float closeBtnX = 1280.0f - 28.0f - 14.0f;
-    float detachBtnX = closeBtnX - 32.0f - 10.0f;
-    float presetBtnX = detachBtnX - 92.0f - 10.0f;
-    float presetBtnY = 22.0f;
-    window.onMouseDown(0, presetBtnX + 20.0f, presetBtnY);
+    const auto& pBounds = window.getFullscreenDeviceModal().getPresetBtnBounds();
+    window.onMouseDown(0, pBounds.x + pBounds.w * 0.5f, pBounds.y + pBounds.h * 0.5f);
     REQUIRE(window.isFullscreenDeviceOpen());
     // ESC closes the open Preset Dialog while keeping Fullscreen Device open
     window.onKeyDown(256, 0);
     REQUIRE(window.isFullscreenDeviceOpen());
 
     // 7. Test Design Chip Icon Button Click (opens Design / Code Editor)
-    float designBtnX = presetBtnX - 28.0f - 10.0f;
-    float designBtnY = 22.0f;
-    window.onMouseDown(0, designBtnX + 14.0f, designBtnY);
+    const auto& dBounds = window.getFullscreenDeviceModal().getDesignBtnBounds();
+    window.onMouseDown(0, dBounds.x + dBounds.w * 0.5f, dBounds.y + dBounds.h * 0.5f);
     // Clicking Design icon opens the code editor and closes the modal
     REQUIRE(!window.isFullscreenDeviceOpen());
     REQUIRE(window.getActiveView() == WorkspaceView::Design);
@@ -3467,9 +3456,8 @@ void testFullscreenDeviceModal() {
     // 8. Re-open and test Universal Screw Close button
     window.openFullscreenDevice(0);
     REQUIRE(window.isFullscreenDeviceOpen());
-    float closeX = static_cast<float>(window.getWidth()) - 24.0f;
-    float closeY = 22.0f;
-    window.onMouseDown(0, closeX, closeY);
+    const auto& cBounds = window.getFullscreenDeviceModal().getCloseBtnBounds();
+    window.onMouseDown(0, cBounds.x + cBounds.w * 0.5f, cBounds.y + cBounds.h * 0.5f);
     REQUIRE(!window.isFullscreenDeviceOpen());
 
     // 9. Test ValueEditDialog interaction in Fullscreen Device Modal
