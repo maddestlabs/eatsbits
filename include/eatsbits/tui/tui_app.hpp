@@ -10,7 +10,13 @@
 #include "eatsbits/tui/views/braille_scope.hpp"
 #include "eatsbits/tui/views/tracker_grid.hpp"
 #include "eatsbits/tui/views/param_rack.hpp"
+#include "eatsbits/tui/clay_tui_bridge.hpp"
 #include <string>
+#include <memory>
+
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
 
 namespace eatsbits::tui {
 
@@ -54,6 +60,9 @@ private:
     BrailleScopeView scopeView_;
     TrackerGridView trackerGridView_;
     ParamRackView paramRackView_;
+
+    std::unique_ptr<eatsbits::ui::clay::ClayContext> clayContext_;
+    ClayTuiBridge clayBridge_;
 
     std::string outFlushBuffer_;
     int screenCols_{120};

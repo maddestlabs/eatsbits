@@ -381,11 +381,16 @@ std::shared_ptr<Expr> Parser::parsePrimary() {
             while (true) {
                 skipNewlines();
                 if (check(TokenType::RightBrace)) break;
-                const Token& keyToken = consume(TokenType::String, "Expected string key in dictionary");
+                std::string keyName;
+                if (check(TokenType::String) || check(TokenType::Identifier)) {
+                    keyName = advance().text;
+                } else {
+                    throw std::runtime_error("Expected string or identifier key in dictionary at line " + std::to_string(peek().line));
+                }
                 consume(TokenType::Colon, "Expected ':' after dictionary key");
                 skipNewlines();
                 auto val = parseExpression();
-                entries.push_back(DictEntry{keyToken.text, std::move(val)});
+                entries.push_back(DictEntry{std::move(keyName), std::move(val)});
                 skipNewlines();
                 if (!match(TokenType::Comma)) break;
             }

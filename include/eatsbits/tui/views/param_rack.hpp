@@ -2,18 +2,24 @@
 
 #include "eatsbits/tui/cell_surface.hpp"
 #include "eatsbits/tui/input_parser.hpp"
+#include "eatsbits/tui/clay_tui_bridge.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/presenter/parameter_presenter.hpp"
 #include "eatsbits/presenter/value_edit_presenter.hpp"
 #include <string>
 #include <vector>
+#include <memory>
+
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
 
 namespace eatsbits::tui {
 
 class ParamRackView {
 public:
     ParamRackView();
-    ~ParamRackView() = default;
+    ~ParamRackView();
 
     void render(CellSurface& surface, const Rect& area, audio::AudioEngine& engine, bool isFocused);
 
@@ -40,6 +46,9 @@ private:
     bool isEditing_{false};
     std::string editBuffer_{""};
     presenter::ValueEditPresenter editPresenter_{};
+
+    std::unique_ptr<ui::clay::ClayContext> clayContext_;
+    ClayTuiBridge clayBridge_;
 
     void applyParam(size_t index, audio::AudioEngine& engine);
 };

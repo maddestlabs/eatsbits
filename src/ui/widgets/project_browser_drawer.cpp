@@ -237,7 +237,7 @@ float ProjectBrowserDrawer::computeMaxScroll([[maybe_unused]] float contentY, fl
             break;
         }
         case BrowserDrawerTab::Scripts: {
-            float cardH = 46.0f;
+            float cardH = 50.0f;
             totalH = static_cast<float>(getFilteredScriptsCount()) * (cardH + 6.0f);
             break;
         }
@@ -574,7 +574,9 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
 
         // --- TAB 2: SCRIPTS ---
         case BrowserDrawerTab::Scripts: {
-            float cardH = 46.0f;
+            float cardH = 50.0f;
+            float cardW = drawerBounds_.w - 24.0f;
+            float cardX = drawerBounds_.x + 12.0f;
             size_t visIdx = 0;
             for (size_t i = 0; i < scripts_.size(); ++i) {
                 const auto& item = scripts_[i];
@@ -623,33 +625,63 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
                     iconRef = "ui_cat_macro";
                 }
 
-                drawRoundedRect(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
+                // Card chassis
+                drawRoundedRect(r, cardX, cy, cardW, cardH, 4.0f,
                                 isSel ? theme.panelHeader.r * 1.3f : theme.panelHeader.r,
                                 isSel ? theme.panelHeader.g * 1.3f : theme.panelHeader.g,
                                 isSel ? theme.panelHeader.b * 1.3f : theme.panelHeader.b, 0.85f);
 
                 if (isSel) {
-                    drawRoundedRectOutline(r, drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH, 4.0f,
+                    drawRoundedRectOutline(r, cardX, cy, cardW, cardH, 4.0f,
                                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.9f, 1.0f);
                 }
 
-                // Render category mini icon
-                IconRegistry::instance().renderIcon(r, iconRef, Rect2D(drawerBounds_.x + 18.0f, cy + 8.0f, 13.0f, 13.0f), badgeCol);
+                // Zone 1: Draggable Category Icon Badge (Leading Handle)
+                Rect2D badgeRect(cardX + 8.0f, cy + 7.0f, 36.0f, 36.0f);
+                drawRoundedRect(r, badgeRect.x, badgeRect.y, badgeRect.w, badgeRect.h, 6.0f,
+                                badgeCol.r, badgeCol.g, badgeCol.b, 0.18f);
+                drawRoundedRectOutline(r, badgeRect.x, badgeRect.y, badgeRect.w, badgeRect.h, 6.0f,
+                                       badgeCol.r, badgeCol.g, badgeCol.b, 0.50f, 1.0f);
+                IconRegistry::instance().renderIcon(r, iconRef, Rect2D(badgeRect.x + 8.0f, badgeRect.y + 8.0f, 20.0f, 20.0f), badgeCol);
 
-                drawText(r, item.name, drawerBounds_.x + 36.0f, cy + 6.0f, 10.5f,
+                // Zone 2: Title and Subtitle Text Content (Drag to scroll, tap to select/replace)
+                drawText(r, item.name, cardX + 52.0f, cy + 8.0f, 11.5f,
                          isSel ? theme.primaryAccent.r : theme.textPrimary.r,
                          isSel ? theme.primaryAccent.g : theme.textPrimary.g,
                          isSel ? theme.primaryAccent.b : theme.textPrimary.b, 1.0f);
 
-                drawText(r, item.description, drawerBounds_.x + 36.0f, cy + 24.0f, 9.0f,
-                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
+                std::string catText = (item.category == "SYNTH") ? "INSTRUMENT" : item.category;
+                std::string sub = catText + " • " + item.description;
+                drawText(r, sub, cardX + 52.0f, cy + 28.0f, 9.0f,
+                         theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
-                float tagW = 56.0f;
-                float tagX = drawerBounds_.x + drawerBounds_.w - 24.0f - tagW;
-                drawRoundedRect(r, tagX, cy + 6.0f, tagW, 16.0f, 2.0f,
-                                badgeCol.r * 0.2f, badgeCol.g * 0.2f, badgeCol.b * 0.2f, 0.8f);
-                drawCenteredText(r, item.category, tagX, cy + 6.0f, tagW, 16.0f, 8.0f,
-                                 badgeCol.r, badgeCol.g, badgeCol.b, 0.95f);
+                // Zone 3: Far-Right Trailing Action Button
+                if (item.category == "SYNTH") {
+                    // + circle icon for instruments only: Add as New Track
+                    Rect2D addBtn(cardX + cardW - 36.0f, cy + 11.0f, 28.0f, 28.0f);
+                    bool isHoverAdd = addBtn.contains(mouseX_, mouseY_);
+                    drawCircle(r, addBtn.x + 14.0f, addBtn.y + 14.0f, 13.0f,
+                               isHoverAdd ? Color(0.36f, 0.24f, 0.12f, 0.95f) : Color(0.24f, 0.17f, 0.10f, 0.85f));
+                    drawCircleOutline(r, addBtn.x + 14.0f, addBtn.y + 14.0f, 13.0f,
+                                      Color(1.0f, 0.55f, 0.0f, isHoverAdd ? 1.0f : 0.70f), 1.2f);
+                    IconRegistry::instance().renderIcon(r, "ui_add", Rect2D(addBtn.x + 7.0f, addBtn.y + 7.0f, 14.0f, 14.0f),
+                                                       Color(1.0f, 0.65f, 0.10f, 1.0f));
+                    if (isHoverAdd) {
+                        float ttW = 120.0f;
+                        float ttH = 20.0f;
+                        float ttX = addBtn.x - ttW + 10.0f;
+                        float ttY = addBtn.y - 18.0f;
+                        drawRoundedRect(r, ttX, ttY, ttW, ttH, 4.0f, 0.92f, 0.92f, 0.92f, 0.98f);
+                        drawCenteredText(r, "Add as New Track", ttX, ttY, ttW, ttH, 9.5f, 0.1f, 0.1f, 0.1f, 1.0f);
+                    }
+                } else if (item.category == "AUDIO_FX" || item.category == "MIDI_FX") {
+                    // Playlist add / chain insert icon for effects
+                    Rect2D chainBtn(cardX + cardW - 34.0f, cy + 14.0f, 22.0f, 22.0f);
+                    IconRegistry::instance().renderIcon(r, "ui_playlist_add", chainBtn, badgeCol);
+                } else if (item.category == "MACRO" || item.category == "MIDI_SEQ") {
+                    Rect2D runBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
+                    IconRegistry::instance().renderIcon(r, "ui_cat_macro", runBtn, badgeCol);
+                }
             }
             break;
         }
@@ -848,6 +880,22 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
             break;
         }
     }
+
+    // Floating script drag badge preview under cursor
+    if (isDraggingScriptBadge_) {
+        float pillW = 160.0f;
+        float pillH = 32.0f;
+        float pillX = mouseX_ - 16.0f;
+        float pillY = mouseY_ - 16.0f;
+        Color col = (draggedScript_.category == "SYNTH") ? Color(1.0f, 0.55f, 0.0f, 1.0f) :
+                    ((draggedScript_.category == "AUDIO_FX") ? Color(0.13f, 0.96f, 0.91f, 1.0f) : Color(0.0f, 1.0f, 0.4f, 1.0f));
+        drawRoundedRect(r, pillX, pillY, pillW, pillH, 6.0f, 0.12f, 0.12f, 0.14f, 0.95f);
+        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 6.0f, col.r, col.g, col.b, 0.9f, 1.5f);
+        const char* ic = (draggedScript_.category == "SYNTH") ? "ui_cat_instruments" :
+                         ((draggedScript_.category == "AUDIO_FX") ? "ui_cat_fx" : "ui_cat_midifx");
+        IconRegistry::instance().renderIcon(r, ic, Rect2D(pillX + 6.0f, pillY + 6.0f, 20.0f, 20.0f), col);
+        drawText(r, draggedScript_.name, pillX + 32.0f, pillY + 9.0f, 10.5f, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
 }
 
 bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
@@ -856,21 +904,66 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
     mouseY_ = ev.y;
 
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
-        isDraggingScroll_ = false;
+        if (isDraggingScriptBadge_) {
+            if (ev.action == PointerAction::Up && onDropScript) {
+                onDropScript(draggedScript_, ev.x, ev.y);
+            }
+            isDraggingScriptBadge_ = false;
+            return true;
+        }
     }
-
-    if (ev.action == PointerAction::Move && isDraggingScroll_) {
-        float dy = ev.y - dragStartY_;
-        float maxSc = computeMaxScroll();
-        scrollOffset_ = std::clamp(dragStartOffset_ - dy, 0.0f, maxSc);
-        return true;
-    }
-
-    if (!drawerBounds_.contains(ev.x, ev.y)) return false;
 
     if (ev.action == PointerAction::Move) {
+        if (isDraggingScriptBadge_) {
+            return true;
+        }
+        if (isDraggingScroll_) {
+            float dy = ev.y - dragStartY_;
+            float slop = (ev.type == PointerType::Touch) ? 10.0f : 4.0f;
+            if (std::abs(dy) > slop) {
+                touchDragCommitted_ = true;
+            }
+            if (touchDragCommitted_) {
+                float maxSc = computeMaxScroll();
+                scrollOffset_ = std::clamp(dragStartOffset_ - dy, 0.0f, maxSc);
+            }
+            return true;
+        }
         return true;
     }
+
+    if (ev.action == PointerAction::Up) {
+        if (isDraggingScroll_) {
+            if (!touchDragCommitted_ && pendingScriptIndex_ >= 0 && activeTab_ == BrowserDrawerTab::Scripts) {
+                size_t pIdx = static_cast<size_t>(pendingScriptIndex_);
+                if (pIdx < scripts_.size()) {
+                    const auto& item = scripts_[pIdx];
+                    if (item.category == "SYNTH") {
+                        if (onReplaceActiveTrackInstrument) onReplaceActiveTrackInstrument(item.id);
+                        else if (onSelectPreset) onSelectPreset(item.id);
+                    } else if (item.category == "AUDIO_FX" && onAddAudioFx) {
+                        onAddAudioFx(item.id);
+                    } else if (item.category == "MIDI_FX" && onAddMidiFx) {
+                        onAddMidiFx(item.id);
+                    } else if (onRunScript) {
+                        onRunScript(item.id);
+                    }
+                }
+            }
+            isDraggingScroll_ = false;
+            touchDragCommitted_ = false;
+            pendingScriptIndex_ = -1;
+            return true;
+        }
+    }
+
+    if (ev.action == PointerAction::Cancel) {
+        isDraggingScroll_ = false;
+        touchDragCommitted_ = false;
+        pendingScriptIndex_ = -1;
+    }
+
+    if (!drawerBounds_.contains(ev.x, ev.y) && !isDraggingScriptBadge_) return false;
 
     if (ev.action == PointerAction::Down) {
         // 1. Close button
@@ -950,7 +1043,9 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
             }
 
             case BrowserDrawerTab::Scripts: {
-                float cardH = 46.0f;
+                float cardH = 50.0f;
+                float cardW = drawerBounds_.w - 24.0f;
+                float cardX = drawerBounds_.x + 12.0f;
                 size_t visIdx = 0;
                 for (size_t i = 0; i < scripts_.size(); ++i) {
                     const auto& item = scripts_[i];
@@ -977,18 +1072,49 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
 
                     float cy = contentY + static_cast<float>(visIdx) * (cardH + 6.0f) - scrollOffset_;
                     visIdx++;
-                    Rect2D card(drawerBounds_.x + 12.0f, cy, drawerBounds_.w - 24.0f, cardH);
+                    Rect2D card(cardX, cy, cardW, cardH);
                     if (card.contains(ev.x, ev.y)) {
                         selectedIndex_ = static_cast<int>(i);
-                        if (item.category == "SYNTH" && onAddPresetTrack) {
-                            onAddPresetTrack(item.id);
-                        } else if (item.category == "AUDIO_FX" && onAddAudioFx) {
-                            onAddAudioFx(item.id);
-                        } else if (item.category == "MIDI_FX" && onAddMidiFx) {
-                            onAddMidiFx(item.id);
-                        } else if (onRunScript) {
-                            onRunScript(item.id);
+
+                        // Zone 3: Far-right action button
+                        if (item.category == "SYNTH") {
+                            Rect2D addBtn(cardX + cardW - 36.0f, cy + 11.0f, 28.0f, 28.0f);
+                            if (addBtn.contains(ev.x, ev.y)) {
+                                if (onAddPresetTrack) onAddPresetTrack(item.id);
+                                return true;
+                            }
+                        } else if (item.category == "AUDIO_FX" || item.category == "MIDI_FX") {
+                            Rect2D chainBtn(cardX + cardW - 34.0f, cy + 14.0f, 22.0f, 22.0f);
+                            if (chainBtn.contains(ev.x, ev.y)) {
+                                if (item.category == "AUDIO_FX" && onAddAudioFx) onAddAudioFx(item.id);
+                                else if (item.category == "MIDI_FX" && onAddMidiFx) onAddMidiFx(item.id);
+                                return true;
+                            }
+                        } else if (item.category == "MACRO" || item.category == "MIDI_SEQ") {
+                            Rect2D runBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
+                            if (runBtn.contains(ev.x, ev.y)) {
+                                if (onRunScript) onRunScript(item.id);
+                                return true;
+                            }
                         }
+
+                        // Zone 1: Leading icon badge (Draggable handle)
+                        Rect2D badgeRect(cardX + 8.0f, cy + 7.0f, 36.0f, 36.0f);
+                        if (badgeRect.contains(ev.x, ev.y)) {
+                            isDraggingScriptBadge_ = true;
+                            draggedScript_ = item;
+                            dragBadgeStartX_ = ev.x;
+                            dragBadgeStartY_ = ev.y;
+                            return true;
+                        }
+
+                        // Zone 2: Text content (Drag-to-scroll, tap-to-select on Up)
+                        pendingScriptIndex_ = static_cast<int>(i);
+                        touchStartY_ = ev.y;
+                        dragStartY_ = ev.y;
+                        dragStartOffset_ = scrollOffset_;
+                        isDraggingScroll_ = true;
+                        touchDragCommitted_ = false;
                         return true;
                     }
                 }

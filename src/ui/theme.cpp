@@ -284,6 +284,7 @@ struct PresetRegistry {
     std::vector<ThemeTokens> presets;
     std::vector<Theme::PresetMetadata> catalog;
     Theme::Preset currentPreset{Theme::Preset::AteTrack};
+    ControlAestheticMode controlMode{ControlAestheticMode::AutoThemeDefault};
     std::mutex mutex;
 
     PresetRegistry() {
@@ -696,6 +697,21 @@ const std::vector<ThemeTokens>& Theme::getAllPresets() {
 
 const std::vector<Theme::PresetMetadata>& Theme::getPresetCatalog() {
     return getRegistry().catalog;
+}
+
+void Theme::setControlMode(ControlAestheticMode mode) {
+    auto& reg = getRegistry();
+    std::lock_guard<std::mutex> lock(reg.mutex);
+    reg.controlMode = mode;
+    for (auto& p : reg.presets) {
+        p.controlMode = mode;
+    }
+}
+
+ControlAestheticMode Theme::getControlMode() {
+    auto& reg = getRegistry();
+    std::lock_guard<std::mutex> lock(reg.mutex);
+    return reg.controlMode;
 }
 
 } // namespace eatsbits::ui

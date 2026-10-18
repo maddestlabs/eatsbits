@@ -25,25 +25,25 @@ def gui():
         "panel": {
             "title": "ASTRAL SHIMMER PAD",
             "subtitle": "7-Unison Detuned Analog Ambient Synthesizer",
-            "background": "carbon",
+            "background": "minimal_white",
             "accent": "#00E5FF",
             "layout": [
                 {
                     "type": "row",
                     "children": [
-                        {"type": "knob", "param": "Cutoff", "label": "CUTOFF", "unit": "Hz", "knobStyle": "vintage"},
-                        {"type": "knob", "param": "Resonance", "label": "RESO", "knobStyle": "vintage"},
-                        {"type": "knob", "param": "Detune", "label": "DETUNE", "unit": "ct", "knobStyle": "vintage"},
-                        {"type": "knob", "param": "Warmth", "label": "WARMTH", "knobStyle": "vintage"}
+                        {"type": "knob", "param": "Cutoff", "label": "CUTOFF", "sublabel": "FILTER", "unit": "Hz", "knobStyle": "studio_cyan", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Resonance", "label": "RESO", "sublabel": "Q PEAK", "knobStyle": "studio_ruby", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Detune", "label": "DETUNE", "sublabel": "7-UNISON", "unit": "ct", "knobStyle": "studio_magenta", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Warmth", "label": "WARMTH", "sublabel": "DRIVE", "knobStyle": "studio_clean", "labelAlignment": "inline_right", "size": 52}
                     ]
                 },
                 {
                     "type": "row",
                     "children": [
-                        {"type": "knob", "param": "Attack", "label": "ATTACK", "unit": "s"},
-                        {"type": "knob", "param": "Decay", "label": "DECAY", "unit": "s"},
-                        {"type": "knob", "param": "Sustain", "label": "SUSTAIN"},
-                        {"type": "knob", "param": "Release", "label": "RELEASE", "unit": "s"}
+                        {"type": "knob", "param": "Attack", "label": "ATTACK", "sublabel": "ENVELOPE", "unit": "s", "knobStyle": "studio_cyan", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Decay", "label": "DECAY", "sublabel": "STAGE", "unit": "s", "knobStyle": "studio_cyan", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Sustain", "label": "SUSTAIN", "sublabel": "LEVEL", "knobStyle": "studio_cyan", "labelAlignment": "inline_right", "size": 52},
+                        {"type": "knob", "param": "Release", "label": "RELEASE", "sublabel": "TAIL", "unit": "s", "knobStyle": "studio_cyan", "labelAlignment": "inline_right", "size": 52}
                     ]
                 }
             ]

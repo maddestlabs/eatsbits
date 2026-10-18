@@ -12,6 +12,10 @@
 #include <unordered_map>
 #include <chrono>
 
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
+
 namespace eatsbits::ui {
 
 enum class MixerMasterPosition {
@@ -105,7 +109,7 @@ struct MixerChannelStrip {
 class MixerView : public ViewBase {
 public:
     MixerView();
-    ~MixerView() override = default;
+    ~MixerView() override;
 
     void layout(const Rect2D& bounds, const ViewContext& ctx) override;
     void render(const ViewContext& ctx) override;
@@ -367,6 +371,8 @@ private:
     // Decoupled sliding Track Properties Drawer
     TrackPropertiesDrawer propertiesDrawer_;
     TrackPropertiesDrawerData drawerData_;
+
+    std::unique_ptr<clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::ui

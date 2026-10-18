@@ -104,54 +104,146 @@ void ThemeBrowserDialog::layout(float screenW, float screenH) {
     screenWidth_ = screenW;
     screenHeight_ = screenH;
 
-    float diagW = std::min(780.0f, screenW - 40.0f);
-    float diagH = std::min(580.0f, screenH - 40.0f);
-    dialogBounds_ = Rect2D{(screenW - diagW) * 0.5f, (screenH - diagH) * 0.5f, diagW, diagH};
-
-    closeBtnBounds_ = Rect2D{dialogBounds_.x + dialogBounds_.w - 38.0f, dialogBounds_.y + 12.0f, 26.0f, 26.0f};
-    searchBarBounds_ = Rect2D{dialogBounds_.x + 20.0f, dialogBounds_.y + 56.0f, dialogBounds_.w - 40.0f, 32.0f};
-
-    // Category pills layout
-    categoryPillBounds_.clear();
-    float pillX = dialogBounds_.x + 20.0f;
-    float pillY = dialogBounds_.y + 98.0f;
-    float pillH = 24.0f;
-    for (const auto& cat : categories_) {
-        float pillW = static_cast<float>(cat.length()) * 7.5f + 20.0f;
-        categoryPillBounds_.emplace_back(pillX, pillY, pillW, pillH);
-        pillX += pillW + 8.0f;
+    if (!clayCtx_.isInitialized()) {
+        clayCtx_.initialize(screenW, screenH);
+    } else {
+        clayCtx_.setDimensions(screenW, screenH);
     }
 
-    // Cards layout (2 columns)
-    float cardsTopY = dialogBounds_.y + 132.0f;
-    float footerH = 56.0f;
-    cardsAreaBounds_ = Rect2D{dialogBounds_.x + 20.0f, cardsTopY, dialogBounds_.w - 40.0f,
-                              dialogBounds_.h - (cardsTopY - dialogBounds_.y) - footerH};
+    float diagW = std::min(780.0f, screenW - 40.0f);
+    float diagH = std::min(580.0f, screenH - 40.0f);
 
-    float colGap = 12.0f;
-    float rowGap = 10.0f;
-    float cardW = (cardsAreaBounds_.w - colGap) * 0.5f;
-    float cardH = 86.0f;
+    clayCtx_.beginLayout();
+
+    CLAY(CLAY_ID("ThemeDialogOverlay"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+            .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+        }
+    }) {
+        CLAY(CLAY_ID("ThemeDialogCard"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(diagW), CLAY_SIZING_FIXED(diagH) },
+                .padding = { 20, 20, 12, 14 },
+                .childGap = 10,
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Header Row: Pinned Right Close Button (26x26)
+            CLAY(CLAY_ID("ThemeHeaderRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(26) },
+                    .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("ThemeCloseBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(26), CLAY_SIZING_FIXED(26) } }
+                }) {}
+            }
+
+            // Search Bar (Height 32)
+            CLAY(CLAY_ID("ThemeSearchBar"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(32) } }
+            }) {}
+
+            // Category Filter Pills Row (Height 24)
+            CLAY(CLAY_ID("ThemeCategoryPills"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24) },
+                    .childGap = 8,
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                for (size_t c = 0; c < categories_.size(); ++c) {
+                    float pillW = static_cast<float>(categories_[c].length()) * 7.5f + 20.0f;
+                    CLAY(CLAY_IDI("ThemeCatPill", static_cast<uint32_t>(c)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(pillW), CLAY_SIZING_FIXED(24) } }
+                    }) {}
+                }
+            }
+
+            // Cards Scrollable Area (Flex Grow)
+            CLAY(CLAY_ID("ThemeCardsArea"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                    .childGap = 10,
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                },
+                .clip = { .vertical = true }
+            }) {
+                for (size_t rank = 0; rank < filteredIndices_.size(); rank += 2) {
+                    CLAY(CLAY_IDI("ThemeCardRow", static_cast<uint32_t>(rank)), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(86) },
+                            .childGap = 12,
+                            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                        }
+                    }) {
+                        CLAY(CLAY_IDI("ThemeCard", static_cast<uint32_t>(rank)), {
+                            .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(86) } }
+                        }) {}
+                        if (rank + 1 < filteredIndices_.size()) {
+                            CLAY(CLAY_IDI("ThemeCard", static_cast<uint32_t>(rank + 1)), {
+                                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(86) } }
+                            }) {}
+                        } else {
+                            CLAY(CLAY_ID("ThemeCardSpacer"), {
+                                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(86) } }
+                            }) {}
+                        }
+                    }
+                }
+            }
+
+            // Footer Action Buttons Row (Height 30)
+            CLAY(CLAY_ID("ThemeFooterRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
+                    .childGap = 12,
+                    .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("ThemeCancelBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(105), CLAY_SIZING_FIXED(30) } }
+                }) {}
+                CLAY(CLAY_ID("ThemeApplyBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(105), CLAY_SIZING_FIXED(30) } }
+                }) {}
+            }
+        }
+    }
+
+    clayCtx_.endLayout(0.016f);
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D{ b.x, b.y, b.width, b.height };
+    };
+
+    dialogBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeDialogCard")).boundingBox);
+    closeBtnBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCloseBtn")).boundingBox);
+    searchBarBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeSearchBar")).boundingBox);
+    cardsAreaBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCardsArea")).boundingBox);
+    cancelBtnBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCancelBtn")).boundingBox);
+    applyBtnBounds_  = toRect(clayCtx_.getElementData(CLAY_ID("ThemeApplyBtn")).boundingBox);
+
+    categoryPillBounds_.clear();
+    for (size_t c = 0; c < categories_.size(); ++c) {
+        categoryPillBounds_.push_back(toRect(clayCtx_.getElementData(CLAY_IDI("ThemeCatPill", static_cast<uint32_t>(c))).boundingBox));
+    }
 
     for (size_t rank = 0; rank < filteredIndices_.size(); ++rank) {
         size_t idx = filteredIndices_[rank];
-        int col = static_cast<int>(rank % 2);
-        int row = static_cast<int>(rank / 2);
-
-        float cx = cardsAreaBounds_.x + static_cast<float>(col) * (cardW + colGap);
-        float cy = cardsAreaBounds_.y + static_cast<float>(row) * (cardH + rowGap);
-        allItems_[idx].bounds = Rect2D{cx, cy, cardW, cardH};
+        allItems_[idx].bounds = toRect(clayCtx_.getElementData(CLAY_IDI("ThemeCard", static_cast<uint32_t>(rank))).boundingBox);
     }
 
+    float cardH = 86.0f;
+    float rowGap = 10.0f;
     size_t rowCount = (filteredIndices_.size() + 1) / 2;
     float totalContentH = static_cast<float>(rowCount) * (cardH + rowGap);
     maxScrollY_ = std::max(0.0f, totalContentH - cardsAreaBounds_.h);
     scrollY_ = std::clamp(scrollY_, 0.0f, maxScrollY_);
-
-    // Footer buttons layout
-    float footerY = dialogBounds_.y + dialogBounds_.h - 44.0f;
-    cancelBtnBounds_ = Rect2D{dialogBounds_.x + dialogBounds_.w - 240.0f, footerY, 105.0f, 30.0f};
-    applyBtnBounds_  = Rect2D{dialogBounds_.x + dialogBounds_.w - 125.0f, footerY, 105.0f, 30.0f};
 }
 
 void ThemeBrowserDialog::applyPreview(Theme::Preset preset) {

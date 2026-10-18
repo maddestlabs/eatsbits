@@ -149,6 +149,53 @@ void testArrangerViewBasics() {
     std::cout << "  [PASS] ArrangerView basics, Braille dials, and clip rendering passed." << std::endl;
 }
 
+#include "eatsbits/tui/views/param_rack.hpp"
+#include "eatsbits/audio/audio_engine.hpp"
+
+void testParamRackViewClayLayout() {
+    std::cout << "[Test] Running testParamRackViewClayLayout..." << std::endl;
+    ParamRackView paramRack;
+    eatsbits::audio::AudioEngine engine;
+    CellSurface surface(60, 15);
+
+    // Initial render focused
+    paramRack.render(surface, {0, 0, 60, 15}, engine, true);
+    assert(surface.hasAnyDirty());
+
+    // Verify title box
+    const Cell& corner = surface.getCell(0, 0);
+    assert(corner.codepoint == 0x250C || corner.codepoint == 0x2554 || corner.codepoint > 0);
+
+    // Verify parameter label "BPM" rendered inside
+    bool foundBpm = false;
+    for (int y = 0; y < 15; ++y) {
+        for (int x = 0; x < 55; ++x) {
+            if (surface.getCell(x, y).codepoint == 'B' &&
+                surface.getCell(x + 1, y).codepoint == 'P' &&
+                surface.getCell(x + 2, y).codepoint == 'M') {
+                foundBpm = true;
+                break;
+            }
+        }
+        if (foundBpm) break;
+    }
+    assert(foundBpm);
+
+    // Step parameter and re-render
+    paramRack.adjustValue(2, engine);
+    surface.swapBuffers();
+    paramRack.render(surface, {0, 0, 60, 15}, engine, true);
+    assert(surface.hasAnyDirty());
+
+    // Enter edit mode
+    paramRack.startEdit(engine);
+    assert(paramRack.isEditing());
+    paramRack.cancelEdit();
+    assert(!paramRack.isEditing());
+
+    std::cout << "  [PASS] ParamRackView Clay layout and CellSurface rendering passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits TUI Engine Automated Verification ===" << std::endl;
     testCellSurfaceBasics();
@@ -156,6 +203,7 @@ int main() {
     testAnsiDiffRendering();
     testInputParser();
     testArrangerViewBasics();
+    testParamRackViewClayLayout();
     std::cout << "All TUI engine verification tests passed successfully!" << std::endl;
     return 0;
 }

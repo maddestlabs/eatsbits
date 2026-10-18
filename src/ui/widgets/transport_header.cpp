@@ -1,26 +1,156 @@
 #include "eatsbits/ui/widgets/transport_header.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <iomanip>
 #include <sstream>
 
 namespace eatsbits::ui {
 
-void TransportHeader::layout(float screenWidth, float height) {
-    bounds_ = Rect2D(0.0f, 0.0f, screenWidth, height);
+TransportHeader::TransportHeader() = default;
+TransportHeader::~TransportHeader() = default;
+TransportHeader::TransportHeader(TransportHeader&&) noexcept = default;
+TransportHeader& TransportHeader::operator=(TransportHeader&&) noexcept = default;
 
+void TransportHeader::declareLayout(clay::ClayContext& ctx, float screenWidth, float height) {
+    (void)ctx;
     float cy = 8.0f;
     float btnH = 32.0f;
 
-    logoBounds_ = Rect2D(12.0f, cy, 32.0f, btnH);
-    playBounds_ = Rect2D(54.0f, cy, 42.0f, btnH);
-    stopBounds_ = Rect2D(100.0f, cy, 36.0f, btnH);
-    timeDisplayBounds_ = Rect2D(146.0f, cy, 105.0f, btnH);
-    bpmBounds_ = Rect2D(260.0f, cy, 75.0f, btnH);
-    snapBounds_ = Rect2D(344.0f, cy, 54.0f, btnH);
-    loopBounds_ = Rect2D(406.0f, cy, 50.0f, btnH);
-    metroBounds_ = Rect2D(462.0f, cy, 50.0f, btnH);
-    browserBounds_ = Rect2D(screenWidth - 100.0f, cy, 88.0f, btnH);
+    CLAY(CLAY_ID("TransportHeaderRoot"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenWidth), CLAY_SIZING_FIXED(height) },
+            .padding = { 12, 12, static_cast<uint16_t>(cy), static_cast<uint16_t>(cy) },
+            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+        }
+    }) {
+        // 1. Logo Button (EB)
+        CLAY(CLAY_ID("TransportLogo"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(32.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 10 to play
+        CLAY(CLAY_ID("GapLogoPlay"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(10.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 2. Play Button
+        CLAY(CLAY_ID("TransportPlay"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(42.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 4 to stop
+        CLAY(CLAY_ID("GapPlayStop"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(4.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 3. Stop Button
+        CLAY(CLAY_ID("TransportStop"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(36.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 10 to time display
+        CLAY(CLAY_ID("GapStopTime"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(10.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 4. Time Display (Nixie)
+        CLAY(CLAY_ID("TransportTimeDisplay"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(105.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 9 to BPM
+        CLAY(CLAY_ID("GapTimeBpm"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(9.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 5. BPM Scrubber
+        CLAY(CLAY_ID("TransportBpm"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(75.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 9 to Snap
+        CLAY(CLAY_ID("GapBpmSnap"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(9.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 6. Snap Quantize
+        CLAY(CLAY_ID("TransportSnap"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(54.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 8 to Loop
+        CLAY(CLAY_ID("GapSnapLoop"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(8.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 7. Loop Toggle
+        CLAY(CLAY_ID("TransportLoop"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(50.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Gap 6 to Metro
+        CLAY(CLAY_ID("GapLoopMetro"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(6.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // 8. Metronome Toggle
+        CLAY(CLAY_ID("TransportMetro"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(50.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+
+        // Center flex-grow spacer
+        CLAY(CLAY_ID("TransportSpacer"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(btnH) }
+            }
+        }) {}
+
+        // 9. Browser Button pinned to right
+        CLAY(CLAY_ID("TransportBrowser"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(88.0f), CLAY_SIZING_FIXED(btnH) } }
+        }) {}
+    }
+}
+
+void TransportHeader::layout(float screenWidth, float height, clay::ClayContext* ctx) {
+    clay::ClayContext* activeCtx = ctx ? ctx : clay::ClayContext::getCurrent();
+    bool isStandalonePass = false;
+
+    if (!activeCtx) {
+        // Shared fallback arena - eliminates the per-widget 512KB micro-arena allocation!
+        static clay::ClayContext s_sharedFallbackCtx;
+        if (!s_sharedFallbackCtx.isInitialized()) {
+            s_sharedFallbackCtx.initialize(screenWidth, height, 512 * 1024);
+        }
+        activeCtx = &s_sharedFallbackCtx;
+        isStandalonePass = true;
+    }
+
+    if (isStandalonePass) {
+        activeCtx->setDimensions(screenWidth, height);
+        activeCtx->makeCurrent();
+        activeCtx->beginLayout();
+        declareLayout(*activeCtx, screenWidth, height);
+        activeCtx->endLayout();
+    }
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D{ b.x, b.y, b.width, b.height };
+    };
+
+    bounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportHeaderRoot")).boundingBox);
+    logoBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportLogo")).boundingBox);
+    playBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportPlay")).boundingBox);
+    stopBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportStop")).boundingBox);
+    timeDisplayBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportTimeDisplay")).boundingBox);
+    bpmBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportBpm")).boundingBox);
+    snapBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportSnap")).boundingBox);
+    loopBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportLoop")).boundingBox);
+    metroBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportMetro")).boundingBox);
+    browserBounds_ = toRect(activeCtx->getElementData(CLAY_ID("TransportBrowser")).boundingBox);
 }
 
 void TransportHeader::render(BatchRenderer2D& r, const ThemeTokens& theme, audio::AudioEngine* engine, bool isBrowserOpen) {

@@ -120,11 +120,13 @@ bool FloatingWindowManager::openDetachedInstrument(uint32_t trackIndex,
     info.renderer->setDirectPresent(true);
 
     // Perform immediate first frame paint
+    BatchRenderer2D::setActiveBatchRenderer(info.renderer.get());
     info.renderer->resize(static_cast<uint32_t>(initW), static_cast<uint32_t>(initH));
     info.renderer->beginFrame(static_cast<float>(initW), static_cast<float>(initH));
     Rect2D initPanelRect{0.0f, 0.0f, static_cast<float>(initW), static_cast<float>(initH)};
     drawGuiFaceplate(*info.renderer, info.panelDef, initPanelRect, currentTheme_, nullptr, 0, -1, -1);
     info.renderer->endFrame();
+    BatchRenderer2D::setActiveBatchRenderer(nullptr);
 
     glfwSetWindowUserPointer(win, this);
     glfwSetWindowCloseCallback(win, [](GLFWwindow* w) {
@@ -270,11 +272,13 @@ void FloatingWindowManager::renderAllWindows(const ThemeTokens& theme) {
         glfwGetFramebufferSize(info.window, &curW, &curH);
         if (curW <= 0 || curH <= 0) continue;
 
+        BatchRenderer2D::setActiveBatchRenderer(info.renderer.get());
         info.renderer->resize(static_cast<uint32_t>(curW), static_cast<uint32_t>(curH));
         info.renderer->beginFrame(static_cast<float>(curW), static_cast<float>(curH));
         Rect2D panelRect{0.0f, 0.0f, static_cast<float>(curW), static_cast<float>(curH)};
         drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, theme, nullptr, 0, info.draggingRow, info.draggingWidget);
         info.renderer->endFrame();
+        BatchRenderer2D::setActiveBatchRenderer(nullptr);
         info.isDirty = false;
     }
 #else
@@ -291,11 +295,13 @@ void FloatingWindowManager::renderWindow(GLFWwindow* w) {
             glfwGetFramebufferSize(info.window, &curW, &curH);
             if (curW <= 0 || curH <= 0) return;
 
+            BatchRenderer2D::setActiveBatchRenderer(info.renderer.get());
             info.renderer->resize(static_cast<uint32_t>(curW), static_cast<uint32_t>(curH));
             info.renderer->beginFrame(static_cast<float>(curW), static_cast<float>(curH));
             Rect2D panelRect{0.0f, 0.0f, static_cast<float>(curW), static_cast<float>(curH)};
             drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, currentTheme_, nullptr, 0, info.draggingRow, info.draggingWidget);
             info.renderer->endFrame();
+            BatchRenderer2D::setActiveBatchRenderer(nullptr);
             info.isDirty = false;
             break;
         }

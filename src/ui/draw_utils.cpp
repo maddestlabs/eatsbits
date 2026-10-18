@@ -1,27 +1,28 @@
 #include "eatsbits/ui/draw_utils.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace eatsbits::ui {
 
-void drawText(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
+void drawText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
               float red, float green, float blue, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
-    drawVectorString(str, x, y, scale, red, green, blue, alpha);
+    drawVectorString(r, str, x, y, scale, red, green, blue, alpha);
 }
 
-void drawCenteredText(BatchRenderer2D& /*r*/, std::string_view str, const Rect2D& bounds,
+void drawCenteredText(BatchRenderer2D& r, std::string_view str, const Rect2D& bounds,
                       float size, const Color& col, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     float cx = bounds.x + bounds.w * 0.5f;
     float cy = bounds.y + bounds.h * 0.5f;
-    drawVectorStringCentered(str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
+    drawVectorStringCentered(r, str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
 }
 
 void drawRotatedText(BatchRenderer2D& r, std::string_view str, float cx, float cy,
                      float angleDegrees, float size, const Color& col, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
     r.setRotation(angleDegrees, cx, cy);
-    drawVectorStringCentered(str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
+    drawVectorStringCentered(r, str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
     r.resetRotation();
 }
 
@@ -94,13 +95,13 @@ void drawPropertiesIcon(BatchRenderer2D& r, float x, float y, float w, float h, 
     drawKnob(x + w * 0.45f, lineY2);
 }
 
-void drawMonoText(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
+void drawMonoText(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                   float red, float green, float blue, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
-    drawMonoString(str, x, y, scale, red, green, blue, alpha);
+    drawMonoString(r, str, x, y, scale, red, green, blue, alpha);
 }
 
-void drawMonoTextClipped(BatchRenderer2D& /*r*/, std::string_view str, float x, float y, float size,
+void drawMonoTextClipped(BatchRenderer2D& r, std::string_view str, float x, float y, float size,
                          float clipMinX, float clipMaxX,
                          float red, float green, float blue, float alpha) {
     if (clipMaxX <= clipMinX || str.empty()) return;
@@ -111,7 +112,7 @@ void drawMonoTextClipped(BatchRenderer2D& /*r*/, std::string_view str, float x, 
         float charX = x + static_cast<float>(i) * charW;
         if (charX + charW > clipMinX && charX < clipMaxX) {
             std::string_view singleChar = str.substr(i, 1);
-            drawMonoString(singleChar, charX, y, scale, red, green, blue, alpha);
+            drawMonoString(r, singleChar, charX, y, scale, red, green, blue, alpha);
         }
     }
 }
@@ -409,4 +410,275 @@ void drawTooltipBadge(BatchRenderer2D& r, std::string_view text, float targetX, 
     }
 }
 
+void drawUnifiedKnob(BatchRenderer2D& r, float cx, float cy, float radius, float normVal,
+                     const KnobStyleCore& style,
+                     std::string_view label, std::string_view valueText,
+                     const ThemeTokens* theme,
+                     bool isActive, bool isHovered) {
+    constexpr float kMinAngle = -2.35619449f; // -135 degrees
+    constexpr float kMaxAngle =  2.35619449f; // +135 degrees
+    float clampedNorm = std::clamp(normVal, 0.0f, 1.0f);
+    float currentAngle = kMinAngle + clampedNorm * (kMaxAngle - kMinAngle);
+
+    bool isLight = theme ? theme->isLight : false;
+    bool isMinimal = (theme && theme->controlMode == ControlAestheticMode::ForceMinimal) ||
+                     (style.surface == RotorSurface::FlatVector);
+
+    Color defaultAccent = theme ? theme->primaryAccent : Color(0.18f, 0.85f, 0.95f, 1.0f);
+    Color arcCol = style.arcColor.value_or(defaultAccent);
+    if (isActive) {
+        arcCol = Color(1.0f, 0.88f, 0.12f, 1.0f);
+    } else if (isHovered) {
+        arcCol = arcCol.lighten(0.18f);
+    }
+
+    // 1. Background Halo / Track Arc
+    float arcR = radius + style.arcRadiusOffset;
+    if (style.arcType != KnobArcType::None && style.arcThickness > 0.0f) {
+        Color trackCol = style.trackColor.value_or(
+            isLight ? Color(0.78f, 0.80f, 0.84f, 0.60f) : Color(0.15f, 0.16f, 0.19f, 0.65f)
+        );
+        r.drawArc(cx, cy, arcR, kMinAngle, kMaxAngle,
+                  trackCol.r, trackCol.g, trackCol.b, trackCol.a, style.arcThickness);
+
+        // Active parameter value arc
+        if (style.arcType == KnobArcType::BipolarCenterZero) {
+            float centerAngle = kMinAngle + style.centerDetentVal * (kMaxAngle - kMinAngle);
+            float a0 = std::min(centerAngle, currentAngle);
+            float a1 = std::max(centerAngle, currentAngle);
+            if (std::abs(a1 - a0) > 0.015f) {
+                r.drawArc(cx, cy, arcR, a0, a1, arcCol.r, arcCol.g, arcCol.b, arcCol.a,
+                          isActive ? (style.arcThickness + 0.6f) : style.arcThickness);
+            }
+        } else if (style.arcType == KnobArcType::Unipolar) {
+            if (clampedNorm > 0.005f) {
+                r.drawArc(cx, cy, arcR, kMinAngle, currentAngle, arcCol.r, arcCol.g, arcCol.b, arcCol.a,
+                          isActive ? (style.arcThickness + 0.6f) : style.arcThickness);
+            }
+        }
+    }
+
+    // 2. Center Detent Indicator Tick
+    if (style.hasCenterDetent) {
+        Color detentCol = isLight ? Color(0.35f, 0.38f, 0.44f, 0.85f) : Color(0.65f, 0.68f, 0.74f, 0.85f);
+        float tickY0 = cy - radius - 1.0f;
+        float tickY1 = cy - arcR - 2.0f;
+        r.drawLine(cx, tickY0, cx, tickY1, detentCol.r, detentCol.g, detentCol.b, detentCol.a, 1.2f);
+    }
+
+    // 3. Drop Shadow onto chassis (bypassed in minimal mode)
+    if (!isMinimal && (!theme || theme->showControlDropShadows)) {
+        r.drawCircle(cx + 0.8f, cy + 1.8f, radius * 1.03f, 0.0f, 0.0f, 0.0f, 0.30f, 28);
+    }
+
+    // 4. Rotor Body (Filmstrip or Procedural Mesh)
+    if (style.filmstripTexture > 0 && style.filmstripFrames > 0) {
+        int frameIndex = std::clamp(static_cast<int>(clampedNorm * (style.filmstripFrames - 1) + 0.5f),
+                                    0, style.filmstripFrames - 1);
+        r.drawFilmstripFrame(style.filmstripTexture,
+                             cx - radius, cy - radius, radius * 2.0f, radius * 2.0f,
+                             frameIndex, style.filmstripFrames, style.filmstripHorizontal);
+    } else if (isMinimal || style.surface == RotorSurface::FlatVector) {
+        // Flat vector aesthetic (gui-minimal / Bitwig / Ableton)
+        Color bodyCol = style.bodyColor.value_or(
+            isLight ? Color(0.88f, 0.89f, 0.92f, 1.0f) : Color(0.12f, 0.13f, 0.15f, 1.0f)
+        );
+        r.drawCircle(cx, cy, radius, bodyCol.r, bodyCol.g, bodyCol.b, bodyCol.a, 32);
+        Color rimCol = isLight ? Color(0.70f, 0.72f, 0.76f, 0.85f) : Color(0.24f, 0.26f, 0.30f, 0.85f);
+        r.drawCircleOutline(cx, cy, radius, rimCol.r, rimCol.g, rimCol.b, rimCol.a, 1.0f, 32);
+    } else if (style.surface == RotorSurface::BrushedAluminum) {
+        // Brushed aluminum finish (gui-variations / SMAOLAB)
+        r.drawCircleRadial3StopGradient(cx, cy, radius,
+                                        0.96f, 0.97f, 0.99f, 1.0f,
+                                        0.84f, 0.85f, 0.88f, 1.0f,
+                                        0.68f, 0.70f, 0.74f, 1.0f,
+                                        -radius * 0.25f, -radius * 0.25f, 0.50f, 32);
+        r.drawCircleOutline(cx, cy, radius, 0.35f, 0.37f, 0.42f, 0.80f, 1.0f, 32);
+        // Inner lathe concentric chamfer
+        r.drawCircleOutline(cx, cy, radius * 0.65f, 1.0f, 1.0f, 1.0f, 0.25f, 0.8f, 24);
+    } else {
+        // Modern Studio Subtle Gradient
+        Color baseCol = style.bodyColor.value_or(
+            isLight ? Color(0.85f, 0.87f, 0.90f, 1.0f) : Color(0.16f, 0.17f, 0.20f, 1.0f)
+        );
+        Color hlCol = baseCol.lighten(isLight ? 0.15f : 0.28f);
+        Color shCol = baseCol.darken(isLight ? 0.22f : 0.35f);
+        r.drawCircleRadial3StopGradient(cx, cy, radius,
+                                        hlCol.r, hlCol.g, hlCol.b, 1.0f,
+                                        baseCol.r, baseCol.g, baseCol.b, 1.0f,
+                                        shCol.r, shCol.g, shCol.b, 1.0f,
+                                        -radius * 0.22f, -radius * 0.22f, 0.50f, 32);
+        r.drawCircleOutline(cx, cy, radius, shCol.r, shCol.g, shCol.b, 0.75f, 1.0f, 32);
+    }
+
+    // 5. Pointer Needle Line (Bypassed if filmstrip renders knob body unless pointer is explicit)
+    if (style.filmstripTexture == 0 || style.pointerColor.has_value()) {
+        float sinA = std::sin(currentAngle);
+        float cosA = std::cos(currentAngle);
+        float pStart = radius * 0.12f;
+        float pEnd   = radius * std::clamp(style.pointerLengthRatio, 0.30f, 0.95f);
+
+        Color ptrCol = style.pointerColor.value_or(
+            isActive ? Color(1.0f, 0.92f, 0.18f, 1.0f) :
+            (isHovered ? Color(0.40f, 0.95f, 1.0f, 1.0f) :
+            (isLight ? Color(0.12f, 0.13f, 0.16f, 0.95f) : Color(0.96f, 0.97f, 0.99f, 0.95f)))
+        );
+
+        r.drawLine(cx + sinA * pStart, cy - cosA * pStart,
+                   cx + sinA * pEnd,   cy - cosA * pEnd,
+                   ptrCol.r, ptrCol.g, ptrCol.b, ptrCol.a, style.pointerWidth);
+    }
+
+    // 6. Typography & Value Display (KnobLayoutMode)
+    Color textCol = style.labelColor.value_or(theme ? theme->textPrimary : Color(0.90f, 0.92f, 0.95f, 0.90f));
+    Color valCol  = style.valueColor.value_or(theme ? theme->textMuted : Color(0.70f, 0.74f, 0.80f, 0.85f));
+
+    if (style.layout == KnobLayoutMode::StackedVertical) {
+        // Standard vertical stack (gui-minimal: title top, value bottom)
+        if (!label.empty()) {
+            float labelY = cy - arcR - 11.5f;
+            drawCenteredText(r, label, cx - 40.0f, labelY, 80.0f, 10.0f, 8.5f, textCol);
+        }
+        if (!valueText.empty()) {
+            float valY = cy + arcR + 3.0f;
+            drawCenteredText(r, valueText, cx - 40.0f, valY, 80.0f, 10.0f, 9.0f, valCol);
+        }
+    } else if (style.layout == KnobLayoutMode::InlineRight) {
+        // SMAOLAB style (gui-variations: value and label stacked to the right)
+        float textX = cx + arcR + 6.0f;
+        if (!valueText.empty()) {
+            drawText(r, valueText, textX, cy - 8.0f, 10.5f, textCol);
+        }
+        if (!label.empty()) {
+            drawText(r, label, textX, cy + 3.5f, 8.5f, valCol);
+        }
+    } else if (style.layout == KnobLayoutMode::InlineLeft) {
+        // Mirrored inline: value and label stacked to the left of the knob
+        float textW = 48.0f;
+        float textX = cx - arcR - textW - 6.0f;
+        if (!valueText.empty()) {
+            drawText(r, valueText, textX, cy - 8.0f, 10.5f, textCol);
+        }
+        if (!label.empty()) {
+            drawText(r, label, textX, cy + 3.5f, 8.5f, valCol);
+        }
+    } else if (style.layout == KnobLayoutMode::BottomStacked) {
+        // gui-astral style: label below knob, value pill badge directly below label
+        if (!label.empty()) {
+            float labelY = cy + arcR + 3.0f;
+            drawCenteredText(r, label, cx - 40.0f, labelY, 80.0f, 10.0f, 9.0f, textCol);
+        }
+        if (!valueText.empty()) {
+            float valY = cy + arcR + 15.0f;
+            float pillW = 54.0f;
+            float pillH = 14.0f;
+            float pillX = cx - pillW * 0.5f;
+            r.drawRoundedRect(pillX, valY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.90f);
+            r.drawRoundedRectOutline(pillX, valY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.80f, 1.0f);
+            drawCenteredText(r, valueText, pillX, valY + 1.0f, pillW, pillH, 8.5f, valCol);
+        }
+    }
+}
+
+void drawUnifiedSlider(BatchRenderer2D& r, const Rect2D& bounds, float normVal,
+                      const SliderStyleCore& style,
+                      const Color& accent,
+                      const ThemeTokens* theme,
+                      bool isActive, bool isHovered) {
+    float clampedNorm = std::clamp(normVal, 0.0f, 1.0f);
+    bool isLight = theme ? theme->isLight : false;
+
+    Color trackCol = style.trackColor.value_or(
+        isLight ? Color(0.80f, 0.82f, 0.86f, 0.95f) : Color(0.10f, 0.11f, 0.13f, 0.95f)
+    );
+    Color fillCol = style.fillColor.value_or(accent);
+    if (isActive) {
+        fillCol = Color(1.0f, 0.88f, 0.12f, 1.0f);
+    } else if (isHovered) {
+        fillCol = fillCol.lighten(0.18f);
+    }
+
+    if (style.orientation == SliderOrientation::Horizontal) {
+        float effH = std::min(bounds.h, style.trackHeight);
+        float trackY = bounds.y + (bounds.h - effH) * 0.5f;
+
+        // 1. Recessed Track Well
+        drawRoundedRect(r, bounds.x, trackY, bounds.w, effH, style.cornerRadius, trackCol);
+        drawRoundedRectOutline(r, bounds.x, trackY, bounds.w, effH, style.cornerRadius,
+                               isLight ? 0.65f : 0.05f, isLight ? 0.65f : 0.05f, isLight ? 0.70f : 0.06f,
+                               0.60f, 1.0f);
+
+        // 2. Value Fill Bar
+        if (style.bipolar) {
+            float midX = bounds.x + bounds.w * 0.5f;
+            float targetX = bounds.x + bounds.w * clampedNorm;
+            float fx = std::min(midX, targetX);
+            float fw = std::abs(targetX - midX);
+            if (fw > 0.5f) {
+                drawRoundedRect(r, fx, trackY, fw, effH, style.cornerRadius, fillCol);
+            }
+        } else {
+            float fw = bounds.w * clampedNorm;
+            if (fw > 0.5f) {
+                drawRoundedRect(r, bounds.x, trackY, fw, effH, style.cornerRadius, fillCol);
+            }
+        }
+
+        // 3. Thumb Cap / Pill / Filmstrip
+        if (style.filmstripTexture > 0 && style.filmstripFrames > 0) {
+            int frameIndex = std::clamp(static_cast<int>(clampedNorm * (style.filmstripFrames - 1) + 0.5f),
+                                        0, style.filmstripFrames - 1);
+            r.drawFilmstripFrame(style.filmstripTexture, bounds.x, bounds.y, bounds.w, bounds.h,
+                                 frameIndex, style.filmstripFrames, style.filmstripHorizontal);
+        } else if (style.thumbStyle == SliderThumbStyle::PillThumb) {
+            float thumbX = bounds.x + bounds.w * clampedNorm;
+            float thumbY = bounds.y + bounds.h * 0.5f;
+            float tRadius = style.thumbRadius > 0.0f ? style.thumbRadius : 5.0f;
+
+            // Subtle drop shadow
+            drawCircle(r, thumbX + 0.5f, thumbY + 1.2f, tRadius * 1.05f, 0.0f, 0.0f, 0.0f, 0.35f);
+
+            // Pill body
+            Color thumbBody = style.thumbColor.value_or(
+                isActive ? Color(1.0f, 0.92f, 0.20f, 1.0f) :
+                (isHovered ? Color(1.0f, 1.0f, 1.0f, 1.0f) :
+                (isLight ? Color(0.92f, 0.94f, 0.96f, 1.0f) : Color(0.85f, 0.87f, 0.90f, 1.0f)))
+            );
+            drawCircle(r, thumbX, thumbY, tRadius, thumbBody.r, thumbBody.g, thumbBody.b, thumbBody.a);
+            drawCircleOutline(r, thumbX, thumbY, tRadius,
+                              isLight ? 0.40f : 0.15f, isLight ? 0.40f : 0.15f, isLight ? 0.45f : 0.18f,
+                              0.85f, 1.0f);
+        }
+    } else {
+        // Vertical Slider Orientation
+        float effW = std::min(bounds.w, style.trackHeight);
+        float trackX = bounds.x + (bounds.w - effW) * 0.5f;
+
+        drawRoundedRect(r, trackX, bounds.y, effW, bounds.h, style.cornerRadius, trackCol);
+
+        float fillH = bounds.h * clampedNorm;
+        float fillY = bounds.y + bounds.h - fillH;
+        if (fillH > 0.5f) {
+            drawRoundedRect(r, trackX, fillY, effW, fillH, style.cornerRadius, fillCol);
+        }
+
+        if (style.filmstripTexture > 0 && style.filmstripFrames > 0) {
+            int frameIndex = std::clamp(static_cast<int>(clampedNorm * (style.filmstripFrames - 1) + 0.5f),
+                                        0, style.filmstripFrames - 1);
+            r.drawFilmstripFrame(style.filmstripTexture, bounds.x, bounds.y, bounds.w, bounds.h,
+                                 frameIndex, style.filmstripFrames, style.filmstripHorizontal);
+        } else if (style.thumbStyle == SliderThumbStyle::PillThumb) {
+            float thumbX = bounds.x + bounds.w * 0.5f;
+            float thumbY = bounds.y + bounds.h * (1.0f - clampedNorm);
+            float tRadius = style.thumbRadius > 0.0f ? style.thumbRadius : 5.0f;
+
+            drawCircle(r, thumbX + 0.5f, thumbY + 1.2f, tRadius * 1.05f, 0.0f, 0.0f, 0.0f, 0.35f);
+            Color thumbBody = style.thumbColor.value_or(Color(0.85f, 0.87f, 0.90f, 1.0f));
+            drawCircle(r, thumbX, thumbY, tRadius, thumbBody.r, thumbBody.g, thumbBody.b, thumbBody.a);
+            drawCircleOutline(r, thumbX, thumbY, tRadius, 0.20f, 0.22f, 0.26f, 0.85f, 1.0f);
+        }
+    }
+}
+
 } // namespace eatsbits::ui
+

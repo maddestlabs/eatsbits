@@ -16,6 +16,7 @@
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/poly_synth_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/clavinet_node.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/audio/graph/nodes/snes_node.hpp"
 #include "eatsbits/audio/graph/nodes/sid_node.hpp"
@@ -309,6 +310,11 @@ struct FontRendererState {
 static FontRendererState* g_activeFontRenderer = nullptr;
 static BatchRenderer2D* g_activeBatchRenderer = nullptr;
 
+inline BatchRenderer2D* getEffectiveBatchRenderer() noexcept {
+    if (g_activeBatchRenderer) return g_activeBatchRenderer;
+    return BatchRenderer2D::getActiveBatchRenderer();
+}
+
 static void renderShapedGlyphs(BatchRenderer2D& renderer, FontRendererState& state,
                                eatsbits::text::FontId primaryFontId, float fontSize,
                                float startX, float baselineY, uint32_t color) {
@@ -332,14 +338,20 @@ static void renderShapedGlyphs(BatchRenderer2D& renderer, FontRendererState& sta
         curX += g.xAdvance;
     }
 
-    if (state.glyphAtlas.isDirty()) {
+    if (renderer.getFontAtlasVersion() != state.glyphAtlas.getVersion()) {
         int dx = 0, dy = 0, dw = 0, dh = 0;
-        state.glyphAtlas.getDirtyBounds(dx, dy, dw, dh);
+        if (renderer.getFontAtlasVersion() != 0 && state.glyphAtlas.isDirty()) {
+            state.glyphAtlas.getDirtyBounds(dx, dy, dw, dh);
+        }
         if (dw > 0 && dh > 0) {
             renderer.updateFontAtlas(dx, dy, dw, dh, state.glyphAtlas.getBuffer(),
                                      state.glyphAtlas.getWidth(), state.glyphAtlas.getHeight());
-            state.glyphAtlas.clearDirty();
+        } else {
+            renderer.updateFontAtlas(0, 0, state.glyphAtlas.getWidth(), state.glyphAtlas.getHeight(),
+                                     state.glyphAtlas.getBuffer(),
+                                     state.glyphAtlas.getWidth(), state.glyphAtlas.getHeight());
         }
+        renderer.setFontAtlasVersion(state.glyphAtlas.getVersion());
     }
 
     constexpr int kMaxBatchGlyphs = 64;
@@ -524,8 +536,9 @@ void drawArc(float cx, float cy, float radius, float startAngle, float endAngle,
 }
 
 void drawLine(float x0, float y0, float x1, float y1, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f) {
-    if (g_activeBatchRenderer) {
-        g_activeBatchRenderer->drawLine(x0, y0, x1, y1, r, g, b, a, lineWidth);
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        ren->drawLine(x0, y0, x1, y1, r, g, b, a, lineWidth);
     }
 }
 
@@ -782,9 +795,9 @@ void drawPlainEatsbitsLogo(float x, float y, float w, float h, const Color& colo
 }
 
 // Clean vector stroke typography for labels and unicode music/box characters
-void drawVectorGlyph(uint32_t c, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
+void drawVectorGlyph(BatchRenderer2D& renderer, uint32_t c, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
     auto seg = [&](float x0, float y0, float x1, float y1) {
-        drawLine(x0, y0, x1, y1, r, g, b, a, 1.5f * scale);
+        renderer.drawLine(x0, y0, x1, y1, r, g, b, a, 1.5f * scale);
     };
 
     if (c < 128) {
@@ -1169,6 +1182,13 @@ void drawVectorGlyph(uint32_t c, float x, float y, float scale, float r, float g
     }
 }
 
+void drawVectorGlyph(uint32_t c, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        drawVectorGlyph(*ren, c, x, y, scale, r, g, b, a);
+    }
+}
+
 inline uint32_t decodeNextUtf8(const char*& p, const char* end) {
     if (p >= end) return 0;
     unsigned char c = static_cast<unsigned char>(*p++);
@@ -1201,7 +1221,7 @@ inline bool isSpecialSymbol(uint32_t cp) {
            (cp >= 0x2190 && cp <= 0x21FF);   // Arrows and swap symbols (⇄, ⇆, etc.)
 }
 
-void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
+void drawVectorString(BatchRenderer2D& renderer, std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
 
     bool hasSpecial = false;
@@ -1212,7 +1232,7 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
         }
     }
 
-    if (g_activeFontRenderer && g_activeBatchRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+    if (g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
         float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
@@ -1235,7 +1255,7 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
                     if (ftAsc > 0.0f) ascender = ftAsc;
                 }
                 float baselineY = y + ascender;
-                renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                renderShapedGlyphs(renderer, *g_activeFontRenderer,
                                    g_activeFontRenderer->fontNormal, fontSize, x, baselineY, col);
                 return;
             }
@@ -1262,7 +1282,7 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
                     continue;
                 }
                 if (isSpecialSymbol(cp)) {
-                    drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+                    drawVectorGlyph(renderer, cp, curX, y, scale, r, g, b, a);
                     curX += charW;
                 } else {
                     std::string_view chunk(prevPtr, static_cast<size_t>(ptr - prevPtr));
@@ -1270,11 +1290,11 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
                                                                    g_activeFontRenderer->fontNormal,
                                                                    fontSize, chunk,
                                                                    g_activeFontRenderer->shapedRun)) {
-                        renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+                        renderShapedGlyphs(renderer, *g_activeFontRenderer,
                                            g_activeFontRenderer->fontNormal, fontSize, curX, baselineY, col);
                         curX += g_activeFontRenderer->shapedRun.totalAdvanceX;
                     } else {
-                        drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+                        drawVectorGlyph(renderer, cp, curX, y, scale, r, g, b, a);
                         curX += charW;
                     }
                 }
@@ -1294,12 +1314,19 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
             curX += charW;
             continue;
         }
-        drawVectorGlyph(cp, curX, y, scale, r, g, b, a);
+        drawVectorGlyph(renderer, cp, curX, y, scale, r, g, b, a);
         curX += charW;
     }
 }
 
-void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
+void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        drawVectorString(*ren, str, x, y, scale, r, g, b, a);
+    }
+}
+
+void drawVectorStringCentered(BatchRenderer2D& renderer, std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
 
     bool hasSpecial = false;
@@ -1310,7 +1337,7 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
         }
     }
 
-    if (!hasSpecial && g_activeFontRenderer && g_activeBatchRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+    if (!hasSpecial && g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
         float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
@@ -1334,7 +1361,7 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
             float totalW = g_activeFontRenderer->shapedRun.totalAdvanceX;
             float startX = cx - (totalW * 0.5f);
             float baselineY = cy + (ascender * 0.35f);
-            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+            renderShapedGlyphs(renderer, *g_activeFontRenderer,
                                g_activeFontRenderer->fontNormal, fontSize, startX, baselineY, col);
             return;
         }
@@ -1344,13 +1371,22 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
     float textW = static_cast<float>(str.size()) * charW;
     float startX = cx - (textW * 0.5f);
     float startY = cy - (4.0f * scale);
-    drawVectorString(str, startX, startY, scale, r, g, b, a);
+    drawVectorString(renderer, str, startX, startY, scale, r, g, b, a);
+}
+
+void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        drawVectorStringCentered(*ren, str, cx, cy, scale, r, g, b, a);
+    }
 }
 
 float drawSyntaxString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
     if (str.empty()) return x;
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (!ren) return x;
 
-    if (g_activeFontRenderer && g_activeBatchRenderer &&
+    if (g_activeFontRenderer &&
         (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
         eatsbits::text::FontId fid = (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId)
                                      ? g_activeFontRenderer->fontMono
@@ -1375,20 +1411,20 @@ float drawSyntaxString(std::string_view str, float x, float y, float scale, floa
                 if (ftAsc > 0.0f) ascender = ftAsc;
             }
             float baselineY = y + ascender;
-            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+            renderShapedGlyphs(*ren, *g_activeFontRenderer,
                                fid, fontSize, x, baselineY, col);
             return x + g_activeFontRenderer->shapedRun.totalAdvanceX;
         }
     }
 
-    drawVectorString(str, x, y, scale, r, g, b, a);
+    drawVectorString(*ren, str, x, y, scale, r, g, b, a);
     return x + static_cast<float>(str.size()) * (7.0f * scale);
 }
 
-void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
+void drawMonoString(BatchRenderer2D& renderer, std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
 
-    if (g_activeFontRenderer && g_activeBatchRenderer &&
+    if (g_activeFontRenderer &&
         (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
         eatsbits::text::FontId fid = (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId)
                                      ? g_activeFontRenderer->fontMono
@@ -1413,13 +1449,20 @@ void drawMonoString(std::string_view str, float x, float y, float scale, float r
                 if (ftAsc > 0.0f) ascender = ftAsc;
             }
             float baselineY = y + ascender;
-            renderShapedGlyphs(*g_activeBatchRenderer, *g_activeFontRenderer,
+            renderShapedGlyphs(renderer, *g_activeFontRenderer,
                                fid, fontSize, x, baselineY, col);
             return;
         }
     }
 
-    drawVectorString(str, x, y, scale, r, g, b, a);
+    drawVectorString(renderer, str, x, y, scale, r, g, b, a);
+}
+
+void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        drawMonoString(*ren, str, x, y, scale, r, g, b, a);
+    }
 }
 #endif
 
@@ -1608,6 +1651,214 @@ inline void renderTb303Knob(float cx, float cy, float kRad, float normVal,
                          isActive ? 0.90f : 1.0f,
                          isActive ? 0.20f : 1.0f, 1.0f);
     }
+}
+
+inline void renderVintageClavinetKnob(float cx, float cy, float kRad, float normVal,
+                                      bool isActive, bool isHovered,
+                                      const std::string& label, const std::string& readout,
+                                      const LightSource2D& light) {
+    constexpr float minAngle = -2.35619449f; // -135 deg
+    constexpr float maxAngle = 2.35619449f;  // +135 deg
+    float currentAngle = minAngle + normVal * (maxAngle - minAngle);
+
+    // 1. Screen-printed dial numbers 0..10 and graduation tick lines
+    constexpr int kTickCount = 11;
+    const float tickStep = (maxAngle - minAngle) / static_cast<float>(kTickCount - 1);
+    float dialR = kRad * 1.30f;
+    float numR = kRad * 1.62f;
+
+    for (int t = 0; t < kTickCount; ++t) {
+        float a = minAngle + static_cast<float>(t) * tickStep;
+        float sa = std::sin(a);
+        float ca = std::cos(a);
+
+        // Tick mark
+        float rStart = dialR;
+        float rEnd = dialR + (t % 5 == 0 ? 5.0f : 3.5f);
+        drawLine(cx + sa * rStart, cy - ca * rStart,
+                 cx + sa * rEnd, cy - ca * rEnd,
+                 Color(0.85f, 0.78f, 0.68f, 0.90f), 1.2f);
+
+        // Digit string "0".."10"
+        std::string numStr = std::to_string(t);
+        float digitW = numStr.size() * 3.5f;
+        float nx = cx + sa * numR - digitW * 0.5f;
+        float ny = cy - ca * numR - 3.5f;
+        drawVectorString(numStr, nx, ny, 0.42f, Color(0.88f, 0.82f, 0.72f, 0.95f));
+    }
+
+    // 2. Drop shadow for knob body
+    drawCircleDropShadow(cx, cy, kRad * 1.05f, 8.0f, light, 0.55f);
+
+    // 3. Knurled fluted skirt
+    int numTeeth = 32;
+    drawKnurledRing(cx, cy, kRad * 0.72f, kRad * 1.04f, numTeeth, currentAngle, light,
+                    0.18f, 0.19f, 0.22f,   // Dark charcoal base
+                    0.38f, 0.40f, 0.45f,   // Specular glint
+                    0.07f, 0.07f, 0.09f);  // Fluted groove
+
+    // 4. Center Cap
+    float capR = kRad * 0.76f;
+    Point lDir = light.getLightDirection(cx, cy);
+    float offX = lDir.x * capR * 0.30f;
+    float offY = lDir.y * capR * 0.30f;
+    drawCircleRadial3StopGradient(cx, cy, capR,
+                                  0.28f, 0.30f, 0.34f, 1.0f, // Top specular
+                                  0.14f, 0.15f, 0.17f, 1.0f, // Body charcoal
+                                  0.08f, 0.08f, 0.09f, 1.0f, // Rim shadow
+                                  offX, offY, 0.50f, 32);
+    drawCircleOutline(cx, cy, capR, 0.40f, 0.42f, 0.48f, 1.0f, 1.2f, 32);
+
+    // 5. Crisp white pointer indicator
+    float sa = std::sin(currentAngle);
+    float ca = std::cos(currentAngle);
+    float iStart = capR * 0.15f;
+    float iEnd = capR * 0.95f;
+    if (isActive) {
+        drawLine(cx + sa * iStart, cy - ca * iStart,
+                 cx + sa * iEnd, cy - ca * iEnd,
+                 Color(1.0f, 0.65f, 0.10f), 2.4f);
+    } else if (isHovered) {
+        drawLine(cx + sa * iStart, cy - ca * iStart,
+                 cx + sa * iEnd, cy - ca * iEnd,
+                 Color(0.20f, 0.90f, 1.0f), 2.2f);
+    } else {
+        drawLine(cx + sa * iStart, cy - ca * iStart,
+                 cx + sa * iEnd, cy - ca * iEnd,
+                 Color(0.98f, 0.98f, 0.98f), 2.0f);
+    }
+
+    // 6. Label below knob in bold warm tan/cream
+    if (!label.empty()) {
+        float labelScale = 0.58f;
+        float labelW = label.size() * 5.6f * labelScale;
+        drawVectorString(label, cx - labelW * 0.5f, cy + kRad * 1.55f + 4.0f,
+                         labelScale, Color(0.92f, 0.86f, 0.78f));
+    }
+
+    // 7. Value readout badge below label
+    std::string text = readout;
+    if (text.empty()) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f", normVal * 10.0f);
+        text = buf;
+    }
+    float badgeW = std::max(text.size() * 7.5f + 14.0f, 32.0f);
+    float badgeH = 16.0f;
+    float badgeX = cx - badgeW * 0.5f;
+    float badgeY = cy + kRad * 1.55f + 20.0f;
+    drawRoundedRect(badgeX, badgeY, badgeW, badgeH, 3.0f, Color(0.08f, 0.08f, 0.10f));
+    drawRoundedRectOutline(badgeX, badgeY, badgeW, badgeH, 3.0f, Color(0.28f, 0.26f, 0.22f), 1.0f);
+    float valScale = 0.50f;
+    float valW = text.size() * 5.4f * valScale;
+    drawVectorString(text, cx - valW * 0.5f, badgeY + 4.0f, valScale,
+                     isActive ? Color(1.0f, 0.65f, 0.10f) : Color(0.85f, 0.82f, 0.76f));
+}
+
+inline void renderClavinetRockerSwitch(float cx, float cy, float normVal,
+                                       bool isActive, bool isHovered,
+                                       const std::string& label,
+                                       const LightSource2D& light,
+                                       float scale = 1.0f) {
+    (void)light; (void)isActive; (void)isHovered;
+    bool isOn = (normVal > 0.5f);
+
+    // Label on top
+    if (!label.empty()) {
+        float labelScale = 0.55f * scale + 0.05f;
+        float labelW = label.size() * 5.6f * labelScale;
+        Color lblColor = isOn ? Color(1.0f, 0.62f, 0.10f) : Color(0.48f, 0.52f, 0.58f);
+        drawVectorString(label, cx - labelW * 0.5f, cy - 28.0f * scale, labelScale, lblColor);
+    }
+
+    // Vertical pill slot
+    float slotW = 20.0f * scale;
+    float slotH = 42.0f * scale;
+    float r = slotW * 0.5f;
+    float slotX = cx - r;
+    float slotY = cy - slotH * 0.5f + 4.0f * scale;
+
+    // Recessed dark well
+    drawRoundedRect(slotX, slotY, slotW, slotH, r, Color(0.06f, 0.05f, 0.04f));
+    drawRoundedRectOutline(slotX, slotY, slotW, slotH, r, Color(0.35f, 0.24f, 0.14f), 1.2f);
+
+    if (isOn) {
+        // Orange rocker paddle illumination when switch is engaged
+        drawRoundedRect(slotX + 1.5f, slotY + 2.0f, slotW - 3.0f, slotH - 4.0f, r * 0.8f, Color(0.92f, 0.44f, 0.05f));
+    }
+
+    // Circular ivory/bone rocker thumb button with tactile dimples
+    float btnY = isOn ? (slotY + slotH - r - 2.0f) : (slotY + r + 2.0f);
+    float btnR = r * 0.86f;
+
+    // Button drop shadow
+    drawCircle(cx, btnY + 1.5f, btnR, 0.02f, 0.02f, 0.02f, 0.5f, 24);
+
+    // Ivory/bone spherical gradient
+    drawCircleRadial3StopGradient(cx, btnY, btnR,
+                                  0.96f, 0.94f, 0.88f, 1.0f, // Top specular
+                                  0.86f, 0.83f, 0.76f, 1.0f, // Bone body
+                                  0.65f, 0.62f, 0.54f, 1.0f, // Underside bevel
+                                  0.0f, -btnR * 0.35f, 0.50f, 24);
+    drawCircleOutline(cx, btnY, btnR, 0.45f, 0.40f, 0.32f, 1.0f, 1.0f, 24);
+
+    // Two small vertical tactile dots (dimples)
+    drawCircle(cx, btnY - 2.5f * scale, 1.0f * scale, 0.35f, 0.30f, 0.24f, 0.9f);
+    drawCircle(cx, btnY + 2.5f * scale, 1.0f * scale, 0.35f, 0.30f, 0.24f, 0.9f);
+}
+
+inline void renderClavinetSlider(float x, float y, float width, float height,
+                                 float normVal, bool isActive, bool isHovered,
+                                 const std::string& label, const std::string& readout,
+                                 const LightSource2D& light, float scale = 1.0f) {
+    (void)height; (void)light; (void)isActive; (void)isHovered;
+    float trkX = x + 24.0f * scale;
+    float trkY = y + 26.0f * scale;
+    float trkW = std::max(40.0f, width - 48.0f * scale);
+    float trkH = 7.0f * scale;
+
+    // Top-left label: "STRING SUSTAIN & YARN DAMPING"
+    if (!label.empty()) {
+        float labelScale = 0.56f * scale + 0.05f;
+        drawVectorString(label, trkX, trkY - 16.0f * scale, labelScale, Color(0.90f, 0.85f, 0.78f));
+    }
+
+    // Top-right readout: "1.0"
+    std::string valStr = readout;
+    if (valStr.empty()) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f", normVal * 10.0f);
+        valStr = buf;
+    }
+    float valScale = 0.58f * scale + 0.05f;
+    float valW = valStr.size() * 5.6f * valScale;
+    drawVectorString(valStr, trkX + trkW - valW, trkY - 16.0f * scale, valScale, Color(0.96f, 0.62f, 0.10f));
+
+    // Horizontal illuminated track groove
+    drawRoundedRect(trkX, trkY - trkH * 0.5f, trkW, trkH, trkH * 0.5f, Color(0.10f, 0.07f, 0.04f));
+    // Warm golden amber active rail
+    float fillW = std::clamp(normVal, 0.0f, 1.0f) * trkW;
+    if (fillW > 2.0f) {
+        drawRoundedRect(trkX, trkY - trkH * 0.5f + 1.0f, fillW, trkH - 2.0f, (trkH - 2.0f) * 0.5f, Color(0.88f, 0.66f, 0.22f));
+    }
+    drawRoundedRectOutline(trkX, trkY - trkH * 0.5f, trkW, trkH, trkH * 0.5f, Color(0.48f, 0.34f, 0.16f), 1.2f);
+
+    // Circular metallic slider thumb button
+    float thumbX = trkX + normVal * trkW;
+    float thumbR = 9.0f * scale;
+    drawCircle(thumbX, trkY + 1.5f, thumbR, 0.04f, 0.03f, 0.02f, 0.55f, 24);
+
+    drawCircleRadial3StopGradient(thumbX, trkY, thumbR,
+                                  0.98f, 0.99f, 1.0f, 1.0f,   // Specular rim
+                                  0.82f, 0.84f, 0.88f, 1.0f,   // Satin metallic
+                                  0.45f, 0.48f, 0.54f, 1.0f,   // Rim shadow
+                                  0.0f, -thumbR * 0.35f, 0.50f, 24);
+    drawCircleOutline(thumbX, trkY, thumbR, 0.32f, 0.34f, 0.40f, 1.0f, 1.0f, 24);
+
+    // Recessed center dimple
+    drawCircle(thumbX, trkY, thumbR * 0.45f, 0.48f, 0.50f, 0.56f, 1.0f, 16);
+    drawCircleOutline(thumbX, trkY, thumbR * 0.45f, 0.25f, 0.27f, 0.32f, 1.0f, 0.8f, 16);
+    drawCircle(thumbX - 1.0f, trkY - 1.0f, 1.2f * scale, 0.98f, 0.98f, 1.0f, 0.85f);
 }
 
 // =========================================================================
@@ -2867,16 +3118,42 @@ namespace {
 void hitTestNodeRecursive(const project::GuiLayoutNode& node, float x, float y, const project::PresetDefinition& preset, HitTestHardwareKnobResult& out, float faceplateX = 40.0f, float faceplateY = 98.0f, float scale = 1.0f) {
     if (out.hit) return;
 
+    float adjNodeY = faceplateY + 54.0f + (node.boundsY - 152.0f) * scale;
+    float adjNodeX = faceplateX + (node.boundsX - 40.0f);
+
     if (node.type == project::GuiNodeType::Knob) {
-        float adjNodeY = faceplateY + 54.0f + (node.boundsY - 152.0f) * scale;
-        float adjNodeX = faceplateX + (node.boundsX - 40.0f);
         float cx = adjNodeX + node.boundsW * 0.5f;
-        float cy = adjNodeY + node.boundsH * 0.35f * (scale < 0.95f ? scale : 1.0f);
-        float radius = std::max(node.size * 0.42f + 4.0f, 18.0f);
-        if (std::hypot(x - cx, y - cy) <= radius) {
+        float cy = adjNodeY + node.boundsH * 0.38f * (scale < 0.95f ? scale : 1.0f);
+        float kRad = node.size * 0.42f;
+        float drawCx = (node.labelAlignment == "inline_right") ? (cx - kRad * 0.65f) : cx;
+        float radius = std::max(kRad + 4.0f, 18.0f);
+        if (std::hypot(x - drawCx, y - cy) <= radius) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {drawCx, cy};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.5f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Switch) {
+        float cx = adjNodeX + node.boundsW * 0.5f;
+        float cy = adjNodeY + node.boundsH * 0.52f * scale;
+        if (std::abs(x - cx) <= 18.0f && std::abs(y - cy) <= 28.0f) {
             out.hit = true;
             out.paramName = node.paramName;
             out.position = {cx, cy};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.0f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Slider) {
+        float trkX = adjNodeX + 24.0f;
+        float trkY = adjNodeY + 20.0f;
+        float trkW = node.boundsW - 52.0f;
+        if (x >= trkX - 10.0f && x <= trkX + trkW + 10.0f && y >= trkY - 12.0f && y <= trkY + 26.0f) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {trkX, trkY};
             const auto* p = preset.findParam(node.paramName);
             out.currentNormVal = p ? p->getNormalized() : 0.5f;
             return;
@@ -2895,11 +3172,36 @@ void hitTestCompactNodeRecursive(const project::GuiLayoutNode& node, float local
     if (node.type == project::GuiNodeType::Knob) {
         float cx = node.boundsX + node.boundsW * 0.5f;
         float cy = node.boundsY + node.boundsH * 0.38f;
-        float radius = std::max(node.size * 0.42f + 4.0f, 18.0f);
-        if (std::hypot(localX - cx, localY - cy) <= radius) {
+        float kRad = node.size * 0.42f;
+        float drawCx = (node.labelAlignment == "inline_right") ? (cx - kRad * 0.65f) : cx;
+        float radius = std::max(kRad + 4.0f, 18.0f);
+        if (std::hypot(localX - drawCx, localY - cy) <= radius) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {drawCx, cy};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.5f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Switch) {
+        float cx = node.boundsX + node.boundsW * 0.5f;
+        float cy = node.boundsY + node.boundsH * 0.50f;
+        if (std::abs(localX - cx) <= 14.0f && std::abs(localY - cy) <= 22.0f) {
             out.hit = true;
             out.paramName = node.paramName;
             out.position = {cx, cy};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.0f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Slider) {
+        float trkX = node.boundsX + 10.0f;
+        float trkY = node.boundsY + node.boundsH * 0.5f;
+        float trkW = node.boundsW - 20.0f;
+        if (localX >= trkX - 8.0f && localX <= trkX + trkW + 8.0f && std::abs(localY - trkY) <= 12.0f) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {trkX, trkY};
             const auto* p = preset.findParam(node.paramName);
             out.currentNormVal = p ? p->getNormalized() : 0.5f;
             return;
@@ -3117,6 +3419,95 @@ void GuiWindow::addTrackToProject(const std::string& name, const std::string& in
     setSelectedTrackIndex(newIdx);
     recordProjectHistory("Add Track " + std::to_string(newIdx + 1), "TRACK");
     setStatusMessage("Added Track " + std::to_string(newIdx + 1) + ": " + trkName);
+}
+
+void GuiWindow::changeTrackInstrument(uint32_t tIdx, const std::string& instId, const std::string& instName) {
+    if (tIdx < arrangerTracks_.size()) {
+        arrangerTracks_[tIdx].instrument = instName;
+        arrangerTracks_[tIdx].instrumentEngine = instId;
+    }
+    if (tIdx < mixerStrips_.size()) {
+        mixerStrips_[tIdx].name = instName;
+    }
+    if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+        auto& trk = modularArrangerView_->getTracks()[tIdx];
+        trk.instrument = instName;
+        trk.instrumentEngine = instId;
+        modularArrangerView_->syncDrawerDataForTrack(tIdx);
+    }
+    if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
+        auto& trk = modularTrackInspectorView_->getTracks()[tIdx];
+        trk.instrument = instName;
+        trk.instrumentEngine = instId;
+        modularTrackInspectorView_->syncKnobsForTrack(trk);
+        modularTrackInspectorView_->updateDrawerData();
+    }
+    if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
+        auto& ch = modularMixerView_->getChannels()[tIdx];
+        ch.instrument = instName;
+    }
+    if (engine_) {
+        engine_->assignTrackInstrument(tIdx, instId.empty() ? instName : instId);
+    }
+    setSelectedTrackIndex(tIdx);
+    syncTrackToPreset(tIdx);
+    recordProjectHistory("Change Track " + std::to_string(tIdx + 1) + " Instrument to " + instName, "INSTRUMENT");
+    setStatusMessage("Changed Track " + std::to_string(tIdx + 1) + " Instrument: " + instName);
+}
+
+void GuiWindow::addAudioFxToTrackIndex(uint32_t trackIdx, const std::string& fxId, const std::string& fxNameHint, const std::string& engineTagHint) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    std::string fxName = fxNameHint.empty() ? fxId : fxNameHint;
+    std::string engineTag = engineTagHint.empty() ? fxId : engineTagHint;
+    const auto* item = project::PresetManager::instance().findPreset(fxId);
+    if (item) {
+        fxName = item->name;
+        engineTag = item->engineTag.empty() ? item->id : item->engineTag;
+    }
+    TrackAudioFxItem fxItem(fxName, engineTag, 0.5f, 0.5f, true);
+    fxItem.id = fxId;
+    project::PresetDefinition def{};
+    if (project::PresetManager::instance().loadPresetDefinition(fxId, def)) {
+        fxItem.populateFromPresetDefinition(def);
+    }
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->getTracks()[trackIdx].audioFx.push_back(fxItem);
+        modularArrangerView_->syncDrawerDataForTrack(trackIdx);
+    }
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
+        modularTrackInspectorView_->getTracks()[trackIdx].audioFxList.push_back(fxItem);
+        modularTrackInspectorView_->updateDrawerData();
+    }
+    syncTrackAudioFxToEngine(trackIdx);
+    syncDesignViewToProject();
+    recordProjectHistory("Add Audio FX " + fxName + " to Track " + std::to_string(trackIdx + 1), "AUDIO_FX");
+    setStatusMessage("Added Audio FX: " + fxName + " to Track " + std::to_string(trackIdx + 1));
+}
+
+void GuiWindow::addMidiFxToTrackIndex(uint32_t trackIdx, const std::string& fxId, const std::string& fxNameHint, const std::string& engineTagHint) {
+    if (trackIdx >= arrangerTracks_.size()) return;
+    std::string fxName = fxNameHint.empty() ? fxId : fxNameHint;
+    std::string engineTag = engineTagHint.empty() ? fxId : engineTagHint;
+    const auto* item = project::PresetManager::instance().findPreset(fxId);
+    if (item) {
+        fxName = item->name;
+        engineTag = (item->engineTag.empty() || item->engineTag == "MIDI Processor" || item->engineTag == "DSP Effect") ? item->name : item->engineTag;
+    }
+    TrackMidiFxItem mfxItem(fxName, engineTag, 0, 0, true);
+    mfxItem.id = fxId;
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        modularArrangerView_->getTracks()[trackIdx].midiFx.push_back(mfxItem);
+        modularArrangerView_->syncDrawerDataForTrack(trackIdx);
+    }
+    if (modularTrackInspectorView_ && trackIdx < modularTrackInspectorView_->getTracks().size()) {
+        modularTrackInspectorView_->getTracks()[trackIdx].midiFxList.push_back(mfxItem);
+        modularTrackInspectorView_->updateDrawerData();
+    }
+    syncTrackMidiFxToEngine(trackIdx);
+    syncArrangerToSequencer();
+    syncDesignViewToProject();
+    recordProjectHistory("Add MIDI FX " + fxName + " to Track " + std::to_string(trackIdx + 1), "MIDI_FX");
+    setStatusMessage("Added MIDI FX: " + fxName + " to Track " + std::to_string(trackIdx + 1));
 }
 
 void GuiWindow::deleteTrack(uint32_t trackIdx) {
@@ -3338,7 +3729,7 @@ void GuiWindow::syncActiveClipToEditView(uint32_t trackIdx, int clipIdx) {
             if (!fx.enabled) continue;
             eatscript::MidiFxInsert ins;
             ins.name = fx.name;
-            ins.type = eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+            ins.type = eatscript::MidiPipelineEngine::detectMidiFxType(fx.id, fx.name + " " + fx.type);
             ins.enabled = fx.enabled;
             ins.params["rootKey"] = static_cast<float>(fx.rootKey);
             ins.params["scaleMode"] = static_cast<float>(fx.scaleMode);
@@ -3378,12 +3769,21 @@ void GuiWindow::syncArrangerToSequencer() {
     uint32_t totalArrangerSteps = std::min(static_cast<uint32_t>(sequencer::MAX_STEPS_PER_TRACK), maxBar * 16u);
     seq.getTransport().setMaxSteps(totalArrangerSteps);
 
+    while (seq.getNumTracks() < numTracks) {
+        uint32_t nextIdx = static_cast<uint32_t>(seq.getNumTracks());
+        audio::NodeId srcId = engine_->getTrackSourceNodeId(nextIdx);
+        seq.addTrack("Track " + std::to_string(nextIdx + 1), (srcId != audio::INVALID_NODE_ID) ? srcId : 0, totalArrangerSteps);
+    }
+
     for (uint32_t t = 0; t < numTracks; ++t) {
-        if (t >= seq.getNumTracks()) break;
         auto* seqTrack = seq.getTrack(t);
         if (!seqTrack) continue;
 
         seqTrack->setNumSteps(totalArrangerSteps);
+        audio::NodeId srcId = engine_->getTrackSourceNodeId(t);
+        if (srcId != audio::INVALID_NODE_ID && srcId != 0) {
+            seqTrack->setTargetNodeId(srcId);
+        }
 
         // Clear all steps to inactive
         for (uint32_t s = 0; s < totalArrangerSteps; ++s) {
@@ -3659,10 +4059,11 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
         insert.id = "mfx_" + std::to_string(i);
         insert.name = fx.name;
         insert.enabled = fx.enabled;
-        insert.type = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+        insert.type = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType(fx.id, fx.name + " " + fx.type);
         if (trackIdx < arrangerTracks_.size()) {
             auto& legacyFx = arrangerTracks_[trackIdx].midiFx;
-            if (insert.type == eatsbits::eatscript::MidiFxType::Arpeggiator && fx.enabled) {
+            if ((insert.type == eatsbits::eatscript::MidiFxType::Arpeggiator ||
+                 insert.type == eatsbits::eatscript::MidiFxType::ChordArp) && fx.enabled) {
                 legacyFx.arpEnabled = true;
             } else if (insert.type == eatsbits::eatscript::MidiFxType::ScaleSnap && fx.enabled) {
                 legacyFx.scaleSnapEnabled = true;
@@ -3671,7 +4072,9 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
             }
         }
         insert.params["rootKey"] = static_cast<float>(fx.rootKey);
+        insert.params["root"] = static_cast<float>(fx.rootKey);
         insert.params["scaleMode"] = static_cast<float>(fx.scaleMode);
+        insert.params["scale"] = static_cast<float>(fx.scaleMode);
 
         // Serialize full parameter set from knobs
         for (const auto& knob : fx.knobs) {
@@ -3690,15 +4093,35 @@ void GuiWindow::syncTrackMidiFxToEngine(uint32_t trackIdx) {
             } else if (kLower == "root" || kLower == "rootkey") {
                 int rk = std::clamp(static_cast<int>(std::round(knob.value * 11.0f)), 0, 11);
                 insert.params["rootKey"] = static_cast<float>(rk);
+                insert.params["root"] = static_cast<float>(rk);
             } else if (kLower == "scale" || kLower == "scalemode") {
                 int sm = std::clamp(static_cast<int>(std::round(knob.value * 6.0f)), 0, 6);
                 insert.params["scaleMode"] = static_cast<float>(sm);
+                insert.params["scale"] = static_cast<float>(sm);
+            } else if (kLower == "voicing") {
+                insert.params["voicing"] = knob.value;
+            } else if (kLower == "inversion") {
+                insert.params["inversion"] = knob.value;
+            } else if (kLower == "pattern") {
+                int pat = std::clamp(static_cast<int>(std::round(knob.value * 8.0f)), 0, 8);
+                insert.params["Pattern"] = static_cast<float>(pat);
+                insert.params["pattern"] = static_cast<float>(pat);
             } else if (kLower == "rate") {
-                insert.params["rate"] = knob.value;
+                int rIdx = std::clamp(static_cast<int>(std::round(knob.value * 6.0f)), 0, 6);
+                static const float kRateSteps[] = {4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f, 0.05f};
+                static const char* kRateDisplays[] = {"1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "50Hz (C64)"};
+                float rateSteps = kRateSteps[rIdx];
+                const_cast<TrackPropertiesKnob&>(knob).display = kRateDisplays[rIdx];
+                insert.params["Rate"] = rateSteps;
+                insert.params["rate"] = rateSteps;
             } else if (kLower == "gate") {
-                insert.params["gate"] = knob.value;
+                float g = std::clamp(0.1f + knob.value * 1.9f, 0.1f, 2.0f);
+                insert.params["Gate"] = g;
+                insert.params["gate"] = g;
             } else if (kLower == "swing") {
-                insert.params["swing"] = knob.value;
+                float sw = knob.value * 0.5f;
+                insert.params["Swing"] = sw;
+                insert.params["swing"] = sw;
             } else if (kLower == "velocity") {
                 insert.params["velocity"] = knob.value;
                 insert.params["humanizeVelocity"] = knob.value;
@@ -3768,7 +4191,7 @@ void GuiWindow::bakeTrackChordsAndFx(uint32_t trackIdx) {
                 if (!fx.enabled) continue;
                 eatscript::MidiFxInsert ins;
                 ins.name = fx.name;
-                ins.type = eatscript::MidiPipelineEngine::detectMidiFxType("", fx.type.empty() ? fx.name : fx.type);
+                ins.type = eatscript::MidiPipelineEngine::detectMidiFxType(fx.id, fx.name + " " + fx.type);
                 ins.enabled = true;
                 ins.params["rootKey"] = static_cast<float>(fx.rootKey);
                 ins.params["scaleMode"] = static_cast<float>(fx.scaleMode);
@@ -3844,6 +4267,92 @@ void GuiWindow::bakeTrackChordsAndFx(uint32_t trackIdx) {
     setStatusMessage("Harmonic chords & MIDI FX baked into Track " + std::to_string(trackIdx + 1) + " Script");
 }
 
+void GuiWindow::auditionTrackNote(uint32_t trackIdx, uint8_t note, float vel) {
+    if (!engine_) return;
+
+    bool hasArp = false;
+    bool isChordArp = false;
+    int arpOctaves = 2;
+    std::string arpPattern = "up";
+    float arpRate = 1.0f; // 1.0 = 16th note (~110ms)
+    float arpGate = 0.85f;
+
+    if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
+        for (const auto& fx : modularArrangerView_->getTracks()[trackIdx].midiFx) {
+            if (!fx.enabled) continue;
+            auto fxType = eatsbits::eatscript::MidiPipelineEngine::detectMidiFxType(fx.id, fx.name + " " + fx.type);
+            if (fxType == eatsbits::eatscript::MidiFxType::Arpeggiator ||
+                fxType == eatsbits::eatscript::MidiFxType::ChordArp) {
+                hasArp = true;
+                if (fxType == eatsbits::eatscript::MidiFxType::ChordArp) isChordArp = true;
+
+                for (const auto& k : fx.knobs) {
+                    std::string kLower = k.name;
+                    for (char& c : kLower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    if (kLower == "octaves" || kLower == "oct") {
+                        arpOctaves = std::clamp(static_cast<int>(std::round(k.value * 3.0f)) + 1, 1, 4);
+                    } else if (kLower == "rate") {
+                        int rIdx = std::clamp(static_cast<int>(std::round(k.value * 6.0f)), 0, 6);
+                        static const float kRateSteps[] = {4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f, 0.05f};
+                        arpRate = kRateSteps[rIdx];
+                    } else if (kLower == "pattern") {
+                        int pInt = std::clamp(static_cast<int>(std::round(k.value * 8.0f)), 0, 8);
+                        static const char* kPats[] = {"up", "down", "updown", "downup", "converge", "diverge", "random", "chord", "asplayed"};
+                        arpPattern = kPats[pInt];
+                    } else if (kLower == "gate") {
+                        arpGate = std::clamp(0.1f + k.value * 1.9f, 0.1f, 1.0f);
+                    }
+                }
+            }
+        }
+    }
+
+    if (hasArp) {
+        std::vector<int> basePitches;
+        basePitches.push_back(note);
+        if (isChordArp) {
+            basePitches.push_back(std::clamp(note + 4, 0, 127));
+            basePitches.push_back(std::clamp(note + 7, 0, 127));
+        }
+        std::sort(basePitches.begin(), basePitches.end());
+
+        std::vector<int> multiOctave;
+        for (int oct = 0; oct < arpOctaves; ++oct) {
+            for (int p : basePitches) {
+                multiOctave.push_back(std::clamp(p + oct * 12, 0, 127));
+            }
+        }
+
+        auto patterned = eatsbits::eatscript::MidiPipelineEngine::generatePatternSequence(multiOctave, arpPattern);
+        std::vector<uint8_t> arpNotes;
+        for (int p : patterned) arpNotes.push_back(static_cast<uint8_t>(p));
+
+        if (arpNotes.size() > 1) {
+            int stepMs = (arpRate <= 0.05f) ? 20 : std::clamp(static_cast<int>(std::round(125.0f * arpRate)), 18, 600);
+            int onMs = std::clamp(static_cast<int>(std::round(stepMs * arpGate)), 12, stepMs - 4);
+            int offMs = std::max(4, stepMs - onMs);
+
+            std::thread([eng = this->engine_, tIdx = static_cast<int>(trackIdx), sequence = std::move(arpNotes), vel, onMs, offMs]() {
+                size_t totalNotes = std::min<size_t>(sequence.size() * 3, 24);
+                for (size_t i = 0; i < totalNotes; ++i) {
+                    uint8_t p = sequence[i % sequence.size()];
+                    eng->postNoteOn(p, vel, false, false, tIdx, false);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(onMs));
+                    eng->postNoteOff(p, tIdx, false);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(offMs));
+                }
+            }).detach();
+            return;
+        }
+    }
+
+    engine_->postNoteOn(note, vel, false, false, static_cast<int>(trackIdx), true);
+    std::thread([eng = this->engine_, tIdx = static_cast<int>(trackIdx), n = note]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(280));
+        eng->postNoteOff(n, tIdx, true);
+    }).detach();
+}
+
 void GuiWindow::stopChordAudition() noexcept {
     if (!auditionChordNotes_.empty() && engine_) {
         uint32_t tIdx = modularArrangerView_ ? modularArrangerView_->getActiveTrackIndex() : selectedTrackIndex_;
@@ -3876,6 +4385,9 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
         else if (eng == "tr909" || inst.find("909") != std::string::npos || name.find("909") != std::string::npos) targetKeyword = "909";
         else if (eng == "dx7" || inst.find("DX7") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
         else if (eng == "piano" || inst.find("Piano") != std::string::npos || name.find("Grand") != std::string::npos) targetKeyword = "piano";
+        else if (eng.find("astral") != std::string::npos || inst.find("astral") != std::string::npos || name.find("astral") != std::string::npos ||
+                 eng.find("Astral") != std::string::npos || inst.find("Astral") != std::string::npos || name.find("Astral") != std::string::npos ||
+                 eng.find("shimmer") != std::string::npos || inst.find("shimmer") != std::string::npos || name.find("Shimmer") != std::string::npos) targetKeyword = "astral";
         else if (!eng.empty() && eng != "synth") targetKeyword = eng;
         else if (!inst.empty() && inst != "synth") targetKeyword = inst;
     }
@@ -3895,6 +4407,7 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
                 auto nodePtr = engine_->getGraph().getNode(nId);
                 if (nodePtr) {
                     if (dynamic_cast<audio::Tb303Node*>(nodePtr.get())) targetKeyword = "303";
+                    else if (dynamic_cast<audio::ClavinetNode*>(nodePtr.get())) targetKeyword = "clavinet";
                     else if (auto* dk = dynamic_cast<audio::DrumKitNode*>(nodePtr.get())) {
                         targetKeyword = (dk->getKitType() == audio::DrumKitType::TR909) ? "909" : "808";
                     }
@@ -4074,8 +4587,9 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
     bool isTb303 = (std::dynamic_pointer_cast<audio::Tb303Node>(nodePtr) != nullptr);
     bool isPoly = (std::dynamic_pointer_cast<audio::PolySynthNode>(nodePtr) != nullptr);
     bool isPhys = (std::dynamic_pointer_cast<audio::PhysicalInstrumentNode>(nodePtr) != nullptr);
+    bool isClav = (std::dynamic_pointer_cast<audio::ClavinetNode>(nodePtr) != nullptr);
 
-    if (!isSnes && !isSid && !isDx7 && !isYm2612 && !isDrums && !isTb303 && !isPoly && !isPhys) {
+    if (!isSnes && !isSid && !isDx7 && !isYm2612 && !isDrums && !isTb303 && !isPoly && !isPhys && !isClav) {
         std::string engHint;
         if (preset) {
             engHint = preset->metadata.engineId + " " + preset->metadata.id;
@@ -4085,7 +4599,8 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
         }
         for (char& c : engHint) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-        if (engHint.find("snes") != std::string::npos || engHint.find("sfxr") != std::string::npos || engHint.find("spc") != std::string::npos) isSnes = true;
+        if (engHint.find("clavinet") != std::string::npos || engHint.find("clav") != std::string::npos || engHint.find("d6") != std::string::npos) isClav = true;
+        else if (engHint.find("snes") != std::string::npos || engHint.find("sfxr") != std::string::npos || engHint.find("spc") != std::string::npos) isSnes = true;
         else if (engHint.find("sid") != std::string::npos || engHint.find("c64") != std::string::npos) isSid = true;
         else if (engHint.find("dx7") != std::string::npos || engHint.find("fm") != std::string::npos || engHint.find("rhodes") != std::string::npos) isDx7 = true;
         else if (engHint.find("ym2612") != std::string::npos || engHint.find("genesis") != std::string::npos) isYm2612 = true;
@@ -4095,7 +4610,42 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
         else isPoly = true;
     }
 
-    if (isTb303) {
+    if (isClav) {
+        if (normKey == "pickupselect" || normKey == "pickup" || normKey == "pickupa/b" || normKey == "pickup_a_b" || normKey == "pickupm") {
+            float val = p ? p->currentVal : normVal;
+            postParam(0, val, "clavinet");
+        } else if (normKey == "phaseinvert" || normKey == "phase" || normKey == "phase(a-b)") {
+            float val = p ? p->currentVal : (normVal > 0.5f ? 1.0f : 0.0f);
+            postParam(1, val, "clavinet");
+        } else if (normKey == "brilliant" || normKey == "brilliance" || normKey == "brill") {
+            float val = p ? p->currentVal : (normVal > 0.5f ? 1.0f : 0.0f);
+            postParam(2, val, "clavinet");
+        } else if (normKey == "treble" || normKey == "treb") {
+            float val = p ? p->currentVal : (normVal > 0.5f ? 1.0f : 0.0f);
+            postParam(3, val, "clavinet");
+        } else if (normKey == "medium" || normKey == "med") {
+            float val = p ? p->currentVal : (normVal > 0.5f ? 1.0f : 0.0f);
+            postParam(4, val, "clavinet");
+        } else if (normKey == "soft") {
+            float val = p ? p->currentVal : (normVal > 0.5f ? 1.0f : 0.0f);
+            postParam(5, val, "clavinet");
+        } else if (normKey == "hammerhardness" || normKey == "hammer") {
+            float val = p ? p->currentVal : (0.2f + normVal * 2.8f);
+            postParam(6, val, "clavinet");
+        } else if (normKey == "hammersnap" || normKey == "snap") {
+            float val = p ? p->currentVal : (normVal * 2.0f);
+            postParam(7, val, "clavinet");
+        } else if (normKey == "sustain") {
+            float val = p ? p->currentVal : (0.8f + normVal * 0.199f);
+            postParam(8, val, "clavinet");
+        } else if (normKey == "damperthump" || normKey == "damper") {
+            float val = p ? p->currentVal : normVal;
+            postParam(9, val, "clavinet");
+        } else if (normKey == "drive" || normKey == "overdrive") {
+            float val = p ? p->currentVal : (0.5f + normVal * 2.5f);
+            postParam(10, val, "clavinet");
+        }
+    } else if (isTb303) {
         if (normKey == "cutoff") {
             float val = p ? p->currentVal : (50.0f + normVal * 9000.0f);
             if (trackIndex == 0) engine_->setCutoff(val);
@@ -4116,8 +4666,24 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
             postParam(5, wave, "tb303");
         } else if (normKey == "drive" || normKey == "overdrive") {
             postParam(6, normVal, "tb303");
+        } else if (normKey == "pitch" || normKey == "tuning") {
+            float val = p ? p->currentVal : ((normVal - 0.5f) * 24.0f);
+            postParam(7, val, "tb303");
+        } else if (normKey == "octave") {
+            float val = p ? p->currentVal : std::round((normVal - 0.5f) * 4.0f);
+            postParam(8, val, "tb303");
+        } else if (normKey == "subvolume" || normKey == "subvol" || normKey == "sub_vol") {
+            postParam(9, normVal, "tb303");
+        } else if (normKey == "subwaveform" || normKey == "subosc" || normKey == "sub_osc") {
+            float wave = (normVal >= 0.5f) ? 1.0f : 0.0f;
+            postParam(10, wave, "tb303");
+        } else if (normKey == "glidecurve" || normKey == "glide_curve" || normKey == "glide") {
+            float curve = p ? p->currentVal : (normVal * 2.0f);
+            postParam(11, curve, "tb303");
         } else if (normKey == "volume" || normKey == "level") {
-            postParam(7, normVal, "tb303");
+            if (trackIndex < arrangerTracks_.size()) {
+                engine_->setTrackVolume(trackIndex, normVal);
+            }
         }
     } else if (isSnes) {
         uint32_t paramId = 999;
@@ -4317,12 +4883,31 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
         }
     } else if (isPoly) {
         if (normKey == "cutoff" || normKey == "filtercutoff") {
-            float val = p ? p->currentVal : (50.0f + normVal * 10000.0f);
+            float val = p ? p->currentVal : (100.0f + normVal * 15900.0f);
             postParam(0, val, "poly");
-        } else if (normKey == "resonance" || normKey == "filterresonance") {
-            postParam(1, normVal, "poly");
+        } else if (normKey == "resonance" || normKey == "filterresonance" || normKey == "reso") {
+            float val = p ? p->currentVal : (0.1f + normVal * 4.9f);
+            postParam(1, val, "poly");
         } else if (normKey == "waveform") {
             postParam(2, std::round(normVal * 3.0f), "poly");
+        } else if (normKey == "attack") {
+            float val = p ? p->currentVal : (0.05f + normVal * 3.95f);
+            postParam(3, val, "poly");
+        } else if (normKey == "decay") {
+            float val = p ? p->currentVal : (0.1f + normVal * 5.9f);
+            postParam(4, val, "poly");
+        } else if (normKey == "sustain") {
+            float val = p ? p->currentVal : normVal;
+            postParam(5, val, "poly");
+        } else if (normKey == "release") {
+            float val = p ? p->currentVal : (0.1f + normVal * 7.9f);
+            postParam(6, val, "poly");
+        } else if (normKey == "detune") {
+            float val = p ? p->currentVal : (1.0f + normVal * 34.0f);
+            postParam(7, val, "poly");
+        } else if (normKey == "warmth" || normKey == "drive") {
+            float val = p ? p->currentVal : normVal;
+            postParam(8, val, "poly");
         }
     }
 }
@@ -4331,13 +4916,17 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     engine_ = &engine;
     engine_->getSequencer().getTransport().setMaxSteps(18 * 16);
     if (engine_->getSequencer().getNumTracks() == 0) {
-        engine_->getSequencer().addTrack("01 TB-303 Acid", 1, 16);
-        engine_->getSequencer().addTrack("02 TR-808 Drums", 2, 16);
-        engine_->getSequencer().addTrack("03 Sub Bass", 3, 16);
-        engine_->getSequencer().addTrack("04 Poly Lead", 4, 16);
-        engine_->getSequencer().addTrack("05 Waveguide Piano", 5, 16);
+        engine_->getSequencer().addTrack("01 TB-303 Acid", engine_->getTrackSourceNodeId(0), 16);
+        engine_->getSequencer().addTrack("02 TR-808 Drums", engine_->getTrackSourceNodeId(1), 16);
+        engine_->getSequencer().addTrack("03 Sub Bass", engine_->getTrackSourceNodeId(2), 16);
+        engine_->getSequencer().addTrack("04 Poly Lead", engine_->getTrackSourceNodeId(3), 16);
+        engine_->getSequencer().addTrack("05 Waveguide Piano", engine_->getTrackSourceNodeId(4), 16);
     }
     for (uint32_t t = 0; t < engine_->getSequencer().getNumTracks(); ++t) {
+        audio::NodeId srcId = engine_->getTrackSourceNodeId(t);
+        if (srcId != audio::INVALID_NODE_ID && srcId != 0) {
+            engine_->getSequencer().getTrack(t)->setTargetNodeId(srcId);
+        }
         syncTrackToPreset(t);
     }
     syncTrackToPreset(0);
@@ -4351,7 +4940,8 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             MixerStrip strip;
             size_t idx = mixerStrips_.size();
             strip.name = (idx == 0) ? "303 Acid Bass" : ((idx == 1) ? "TR-808 Kit" : ((idx == 2) ? "TR-909 Drive" : ((idx == 3) ? "DX7 Rhodes" : "Concert Grand")));
-            strip.nodeId = static_cast<audio::NodeId>(idx + 1);
+            audio::NodeId srcId = engine_->getTrackSourceNodeId(static_cast<uint32_t>(idx));
+            strip.nodeId = (srcId != audio::INVALID_NODE_ID && srcId != 0) ? srcId : static_cast<audio::NodeId>(idx + 1);
             strip.volume = 0.8f;
             mixerStrips_.push_back(strip);
         }
@@ -4368,10 +4958,6 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     projectBrowserDrawerWidget_ = std::make_unique<ProjectBrowserDrawer>();
     transportHeaderWidget_ = std::make_unique<TransportHeader>();
     bottomNavBarWidget_ = std::make_unique<BottomNavBar>();
-    terminalConsoleDrawerWidget_ = std::make_unique<TerminalConsoleDrawer>();
-    if (engine_) {
-        terminalConsoleDrawerWidget_->bindAudioEngine(engine_);
-    }
     syncDesignViewToProject();
 
     bottomNavBarWidget_->onTabSelected = [this](int tabIdx) {
@@ -4387,7 +4973,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     transportHeaderWidget_->onTogglePlay = [this]() {
         if (engine_) {
             if (engine_->getSequencer().isPlaying()) engine_->stopPlayback();
-            else engine_->getSequencer().start();
+            else {
+                syncArrangerToSequencer();
+                engine_->getSequencer().start();
+            }
         }
     };
     transportHeaderWidget_->onStop = [this]() {
@@ -4436,45 +5025,115 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         runMacro(0);
     };
     projectBrowserDrawerWidget_->onAddPresetTrack = [this](const std::string& presetId) {
-        lastStatusMessage_ = "ADDED TRACK: " + presetId;
+        std::string instName = presetId;
+        std::string instEngine = presetId;
+        float r = 1.0f, g = 0.55f, b = 0.0f;
+        const auto* item = project::PresetManager::instance().findPreset(presetId);
+        if (item) {
+            instName = item->name;
+            instEngine = item->engineTag.empty() ? item->id : item->engineTag;
+            r = item->colorR; g = item->colorG; b = item->colorB;
+        } else {
+            for (const auto& p : presets_) {
+                if (p.metadata.id == presetId || p.metadata.name == presetId) {
+                    instName = p.metadata.name;
+                    instEngine = p.metadata.id;
+                    break;
+                }
+            }
+        }
+        addTrackToProject(instName, instEngine, r, g, b);
+        recordProjectHistory("Add Track from Script: " + instName, "TRACK");
+        setStatusMessage("Added Track: " + instName);
+    };
+    projectBrowserDrawerWidget_->onReplaceActiveTrackInstrument = [this](const std::string& scriptId) {
+        if (selectedTrackIndex_ >= arrangerTracks_.size()) return;
+        std::string instName = scriptId;
+        std::string instEngine = scriptId;
+        const auto* item = project::PresetManager::instance().findPreset(scriptId);
+        if (item) {
+            instName = item->name;
+            instEngine = item->engineTag.empty() ? item->id : item->engineTag;
+        } else {
+            for (const auto& p : presets_) {
+                if (p.metadata.id == scriptId || p.metadata.name == scriptId) {
+                    instName = p.metadata.name;
+                    instEngine = p.metadata.id;
+                    break;
+                }
+            }
+        }
+        changeTrackInstrument(selectedTrackIndex_, instEngine, instName);
     };
     projectBrowserDrawerWidget_->onAddAudioFx = [this](const std::string& fxId) {
-        if (!modularArrangerView_ || selectedTrackIndex_ >= modularArrangerView_->getTracks().size()) return;
-        std::string fxName = fxId;
-        std::string engineTag = fxId;
-        const auto* item = project::PresetManager::instance().findPreset(fxId);
-        if (item) {
-            fxName = item->name;
-            engineTag = item->engineTag.empty() ? item->id : item->engineTag;
-        }
-        TrackAudioFxItem fxItem(fxName, engineTag, 0.5f, 0.5f, true);
-        fxItem.id = fxId;
-        project::PresetDefinition def{};
-        if (project::PresetManager::instance().loadPresetDefinition(fxId, def)) {
-            fxItem.populateFromPresetDefinition(def);
-        }
-        modularArrangerView_->getTracks()[selectedTrackIndex_].audioFx.push_back(std::move(fxItem));
-        syncTrackAudioFxToEngine(selectedTrackIndex_);
-        syncDesignViewToProject();
-        recordProjectHistory("Add Audio FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "AUDIO_FX");
-        setStatusMessage("Added Audio FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
+        addAudioFxToTrackIndex(selectedTrackIndex_, fxId);
     };
     projectBrowserDrawerWidget_->onAddMidiFx = [this](const std::string& fxId) {
-        if (!modularArrangerView_ || selectedTrackIndex_ >= modularArrangerView_->getTracks().size()) return;
-        std::string fxName = fxId;
-        std::string engineTag = fxId;
-        const auto* item = project::PresetManager::instance().findPreset(fxId);
+        addMidiFxToTrackIndex(selectedTrackIndex_, fxId);
+    };
+    projectBrowserDrawerWidget_->onDropScript = [this](const BrowserScriptItem& script, float dropX, float dropY) {
+        std::string scriptName = script.name.empty() ? script.id : script.name;
+        std::string engineTag = script.id;
+        float r = 1.0f, g = 0.55f, b = 0.0f;
+        const auto* item = project::PresetManager::instance().findPreset(script.id);
         if (item) {
-            fxName = item->name;
+            scriptName = item->name;
             engineTag = item->engineTag.empty() ? item->id : item->engineTag;
+            r = item->colorR; g = item->colorG; b = item->colorB;
         }
-        TrackMidiFxItem mfxItem(fxName, engineTag, 0, 0, true);
-        mfxItem.id = fxId;
-        modularArrangerView_->getTracks()[selectedTrackIndex_].midiFx.push_back(std::move(mfxItem));
-        syncTrackMidiFxToEngine(selectedTrackIndex_);
-        syncDesignViewToProject();
-        recordProjectHistory("Add MIDI FX " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1), "MIDI_FX");
-        setStatusMessage("Added MIDI FX: " + fxName + " to Track " + std::to_string(selectedTrackIndex_ + 1));
+
+        bool isInstrument = (script.category == "SYNTH" || script.category == "INSTRUMENT");
+        bool isAudioFx = (script.category == "AUDIO_FX");
+        bool isMidiFx = (script.category == "MIDI_FX" || script.category == "MIDI_SEQ");
+
+        // 1. Check if dropped over Track Properties Sidebar / Inspector
+        bool droppedOnProperties = false;
+        if (modularArrangerView_ && modularArrangerView_->isInspectorOpen() &&
+            modularArrangerView_->getPropertiesDrawer().getDrawerBounds().contains(dropX, dropY)) {
+            droppedOnProperties = true;
+        } else if (modularTrackInspectorView_ && activeView_ == WorkspaceView::Track &&
+                   modularTrackInspectorView_->getBounds().contains(dropX, dropY)) {
+            droppedOnProperties = true;
+        }
+
+        if (droppedOnProperties) {
+            if (selectedTrackIndex_ < arrangerTracks_.size()) {
+                if (isInstrument) {
+                    changeTrackInstrument(selectedTrackIndex_, engineTag, scriptName);
+                } else if (isAudioFx) {
+                    addAudioFxToTrackIndex(selectedTrackIndex_, script.id, scriptName, engineTag);
+                } else if (isMidiFx) {
+                    addMidiFxToTrackIndex(selectedTrackIndex_, script.id, scriptName, engineTag);
+                }
+            }
+            return;
+        }
+
+        // 2. Check if dropped over Arranger View
+        if (modularArrangerView_ && activeView_ == WorkspaceView::Arranger) {
+            int targetTrack = modularArrangerView_->getTrackIndexAt(dropX, dropY);
+            if (targetTrack >= 0 && targetTrack < static_cast<int>(arrangerTracks_.size())) {
+                if (isInstrument) {
+                    changeTrackInstrument(static_cast<uint32_t>(targetTrack), engineTag, scriptName);
+                } else if (isAudioFx) {
+                    addAudioFxToTrackIndex(static_cast<uint32_t>(targetTrack), script.id, scriptName, engineTag);
+                } else if (isMidiFx) {
+                    addMidiFxToTrackIndex(static_cast<uint32_t>(targetTrack), script.id, scriptName, engineTag);
+                }
+                return;
+            }
+
+            if (modularArrangerView_->isBelowLastTrack(dropX, dropY)) {
+                if (isInstrument) {
+                    addTrackToProject(scriptName, engineTag, r, g, b);
+                    recordProjectHistory("Add Track from Dropped Script: " + scriptName, "TRACK");
+                    setStatusMessage("Added Track: " + scriptName);
+                } else {
+                    setStatusMessage("Cannot add effect to empty space. Drop on a track.");
+                }
+                return;
+            }
+        }
     };
     projectBrowserDrawerWidget_->onLoadProject = [this](const std::string& filePath) {
         loadProjectFromFile(filePath);
@@ -4735,15 +5394,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::View, "B", [this]() { toggleBrowser(); }
     });
     commandPaletteDialog_.registerCommand({
-        "view.drawer.terminal", "Toggle Terminal Console / Eatscript Shell", "Hardware-accelerated REPL & live audio host inspection",
-        CommandCategory::View, "` / ~", [this]() { toggleTerminalConsole(); }
-    });
-    commandPaletteDialog_.registerCommand({
         "action.play_pause", "Play / Pause Transport", "Toggle global transport playback",
         CommandCategory::Action, "Space", [this]() {
             if (engine_) {
                 if (engine_->getSequencer().isPlaying()) engine_->stopPlayback();
-                else engine_->getSequencer().start();
+                else {
+                    syncArrangerToSequencer();
+                    engine_->getSequencer().start();
+                }
             }
         }
     });
@@ -4841,6 +5499,12 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         });
     }
     commandPaletteDialog_.registerCommand({
+        "view.toggle_minimal_gui", "View: Toggle Minimalist Controls",
+        "Switch between 3D skeuomorphic styling and clean high-performance vector knobs (Bitwig/Ableton style)",
+        CommandCategory::View, "Alt+M",
+        [this]() { toggleMinimalGui(); }
+    });
+    commandPaletteDialog_.registerCommand({
         "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern",
         CommandCategory::Macro, "", [this]() { runMacro(0); }
     });
@@ -4894,13 +5558,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             dispatchTrackParam(idx, paramName, normVal);
         };
         modularArrangerView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
-            if (engine_) {
-                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
-                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
-                    eng->postNoteOff(n, trackIdx);
-                }).detach();
-            }
+            auditionTrackNote(idx, note, vel);
         };
         modularArrangerView_->onClipsChanged = [this]() {
             syncArrangerToSequencer();
@@ -4989,12 +5647,18 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         };
         modularArrangerView_->onMidiFxChanged = [this](uint32_t idx) {
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
+        };
+        modularArrangerView_->onMidiFxParamChanged = [this](uint32_t idx, const std::string&, float) {
+            syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularArrangerView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
             syncTrackAudioFxToEngine(idx);
         };
         modularArrangerView_->onToggleMidiFx = [this](uint32_t idx, size_t fxIdx, bool en) {
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularArrangerView_->onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
             if (engine_) {
@@ -5044,37 +5708,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             deleteClip(tIdx, cIdx);
         };
         modularArrangerView_->onInstrumentChanged = [this](uint32_t tIdx, const std::string& instId, const std::string& instName) {
-            if (tIdx < arrangerTracks_.size()) {
-                arrangerTracks_[tIdx].instrument = instName;
-                arrangerTracks_[tIdx].instrumentEngine = instId;
-            }
-            if (tIdx < mixerStrips_.size()) {
-                mixerStrips_[tIdx].name = instName;
-            }
-            if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
-                auto& trk = modularArrangerView_->getTracks()[tIdx];
-                trk.instrument = instName;
-                trk.instrumentEngine = instId;
-                modularArrangerView_->syncDrawerDataForTrack(tIdx);
-            }
-            if (modularTrackInspectorView_ && tIdx < modularTrackInspectorView_->getTracks().size()) {
-                auto& trk = modularTrackInspectorView_->getTracks()[tIdx];
-                trk.instrument = instName;
-                trk.instrumentEngine = instId;
-                modularTrackInspectorView_->syncKnobsForTrack(trk);
-                modularTrackInspectorView_->updateDrawerData();
-            }
-            if (modularMixerView_ && tIdx < modularMixerView_->getChannels().size()) {
-                auto& ch = modularMixerView_->getChannels()[tIdx];
-                ch.instrument = instName;
-            }
-            if (engine_) {
-                engine_->assignTrackInstrument(tIdx, instId.empty() ? instName : instId);
-            }
-            setSelectedTrackIndex(tIdx);
-            syncTrackToPreset(tIdx);
-            recordProjectHistory("Change Track " + std::to_string(tIdx + 1) + " Instrument to " + instName, "INSTRUMENT");
-            setStatusMessage("Changed Track " + std::to_string(tIdx + 1) + " Instrument: " + instName);
+            changeTrackInstrument(tIdx, instId, instName);
         };
     }
 
@@ -5182,13 +5816,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             dispatchTrackParam(idx, paramName, normVal);
         };
         modularTrackInspectorView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
-            if (engine_) {
-                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
-                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
-                    eng->postNoteOff(n, trackIdx);
-                }).detach();
-            }
+            auditionTrackNote(idx, note, vel);
         };
         modularTrackInspectorView_->onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
             if (modularArrangerView_ && modularTrackInspectorView_) {
@@ -5208,6 +5836,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
             dispatchHardwareParam(paramName, normVal);
         };
         modularTrackInspectorView_->onAddMidiFx = [this](uint32_t idx) {
@@ -5217,6 +5846,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularTrackInspectorView_->onAddAudioFx = [this](uint32_t idx) {
             if (modularArrangerView_ && modularTrackInspectorView_) {
@@ -5243,6 +5873,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularTrackInspectorView_->onReorderAudioFx = [this](uint32_t idx, size_t fromIdx, size_t toIdx) {
             (void)fromIdx; (void)toIdx;
@@ -5261,6 +5892,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularTrackInspectorView_->onRemoveAudioFx = [this](uint32_t idx, size_t fxIdx) {
             (void)fxIdx;
@@ -5279,6 +5911,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularTrackInspectorView_->onAudioFxChanged = [this](uint32_t idx) {
             if (modularArrangerView_ && modularTrackInspectorView_) {
@@ -5295,6 +5928,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularTrackInspectorView_->onScrollChanged = [this](float sY) {
             trackInspectorScrollY_ = sY;
@@ -5375,29 +6009,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             deleteClip(tIdx, cIdx);
         };
         modularTrackInspectorView_->onInstrumentChanged = [this](uint32_t idx, const std::string& instId, const std::string& instName) {
-            if (idx < arrangerTracks_.size()) {
-                arrangerTracks_[idx].instrument = instName;
-                arrangerTracks_[idx].instrumentEngine = instId;
-            }
-            if (idx < mixerStrips_.size()) {
-                mixerStrips_[idx].name = instName;
-            }
-            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
-                modularArrangerView_->getTracks()[idx].instrument = instName;
-                modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
-                modularArrangerView_->syncDrawerDataForTrack(idx);
-            }
-            if (modularMixerView_ && idx < modularMixerView_->getChannels().size()) {
-                auto& ch = modularMixerView_->getChannels()[idx];
-                ch.instrument = instName;
-            }
-            if (engine_) {
-                engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
-            }
-            setSelectedTrackIndex(idx);
-            syncTrackToPreset(idx);
-            recordProjectHistory("Change Track " + std::to_string(idx + 1) + " Instrument to " + instName, "INSTRUMENT");
-            setStatusMessage("Changed Track " + std::to_string(idx + 1) + " Instrument: " + instName);
+            changeTrackInstrument(idx, instId, instName);
         };
     }
 
@@ -5561,13 +6173,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         dispatchTrackParam(idx, paramName, normVal);
     };
     fullscreenDeviceModal_.onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
-        if (engine_) {
-            engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
-            std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(280));
-                eng->postNoteOff(n, trackIdx);
-            }).detach();
-        }
+        auditionTrackNote(idx, note, vel);
     };
     fullscreenDeviceModal_.onAudioFxParamChanged = [this](uint32_t idx, size_t fxIdx, const std::string& paramName, float normVal) {
         if (engine_) {
@@ -5610,6 +6216,26 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                     } else if (kLower == "scale" || kLower == "scalemode") {
                         int sm = std::clamp(static_cast<int>(std::round(normVal * 6.0f)), 0, 6);
                         rack[fxIdx].params["scaleMode"] = static_cast<float>(sm);
+                    } else if (kLower == "pattern") {
+                        int pat = std::clamp(static_cast<int>(std::round(normVal * 8.0f)), 0, 8);
+                        rack[fxIdx].params["Pattern"] = static_cast<float>(pat);
+                        rack[fxIdx].params["pattern"] = static_cast<float>(pat);
+                    } else if (kLower == "rate") {
+                        int rIdx = std::clamp(static_cast<int>(std::round(normVal * 3.0f)), 0, 3);
+                        float rateSteps = 1.0f;
+                        if (rIdx == 0) rateSteps = 4.0f;
+                        else if (rIdx == 1) rateSteps = 2.0f;
+                        else if (rIdx == 2) rateSteps = 1.0f;
+                        else if (rIdx == 3) rateSteps = 0.5f;
+                        rack[fxIdx].params["Rate"] = rateSteps;
+                        rack[fxIdx].params["rate"] = rateSteps;
+                    } else if (kLower == "gate") {
+                        float g = std::clamp(0.1f + normVal * 1.9f, 0.1f, 2.0f);
+                        rack[fxIdx].params["Gate"] = g;
+                        rack[fxIdx].params["gate"] = g;
+                    } else if (kLower == "swing") {
+                        rack[fxIdx].params["Swing"] = normVal * 0.5f;
+                        rack[fxIdx].params["swing"] = normVal * 0.5f;
                     } else if (kLower == "velocity") {
                         rack[fxIdx].params["humanizeVelocity"] = normVal;
                     } else if (kLower == "timing") {
@@ -5637,6 +6263,8 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 }
             }
         }
+        syncTrackMidiFxToEngine(idx);
+        syncArrangerToSequencer();
         dispatchHardwareParam(paramName, normVal);
     };
     fullscreenDeviceModal_.onOpenValueEdit = [this](const ValueEditRequest& req) {
@@ -5683,13 +6311,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             dispatchTrackParam(idx, paramName, normVal);
         };
         modularMixerView_->onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
-            if (engine_) {
-                engine_->postNoteOn(note, vel, false, false, static_cast<int>(idx));
-                std::thread([eng = this->engine_, trackIdx = static_cast<int>(idx), n = note]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(280));
-                    eng->postNoteOff(n, trackIdx);
-                }).detach();
-            }
+            auditionTrackNote(idx, note, vel);
         };
         modularMixerView_->onMuteToggled = [this](uint32_t idx, bool mute) {
             setTrackMuteState(idx, mute);
@@ -5734,6 +6356,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 modularArrangerView_->getTracks()[idx].midiFx = modularMixerView_->getChannels()[idx].midiFx;
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularMixerView_->onToggleAudioFx = [this](uint32_t idx, size_t fxIdx, bool en) {
             (void)fxIdx;
@@ -5752,6 +6375,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                 modularArrangerView_->getTracks()[idx].midiFx = modularMixerView_->getChannels()[idx].midiFx;
             }
             syncTrackMidiFxToEngine(idx);
+            syncArrangerToSequencer();
         };
         modularMixerView_->onOpenFullscreenDevice = [this](uint32_t idx) {
             openFullscreenDevice(idx);
@@ -5808,32 +6432,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             deleteClip(tIdx, cIdx);
         };
         modularMixerView_->onInstrumentChanged = [this](uint32_t idx, const std::string& instId, const std::string& instName) {
-            if (idx < arrangerTracks_.size()) {
-                arrangerTracks_[idx].instrument = instName;
-                arrangerTracks_[idx].instrumentEngine = instId;
-            }
-            if (idx < mixerStrips_.size()) {
-                mixerStrips_[idx].name = instName;
-            }
-            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
-                modularArrangerView_->getTracks()[idx].instrument = instName;
-                modularArrangerView_->getTracks()[idx].instrumentEngine = instId;
-                modularArrangerView_->syncDrawerDataForTrack(idx);
-            }
-            if (modularTrackInspectorView_ && idx < modularTrackInspectorView_->getTracks().size()) {
-                auto& trk = modularTrackInspectorView_->getTracks()[idx];
-                trk.instrument = instName;
-                trk.instrumentEngine = instId;
-                modularTrackInspectorView_->syncKnobsForTrack(trk);
-                modularTrackInspectorView_->updateDrawerData();
-            }
-            if (engine_) {
-                engine_->assignTrackInstrument(idx, instId.empty() ? instName : instId);
-            }
-            setSelectedTrackIndex(idx);
-            syncTrackToPreset(idx);
-            recordProjectHistory("Change Track " + std::to_string(idx + 1) + " Instrument to " + instName, "INSTRUMENT");
-            setStatusMessage("Changed Track " + std::to_string(idx + 1) + " Instrument: " + instName);
+            changeTrackInstrument(idx, instId, instName);
         };
         modularMixerView_->onTrackChordFollowChanged = [this](uint32_t idx, theory::ChordFollowMode mode) {
             if (idx < arrangerTracks_.size()) {
@@ -5919,12 +6518,95 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     if (modularDesignView_) {
         modularDesignView_->onParamChanged = [this](const std::string& targetId, const std::string& paramName, float val) {
-            (void)targetId;
+            if (targetId.rfind("track_", 0) == 0) {
+                size_t mfxPos = targetId.find("_mfx_");
+                size_t afxPos = targetId.find("_afx_");
+                if (mfxPos != std::string::npos) {
+                    try {
+                        uint32_t tIdx = static_cast<uint32_t>(std::stoul(targetId.substr(6, mfxPos - 6)));
+                        size_t fxIdx = static_cast<size_t>(std::stoul(targetId.substr(mfxPos + 5)));
+                        if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                            auto& trk = modularArrangerView_->getTracks()[tIdx];
+                            if (fxIdx < trk.midiFx.size()) {
+                                for (auto& k : trk.midiFx[fxIdx].knobs) {
+                                    if (k.name == paramName) {
+                                        k.value = val;
+                                        break;
+                                    }
+                                }
+                                syncTrackMidiFxToEngine(tIdx);
+                                syncArrangerToSequencer();
+                            }
+                        }
+                    } catch (...) {}
+                    dispatchHardwareParam(paramName, val);
+                    return;
+                } else if (afxPos != std::string::npos) {
+                    try {
+                        uint32_t tIdx = static_cast<uint32_t>(std::stoul(targetId.substr(6, afxPos - 6)));
+                        size_t fxIdx = static_cast<size_t>(std::stoul(targetId.substr(afxPos + 5)));
+                        if (modularArrangerView_ && tIdx < modularArrangerView_->getTracks().size()) {
+                            auto& trk = modularArrangerView_->getTracks()[tIdx];
+                            if (fxIdx < trk.audioFx.size()) {
+                                for (auto& k : trk.audioFx[fxIdx].knobs) {
+                                    if (k.name == paramName) {
+                                        k.value = val;
+                                        break;
+                                    }
+                                }
+                                syncTrackAudioFxToEngine(tIdx);
+                            }
+                        }
+                        if (engine_) {
+                            engine_->setTrackAudioFxParam(tIdx, fxIdx, paramName, val);
+                        }
+                    } catch (...) {}
+                    dispatchHardwareParam(paramName, val);
+                    return;
+                }
+            }
             dispatchHardwareParam(paramName, val);
         };
         modularDesignView_->onCompileScript = [this](const std::string& targetId, const std::string& code) {
             setScriptCode(code);
             compileActiveScript();
+
+            if (modularDesignView_) {
+                const auto& target = modularDesignView_->getActiveTarget();
+                const auto& editedGui = modularDesignView_->getGuiPanel();
+
+                if (target.trackIndex >= 0 && static_cast<size_t>(target.trackIndex) < arrangerTracks_.size()) {
+                    auto& trk = arrangerTracks_[target.trackIndex];
+                    if (target.type == ScriptTargetType::TrackDsp) {
+                        trk.customGuiPanel = editedGui;
+                        if (modularArrangerView_ && target.trackIndex < static_cast<int>(modularArrangerView_->getTracks().size())) {
+                            modularArrangerView_->getTracks()[target.trackIndex].customGuiPanel = editedGui;
+                        }
+                    } else if (target.type == ScriptTargetType::MidiFx && target.fxIndex >= 0) {
+                        if (modularArrangerView_ && target.trackIndex < static_cast<int>(modularArrangerView_->getTracks().size())) {
+                            auto& aTrk = modularArrangerView_->getTracks()[target.trackIndex];
+                            if (static_cast<size_t>(target.fxIndex) < aTrk.midiFx.size()) {
+                                aTrk.midiFx[target.fxIndex].customGuiPanel = editedGui;
+                            }
+                        }
+                    } else if (target.type == ScriptTargetType::AudioFx && target.fxIndex >= 0) {
+                        if (modularArrangerView_ && target.trackIndex < static_cast<int>(modularArrangerView_->getTracks().size())) {
+                            auto& aTrk = modularArrangerView_->getTracks()[target.trackIndex];
+                            if (static_cast<size_t>(target.fxIndex) < aTrk.audioFx.size()) {
+                                aTrk.audioFx[target.fxIndex].customGuiPanel = editedGui;
+                            }
+                        }
+                    }
+
+                    if (modularArrangerView_) {
+                        modularArrangerView_->syncDrawerDataForTrack(static_cast<uint32_t>(target.trackIndex));
+                        if (modularTrackInspectorView_) {
+                            modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                        }
+                        fullscreenDeviceModal_.syncData(modularArrangerView_->getDrawerData());
+                    }
+                }
+            }
         };
         modularDesignView_->onCopyToClipboard = [this](const std::string& text) {
 #if EATS_HAS_GLFW
@@ -6455,6 +7137,9 @@ void GuiWindow::close() noexcept {
     dawnBridge_.shutdownNative();
     if (g_activeBatchRenderer == batchRenderer_.get()) {
         g_activeBatchRenderer = nullptr;
+    }
+    if (g_activeFontRenderer == fontRenderer_.get()) {
+        g_activeFontRenderer = nullptr;
     }
     batchRenderer_.reset();
     fontRenderer_.reset();
@@ -7275,18 +7960,6 @@ void GuiWindow::renderFrame() {
             }
         }
 
-        // =========================================================================
-        // IN-DAW WEBGPU TERMINAL & LIVE EATSCRIPT REPL CONSOLE DRAWER
-        // =========================================================================
-        if (terminalConsoleDrawerWidget_) {
-            terminalConsoleDrawerWidget_->layout(static_cast<float>(width_), bPanelY, renderScale_);
-            FrameTimeContext ftc{};
-            ftc.deltaTime = frameDt;
-            terminalConsoleDrawerWidget_->update(ftc);
-            if (batchRenderer_) {
-                terminalConsoleDrawerWidget_->render(*batchRenderer_, getTheme(), renderScale_);
-            }
-        }
         } // End of !fullscreenDeviceModal_.isOpen()
 
         // =========================================================================
@@ -7322,7 +7995,7 @@ void GuiWindow::renderFrame() {
             if (projectHubSection_ >= 0) {
                 if (projectHubSection_ == 0) curDrawerH = 190.0f;
                 else if (projectHubSection_ == 1) curDrawerH = 186.0f;
-                else if (projectHubSection_ == 2) curDrawerH = 244.0f;
+                else if (projectHubSection_ == 2) curDrawerH = 270.0f;
                 else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
                 else if (projectHubSection_ == 4) curDrawerH = 176.0f;
                 else if (projectHubSection_ == 5) curDrawerH = 100.0f;
@@ -7699,6 +8372,17 @@ void GuiWindow::renderFrame() {
                                               guiAnimationsEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
                         drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
+
+                        // Minimalist Controls toggle (Performance Vector Knobs & Sliders)
+                        bool isMin = isMinimalGuiEnabled();
+                        drawVectorString("Minimalist Controls (Performance Vector Knobs)", hubX + 28.0f, contentY + 238.0f, 0.85f, theme.textPrimary);
+                        drawVectorString("Bypasses 3D skeuomorphism for clean vector dials (Bitwig/Ableton)", hubX + 28.0f, contentY + 252.0f, 0.62f, theme.textMuted);
+                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
+                                       isMin ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
+                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
+                                              isMin ? theme.primaryAccent : theme.borderSubtle, 1.0f);
+                        drawCircle(isMin ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 244.0f, 7.0f,
+                                   isMin ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
                         // SECTION 3: CRT SHADER (Scrollable within constrained drawer space)
                         const float contentBaseY = drawerY - projectHubScrollY_;
@@ -7981,7 +8665,6 @@ void GuiWindow::renderFrame() {
             batchRenderer_->endFrame();
         }
         g_activeBatchRenderer = nullptr;
-        g_activeFontRenderer = nullptr;
         ScoreVectorGlyphs::setBatchRenderer(nullptr);
     }
 #endif
@@ -8076,6 +8759,7 @@ DialogLayout GuiWindow::drawModalDialogFrame(const DialogFrameConfig& config) {
 void GuiWindow::initFontRenderer() {
 #if EATS_HAS_GLFW
     fontRenderer_ = std::make_unique<FontRendererState>();
+    g_activeFontRenderer = fontRenderer_.get();
 
     // Prioritize Oswald for primary UI typography
     std::vector<std::string> searchPaths;
@@ -8908,6 +9592,9 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
             } else if (bg == "convolver_faceplate") {
                 drawRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f);
                 drawRectOutline(pX, pY, pW, pH, 0.0f, 0.90f, 1.0f, 1.0f, 1.5f);
+            } else if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
+                drawRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f);
+                drawRectOutline(pX, pY, pW, pH, 0.65f, 0.42f, 0.18f, 1.0f, 1.5f);
             } else if (bg == "silver") {
                 drawRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f);
                 drawRectOutline(pX, pY, pW, pH, 0.45f, 0.50f, 0.62f, 1.0f, 1.5f);
@@ -8917,8 +9604,14 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
             }
 
             // Top Compact Banner Bar (Height = 28px)
-            drawRect(pX, pY, pW, 28.0f, 0.07f, 0.08f, 0.11f);
-            drawLine(pX, pY + 28.0f, pX + pW, pY + 28.0f, 0.25f, 0.30f, 0.38f, 1.0f, 1.2f);
+            drawRect(pX, pY, pW, 28.0f, (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.12f : 0.07f,
+                                        (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.07f : 0.08f,
+                                        (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.04f : 0.11f);
+            drawLine(pX, pY + 28.0f, pX + pW, pY + 28.0f,
+                     (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.50f : 0.25f,
+                     (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.32f : 0.30f,
+                     (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.14f : 0.38f,
+                     1.0f, 1.2f);
 
             // Preset Navigation: < and >
             drawRectGradient(pX + 6.0f, pY + 4.0f, 32.0f, 20.0f, 0.18f, 0.20f, 0.26f, 0.10f, 0.11f, 0.15f);
@@ -8950,23 +9643,40 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                 if (node.type == project::GuiNodeType::Row || node.type == project::GuiNodeType::Column || node.type == project::GuiNodeType::Panel) {
                     for (const auto& c : node.children) renderCompactNode(c);
                 } else if (node.type == project::GuiNodeType::Group) {
-                    drawRoundedRect(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 3.0f, Color(0.08f, 0.09f, 0.12f));
-                    drawRoundedRectOutline(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 3.0f, Color(0.20f, 0.24f, 0.30f), 1.0f);
-                    if (!node.label.empty()) {
-                        drawVectorString(node.label, adjNodeX + 4.0f, adjNodeY + 3.0f, 0.50f * scale + 0.15f, Color(0.60f, 0.65f, 0.75f));
+                    if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
+                        drawRoundedRectGradient(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 4.0f,
+                                                Color(0.17f, 0.11f, 0.07f), Color(0.12f, 0.08f, 0.05f));
+                        drawRoundedRectOutline(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 4.0f,
+                                               Color(0.50f, 0.32f, 0.14f), 1.2f);
+                        if (!node.label.empty()) {
+                            float lScale = 0.50f * scale + 0.15f;
+                            float lW = node.label.size() * 5.6f * lScale;
+                            float tX = adjNodeX + (adjNodeW - lW) * 0.5f;
+                            drawVectorString(node.label, tX, adjNodeY + 3.0f, lScale, Color(0.96f, 0.58f, 0.10f));
+                        }
+                    } else {
+                        drawRoundedRect(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 3.0f, Color(0.08f, 0.09f, 0.12f));
+                        drawRoundedRectOutline(adjNodeX, adjNodeY, adjNodeW, adjNodeH, 3.0f, Color(0.20f, 0.24f, 0.30f), 1.0f);
+                        if (!node.label.empty()) {
+                            drawVectorString(node.label, adjNodeX + 4.0f, adjNodeY + 3.0f, 0.50f * scale + 0.15f, Color(0.60f, 0.65f, 0.75f));
+                        }
                     }
                     for (const auto& c : node.children) renderCompactNode(c);
                 } else if (node.type == project::GuiNodeType::Knob) {
                     float cx = adjNodeX + adjNodeW * 0.5f;
                     float cy = adjNodeY + adjNodeH * 0.38f;
                     float kRad = node.size * 0.42f * scale;
+                    float drawCx = (node.labelAlignment == "inline_right") ? (cx - kRad * 0.65f) : cx;
                     const auto* p = preset->findParam(node.paramName);
                     float normVal = p ? p->getNormalized() : 0.5f;
                     bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
-                    bool isHovered = (std::hypot(mouseX_ - cx, mouseY_ - cy) <= kRad * 1.5f);
+                    bool isHovered = (std::hypot(mouseX_ - drawCx, mouseY_ - cy) <= kRad * 1.5f);
                     const auto& light = Theme::current().globalLight;
 
-                    if (node.hardwareStyle == "tb303_potentiometer" || node.hardwareStyle == "tb303_selector" ||
+                    if (node.hardwareStyle == "vintage" || bg == "walnut" || bg == "wood" || bg == "clavinet") {
+                        std::string readout = p ? p->getFormatted() : "";
+                        renderVintageClavinetKnob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light);
+                    } else if (node.hardwareStyle == "tb303_potentiometer" || node.hardwareStyle == "tb303_selector" ||
                         preset->metadata.id == "eats_303" || preset->metadata.engineId == "tb303") {
                         std::string readout = p ? p->getFormatted() : "";
                         renderTb303Knob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light, node.hardwareStyle == "tb303_selector");
@@ -8982,16 +9692,53 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                         else if (s == "bakelite" || s == "bakelite_skirt") kStyle = GuiKnobStyle::BakeliteSkirt;
                         else if (s == "anodized") kStyle = GuiKnobStyle::AnodizedKnurled;
                         else if (s == "twoToneStepped" || s == "two_tone_stepped") kStyle = GuiKnobStyle::TwoToneStepped;
+                        else if (s == "studio_clean" || s == "clean") kStyle = GuiKnobStyle::StudioClean;
+                        else if (s == "studio_ruby" || s == "ruby") kStyle = GuiKnobStyle::StudioRuby;
+                        else if (s == "studio_magenta" || s == "magenta") kStyle = GuiKnobStyle::StudioMagenta;
+                        else if (s == "studio_cyan" || s == "cyan" || s == "astral") kStyle = GuiKnobStyle::StudioCyan;
+                        else if (s == "studio_dark" || s == "dark_track") kStyle = GuiKnobStyle::StudioDark;
+                        else if (s == "studio_bipolar" || s == "bipolar") kStyle = GuiKnobStyle::StudioBipolar;
 
                         if (g_activeBatchRenderer) {
                             GuiWidgetDef w;
                             w.knobStyle = kStyle;
                             w.label = node.label;
-                            w.accentColor = Color(0.0f, 0.95f, 1.0f);
-                            drawKnobWidget(*g_activeBatchRenderer, cx, cy, kRad, normVal, w, light, isActive, isHovered, false);
-                            drawVectorString(node.label, cx - node.label.size() * 2.5f, cy + kRad + 5.0f, 0.48f, Color(0.70f, 0.75f, 0.85f));
+                            w.sublabel = node.sublabel;
+                            w.accentColor = (kStyle == GuiKnobStyle::StudioRuby) ? Color(0.84f, 0.14f, 0.20f) :
+                                           ((kStyle == GuiKnobStyle::StudioMagenta) ? Color(0.72f, 0.12f, 0.60f) :
+                                             Color(0.0f, 0.95f, 1.0f));
+                            drawKnobWidget(*g_activeBatchRenderer, drawCx, cy, kRad, normVal, w, light, isActive, isHovered, (bg == "minimal_white"));
+                            if (node.labelAlignment == "inline_right") {
+                                float textX = drawCx + kRad + 6.0f;
+                                std::string readout = p ? p->getFormatted() : "";
+                                drawVectorString(readout, textX, cy - 6.0f, 0.52f, (bg == "minimal_white") ? Color(0.12f, 0.14f, 0.18f) : Color(0.95f, 0.96f, 0.98f));
+                                drawVectorString(node.label, textX, cy + 4.0f, 0.42f, (bg == "minimal_white") ? Color(0.35f, 0.38f, 0.45f) : Color(0.70f, 0.75f, 0.85f));
+                                if (!node.sublabel.empty()) {
+                                    drawVectorString(node.sublabel, textX, cy + 12.0f, 0.35f, (bg == "minimal_white") ? Color(0.50f, 0.54f, 0.62f) : Color(0.55f, 0.60f, 0.70f));
+                                }
+                            } else {
+                                drawVectorString(node.label, cx - node.label.size() * 2.5f, cy + kRad + 5.0f, 0.48f, (bg == "minimal_white") ? Color(0.20f, 0.22f, 0.26f) : Color(0.70f, 0.75f, 0.85f));
+                            }
                         }
                     }
+                } else if (node.type == project::GuiNodeType::Switch) {
+                    float cx = adjNodeX + adjNodeW * 0.5f;
+                    float cy = adjNodeY + adjNodeH * 0.50f;
+                    const auto* p = preset->findParam(node.paramName);
+                    float normVal = p ? p->getNormalized() : 0.0f;
+                    bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
+                    bool isHovered = (std::abs(mouseX_ - cx) <= 18.0f * scale && std::abs(mouseY_ - cy) <= 24.0f * scale);
+                    const auto& light = Theme::current().globalLight;
+                    renderClavinetRockerSwitch(cx, cy, normVal, isActive, isHovered, node.label, light, scale);
+                } else if (node.type == project::GuiNodeType::Slider) {
+                    const auto* p = preset->findParam(node.paramName);
+                    float normVal = p ? p->getNormalized() : 0.5f;
+                    bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
+                    bool isHovered = (mouseX_ >= adjNodeX && mouseX_ <= adjNodeX + adjNodeW &&
+                                      mouseY_ >= adjNodeY && mouseY_ <= adjNodeY + adjNodeH);
+                    std::string readout = p ? p->getFormatted() : "";
+                    const auto& light = Theme::current().globalLight;
+                    renderClavinetSlider(adjNodeX, adjNodeY, adjNodeW, adjNodeH, normVal, isActive, isHovered, node.label, readout, light, scale);
                 } else if (node.type == project::GuiNodeType::Nixie) {
                     float cx = adjNodeX + adjNodeW * 0.5f;
                     float cy = adjNodeY + adjNodeH * 0.4f;
@@ -9033,6 +9780,9 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
         } else if (bg == "convolver_faceplate") {
             drawRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f);
             drawRectOutline(pX, pY, pW, pH, 0.0f, 0.90f, 1.0f, 1.0f, 2.5f);
+        } else if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
+            drawRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f);
+            drawRectOutline(pX, pY, pW, pH, 0.65f, 0.42f, 0.18f, 1.0f, 2.0f);
         } else if (bg == "silver") {
             drawRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f);
             drawRectOutline(pX, pY, pW, pH, 0.45f, 0.50f, 0.62f, 1.0f, 2.0f);
@@ -9048,10 +9798,14 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
         drawCircle(pX + pW - 12.0f, pY + pH - 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
 
         // Top Banner Plate
-        drawRect(pX, pY, pW, 52.0f, (bg == "minimal_white") ? 0.85f : 0.07f,
-                                    (bg == "minimal_white") ? 0.87f : 0.08f,
-                                    (bg == "minimal_white") ? 0.90f : 0.11f);
-        drawLine(pX, pY + 52.0f, pX + pW, pY + 52.0f, 0.25f, 0.30f, 0.38f, 1.0f, 1.5f);
+        drawRect(pX, pY, pW, 52.0f, (bg == "minimal_white") ? 0.85f : ((bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.12f : 0.07f),
+                                    (bg == "minimal_white") ? 0.87f : ((bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.07f : 0.08f),
+                                    (bg == "minimal_white") ? 0.90f : ((bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.04f : 0.11f));
+        drawLine(pX, pY + 52.0f, pX + pW, pY + 52.0f,
+                 (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.50f : 0.25f,
+                 (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.32f : 0.30f,
+                 (bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.14f : 0.38f,
+                 1.0f, 1.5f);
 
         // Preset Navigation: < PREV and NEXT >
         drawRectGradient(pX + 16.0f, pY + 12.0f, 75.0f, 28.0f, 0.18f, 0.20f, 0.26f, 0.10f, 0.11f, 0.15f);
@@ -9077,22 +9831,39 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
             if (node.type == project::GuiNodeType::Row || node.type == project::GuiNodeType::Column || node.type == project::GuiNodeType::Panel) {
                 for (const auto& c : node.children) renderNode(c);
             } else if (node.type == project::GuiNodeType::Group) {
-                drawRoundedRect(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 4.0f, Color(0.08f, 0.09f, 0.12f));
-                drawRoundedRectOutline(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 4.0f, Color(0.20f, 0.24f, 0.30f), 1.0f);
-                if (!node.label.empty()) {
-                    drawVectorString(node.label, adjNodeX + 8.0f, adjNodeY + 4.0f, 0.60f, Color(0.60f, 0.65f, 0.75f));
+                if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
+                    drawRoundedRectGradient(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 6.0f,
+                                            Color(0.17f, 0.11f, 0.07f), Color(0.12f, 0.08f, 0.05f));
+                    drawRoundedRectOutline(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 6.0f,
+                                           Color(0.50f, 0.32f, 0.14f), 1.5f);
+                    if (!node.label.empty()) {
+                        float labelScale = 0.68f;
+                        float labelW = node.label.size() * 5.8f * labelScale;
+                        float titleX = adjNodeX + (node.boundsW - labelW) * 0.5f;
+                        drawVectorString(node.label, titleX, adjNodeY + 8.0f, labelScale, Color(0.96f, 0.58f, 0.10f));
+                    }
+                } else {
+                    drawRoundedRect(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 4.0f, Color(0.08f, 0.09f, 0.12f));
+                    drawRoundedRectOutline(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, 4.0f, Color(0.20f, 0.24f, 0.30f), 1.0f);
+                    if (!node.label.empty()) {
+                        drawVectorString(node.label, adjNodeX + 8.0f, adjNodeY + 4.0f, 0.60f, Color(0.60f, 0.65f, 0.75f));
+                    }
                 }
                 for (const auto& c : node.children) renderNode(c);
             } else if (node.type == project::GuiNodeType::Knob) {
                 float cx = adjNodeX + node.boundsW * 0.5f;
                 float cy = adjNodeY + node.boundsH * 0.35f * (scale < 0.95f ? scale : 1.0f);
                 float kRad = node.size * 0.42f;
+                float drawCx = (node.labelAlignment == "inline_right") ? (cx - kRad * 0.65f) : cx;
                 const auto* p = preset->findParam(node.paramName);
                 float normVal = p ? p->getNormalized() : 0.5f;
                 bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
-                bool isHovered = (std::hypot(mouseX_ - cx, mouseY_ - cy) <= kRad * 1.5f);
+                bool isHovered = (std::hypot(mouseX_ - drawCx, mouseY_ - cy) <= kRad * 1.5f);
 
-                if (node.hardwareStyle == "tb303_potentiometer" || node.hardwareStyle == "tb303_selector" ||
+                if (node.hardwareStyle == "vintage" || bg == "walnut" || bg == "wood" || bg == "clavinet") {
+                    std::string readout = p ? p->getFormatted() : "";
+                    renderVintageClavinetKnob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light);
+                } else if (node.hardwareStyle == "tb303_potentiometer" || node.hardwareStyle == "tb303_selector" ||
                     preset->metadata.id == "eats_303" || preset->metadata.engineId == "tb303") {
                     std::string readout = p ? p->getFormatted() : "";
                     renderTb303Knob(cx, cy, kRad, normVal, isActive, isHovered, node.label, readout, light, node.hardwareStyle == "tb303_selector");
@@ -9108,16 +9879,51 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                     else if (s == "bakelite" || s == "bakelite_skirt") kStyle = GuiKnobStyle::BakeliteSkirt;
                     else if (s == "anodized") kStyle = GuiKnobStyle::AnodizedKnurled;
                     else if (s == "twoToneStepped" || s == "two_tone_stepped") kStyle = GuiKnobStyle::TwoToneStepped;
+                    else if (s == "studio_clean" || s == "clean") kStyle = GuiKnobStyle::StudioClean;
+                    else if (s == "studio_ruby" || s == "ruby") kStyle = GuiKnobStyle::StudioRuby;
+                    else if (s == "studio_magenta" || s == "magenta") kStyle = GuiKnobStyle::StudioMagenta;
+                    else if (s == "studio_cyan" || s == "cyan" || s == "astral") kStyle = GuiKnobStyle::StudioCyan;
+                    else if (s == "studio_dark" || s == "dark_track") kStyle = GuiKnobStyle::StudioDark;
+                    else if (s == "studio_bipolar" || s == "bipolar") kStyle = GuiKnobStyle::StudioBipolar;
 
                     if (g_activeBatchRenderer) {
                         GuiWidgetDef w;
                         w.knobStyle = kStyle;
                         w.label = node.label;
-                        w.accentColor = Color(0.0f, 0.95f, 1.0f);
-                        drawKnobWidget(*g_activeBatchRenderer, cx, cy, kRad, normVal, w, light, isActive, isHovered, false);
-                        drawVectorString(node.label, cx - node.label.size() * 3.0f, cy + kRad + 8.0f, 0.55f, Color(0.70f, 0.75f, 0.85f));
+                        w.sublabel = node.sublabel;
+                        w.accentColor = (kStyle == GuiKnobStyle::StudioRuby) ? Color(0.84f, 0.14f, 0.20f) :
+                                       ((kStyle == GuiKnobStyle::StudioMagenta) ? Color(0.72f, 0.12f, 0.60f) :
+                                         Color(0.0f, 0.95f, 1.0f));
+                        drawKnobWidget(*g_activeBatchRenderer, drawCx, cy, kRad, normVal, w, light, isActive, isHovered, (bg == "minimal_white"));
+                        if (node.labelAlignment == "inline_right") {
+                            float textX = drawCx + kRad + 8.0f;
+                            std::string readout = p ? p->getFormatted() : "";
+                            drawVectorString(readout, textX, cy - 8.0f, 0.65f, (bg == "minimal_white") ? Color(0.12f, 0.14f, 0.18f) : Color(0.95f, 0.96f, 0.98f));
+                            drawVectorString(node.label, textX, cy + 4.0f, 0.50f, (bg == "minimal_white") ? Color(0.35f, 0.38f, 0.45f) : Color(0.70f, 0.75f, 0.85f));
+                            if (!node.sublabel.empty()) {
+                                drawVectorString(node.sublabel, textX, cy + 14.0f, 0.42f, (bg == "minimal_white") ? Color(0.50f, 0.54f, 0.62f) : Color(0.55f, 0.60f, 0.70f));
+                            }
+                        } else {
+                            drawVectorString(node.label, cx - node.label.size() * 3.0f, cy + kRad + 8.0f, 0.55f, (bg == "minimal_white") ? Color(0.20f, 0.22f, 0.26f) : Color(0.70f, 0.75f, 0.85f));
+                        }
                     }
                 }
+            } else if (node.type == project::GuiNodeType::Switch) {
+                float cx = adjNodeX + node.boundsW * 0.5f;
+                float cy = adjNodeY + node.boundsH * 0.52f * scale;
+                const auto* p = preset->findParam(node.paramName);
+                float normVal = p ? p->getNormalized() : 0.0f;
+                bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
+                bool isHovered = (std::abs(mouseX_ - cx) <= 20.0f && std::abs(mouseY_ - cy) <= 28.0f);
+                renderClavinetRockerSwitch(cx, cy, normVal, isActive, isHovered, node.label, light, 1.0f);
+            } else if (node.type == project::GuiNodeType::Slider) {
+                const auto* p = preset->findParam(node.paramName);
+                float normVal = p ? p->getNormalized() : 0.5f;
+                bool isActive = (dragMode_ == DragMode::HardwareKnob && activeHardwareParam_ == node.paramName);
+                bool isHovered = (mouseX_ >= adjNodeX && mouseX_ <= adjNodeX + node.boundsW &&
+                                  mouseY_ >= adjNodeY && mouseY_ <= adjNodeY + node.boundsH * scale);
+                std::string readout = p ? p->getFormatted() : "";
+                renderClavinetSlider(adjNodeX, adjNodeY, node.boundsW, node.boundsH * scale, normVal, isActive, isHovered, node.label, readout, light, 1.0f);
             } else if (node.type == project::GuiNodeType::Nixie) {
                 float cx = adjNodeX + node.boundsW * 0.5f;
                 float cy = adjNodeY + node.boundsH * 0.4f;
@@ -9136,7 +9942,7 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
         }
 
         // Mini oscilloscope on bottom right of faceplate (fullscreen only)
-        if (!isCompact && pW > 600.0f) {
+        if (!isCompact && pW > 600.0f && bg != "walnut" && bg != "wood" && bg != "clavinet") {
             float scX = pX + pW - 195.0f;
             float scY = pY + pH - 90.0f;
             drawRect(scX, scY, 180.0f, 78.0f, 0.02f, 0.05f, 0.03f);
@@ -10136,6 +10942,11 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
             if (y >= contentStartY + 206.0f && y <= contentStartY + 230.0f &&
                 x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
                 res.action = ProjectHubAction::ToggleAnimations;
+                return res;
+            }
+            if (y >= contentStartY + 232.0f && y <= contentStartY + 258.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleMinimalGui;
                 return res;
             }
         } else if (projectHubSection_ == 3) {
@@ -11304,16 +12115,42 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             break;
         }
         case TrackInspectorHitArea::HardwareKnob: {
+            const auto* preset = getActivePreset();
+            bool isSwitch = false;
+            bool isSlider = false;
+            if (preset) {
+                std::function<void(const project::GuiLayoutNode&)> findType = [&](const project::GuiLayoutNode& n) {
+                    if (n.paramName == inspHit.paramName) {
+                        if (n.type == project::GuiNodeType::Switch) isSwitch = true;
+                        else if (n.type == project::GuiNodeType::Slider) isSlider = true;
+                    }
+                    for (const auto& c : n.children) findType(c);
+                };
+                findType(preset->guiRoot);
+                if (!isSwitch && !isSlider) findType(preset->compactGuiRoot);
+            }
+            if (isSwitch) {
+                float curV = inspHit.normVal;
+                float newV = (curV >= 0.5f) ? 0.0f : 1.0f;
+                dispatchHardwareParam(inspHit.paramName, newV);
+                break;
+            }
             dragMode_ = DragMode::HardwareKnob;
             activeHardwareParam_ = inspHit.paramName;
             dragStartY_ = y;
+            dragStartX_ = x;
             dragStartHardwareVal_ = inspHit.normVal;
             presenter::ScalarDragConfig cfg{};
             cfg.dragMode = DragMode::HardwareKnob;
-            cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+            if (isSlider) {
+                cfg.direction = presenter::DragDirection::HorizontalRightIncreases;
+                cfg.sensitivity = 1.0f / 220.0f;
+            } else {
+                cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                cfg.sensitivity = 1.0f / 160.0f;
+            }
             cfg.minValue = 0.0f;
             cfg.maxValue = 1.0f;
-            cfg.sensitivity = 1.0f / 160.0f;
             scalarDragPresenter_.startDrag(x, y, inspHit.normVal, cfg,
                 [this, p = inspHit.paramName](float v) {
                     dispatchHardwareParam(p, v);
@@ -14281,6 +15118,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     case ProjectHubAction::ToggleAnimations:
                         guiAnimationsEnabled_ = !guiAnimationsEnabled_; saveSettings();
                         break;
+                    case ProjectHubAction::ToggleMinimalGui:
+                        toggleMinimalGui();
+                        break;
                     case ProjectHubAction::SetAntiAliasing:
                         setAntiAliasingMode(hubHit.aaMode); saveSettings();
                         break;
@@ -14590,26 +15430,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
                     return;
                 }
-            }
-        }
-
-        if (terminalConsoleDrawerWidget_) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (terminalConsoleDrawerWidget_->handlePointer(pev)) {
-                if (terminalConsoleDrawerWidget_->isExpanded()) {
-                    focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
-                } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
-                    focusManager_.clearFocus();
-                }
-                markNeedsRedraw();
-                return;
             }
         }
 
@@ -16500,8 +17320,10 @@ void GuiWindow::onFilesDropped(const std::vector<std::string>& filePaths, float 
             if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac" || ext == ".aif" || ext == ".aiff") {
                 if (audioToMidiDialog_.loadAudioFile(path)) {
                     setStatusMessage("Loaded audio into Audio-to-MIDI Converter: " + fp.filename().string());
-                    return;
+                } else {
+                    setStatusMessage("Audio-to-MIDI: " + audioToMidiDialog_.getStatusMessage());
                 }
+                return;
             }
         }
     }
@@ -16579,8 +17401,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
                                  commandPaletteDialog_.isOpen() ||
                                  audioToMidiDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
-                                 (activePluginDialog && activePluginDialog->isOpen()) ||
-                                 (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded());
+                                 (activePluginDialog && activePluginDialog->isOpen());
 
     // Spacebar: Global DAW playback toggle
     if (key == 32 && !isCtrl && !isAlt && !modalOrTerminalActive) {
@@ -16588,33 +17409,11 @@ void GuiWindow::onKeyDown(int key, int mods) {
             if (engine_->getSequencer().isPlaying()) {
                 engine_->stopPlayback();
             } else {
+                syncArrangerToSequencer();
                 engine_->getSequencer().start();
             }
         }
         return;
-    }
-
-    // Grave Accent / Tilde (` / ~): In-DAW WebGPU Terminal & REPL Toggle
-    if ((key == 96 || key == 192) && !valueEditDialog_.isOpen() && !modalOrTerminalActive) {
-        toggleTerminalConsole();
-        markNeedsRedraw();
-        return;
-    }
-
-    // Intercept keyboard input if In-DAW Terminal Console is expanded
-    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
-        if (key == 256) { // Escape closes/dismisses terminal console
-            terminalConsoleDrawerWidget_->setExpanded(false);
-            if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
-                focusManager_.clearFocus();
-            }
-            markNeedsRedraw();
-            return;
-        }
-        if (terminalConsoleDrawerWidget_->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
-            markNeedsRedraw();
-            return;
-        }
     }
 
     if (activeColorPicker && activeColorPicker->isOpen()) {
@@ -17160,6 +17959,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
         if (engine_->getSequencer().isPlaying()) {
             engine_->stopPlayback();
         } else {
+            syncArrangerToSequencer();
             engine_->getSequencer().start();
         }
     }
@@ -17322,12 +18122,6 @@ void GuiWindow::onChar(unsigned int codepoint) {
     }
     if (focusManager_.isAnyFocused()) {
         if (focusManager_.dispatchChar(static_cast<char32_t>(codepoint))) {
-            markNeedsRedraw();
-            return;
-        }
-    }
-    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
-        if (terminalConsoleDrawerWidget_->handleChar(static_cast<char32_t>(codepoint))) {
             markNeedsRedraw();
             return;
         }
@@ -17520,6 +18314,7 @@ bool GuiWindow::saveSettings() {
     root["autoRestoreSession"] = Value(autoRestoreSession_);
     root["autoSaveEnabled"] = Value(autoSaveEnabled_);
     root["includeBinaryClapPath"] = Value(audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled());
+    root["minimalGuiEnabled"] = Value(isMinimalGuiEnabled());
 
     const auto& crt = dawnBridge_.getMaterialConfig();
     Object crtObj;
@@ -17632,6 +18427,9 @@ bool GuiWindow::loadSettings() {
         if (root.contains("includeBinaryClapPath")) {
             audio::ClapPluginLoader::instance().setIncludeBinaryPath(root["includeBinaryClapPath"].asBool());
         }
+        if (root.contains("minimalGuiEnabled")) {
+            setMinimalGuiEnabled(root["minimalGuiEnabled"].asBool(false));
+        }
         if (root.contains("crt") && root["crt"].isObject()) {
             const auto& crtObj = root["crt"];
             auto cfg = dawnBridge_.getMaterialConfig();
@@ -17653,6 +18451,23 @@ bool GuiWindow::loadSettings() {
     return false;
 }
 
+bool GuiWindow::isMinimalGuiEnabled() const noexcept {
+    return Theme::getControlMode() == ControlAestheticMode::ForceMinimal;
+}
+
+void GuiWindow::setMinimalGuiEnabled(bool enable) noexcept {
+    Theme::setControlMode(enable ? ControlAestheticMode::ForceMinimal : ControlAestheticMode::AutoThemeDefault);
+    invalidateChromeCache();
+    markNeedsRedraw();
+}
+
+void GuiWindow::toggleMinimalGui() noexcept {
+    setMinimalGuiEnabled(!isMinimalGuiEnabled());
+    saveSettings();
+    setStatusMessage(isMinimalGuiEnabled() ? "Minimalist Controls: ENABLED (High Performance Vector Knobs)"
+                                          : "Minimalist Controls: DISABLED (Skeuomorphic 3D Knobs)");
+}
+
 void GuiWindow::revertSettingsToDefault() {
     setUiScale(1.0f);
     setActiveThemePreset(0);
@@ -17663,6 +18478,7 @@ void GuiWindow::revertSettingsToDefault() {
     dawnBridge_.setCrtShaderEnabled(false);
     dawnBridge_.setMaterialConfig(CrtMaterialConfig{});
     guiAnimationsEnabled_ = true;
+    setMinimalGuiEnabled(false);
     autoRestoreSession_ = true;
     autoSaveEnabled_ = true;
     audio::ClapPluginLoader::instance().setIncludeBinaryPath(false);

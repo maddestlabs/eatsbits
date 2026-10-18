@@ -36,26 +36,37 @@ public:
     bool isHovered{false};
     bool isDragging{false};
     KnobStyle style{KnobStyle::Standard};
+    float step{0.0f}; // 0.0f = continuous; > 0.0f = discrete step increment (e.g. 1.0f for octaves 0..10)
 
     constexpr SkeuomorphicKnob() noexcept = default;
     SkeuomorphicKnob(Rect b, std::string name, float initialVal = 0.5f,
                      float minVal = 0.0f, float maxVal = 1.0f, std::string u = "",
-                     KnobStyle s = KnobStyle::Standard)
+                     KnobStyle s = KnobStyle::Standard, float stepVal = 0.0f)
         : bounds(b), paramName(std::move(name)), unit(std::move(u)),
           normValue(std::clamp(initialVal, 0.0f, 1.0f)),
-          minDisplay(minVal), maxDisplay(maxVal), style(s) {}
+          minDisplay(minVal), maxDisplay(maxVal), style(s), step(stepVal) {
+        if (step > 0.0f && maxDisplay > minDisplay) {
+            float raw = minDisplay + normValue * (maxDisplay - minDisplay);
+            raw = minDisplay + std::round((raw - minDisplay) / step) * step;
+            normValue = std::clamp((raw - minDisplay) / (maxDisplay - minDisplay), 0.0f, 1.0f);
+        }
+    }
 
     [[nodiscard]] float getDisplayValue() const noexcept {
-        if (isBipolar) {
-            return minDisplay + (normValue * (maxDisplay - minDisplay));
+        float raw = minDisplay + normValue * (maxDisplay - minDisplay);
+        if (step > 0.0f && maxDisplay > minDisplay) {
+            raw = minDisplay + std::round((raw - minDisplay) / step) * step;
+            raw = std::clamp(raw, minDisplay, maxDisplay);
         }
-        return minDisplay + normValue * (maxDisplay - minDisplay);
+        return raw;
     }
 
     [[nodiscard]] std::string getFormattedValue() const {
         std::ostringstream oss;
         float val = getDisplayValue();
-        if (std::abs(val) >= 1000.0f) {
+        if (step >= 1.0f || std::abs(val - std::round(val)) < 0.001f) {
+            oss << static_cast<int>(std::round(val));
+        } else if (std::abs(val) >= 1000.0f) {
             oss << std::fixed << std::setprecision(1) << (val / 1000.0f) << "k";
         } else if (std::abs(val) >= 10.0f) {
             oss << std::fixed << std::setprecision(0) << val;
@@ -83,6 +94,12 @@ public:
         // Shift modifier applies industry standard 0.1x sensitivity multiplier
         float sensitivity = isShiftDown ? 0.0005f : 0.005f;
         normValue = std::clamp(normValue - deltaY * sensitivity, 0.0f, 1.0f);
+        if (step > 0.0f && maxDisplay > minDisplay) {
+            float raw = minDisplay + normValue * (maxDisplay - minDisplay);
+            raw = minDisplay + std::round((raw - minDisplay) / step) * step;
+            raw = std::clamp(raw, minDisplay, maxDisplay);
+            normValue = (raw - minDisplay) / (maxDisplay - minDisplay);
+        }
     }
 
     void resetToCenter() noexcept {

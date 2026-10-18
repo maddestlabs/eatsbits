@@ -8,6 +8,7 @@
 #include "eatsbits/audio/graph/nodes/eatscript_node.hpp"
 #include "eatsbits/audio/graph/nodes/dx7_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/clavinet_node.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include <sstream>
 #include <iomanip>
@@ -105,6 +106,8 @@ std::string EatsProjectSerializer::serialize(
                 ss << "        script = [[\n" << es->getScript() << "\n        ]],\n";
             } else if (dynamic_cast<audio::Dx7Node*>(node.get())) {
                 ss << "        type = \"dx7\",\n";
+            } else if (dynamic_cast<audio::ClavinetNode*>(node.get())) {
+                ss << "        type = \"clavinet\",\n";
             } else if (dynamic_cast<audio::PhysicalInstrumentNode*>(node.get())) {
                 ss << "        type = \"piano\",\n";
             } else {
@@ -284,6 +287,8 @@ bool EatsProjectSerializer::deserialize(
                     newNode = es;
                 } else if (nType == "dx7") {
                     newNode = std::make_shared<audio::Dx7Node>(nName.empty() ? "Dx7Rhodes" : nName);
+                } else if (nType == "clavinet" || nType == "clavinet_d6") {
+                    newNode = std::make_shared<audio::ClavinetNode>(nName.empty() ? "ClavinetD6" : nName);
                 } else if (nType == "piano" || nType == "concert_grand" || nType == "physical") {
                     newNode = std::make_shared<audio::PhysicalInstrumentNode>(audio::PhysicalModelType::ConcertGrandPiano, nName.empty() ? "ConcertGrand" : nName);
                 }

@@ -75,6 +75,21 @@ public:
 
     [[nodiscard]] core::TextCoord coordFromPoint(float px, float py) const;
 
+    /**
+     * @brief Embeds an asset (PNG, JPG, QOI, WAV, etc.) from disk into the editor
+     * as a declarative Base64 Data URI constant string:
+     * e.g. const KNOB_SKIN = "data:image/png;base64,...";\n
+     * @param filePath Absolute or relative path to the asset file.
+     * @param insertAtTop If true, prepends to line 0; if false, inserts at active cursor.
+     * @return true if file was read and embedded successfully.
+     */
+    bool embedAssetFromFile(const std::string& filePath, bool insertAtTop = true);
+
+    /**
+     * @brief Drag-and-drop handler for files dropped onto the editor window.
+     */
+    bool handleFileDrop(const std::vector<std::string>& filePaths);
+
     // Callbacks
     std::function<void(const std::string& text)> onTextChanged;
     std::function<void()> onCompileTriggered; // Ctrl+Enter or F5

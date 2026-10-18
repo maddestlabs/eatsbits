@@ -29,8 +29,8 @@ public:
         tb303_.reset();
     }
 
-    void noteOn(uint8_t note, float velocity, bool isSlide = false, bool isAccent = false) noexcept {
-        tb303_.noteOn(note, velocity, isSlide, isAccent);
+    void noteOn(uint8_t note, float velocity, bool isSlide = false, bool isAccent = false, int fromMidiNote = -1) noexcept {
+        tb303_.noteOn(note, velocity, isSlide, isAccent, fromMidiNote);
     }
 
     void noteOff() noexcept {
@@ -65,13 +65,44 @@ public:
         tb303_.setOverdrive(drive);
     }
 
+    void setDrive(float drive) noexcept {
+        tb303_.setDrive(drive);
+    }
+
+    void setTuning(float semitones) noexcept {
+        tb303_.setTuning(semitones);
+    }
+
+    void setPitch(float semitones) noexcept {
+        tb303_.setPitch(semitones);
+    }
+
+    void setOctave(float octave) noexcept {
+        tb303_.setOctave(static_cast<int>(std::round(octave)));
+    }
+
+    void setSubVolume(float vol) noexcept {
+        tb303_.setSubVolume(vol);
+    }
+
+    void setSubWaveform(float wave) noexcept {
+        tb303_.setSubWaveform(wave);
+    }
+
+    void setGlideCurve(float curve) noexcept {
+        tb303_.setGlideCurve(curve);
+    }
+
     void handleEvent(const AudioEvent& event) noexcept override {
         switch (event.type) {
             case AudioEventType::NoteOn: {
                 // Check slide/accent encoded or from param fields
-                bool isSlide = (event.channel & 0x01) != 0;
-                bool isAccent = (event.channel & 0x02) != 0;
-                noteOn(event.note, event.velocity, isSlide, isAccent);
+                bool isSlide = ((event.channel & 0x01) != 0) || (event.paramId != 0);
+                bool isAccent = ((event.channel & 0x02) != 0) || (event.paramValue > 0.5f) || (event.velocity > 0.75f);
+                int fromNote = (event.targetNodeId != 0 && event.targetNodeId != INVALID_NODE_ID && event.targetNodeId < 128)
+                    ? static_cast<int>(event.targetNodeId)
+                    : -1;
+                noteOn(event.note, event.velocity, isSlide, isAccent, fromNote);
                 break;
             }
             case AudioEventType::NoteOff:
@@ -97,6 +128,11 @@ public:
             case 4: setAccent(value); break;
             case 5: setWaveform(value); break;
             case 6: setOverdrive(value); break;
+            case 7: setTuning(value); break;
+            case 8: setOctave(value); break;
+            case 9: setSubVolume(value); break;
+            case 10: setSubWaveform(value); break;
+            case 11: setGlideCurve(value); break;
             default: break;
         }
     }
@@ -121,6 +157,7 @@ public:
     }
 
     dsp::Tb303Core& getTb303() noexcept { return tb303_; }
+    const dsp::Tb303Core& getTb303() const noexcept { return tb303_; }
 
 private:
     dsp::Tb303Core tb303_;

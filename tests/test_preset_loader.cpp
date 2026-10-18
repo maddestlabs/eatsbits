@@ -121,7 +121,40 @@ void testBuiltinPresets() {
     assert(pSteel.metadata.engineId == "acoustic_steel_guitar");
     assert(pSteel.params.count("PickBite") == 1);
 
-    std::cout << "  -> PASSED: All 13 canonical built-in presets verified." << std::endl;
+    // 14. Verify Astral Shimmer Pad Preset (gui-variations styling + gui-astral parameters)
+    assert(presets.size() == 14);
+    auto& pAstral = presets[13];
+    assert(pAstral.metadata.id == "astral_shimmer_pad");
+    assert(pAstral.metadata.name == "ASTRAL SHIMMER PAD");
+    assert(pAstral.metadata.engineId == "ambient_pad");
+    assert(pAstral.guiRoot.background == "minimal_white");
+    assert(pAstral.params.count("Cutoff") == 1);
+    assert(pAstral.params.count("Resonance") == 1);
+    assert(pAstral.params.count("Detune") == 1);
+    assert(pAstral.params.count("Warmth") == 1);
+    assert(pAstral.params.count("Attack") == 1);
+    assert(pAstral.params.count("Decay") == 1);
+    assert(pAstral.params.count("Sustain") == 1);
+    assert(pAstral.params.count("Release") == 1);
+    assert(pAstral.findParam("Cutoff")->defaultVal == 2400.0f);
+    assert(pAstral.findParam("Detune")->defaultVal == 14.0f);
+    assert(pAstral.guiRoot.children.size() == 2);
+    // Row 1 checks
+    const auto& r1 = pAstral.guiRoot.children[0];
+    assert(r1.children.size() == 4);
+    assert(r1.children[0].paramName == "Cutoff" && r1.children[0].labelAlignment == "inline_right" && r1.children[0].sublabel == "FILTER" && r1.children[0].hardwareStyle == "studio_cyan");
+    assert(r1.children[1].paramName == "Resonance" && r1.children[1].labelAlignment == "inline_right" && r1.children[1].sublabel == "Q PEAK" && r1.children[1].hardwareStyle == "studio_ruby");
+    assert(r1.children[2].paramName == "Detune" && r1.children[2].labelAlignment == "inline_right" && r1.children[2].sublabel == "7-UNISON" && r1.children[2].hardwareStyle == "studio_magenta");
+    assert(r1.children[3].paramName == "Warmth" && r1.children[3].labelAlignment == "inline_right" && r1.children[3].sublabel == "DRIVE" && r1.children[3].hardwareStyle == "studio_clean");
+    // Row 2 checks
+    const auto& r2 = pAstral.guiRoot.children[1];
+    assert(r2.children.size() == 4);
+    assert(r2.children[0].paramName == "Attack" && r2.children[0].labelAlignment == "inline_right" && r2.children[0].sublabel == "ENVELOPE");
+    assert(r2.children[1].paramName == "Decay" && r2.children[1].labelAlignment == "inline_right" && r2.children[1].sublabel == "STAGE");
+    assert(r2.children[2].paramName == "Sustain" && r2.children[2].labelAlignment == "inline_right" && r2.children[2].sublabel == "LEVEL");
+    assert(r2.children[3].paramName == "Release" && r2.children[3].labelAlignment == "inline_right" && r2.children[3].sublabel == "TAIL");
+
+    std::cout << "  -> PASSED: All 14 canonical built-in presets (including Astral Shimmer Pad) verified." << std::endl;
 }
 
 void testEatscriptParsing() {

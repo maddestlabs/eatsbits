@@ -1,10 +1,16 @@
 #include "eatsbits/tui/views/param_rack.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 
 namespace eatsbits::tui {
 
 ParamRackView::ParamRackView() {
+    clayContext_ = std::make_unique<ui::clay::ClayContext>();
+    clayContext_->initialize(60.0f, 20.0f);
+    clayContext_->setDefaultMonospaceMeasure(1.0f, 1.0f);
+
     params_ = {
         presenter::ParameterPresenter({"BPM", "BPM", "bpm", 60.0f, 240.0f, 132.0f, 1.0f, false, false}),
         presenter::ParameterPresenter({"303 CUTOFF", "303 CUTOFF", "Hz", 100.0f, 6000.0f, 850.0f, 50.0f, false, false}),
@@ -13,6 +19,8 @@ ParamRackView::ParamRackView() {
         presenter::ParameterPresenter({"MASTER VOL", "MASTER VOL", "", 0.0f, 1.0f, 0.85f, 0.05f, false, true})
     };
 }
+
+ParamRackView::~ParamRackView() = default;
 
 void ParamRackView::render(CellSurface& surface, const Rect& area, audio::AudioEngine& engine, bool isFocused) {
     (void)engine;
@@ -23,58 +31,128 @@ void ParamRackView::render(CellSurface& surface, const Rect& area, audio::AudioE
                         (isFocused ? "HARDWARE PARAM RACK [ACTIVE]" : "HARDWARE PARAM RACK");
     surface.drawBox(area, frameCol, Color::Black(), isFocused || isEditing_, title);
 
-    int startY = area.y + 1;
-    const int sliderWidth = std::max(6, area.width - 26);
+    if (!clayContext_ || !clayContext_->isInitialized()) {
+        return;
+    }
 
-    for (size_t i = 0; i < params_.size(); ++i) {
-        int rowY = startY + static_cast<int>(i);
-        if (rowY >= area.y + area.height - 2) break;
+    clayContext_->setDimensions(static_cast<float>(area.width), static_cast<float>(area.height));
+    clayContext_->beginLayout();
 
-        const auto& p = params_[i];
-        bool isCursor = (isFocused || isEditing_) && (i == selectedIndex_);
+    CLAY(CLAY_ID("ParamRackRoot"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(static_cast<float>(area.width)), CLAY_SIZING_FIXED(static_cast<float>(area.height)) },
+            .padding = { 2, 2, 1, 1 },
+            .childGap = 0,
+            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+            .layoutDirection = CLAY_TOP_TO_BOTTOM,
+        }
+    }) {
+        // Parameter list container (flex grow to push footer to bottom)
+        CLAY(CLAY_ID("ParamRowsContainer"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            for (size_t i = 0; i < params_.size(); ++i) {
+                const auto& p = params_[i];
+                bool isCursor = (isFocused || isEditing_) && (i == selectedIndex_);
+                Color labelCol = isCursor ? (isEditing_ ? Color::NeonGreen() : Color::AcidAmber()) : Color::White();
 
-        Color labelCol = isCursor ? (isEditing_ ? Color::NeonGreen() : Color::AcidAmber()) : Color::White();
-        uint8_t attrs = isCursor ? static_cast<uint8_t>(TextAttr::Bold) : 0;
+                std::string label = p.getLabel();
+                while (label.size() < 12) label.push_back(' ');
 
-        // Parameter Name / Label
-        std::string label = p.getLabel();
-        while (label.size() < 12) label.push_back(' ');
-        surface.drawText(area.x + 2, rowY, label, labelCol, Color::Black(), attrs);
+                std::string valText;
+                Color valColor = Color::LightGray();
+                if (isCursor && isEditing_) {
+                    valText = "> " + editBuffer_ + "_";
+                    auto valRes = editPresenter_.validate(editBuffer_);
+                    valColor = valRes.isValid ? Color::NeonGreen() : Color::DangerRed();
+                } else {
+                    valText = p.getFormattedValue();
+                    valColor = isCursor ? Color::White() : Color::LightGray();
+                }
 
-        // Slider [██████░░░░]
-        float norm = p.getNormalizedValue();
-        int filled = static_cast<int>(norm * static_cast<float>(sliderWidth));
+                CLAY(CLAY_IDI("ParamRow", static_cast<uint32_t>(i)), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1.0f) },
+                        .childGap = 1,
+                        .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_IDI("ParamLabel", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(13.0f), CLAY_SIZING_FIXED(1.0f) } }
+                    }) {
+                        CLAY_TEXT(ClayTuiBridge::toClayString(label), CLAY_TEXT_CONFIG({
+                            .textColor = ClayTuiBridge::toClayColor(labelCol)
+                        }));
+                    }
 
-        int sliderX = area.x + 15;
-        surface.drawText(sliderX, rowY, "[", Color::DarkGray(), Color::Black());
-        for (int s = 0; s < sliderWidth; ++s) {
-            Color barCol = isCursor ? (isEditing_ ? Color::NeonGreen() : Color::AcidAmber()) : Color::CyberCyan();
-            if (s < filled) {
-                surface.setCell(sliderX + 1 + s, rowY, Cell{0x2588, barCol, Color::Black(), 0});
-            } else {
-                surface.setCell(sliderX + 1 + s, rowY, Cell{0x2591, Color::DarkGray(), Color::Black(), 0});
+                    // Flexible Slider Slot
+                    CLAY(CLAY_IDI("ParamSlider", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1.0f) } }
+                    }) {}
+
+                    // Formatted Value / Edit Field
+                    CLAY(CLAY_IDI("ParamVal", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(10.0f), CLAY_SIZING_FIXED(1.0f) } }
+                    }) {
+                        CLAY_TEXT(ClayTuiBridge::toClayString(valText), CLAY_TEXT_CONFIG({
+                            .textColor = ClayTuiBridge::toClayColor(valColor)
+                        }));
+                    }
+                }
             }
         }
-        surface.drawText(sliderX + 1 + sliderWidth, rowY, "]", Color::DarkGray(), Color::Black());
 
-        // Value or Active Edit Field
-        if (isCursor && isEditing_) {
-            std::string editPrompt = "> " + editBuffer_ + "_";
-            auto valRes = editPresenter_.validate(editBuffer_);
-            Color editColor = valRes.isValid ? Color::NeonGreen() : Color::DangerRed();
-            surface.drawText(sliderX + sliderWidth + 3, rowY, editPrompt, editColor, Color::Black(), static_cast<uint8_t>(TextAttr::Bold));
-        } else {
-            const std::string& valText = p.getFormattedValue();
-            surface.drawText(sliderX + sliderWidth + 3, rowY, valText, isCursor ? Color::White() : Color::LightGray(), Color::Black());
+        // Contextual Footer hint
+        std::string hint = isEditing_ ? "[ENTER] Commit  [ESC] Cancel  [%] Percentage" :
+                           (isFocused ? "[E/ENTER] Edit  [←/→] Step  [↑/↓] Select" : "");
+        if (!hint.empty()) {
+            Color hintCol = isEditing_ ? Color::NeonGreen() : Color::Gray();
+            CLAY(CLAY_ID("ParamRackFooter"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1.0f) } }
+            }) {
+                CLAY_TEXT(ClayTuiBridge::toClayString(hint), CLAY_TEXT_CONFIG({
+                    .textColor = ClayTuiBridge::toClayColor(hintCol)
+                }));
+            }
         }
     }
 
-    // Contextual Footer hint
-    int hintY = area.y + area.height - 2;
-    if (isEditing_) {
-        surface.drawText(area.x + 2, hintY, "[ENTER] Commit  [ESC] Cancel  [%] Percentage", Color::NeonGreen(), Color::Black());
-    } else if (isFocused) {
-        surface.drawText(area.x + 2, hintY, "[E/ENTER] Edit  [←/→] Step  [↑/↓] Select", Color::Gray(), Color::Black());
+    Clay_RenderCommandArray cmds = clayContext_->endLayout(0.016f);
+    clayBridge_.render(cmds, surface, area.x, area.y);
+
+    // Draw the custom discrete block sliders inside the resolved Clay bounding boxes
+    for (size_t i = 0; i < params_.size(); ++i) {
+        auto sliderData = clayContext_->getElementData(CLAY_IDI("ParamSlider", static_cast<uint32_t>(i)));
+        if (!sliderData.found) continue;
+
+        Rect sliderRect = ClayTuiBridge::snapToCells(sliderData.boundingBox);
+        sliderRect.x += area.x;
+        sliderRect.y += area.y;
+
+        int sliderW = sliderRect.width - 2;
+        if (sliderW < 2) continue;
+
+        const auto& p = params_[i];
+        bool isCursor = (isFocused || isEditing_) && (i == selectedIndex_);
+        Color barCol = isCursor ? (isEditing_ ? Color::NeonGreen() : Color::AcidAmber()) : Color::CyberCyan();
+
+        surface.drawText(sliderRect.x, sliderRect.y, "[", Color::DarkGray(), Color::Black());
+        float norm = p.getNormalizedValue();
+        int filled = static_cast<int>(norm * static_cast<float>(sliderW));
+        for (int s = 0; s < sliderW; ++s) {
+            if (s < filled) {
+                surface.setCell(sliderRect.x + 1 + s, sliderRect.y, Cell{0x2588, barCol, Color::Black(), 0});
+            } else {
+                surface.setCell(sliderRect.x + 1 + s, sliderRect.y, Cell{0x2591, Color::DarkGray(), Color::Black(), 0});
+            }
+        }
+        surface.drawText(sliderRect.x + 1 + sliderW, sliderRect.y, "]", Color::DarkGray(), Color::Black());
     }
 }
 

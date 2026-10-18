@@ -14,6 +14,10 @@
 #include <chrono>
 #include <span>
 
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
+
 namespace eatsbits::ui {
 
 enum class ArrangerInspectorTab {
@@ -64,6 +68,7 @@ struct ArrangerTimelineTrack {
     std::vector<ArrangerTimelineClip> clips;
     std::vector<ArrangerMidiFxCard> midiFx;
     std::vector<ArrangerAudioFxCard> audioFx;
+    std::optional<GuiPanelDef> customGuiPanel;
 
     // 4 Authentic Hardware rotary sweep parameters
     float knob1{0.55f}; // e.g. Tone / Cutoff
@@ -104,7 +109,7 @@ struct ArrangerTimelineTrack {
 class ArrangerView : public ViewBase {
 public:
     ArrangerView();
-    ~ArrangerView() override = default;
+    ~ArrangerView() override;
 
     void layout(const Rect2D& bounds, const ViewContext& ctx) override;
     void render(const ViewContext& ctx) override;
@@ -173,6 +178,9 @@ public:
     void addMidiFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
     void addAudioFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
 
+    [[nodiscard]] int getTrackIndexAt(float x, float y) const noexcept;
+    [[nodiscard]] bool isBelowLastTrack(float x, float y) const noexcept;
+
     PluginSearchDialog& getPluginSearchDialog() noexcept { return pluginDialog_; }
     CircleOfFifthsDialog& getCircleOfFifthsDialog() noexcept { return circleOfFifthsDialog_; }
     IconSearchDialog& getIconSearchDialog() noexcept { return iconDialog_; }
@@ -239,6 +247,7 @@ public:
     std::function<void(uint32_t trackIdx, size_t fxIdx, bool enabled)> onToggleMidiFx;
     std::function<void(uint32_t trackIdx)> onAudioFxChanged;
     std::function<void(uint32_t trackIdx)> onMidiFxChanged;
+    std::function<void(uint32_t trackIdx, const std::string& paramName, float normVal)> onMidiFxParamChanged;
     std::function<void(uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal)> onAudioFxParamChanged;
     std::function<void(uint32_t trackIdx)> onOpenFullscreenDevice;
     std::function<void(uint32_t trackIdx)> onOpenDetachedWindow;
@@ -372,6 +381,8 @@ private:
     PluginSearchDialog pluginDialog_;
     CircleOfFifthsDialog circleOfFifthsDialog_;
     IconSearchDialog iconDialog_;
+
+    std::unique_ptr<clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::ui

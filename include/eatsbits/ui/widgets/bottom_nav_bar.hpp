@@ -11,6 +11,10 @@ namespace eatsbits::ui {
 
 enum class WorkspaceView;
 
+namespace clay {
+    class ClayContext;
+}
+
 /**
  * BottomNavBar: Mechanical skeuomorphic hardware navigation strip.
  * Switches between ARRANGER, EDIT, TRACK, MIXER, and DESIGN tabs.
@@ -18,10 +22,15 @@ enum class WorkspaceView;
  */
 class BottomNavBar {
 public:
-    BottomNavBar() = default;
-    ~BottomNavBar() = default;
+    BottomNavBar();
+    ~BottomNavBar();
+    BottomNavBar(const BottomNavBar&) = delete;
+    BottomNavBar& operator=(const BottomNavBar&) = delete;
+    BottomNavBar(BottomNavBar&&) noexcept;
+    BottomNavBar& operator=(BottomNavBar&&) noexcept;
 
-    void layout(float screenWidth, float screenHeight, float height = 48.0f);
+    void declareLayout(clay::ClayContext& ctx, float screenWidth, float screenHeight, float height = 48.0f);
+    void layout(float screenWidth, float screenHeight, float height = 48.0f, clay::ClayContext* ctx = nullptr);
     void render(BatchRenderer2D& r, const ThemeTokens& theme, int activeTab, bool isMobile);
     bool handlePointer(const PointerEvent& ev, int& outNewTab);
     bool handleKey(int key, int scancode, int action, int mods, int& outNewTab);

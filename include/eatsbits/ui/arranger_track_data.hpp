@@ -39,6 +39,7 @@ struct ArrangerTrackData {
     TrackMidiFxData midiFx;
     TrackAudioFxData audioFx;
     std::vector<ArrangerClip> clips;
+    std::optional<GuiPanelDef> customGuiPanel;
 };
 
 } // namespace eatsbits::ui

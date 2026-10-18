@@ -1,7 +1,10 @@
 #include "eatsbits/ui/views/design_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/widgets/track_properties_panel.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -10,7 +13,12 @@
 
 namespace eatsbits::ui {
 
+DesignView::~DesignView() = default;
+
 DesignView::DesignView() {
+    clayContext_ = std::make_unique<clay::ClayContext>();
+    clayContext_->initialize(1280.0f, 720.0f);
+
     DrawerConfig drawerCfg;
     drawerCfg.edge = DockEdge::Left;
     drawerCfg.tab.title = "PROJECT";
@@ -156,6 +164,55 @@ std::string DesignView::getDefaultScriptForTarget(const ScriptTarget& target) co
     std::string id = target.id;
     std::string key = id + " " + target.title + " " + target.subtitle;
     for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (key.find("clav") != std::string::npos || id == "clavinet_d6") {
+        return
+            "# --- Hohner Clavinet D6 (Eatscript Physical Modeling) ---\n"
+            "import math\n\n"
+            "def init():\n"
+            "    eat.param(\"Brilliant\", min=0.0, max=1.0, default=1.0)\n"
+            "    eat.param(\"Treble\", min=0.0, max=1.0, default=1.0)\n"
+            "    eat.param(\"Medium\", min=0.0, max=1.0, default=0.0)\n"
+            "    eat.param(\"Soft\", min=0.0, max=1.0, default=0.0)\n"
+            "    eat.param(\"PickupSelect\", min=0.0, max=1.0, default=0.5)\n"
+            "    eat.param(\"PhaseInvert\", min=0.0, max=1.0, default=0.0)\n"
+            "    eat.param(\"HammerHardness\", min=0.0, max=3.0, default=1.4)\n"
+            "    eat.param(\"DamperThump\", min=0.0, max=1.0, default=0.45)\n"
+            "    eat.param(\"Drive\", min=0.5, max=3.0, default=1.08)\n"
+            "    eat.param(\"Sustain\", min=0.8, max=0.999, default=0.993)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"title\": \"Hohner Clavinet D6\",\n"
+            "        \"subtitle\": \"Electromechanical Steel String Keyboard\",\n"
+            "        \"chassis\": 0,\n"
+            "        \"woodCheeks\": True,\n"
+            "        \"rows\": [\n"
+            "            [{\"id\": \"w_brilliant\", \"type\": 3, \"param\": \"Brilliant\", \"label\": \"BRILLIANT\", \"style\": 0},\n"
+            "             {\"id\": \"w_treble\", \"type\": 3, \"param\": \"Treble\", \"label\": \"TREBLE\", \"style\": 0},\n"
+            "             {\"id\": \"w_medium\", \"type\": 3, \"param\": \"Medium\", \"label\": \"MEDIUM\", \"style\": 0},\n"
+            "             {\"id\": \"w_soft\", \"type\": 3, \"param\": \"Soft\", \"label\": \"SOFT\", \"style\": 0}],\n"
+            "            [{\"id\": \"w_pickup\", \"type\": 1, \"param\": \"PickupSelect\", \"label\": \"PICKUP A/B\", \"style\": 5},\n"
+            "             {\"id\": \"w_phase\", \"type\": 3, \"param\": \"PhaseInvert\", \"label\": \"PHASE (A-B)\", \"style\": 0}],\n"
+            "            [{\"id\": \"w_hammer\", \"type\": 1, \"param\": \"HammerHardness\", \"label\": \"HAMMER\", \"style\": 5},\n"
+            "             {\"id\": \"w_damper\", \"type\": 1, \"param\": \"DamperThump\", \"label\": \"DAMPER\", \"style\": 4},\n"
+            "             {\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"DRIVE\", \"style\": 7},\n"
+            "             {\"id\": \"w_sustain\", \"type\": 1, \"param\": \"Sustain\", \"label\": \"SUSTAIN\", \"style\": 6}]\n"
+            "        ]\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    hammer = eat.node.impulse(type=\"TANGENT TIP\", velocity=1.0, hardness=1.4)\n"
+            "    string = eat.node.comb(type=\"STEEL STRING D6\", length=120.0, tension=0.993)\n"
+            "    pickups = eat.node.pickup(type=\"DUAL ELECTROMAGNETIC\", a=1.0, b=1.0, phase=0.0)\n"
+            "    preamp = eat.node.preamp(type=\"DISCRETE JFET\", brilliant=1.0, treble=1.0, medium=0.0, soft=0.0, drive=1.08)\n"
+            "    out = eat.node.out(type=\"MASTER BUS\", volume=0.88)\n"
+            "    hammer >> string\n"
+            "    string >> pickups\n"
+            "    pickups >> preamp\n"
+            "    preamp >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    return clavinet_d6_voice(time, freq, note, params)\n";
+    }
 
     if (key.find("303") != std::string::npos || id == "eats_303") {
         return
@@ -637,6 +694,16 @@ void DesignView::initModularRackFromScript(const std::string& code) {
                         modDef.knobs = {{"SNAPPY", 0.65f, 0.0f, 1.0f, ""}, {"DECAY", 0.25f, 0.01f, 1.0f, "s"}};
                         modDef.inputs = {"CV IN"};
                         modDef.outputs = {"NOISE OUT"};
+                    } else if (nodeType.find("ARP") != std::string::npos) {
+                        modDef.r = 0.22f; modDef.g = 0.19f; modDef.b = 0.26f;
+                        modDef.knobs = {{"RATE", 0.50f, 0.0f, 6.0f, ""}, {"PATTERN", 0.0f, 0.0f, 4.0f, ""}, {"OCTAVES", 1.0f, 1.0f, 4.0f, "oct"}, {"GATE", 0.75f, 0.05f, 0.99f, "%"}};
+                        modDef.inputs = {"CV IN", "CLOCK"};
+                        modDef.outputs = {"PITCH OUT", "GATE OUT"};
+                    } else if (nodeType.find("QUANT") != std::string::npos || nodeType.find("SCALE") != std::string::npos) {
+                        modDef.r = 0.18f; modDef.g = 0.24f; modDef.b = 0.22f;
+                        modDef.knobs = {{"ROOT", 0.0f, 0.0f, 11.0f, ""}, {"SCALE", 0.0f, 0.0f, 9.0f, ""}, {"SNAP", 1.0f, 0.0f, 1.0f, "%"}};
+                        modDef.inputs = {"CV IN"};
+                        modDef.outputs = {"QUANT CV", "TRIGGER"};
                     } else {
                         modDef.r = 0.20f; modDef.g = 0.22f; modDef.b = 0.25f;
                         modDef.knobs = {{"PARAM 1", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 2", 0.50f, 0.0f, 1.0f, ""}};
@@ -870,6 +937,7 @@ void DesignView::initDefaultTargetsAndCode() {
     allTargets_.push_back({"eats_snare", "Eats Snare (Synth DSP)", "Analog Filtered Noise Snare", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {1.0f, 0.85f, 0.0f}, 1, -1, -1});
     allTargets_.push_back({"eats_hats", "Eats Hats (Synth DSP)", "Metallic Phase Hi-Hat", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.13f, 0.96f, 0.91f}, 2, -1, -1});
     allTargets_.push_back({"eats_303", "Eats-303 (Synth DSP)", "Acid Diode Ladder Synth", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.2f, 1.0f, 0.45f}, 3, -1, -1});
+    allTargets_.push_back({"clavinet_d6", "Hohner Clavinet D6", "Electromechanical Steel String Keyboard", ScriptTargetType::TrackDsp, "SYNTH DSP", {0.0f, 0.95f, 1.0f}, {0.95f, 0.70f, 0.20f}, -1, -1, -1});
 
     // 2. Audio FX Inserts (3 tracks)
     allTargets_.push_back({"fx_kick_dist", "TubeDistortion (Eats Kick)", "Warm Harmonic Saturation", ScriptTargetType::AudioFx, "AUDIO FX", {1.0f, 0.16f, 0.55f}, {1.0f, 0.55f, 0.0f}, 0, -1, 0});
@@ -972,35 +1040,147 @@ void DesignView::initDefaultGuiPanel() {
     guiPanel_.cornerRadius = 8.0f;
     guiPanel_.rows.clear();
 
-    if (activeT.id == "eats_303") {
-        guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
-        guiPanel_.woodCheeks = false;
-        guiPanel_.hideHeader = true;
-        guiPanel_.cornerRadius = 6.0f;
+    if (activeT.type == ScriptTargetType::MidiFx) {
+        guiPanel_.title = activeT.title;
+        guiPanel_.subtitle = activeT.subtitle;
+        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+        guiPanel_.woodCheeks = true;
+        guiPanel_.accentColor = Color(0.95f, 0.70f, 0.20f, 1.0f);
+        guiPanel_.cornerRadius = 8.0f;
+        guiPanel_.rows.clear();
 
-        // Row 1: WAVEFORM, divider, PITCH, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT
+        TrackMidiFxItem mfx;
+        if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.midiFx.size())) {
+                mfx = trk.midiFx[activeT.fxIndex];
+            }
+        }
+        mfx.ensureDefaultKnobs();
+
         GuiRowDef r1;
-        r1.widgets.push_back({"w_waveform", GuiWidgetType::Knob, "WAVEFORM", "Waveform", GuiKnobStyle::Tb303SelectorSilver, 52.0f, 0.0f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"div1", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-        r1.widgets.push_back({"w_pitch", GuiWidgetType::Knob, "PITCH", "Pitch", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.5f, -12.0f, 12.0f, "st", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "Cutoff", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.65f, 200.0f, 4500.0f, "Hz", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "Resonance", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.78f, 0.5f, 16.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"w_envmod", GuiWidgetType::Knob, "ENV MOD", "EnvMod", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.60f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "Decay", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.45f, 0.05f, 1.2f, "s", Color(0.12f, 0.14f, 0.18f)});
-        r1.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "Accent", GuiKnobStyle::Tb303Potentiometer, 52.0f, 0.78f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
+        for (size_t i = 0; i < mfx.knobs.size(); ++i) {
+            const auto& k = mfx.knobs[i];
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label.empty() ? k.name : k.label;
+            w.param = k.name;
+            w.knobStyle = GuiKnobStyle::StudioClean;
+            w.size = 56.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = k.unit;
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
         guiPanel_.rows.push_back(r1);
+    } else if (activeT.type == ScriptTargetType::AudioFx) {
+        guiPanel_.title = activeT.title;
+        guiPanel_.subtitle = activeT.subtitle;
+        guiPanel_.accentColor = Color(0.15f, 0.85f, 0.95f, 1.0f);
+        guiPanel_.woodCheeks = true;
+        guiPanel_.cornerRadius = 8.0f;
+        guiPanel_.rows.clear();
 
-        // Row 2: OCTAVE, divider, SUB OSC, SUB VOL, divider, GLIDE CURVE, divider, DRIVE
-        GuiRowDef r2;
-        r2.widgets.push_back({"w_octave", GuiWidgetType::Knob, "OCTAVE", "Octave", GuiKnobStyle::Tb303SelectorBlack, 52.0f, 0.5f, -2.0f, 0.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r2.widgets.push_back({"div2", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-        r2.widgets.push_back({"w_subosc", GuiWidgetType::ToggleSwitch, "SUB OSC", "SubWaveform", GuiKnobStyle::Standard, 48.0f, 0.0f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r2.widgets.push_back({"w_subvol", GuiWidgetType::Knob, "SUB VOL", "SubVolume", GuiKnobStyle::MiniPotCream, 48.0f, 0.35f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r2.widgets.push_back({"div3", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-        r2.widgets.push_back({"w_glide", GuiWidgetType::Knob, "GLIDE CURVE", "GlideCurve", GuiKnobStyle::MiniPotCream, 48.0f, 0.40f, 0.0f, 2.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        r2.widgets.push_back({"div4", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-        r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "Drive", GuiKnobStyle::MiniPotCream, 48.0f, 0.25f, 0.0f, 1.0f, "", Color(0.12f, 0.14f, 0.18f)});
-        guiPanel_.rows.push_back(r2);
+        TrackAudioFxItem afx;
+        bool foundOnTrack = false;
+        if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.audioFx.size())) {
+                afx = trk.audioFx[activeT.fxIndex];
+                foundOnTrack = true;
+            }
+        }
+        if (!foundOnTrack) {
+            afx.name = activeT.title;
+            afx.type = activeT.subtitle;
+            afx.ensureDefaultKnobs();
+        }
+        afx.ensureDefaultKnobs();
+
+        std::string nameUpper = activeT.title + " " + activeT.subtitle;
+        for (char& c : nameUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        if (nameUpper.find("CRUSH") != std::string::npos || nameUpper.find("8-BIT") != std::string::npos || nameUpper.find("BITCRUSHER") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
+        } else if (nameUpper.find("DELAY") != std::string::npos || nameUpper.find("ECHO") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::Silver;
+        } else if (nameUpper.find("EQ") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
+        } else if (nameUpper.find("LIMIT") != std::string::npos) {
+            guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
+        } else {
+            guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
+        }
+
+        GuiRowDef r1;
+        for (size_t i = 0; i < afx.knobs.size(); ++i) {
+            const auto& k = afx.knobs[i];
+            GuiWidgetDef w;
+            w.id = "w_" + k.name;
+            w.type = GuiWidgetType::Knob;
+            w.label = k.label.empty() ? k.name : k.label;
+            w.param = k.name;
+            w.knobStyle = GuiKnobStyle::StudioClean;
+            w.size = 56.0f;
+            w.currentVal = k.value;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+            w.unit = k.unit;
+            w.accentColor = guiPanel_.accentColor;
+            r1.widgets.push_back(w);
+        }
+        guiPanel_.rows.push_back(r1);
+    } else if (activeT.id != "eats_kick") {
+        TrackPropertiesDrawerData data;
+        data.instrument = activeT.title;
+        data.instrumentEngine = activeT.id;
+        data.presetTitle = activeT.subtitle;
+        if (activeT.id == "clavinet_d6" || activeT.id.find("clav") != std::string::npos) {
+            data.instrument = "clavinet";
+            data.instrumentEngine = "clavinet";
+        } else if (activeT.id == "eats_303") {
+            data.instrument = "tb303";
+            data.instrumentEngine = "tb303";
+        } else if (activeT.id == "eats_snare") {
+            data.instrument = "tr909";
+            data.instrumentEngine = "snare";
+        } else if (activeT.id == "eats_hats") {
+            data.instrument = "tr808";
+            data.instrumentEngine = "hats";
+        } else if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            data.instrument = trk.instrument;
+            data.instrumentEngine = trk.instrumentEngine;
+            data.knob1 = trk.knob1;
+            data.knob2 = trk.knob2;
+            data.knob3 = trk.knob3;
+            data.knob4 = trk.knob4;
+            data.knob1Name = trk.knob1Name;
+            data.knob2Name = trk.knob2Name;
+            data.knob3Name = trk.knob3Name;
+            data.knob4Name = trk.knob4Name;
+            if (trk.instrumentEngine.rfind("clap:", 0) == 0 || trk.instrumentEngine == "CLAP" || trk.instrument.find(".clap") != std::string::npos) {
+                data.isClapPlugin = true;
+                data.hasNativeGui = true;
+            }
+        }
+
+        if (!currentParams_.empty()) {
+            for (const auto& cp : currentParams_) {
+                float norm = 0.5f;
+                if (cp.maxVal > cp.minVal) {
+                    norm = (cp.currentVal - cp.minVal) / (cp.maxVal - cp.minVal);
+                }
+                std::string disp = std::to_string(static_cast<int>(std::round(cp.currentVal))) + (cp.unit.empty() ? "" : (" " + cp.unit));
+                data.knobs.push_back({cp.name, cp.name, norm, disp});
+            }
+        }
+
+        data.syncKnobsIfEmpty();
+        populateCanonicalInstrumentGuiPanel(guiPanel_, data, draggingGuiWidgetRow_, draggingGuiWidgetIdx_);
     } else if (activeT.id == "eats_kick") {
         guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
         GuiRowDef r1;
@@ -1014,78 +1194,6 @@ void DesignView::initDefaultGuiPanel() {
         r2.widgets.push_back({"w_click", GuiWidgetType::ToggleSwitch, "CLICK TRANSIENT", "Click", GuiKnobStyle::Standard, 48.0f, 0.0f, 0.0f, 1.0f, "", {1.0f, 0.55f, 0.0f}});
         r2.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "OUTPUT LEVEL", "Volume", GuiKnobStyle::Standard, 70.0f, 0.82f, 0.0f, 1.0f, "dB", {0.0f, 0.95f, 1.0f}});
         guiPanel_.rows.push_back(r2);
-    } else if (activeT.type == ScriptTargetType::AudioFx) {
-        std::string nameUpper = activeT.title + " " + activeT.subtitle;
-        for (char& c : nameUpper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-
-        if (nameUpper.find("CRUSH") != std::string::npos || nameUpper.find("8-BIT") != std::string::npos || nameUpper.find("BITCRUSHER") != std::string::npos) {
-            guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_bits", GuiWidgetType::Knob, "BIT DEPTH", "Bits", GuiKnobStyle::AnodizedKnurled, 56.0f, 0.5f, 1.0f, 16.0f, "bit", {0.13f, 0.96f, 0.91f}});
-            r1.widgets.push_back({"w_downsample", GuiWidgetType::Knob, "DOWNSAMPLE", "Downsample", GuiKnobStyle::CreamFluted, 56.0f, 0.2f, 1.0f, 32.0f, "x", {1.0f, 0.55f, 0.0f}});
-            r1.widgets.push_back({"w_drive", GuiWidgetType::Knob, "PRE-DRIVE", "Drive", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.25f, 0.5f, 4.0f, "x", {1.0f, 0.16f, 0.55f}});
-            r1.widgets.push_back({"w_mix", GuiWidgetType::Knob, "DRY / WET", "Mix", GuiKnobStyle::TwoToneStepped, 56.0f, 0.85f, 0.0f, 1.0f, "%", {0.0f, 0.95f, 1.0f}});
-            guiPanel_.rows.push_back(r1);
-        } else if (nameUpper.find("DELAY") != std::string::npos || nameUpper.find("ECHO") != std::string::npos) {
-            guiPanel_.chassisStyle = GuiChassisStyle::Silver;
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_time", GuiWidgetType::Knob, "DELAY TIME", "Time", GuiKnobStyle::CreamFluted, 56.0f, 0.375f, 10.0f, 1000.0f, "ms", {0.0f, 0.95f, 1.0f}});
-            r1.widgets.push_back({"w_fb", GuiWidgetType::Knob, "FEEDBACK", "Feedback", GuiKnobStyle::AnodizedKnurled, 56.0f, 0.45f, 0.0f, 0.95f, "%", {1.0f, 0.55f, 0.0f}});
-            r1.widgets.push_back({"w_damp", GuiWidgetType::Knob, "HIGH DAMP", "Damp", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.4f, 1000.0f, 20000.0f, "Hz", {1.0f, 0.85f, 0.0f}});
-            r1.widgets.push_back({"w_mix", GuiWidgetType::Knob, "WET MIX", "Mix", GuiKnobStyle::TwoToneStepped, 56.0f, 0.40f, 0.0f, 1.0f, "%", {1.0f, 0.16f, 0.55f}});
-            guiPanel_.rows.push_back(r1);
-        } else if (nameUpper.find("EQ") != std::string::npos) {
-            guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_low", GuiWidgetType::Knob, "LOW GAIN", "LowGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {1.0f, 0.55f, 0.0f}});
-            r1.widgets.push_back({"w_mid", GuiWidgetType::Knob, "MID GAIN", "MidGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {1.0f, 0.85f, 0.0f}});
-            r1.widgets.push_back({"w_high", GuiWidgetType::Knob, "HIGH GAIN", "HighGain", GuiKnobStyle::Standard, 56.0f, 0.5f, -12.0f, 12.0f, "dB", {0.13f, 0.96f, 0.91f}});
-            r1.widgets.push_back({"w_midf", GuiWidgetType::Knob, "MID FREQ", "MidFreq", GuiKnobStyle::Standard, 56.0f, 0.3f, 200.0f, 5000.0f, "Hz", {0.0f, 0.95f, 1.0f}});
-            guiPanel_.rows.push_back(r1);
-        } else if (nameUpper.find("LIMIT") != std::string::npos) {
-            guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_ceil", GuiWidgetType::Knob, "CEILING", "Ceiling", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.99f, -12.0f, 0.0f, "dB", {1.0f, 0.16f, 0.55f}});
-            r1.widgets.push_back({"w_thresh", GuiWidgetType::Knob, "THRESHOLD", "Threshold", GuiKnobStyle::TwoToneStepped, 56.0f, 0.85f, -24.0f, 0.0f, "dB", {1.0f, 0.55f, 0.0f}});
-            r1.widgets.push_back({"w_rel", GuiWidgetType::Knob, "RELEASE", "Release", GuiKnobStyle::CreamFluted, 56.0f, 0.2f, 10.0f, 500.0f, "ms", {0.0f, 0.95f, 1.0f}});
-            r1.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "GAIN REDUCT", "GR", GuiKnobStyle::Standard, 60.0f, 0.2f, 0.0f, 1.0f, "dB", {1.0f, 0.85f, 0.0f}});
-            guiPanel_.rows.push_back(r1);
-        } else {
-            guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_drive", GuiWidgetType::Knob, "SATURATION DRIVE", "Drive", GuiKnobStyle::BakeliteSkirt, 56.0f, 0.60f, 1.0f, 20.0f, "x", {1.0f, 0.16f, 0.55f}});
-            r1.widgets.push_back({"w_warmth", GuiWidgetType::Knob, "WARMTH HARMONICS", "Warmth", GuiKnobStyle::CreamFluted, 56.0f, 0.70f, 0.0f, 1.0f, "", {1.0f, 0.85f, 0.0f}});
-            guiPanel_.rows.push_back(r1);
-
-            GuiRowDef r2;
-            r2.widgets.push_back({"w_mix", GuiWidgetType::Slider, "DRY / WET MIX", "Mix", GuiKnobStyle::Standard, 140.0f, 0.85f, 0.0f, 1.0f, "%", {0.0f, 0.95f, 1.0f}});
-            r2.widgets.push_back({"w_vu", GuiWidgetType::VuMeter, "DISTORTION PEAK", "Level", GuiKnobStyle::Standard, 60.0f, 0.75f, 0.0f, 1.0f, "dB", {1.0f, 0.16f, 0.55f}});
-            guiPanel_.rows.push_back(r2);
-        }
-    } else {
-        guiPanel_.chassisStyle = GuiChassisStyle::Silver;
-        GuiRowDef r1;
-        for (size_t i = 0; i < currentParams_.size() && i < 4; ++i) {
-            r1.widgets.push_back({"w_" + std::to_string(i), GuiWidgetType::Knob, currentParams_[i].name, currentParams_[i].name,
-                                  static_cast<GuiKnobStyle>(i % 5), 56.0f, currentParams_[i].currentVal,
-                                  currentParams_[i].minVal, currentParams_[i].maxVal, currentParams_[i].unit,
-                                  activeT.badgeColor});
-        }
-        if (!r1.widgets.empty()) {
-            guiPanel_.rows.push_back(r1);
-        }
-        if (currentParams_.size() > 4) {
-            GuiRowDef r2;
-            for (size_t i = 4; i < currentParams_.size() && i < 8; ++i) {
-                r2.widgets.push_back({"w_" + std::to_string(i), GuiWidgetType::Knob, currentParams_[i].name, currentParams_[i].name,
-                                      static_cast<GuiKnobStyle>(i % 5), 56.0f, currentParams_[i].currentVal,
-                                      currentParams_[i].minVal, currentParams_[i].maxVal, currentParams_[i].unit,
-                                      activeT.badgeColor});
-            }
-            if (!r2.widgets.empty()) {
-                guiPanel_.rows.push_back(r2);
-            }
-        }
     }
 
     selectedDesignerRow_ = -1;
@@ -1282,6 +1390,19 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Accent", 0.0f, 1.0f, 0.70f, 0.75f, ""},
             {"Drive", 0.0f, 1.0f, 0.25f, 0.25f, ""}
         };
+    } else if (engKey.find("clav") != std::string::npos || t.id == "clavinet_d6") {
+        currentParams_ = {
+            {"Brilliant", 0.0f, 1.0f, 1.0f, 1.0f, ""},
+            {"Treble", 0.0f, 1.0f, 1.0f, 1.0f, ""},
+            {"Medium", 0.0f, 1.0f, 0.0f, 0.0f, ""},
+            {"Soft", 0.0f, 1.0f, 0.0f, 0.0f, ""},
+            {"PickupSelect", 0.0f, 1.0f, 0.5f, 0.5f, ""},
+            {"PhaseInvert", 0.0f, 1.0f, 0.0f, 0.0f, ""},
+            {"HammerHardness", 0.0f, 3.0f, 1.4f, 1.4f, ""},
+            {"DamperThump", 0.0f, 1.0f, 0.45f, 0.45f, ""},
+            {"Drive", 0.5f, 3.0f, 1.08f, 1.08f, "x"},
+            {"Sustain", 0.8f, 0.999f, 0.993f, 0.993f, ""}
+        };
     } else if (engKey.find("dx7") != std::string::npos || engKey.find("fm") != std::string::npos) {
         currentParams_ = {
             {"Algorithm", 1.0f, 32.0f, 5.0f, 5.0f, ""},
@@ -1455,7 +1576,7 @@ const ScriptTarget& DesignView::getActiveTarget() const {
 
 void DesignView::compileCurrentScript(const ViewContext& ctx) {
     isCompiled_ = true;
-    statusMsg_ = "Compiled successfully (Eatscript Live Engine) Active parameters: " + std::to_string(currentParams_.size());
+    statusMsg_ = "Applied successfully (Eatscript Live Engine) Active parameters: " + std::to_string(currentParams_.size());
     errorMsg_.clear();
 
     if (onCompileScript) {
@@ -1463,7 +1584,7 @@ void DesignView::compileCurrentScript(const ViewContext& ctx) {
     }
 
     if (ctx.onShowNotification) {
-        ctx.onShowNotification("Compiled & hot-swapped " + getActiveTarget().title + " (Real-time C++ Core active)");
+        ctx.onShowNotification("Applied & hot-swapped " + getActiveTarget().title + " (Real-time C++ Core active)");
     }
 }
 
@@ -1480,35 +1601,187 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     // Header element sizing based on available width
     float availW = headerBounds_.w;
-    float compileW = (availW < 900.0f) ? 95.0f : (ctx.isMobile ? 85.0f : 135.0f);
+    float compileW = (availW < 900.0f) ? 80.0f : (ctx.isMobile ? 75.0f : 96.0f);
     float modeBtnW = (availW < 900.0f) ? 56.0f : (availW < 1100.0f ? 66.0f : (ctx.isMobile ? 48.0f : 76.0f));
     float targetDropdownW = (availW < 900.0f) ? 140.0f : (availW < 1100.0f ? 180.0f : (ctx.isMobile ? 140.0f : 240.0f));
-
-    // Left elements: Explorer Toggle (30px), Target Badge (80px), Target Dropdown
-    float curX = headerBounds_.x + 10.0f;
-    explorerToggleBtn_ = Rect2D(curX, btnY, 30.0f, btnH);
-    curX += 36.0f;
-
-    targetBadgeBounds_ = Rect2D(curX, btnY + 3.0f, 80.0f, btnH - 6.0f);
-    curX += 86.0f;
-
-    targetDropdownBtn_ = Rect2D(curX, btnY, targetDropdownW, btnH);
-    targetDropdownMenuBounds_ = Rect2D(curX, btnY + btnH + 4.0f, targetDropdownW + 80.0f, 260.0f);
-
-    // Right elements: COMPILE & RUN, GUI, SPLIT, MODULAR, CODE
-    float rightMargin = headerBounds_.x + headerBounds_.w - 12.0f;
-    btnCompile_ = Rect2D(rightMargin - compileW, btnY, compileW, btnH);
-
-    btnGui_ = Rect2D(btnCompile_.x - modeBtnW - 6.0f, btnY, modeBtnW, btnH);
-    btnSplit_ = Rect2D(btnGui_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
-    btnModular_ = Rect2D(btnSplit_.x - (modeBtnW + 8.0f) - 4.0f, btnY, modeBtnW + 8.0f, btnH);
-    btnCode_ = Rect2D(btnModular_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
 
     // Project Sidebar Unified Drawer Layout
     projectDrawer_.layout(contentBounds_, 0.0f);
     float drawerW = projectDrawer_.isExpanded() ? (projectDrawer_.getExtent() * projectDrawer_.getAnimProgress()) : 0.0f;
     explorerBounds_ = projectDrawer_.getContentBounds();
     studioBodyBounds_ = Rect2D(contentBounds_.x + drawerW, contentBounds_.y, contentBounds_.w - drawerW, contentBounds_.h);
+
+    // Declarative Clay flex container layout for DesignView workspace
+    if (clayContext_ && clayContext_->isInitialized()) {
+        clayContext_->setDimensions(bounds_.w, bounds_.h);
+        clayContext_->beginLayout();
+
+        CLAY(CLAY_ID("DesignViewRoot"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(bounds_.h) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Header Bar
+            CLAY(CLAY_ID("DesignHeaderBar"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(headerH) },
+                    .padding = { 10, 12, 5, 5 },
+                    .childGap = 6,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("BtnExplorerToggle"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(30.0f), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("TargetBadge"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(80.0f), CLAY_SIZING_FIXED(btnH - 6.0f) } }
+                }) {}
+                CLAY(CLAY_ID("BtnTargetDropdown"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(targetDropdownW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+
+                CLAY(CLAY_ID("HeaderSpacer"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+
+                CLAY(CLAY_ID("BtnCode"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(modeBtnW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("BtnModular"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(modeBtnW + 8.0f), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("BtnSplit"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(modeBtnW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("BtnGui"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(modeBtnW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("BtnCompile"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(compileW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+            }
+
+            // Main Content Area
+            CLAY(CLAY_ID("DesignContentArea"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                    .childGap = 0,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                if (drawerW > 0.0f) {
+                    CLAY(CLAY_ID("ProjectDrawerSlot"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(drawerW), CLAY_SIZING_GROW(0) } }
+                    }) {}
+                }
+
+                CLAY(CLAY_ID("StudioBody"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                        .childGap = 0,
+                        .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                    }
+                }) {
+                    // Responsive Eurorack 3U/6U & 19" Rack Rails Container
+                    CLAY(CLAY_ID("EurorackRackContainer"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                            .childGap = 0,
+                            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                            .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                        }
+                    }) {
+                        CLAY(CLAY_ID("EurorackTopRail"), {
+                            .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(16.0f) } }
+                        }) {}
+                        CLAY(CLAY_ID("EurorackModuleArea"), {
+                            .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(320.0f) } }
+                        }) {}
+                        CLAY(CLAY_ID("EurorackBottomRail"), {
+                            .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(16.0f) } }
+                        }) {}
+                    }
+                }
+            }
+        }
+
+        clayContext_->endLayout(0.016f);
+
+        auto hdrData = clayContext_->getElementData(CLAY_ID("DesignHeaderBar"));
+        if (hdrData.found) {
+            headerBounds_ = Rect2D(bounds_.x + hdrData.boundingBox.x, bounds_.y + hdrData.boundingBox.y,
+                                   hdrData.boundingBox.width, hdrData.boundingBox.height);
+        }
+        auto togData = clayContext_->getElementData(CLAY_ID("BtnExplorerToggle"));
+        if (togData.found) {
+            explorerToggleBtn_ = Rect2D(bounds_.x + togData.boundingBox.x, bounds_.y + togData.boundingBox.y,
+                                        togData.boundingBox.width, togData.boundingBox.height);
+        }
+        auto bdgData = clayContext_->getElementData(CLAY_ID("TargetBadge"));
+        if (bdgData.found) {
+            targetBadgeBounds_ = Rect2D(bounds_.x + bdgData.boundingBox.x, bounds_.y + bdgData.boundingBox.y,
+                                        bdgData.boundingBox.width, bdgData.boundingBox.height);
+        }
+        auto drpData = clayContext_->getElementData(CLAY_ID("BtnTargetDropdown"));
+        if (drpData.found) {
+            targetDropdownBtn_ = Rect2D(bounds_.x + drpData.boundingBox.x, bounds_.y + drpData.boundingBox.y,
+                                        drpData.boundingBox.width, drpData.boundingBox.height);
+            targetDropdownMenuBounds_ = Rect2D(targetDropdownBtn_.x, targetDropdownBtn_.y + targetDropdownBtn_.h + 4.0f,
+                                               targetDropdownBtn_.w + 80.0f, 260.0f);
+        }
+        auto codeData = clayContext_->getElementData(CLAY_ID("BtnCode"));
+        if (codeData.found) {
+            btnCode_ = Rect2D(bounds_.x + codeData.boundingBox.x, bounds_.y + codeData.boundingBox.y,
+                              codeData.boundingBox.width, codeData.boundingBox.height);
+        }
+        auto modData = clayContext_->getElementData(CLAY_ID("BtnModular"));
+        if (modData.found) {
+            btnModular_ = Rect2D(bounds_.x + modData.boundingBox.x, bounds_.y + modData.boundingBox.y,
+                                 modData.boundingBox.width, modData.boundingBox.height);
+        }
+        auto spltData = clayContext_->getElementData(CLAY_ID("BtnSplit"));
+        if (spltData.found) {
+            btnSplit_ = Rect2D(bounds_.x + spltData.boundingBox.x, bounds_.y + spltData.boundingBox.y,
+                               spltData.boundingBox.width, spltData.boundingBox.height);
+        }
+        auto guiData = clayContext_->getElementData(CLAY_ID("BtnGui"));
+        if (guiData.found) {
+            btnGui_ = Rect2D(bounds_.x + guiData.boundingBox.x, bounds_.y + guiData.boundingBox.y,
+                             guiData.boundingBox.width, guiData.boundingBox.height);
+        }
+        auto cmpData = clayContext_->getElementData(CLAY_ID("BtnCompile"));
+        if (cmpData.found) {
+            btnCompile_ = Rect2D(bounds_.x + cmpData.boundingBox.x, bounds_.y + cmpData.boundingBox.y,
+                                 cmpData.boundingBox.width, cmpData.boundingBox.height);
+        }
+        auto bodyData = clayContext_->getElementData(CLAY_ID("StudioBody"));
+        if (bodyData.found) {
+            studioBodyBounds_ = Rect2D(bounds_.x + bodyData.boundingBox.x, bounds_.y + bodyData.boundingBox.y,
+                                       bodyData.boundingBox.width, bodyData.boundingBox.height);
+        }
+    } else {
+        // Fallback coordinate initialization
+        float curX = headerBounds_.x + 10.0f;
+        explorerToggleBtn_ = Rect2D(curX, btnY, 30.0f, btnH);
+        curX += 36.0f;
+        targetBadgeBounds_ = Rect2D(curX, btnY + 3.0f, 80.0f, btnH - 6.0f);
+        curX += 86.0f;
+        targetDropdownBtn_ = Rect2D(curX, btnY, targetDropdownW, btnH);
+        targetDropdownMenuBounds_ = Rect2D(curX, btnY + btnH + 4.0f, targetDropdownW + 80.0f, 260.0f);
+
+        float rightMargin = headerBounds_.x + headerBounds_.w - 12.0f;
+        btnCompile_ = Rect2D(rightMargin - compileW, btnY, compileW, btnH);
+        btnGui_ = Rect2D(btnCompile_.x - modeBtnW - 6.0f, btnY, modeBtnW, btnH);
+        btnSplit_ = Rect2D(btnGui_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
+        btnModular_ = Rect2D(btnSplit_.x - (modeBtnW + 8.0f) - 4.0f, btnY, modeBtnW + 8.0f, btnH);
+        btnCode_ = Rect2D(btnModular_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
+    }
 
     // Code Editor layout inside studioBodyBounds_ (oscilloscope removed, extra height to editor)
     float pad = 12.0f;
@@ -1739,7 +2012,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
     drawModeBtn(btnSplit_, "SPLIT", mode_ == DesignSubMode::Split, Color{1.0f, 0.85f, 0.0f});
     drawModeBtn(btnGui_, "GUI", mode_ == DesignSubMode::GuiDesigner, Color{1.0f, 0.16f, 0.55f});
 
-    drawButton(r, btnCompile_, "> COMPILE & RUN",
+    drawButton(r, btnCompile_, "▶ APPLY",
                Color{0.05f, 0.35f, 0.18f, 0.95f}, Color{0.0f, 0.95f, 0.45f, 1.0f}, Color{0.0f, 1.0f, 0.55f, 1.0f},
                10.5f, 4.0f, 1.2f);
 }

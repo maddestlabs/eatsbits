@@ -1,13 +1,19 @@
 #include "eatsbits/tui/tui_app.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
+#include "clay.h"
 #include <thread>
 #include <chrono>
 #include <iostream>
 
 namespace eatsbits::tui {
 
-TuiApp::TuiApp() : surface_(120, 36) {}
+TuiApp::TuiApp() : surface_(120, 36) {
+    clayContext_ = std::make_unique<ui::clay::ClayContext>();
+    clayContext_->initialize(120.0f, 36.0f);
+    clayContext_->setDefaultMonospaceMeasure(1.0f, 1.0f);
+}
 
 TuiApp::~TuiApp() {
     stop();
@@ -25,6 +31,9 @@ bool TuiApp::init() {
 
     terminalDevice_.getWindowSize(screenCols_, screenRows_);
     surface_.resize(screenCols_, screenRows_);
+    if (clayContext_) {
+        clayContext_->setDimensions(static_cast<float>(screenCols_), static_cast<float>(screenRows_));
+    }
 
     setupAudioSession();
     running_ = true;
@@ -381,92 +390,225 @@ void TuiApp::updateAndRender(bool forceRedraw) {
 }
 
 void TuiApp::renderTopPanel(const Rect& area, const TelemetrySnapshot& telemetry) {
-    surface_.drawBox(area, Color::DarkGray(), Color::FromHex(0x101217), false);
+    if (!clayContext_ || !clayContext_->isInitialized()) {
+        return;
+    }
 
-    // Left brand: "e:" icon in Acid Amber
-    surface_.drawText(area.x + 2, area.y + 1, "e:", Color::AcidAmber(), Color::FromHex(0x101217), static_cast<uint8_t>(TextAttr::Bold));
+    clayContext_->setDimensions(static_cast<float>(area.width), static_cast<float>(area.height));
+    clayContext_->beginLayout();
 
-    // Transport buttons: ▶ Play, ⏹ Stop, ⏺ Rec
-    int curX = area.x + 6;
+    CLAY(CLAY_ID("TuiTopBar"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(static_cast<float>(area.width)), CLAY_SIZING_FIXED(static_cast<float>(area.height)) },
+            .padding = { 2, 2, 1, 1 },
+            .childGap = 1,
+            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+        },
+        .backgroundColor = { 16, 18, 23, 255 },
+        .border = { .color = { 80, 80, 80, 255 }, .width = { 1, 1, 1, 1, 0 } }
+    }) {
+        // Left brand logo: "e:" in Acid Amber
+        CLAY(CLAY_ID("TuiBrandLogo"), {
+            .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } }
+        }) {
+            CLAY_TEXT(CLAY_STRING("e:"), CLAY_TEXT_CONFIG({ .textColor = { 255, 179, 0, 255 } }));
+        }
 
-    // ▶ Play button
-    Color playBg = telemetry.isPlaying ? Color::NeonGreen() : Color::DarkGray();
-    Color playFg = telemetry.isPlaying ? Color::Black() : Color::White();
-    std::string playText = telemetry.isPlaying ? " ▶ PLAY " : " ▶ Play ";
-    surface_.drawText(curX, area.y + 1, playText, playFg, playBg, static_cast<uint8_t>(TextAttr::Bold));
-    cachedPlayBtn_ = {curX, area.y + 1, static_cast<int>(playText.size()), 1};
-    curX += static_cast<int>(playText.size()) + 1;
+        // Spacer element to position buttons starting at x = 6 (padding=2 + logo=2 + spacer=2 = 6)
+        CLAY(CLAY_ID("BrandSpacer"), {
+            .layout = { .sizing = { CLAY_SIZING_FIXED(2), CLAY_SIZING_FIXED(1) } }
+        }) {}
 
-    // ⏹ Stop button
-    Color stopBg = (!telemetry.isPlaying && !recording_) ? Color::DangerRed() : Color::DarkGray();
-    Color stopFg = (!telemetry.isPlaying && !recording_) ? Color::White() : Color::LightGray();
-    std::string stopText = (!telemetry.isPlaying && !recording_) ? " ⏹ STOP " : " ⏹ Stop ";
-    surface_.drawText(curX, area.y + 1, stopText, stopFg, stopBg, static_cast<uint8_t>(TextAttr::Bold));
-    cachedStopBtn_ = {curX, area.y + 1, static_cast<int>(stopText.size()), 1};
-    curX += static_cast<int>(stopText.size()) + 1;
+        // Transport buttons: ▶ Play, ⏹ Stop, ⏺ Rec
+        std::string playText = telemetry.isPlaying ? " ▶ PLAY " : " ▶ Play ";
+        Clay_Color playBg = telemetry.isPlaying ? Clay_Color{ 57, 255, 20, 255 } : Clay_Color{ 80, 80, 80, 255 };
+        Clay_Color playFg = telemetry.isPlaying ? Clay_Color{ 0, 0, 0, 255 } : Clay_Color{ 255, 255, 255, 255 };
+        CLAY(CLAY_ID("PlayBtn"), {
+            .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } },
+            .backgroundColor = playBg
+        }) {
+            CLAY_TEXT(ClayTuiBridge::toClayString(playText), CLAY_TEXT_CONFIG({ .textColor = playFg }));
+        }
 
-    // ⏺ Rec button
-    Color recBg = recording_ ? Color::DangerRed() : Color::DarkGray();
-    Color recFg = recording_ ? Color::White() : Color::LightGray();
-    std::string recText = recording_ ? " ⏺ REC " : " ⏺ Rec ";
-    surface_.drawText(curX, area.y + 1, recText, recFg, recBg, static_cast<uint8_t>(TextAttr::Bold));
-    cachedRecBtn_ = {curX, area.y + 1, static_cast<int>(recText.size()), 1};
-    curX += static_cast<int>(recText.size()) + 2;
+        bool isStopped = !telemetry.isPlaying && !recording_;
+        std::string stopText = isStopped ? " ⏹ STOP " : " ⏹ Stop ";
+        Clay_Color stopBg = isStopped ? Clay_Color{ 235, 30, 60, 255 } : Clay_Color{ 80, 80, 80, 255 };
+        Clay_Color stopFg = isStopped ? Clay_Color{ 255, 255, 255, 255 } : Clay_Color{ 180, 180, 180, 255 };
+        CLAY(CLAY_ID("StopBtn"), {
+            .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } },
+            .backgroundColor = stopBg
+        }) {
+            CLAY_TEXT(ClayTuiBridge::toClayString(stopText), CLAY_TEXT_CONFIG({ .textColor = stopFg }));
+        }
 
-    // Stats: BPM, Time signature, Position counter, CPU load
-    char statsBuf[64];
-    int curBar = static_cast<int>(telemetry.currentStep / 16) + 1;
-    int curBeat = static_cast<int>((telemetry.currentStep % 16) / 4) + 1;
-    int cur16th = static_cast<int>(telemetry.currentStep % 4) + 1;
-    snprintf(statsBuf, sizeof(statsBuf), "TEMPO: %5.1f BPM │ 4/4 │ %03d.%02d.%02d │ CPU: 1.6%%",
-             telemetry.bpm, curBar, curBeat, cur16th);
-    surface_.drawText(curX, area.y + 1, statsBuf, Color::White(), Color::FromHex(0x101217));
+        std::string recText = recording_ ? " ⏺ REC " : " ⏺ Rec ";
+        Clay_Color recBg = recording_ ? Clay_Color{ 235, 30, 60, 255 } : Clay_Color{ 80, 80, 80, 255 };
+        Clay_Color recFg = recording_ ? Clay_Color{ 255, 255, 255, 255 } : Clay_Color{ 180, 180, 180, 255 };
+        CLAY(CLAY_ID("RecBtn"), {
+            .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } },
+            .backgroundColor = recBg
+        }) {
+            CLAY_TEXT(ClayTuiBridge::toClayString(recText), CLAY_TEXT_CONFIG({ .textColor = recFg }));
+        }
 
-    // Right-aligned Project Browser Button
-    std::string browserText = " [▤ BROWSER] ";
-    int browserX = area.x + area.width - static_cast<int>(browserText.size()) - 2;
-    if (browserX > curX + 45) {
-        Color browserBg = arrangerView_.isInspectorOpen() ? Color::AcidAmber() : Color::DarkGray();
-        Color browserFg = arrangerView_.isInspectorOpen() ? Color::Black() : Color::White();
-        surface_.drawText(browserX, area.y + 1, browserText, browserFg, browserBg, static_cast<uint8_t>(TextAttr::Bold));
-        cachedBrowserBtn_ = {browserX, area.y + 1, static_cast<int>(browserText.size()), 1};
+        // Stats container (Flex grow to fill center)
+        char statsBuf[64];
+        int curBar = static_cast<int>(telemetry.currentStep / 16) + 1;
+        int curBeat = static_cast<int>((telemetry.currentStep % 16) / 4) + 1;
+        int cur16th = static_cast<int>(telemetry.currentStep % 4) + 1;
+        snprintf(statsBuf, sizeof(statsBuf), "TEMPO: %5.1f BPM │ 4/4 │ %03d.%02d.%02d │ CPU: 1.6%%",
+                 telemetry.bpm, curBar, curBeat, cur16th);
+
+        CLAY(CLAY_ID("StatsContainer"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) },
+                .padding = { 1, 0, 0, 0 },
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER }
+            }
+        }) {
+            CLAY_TEXT(ClayTuiBridge::toClayString(statsBuf), CLAY_TEXT_CONFIG({ .textColor = { 255, 255, 255, 255 } }));
+        }
+
+        // Right-aligned Project Browser Button
+        if (area.width >= 75) {
+            std::string browserText = " [▤ BROWSER] ";
+            bool isInspector = arrangerView_.isInspectorOpen();
+            Clay_Color browserBg = isInspector ? Clay_Color{ 255, 179, 0, 255 } : Clay_Color{ 80, 80, 80, 255 };
+            Clay_Color browserFg = isInspector ? Clay_Color{ 0, 0, 0, 255 } : Clay_Color{ 255, 255, 255, 255 };
+            CLAY(CLAY_ID("BrowserBtn"), {
+                .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } },
+                .backgroundColor = browserBg
+            }) {
+                CLAY_TEXT(ClayTuiBridge::toClayString(browserText), CLAY_TEXT_CONFIG({ .textColor = browserFg }));
+            }
+        }
+    }
+
+    Clay_RenderCommandArray cmds = clayContext_->endLayout(0.016f);
+    clayBridge_.render(cmds, surface_, area.x, area.y);
+
+    // Update cached hit testing regions from Clay layout solver
+    auto playData = clayContext_->getElementData(CLAY_ID("PlayBtn"));
+    if (playData.found) {
+        cachedPlayBtn_ = ClayTuiBridge::snapToCells(playData.boundingBox);
+        cachedPlayBtn_.x += area.x;
+        cachedPlayBtn_.y += area.y;
+    }
+
+    auto stopData = clayContext_->getElementData(CLAY_ID("StopBtn"));
+    if (stopData.found) {
+        cachedStopBtn_ = ClayTuiBridge::snapToCells(stopData.boundingBox);
+        cachedStopBtn_.x += area.x;
+        cachedStopBtn_.y += area.y;
+    }
+
+    auto recData = clayContext_->getElementData(CLAY_ID("RecBtn"));
+    if (recData.found) {
+        cachedRecBtn_ = ClayTuiBridge::snapToCells(recData.boundingBox);
+        cachedRecBtn_.x += area.x;
+        cachedRecBtn_.y += area.y;
+    }
+
+    auto browserData = clayContext_->getElementData(CLAY_ID("BrowserBtn"));
+    if (browserData.found) {
+        cachedBrowserBtn_ = ClayTuiBridge::snapToCells(browserData.boundingBox);
+        cachedBrowserBtn_.x += area.x;
+        cachedBrowserBtn_.y += area.y;
+    } else {
+        cachedBrowserBtn_ = {};
     }
 }
 
 void TuiApp::renderBottomPanel(const Rect& area) {
-    surface_.fillRect(area, Color::FromHex(0x14161E), ' ');
-    surface_.setCell(area.x, area.y, Cell{0x2500, Color::DarkGray(), Color::FromHex(0x14161E), 0});
+    if (!clayContext_ || !clayContext_->isInitialized()) {
+        return;
+    }
 
-    // 5 Workspace Tabs: Arranger | Edit | Track | Mixer | Design
-    static const char* kTabLabels[5] = {
-        "  Arranger  ",
-        "    Edit    ",
-        "   Track    ",
-        "   Mixer    ",
-        "   Design   "
-    };
+    clayContext_->setDimensions(static_cast<float>(area.width), static_cast<float>(area.height));
+    clayContext_->beginLayout();
 
-    int curX = area.x + 2;
-    for (int i = 0; i < 5; ++i) {
-        bool isActive = (static_cast<int>(activeTab_) == i);
-        Color tabBg = isActive ? Color::AcidAmber() : Color::FromHex(0x1E222D);
-        Color tabFg = isActive ? Color::Black() : Color::LightGray();
+    CLAY(CLAY_ID("TuiBottomBar"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(static_cast<float>(area.width)), CLAY_SIZING_FIXED(static_cast<float>(area.height)) },
+            .layoutDirection = CLAY_TOP_TO_BOTTOM,
+        },
+        .backgroundColor = { 20, 22, 30, 255 }, // Color::FromHex(0x14161E)
+        .border = { .color = { 80, 80, 80, 255 }, .width = { 0, 0, 1, 0, 0 } }
+    }) {
+        // Border separator row (row 0)
+        CLAY(CLAY_ID("BottomTopBorderRow"), {
+            .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } }
+        }) {}
 
-        std::string label = kTabLabels[i];
-        surface_.drawText(curX, area.y + 1, label, tabFg, tabBg, isActive ? static_cast<uint8_t>(TextAttr::Bold) : 0);
-        cachedTabBtns_[i] = {curX, area.y + 1, static_cast<int>(label.size()), 1};
+        // Content row (row 1): Tabs and keyboard shortcuts
+        CLAY(CLAY_ID("BottomContentRow"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) },
+                .padding = { 2, 2, 0, 0 },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            }
+        }) {
+            static const char* kTabLabels[5] = {
+                "  Arranger  ",
+                "    Edit    ",
+                "   Track    ",
+                "   Mixer    ",
+                "   Design   "
+            };
 
-        curX += static_cast<int>(label.size()) + 2;
-        if (i < 4) {
-            surface_.drawText(curX - 1, area.y + 1, "│", Color::DarkGray(), Color::FromHex(0x14161E));
+            for (int i = 0; i < 5; ++i) {
+                bool isActive = (static_cast<int>(activeTab_) == i);
+                Clay_Color tabBg = isActive ? Clay_Color{ 255, 179, 0, 255 } : Clay_Color{ 30, 34, 45, 255 };
+                Clay_Color tabFg = isActive ? Clay_Color{ 0, 0, 0, 255 } : Clay_Color{ 180, 180, 180, 255 };
+
+                CLAY(CLAY_IDI("TabBtn", i), {
+                    .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } },
+                    .backgroundColor = tabBg
+                }) {
+                    CLAY_TEXT(ClayTuiBridge::toClayString(kTabLabels[i]), CLAY_TEXT_CONFIG({ .textColor = tabFg }));
+                }
+
+                if (i < 4) {
+                    CLAY(CLAY_IDI("TabSep", i), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(2), CLAY_SIZING_FIXED(1) },
+                            .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER }
+                        }
+                    }) {
+                        CLAY_TEXT(CLAY_STRING("│"), CLAY_TEXT_CONFIG({ .textColor = { 80, 80, 80, 255 } }));
+                    }
+                }
+            }
+
+            // Flex spacer pushing shortcuts to right
+            CLAY(CLAY_ID("BottomSpacer"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } }
+            }) {}
+
+            // Right-aligned keyboard shortcuts
+            std::string help = "[SPACE] Play  [B] Sidebar  [F1-F5] Views  [Q] Exit";
+            CLAY(CLAY_ID("BottomHelp"), {
+                .layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIXED(1) } }
+            }) {
+                CLAY_TEXT(ClayTuiBridge::toClayString(help), CLAY_TEXT_CONFIG({ .textColor = { 128, 128, 128, 255 } }));
+            }
         }
     }
 
-    // Right-aligned branding & shortcuts
-    std::string help = "[SPACE] Play  [B] Sidebar  [F1-F5] Views  [Q] Exit";
-    int helpX = area.x + area.width - static_cast<int>(help.size()) - 2;
-    if (helpX > curX) {
-        surface_.drawText(helpX, area.y + 1, help, Color::Gray(), Color::FromHex(0x14161E));
+    Clay_RenderCommandArray cmds = clayContext_->endLayout(0.016f);
+    clayBridge_.render(cmds, surface_, area.x, area.y);
+
+    // Update cached tab button regions from Clay layout solver
+    for (int i = 0; i < 5; ++i) {
+        auto tabData = clayContext_->getElementData(CLAY_IDI("TabBtn", i));
+        if (tabData.found) {
+            cachedTabBtns_[i] = ClayTuiBridge::snapToCells(tabData.boundingBox);
+            cachedTabBtns_[i].x += area.x;
+            cachedTabBtns_[i].y += area.y;
+        }
     }
 }
 

@@ -1,21 +1,75 @@
 #include "eatsbits/ui/widgets/bottom_nav_bar.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 
 namespace eatsbits::ui {
 
-void BottomNavBar::layout(float screenWidth, float screenHeight, float height) {
-    bounds_ = Rect2D(0.0f, screenHeight - height, screenWidth, height);
+BottomNavBar::BottomNavBar() = default;
+BottomNavBar::~BottomNavBar() = default;
+BottomNavBar::BottomNavBar(BottomNavBar&&) noexcept = default;
+BottomNavBar& BottomNavBar::operator=(BottomNavBar&&) noexcept = default;
 
-    float padding = 8.0f;
-    float availW = screenWidth - (padding * 2.0f);
-    float btnW = (availW - (4.0f * 8.0f)) / 5.0f;
-    float btnH = height - 12.0f;
-    float btnY = bounds_.y + 6.0f;
+void BottomNavBar::declareLayout(clay::ClayContext& ctx, float screenWidth, float screenHeight, float height) {
+    (void)ctx;
+    CLAY(CLAY_ID("BottomNavBarRoot"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenWidth), CLAY_SIZING_FIXED(screenHeight) },
+            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_BOTTOM },
+            .layoutDirection = CLAY_TOP_TO_BOTTOM,
+        }
+    }) {
+        CLAY(CLAY_ID("BottomNavBar"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(screenWidth), CLAY_SIZING_FIXED(height) },
+                .padding = { 8, 8, 6, 6 },
+                .childGap = 8,
+                .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            }
+        }) {
+            for (uint32_t i = 0; i < 5; ++i) {
+                CLAY(CLAY_IDI("BottomNavTab", i), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(height - 12.0f) },
+                        .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+                    }
+                }) {}
+            }
+        }
+    }
+}
 
+void BottomNavBar::layout(float screenWidth, float screenHeight, float height, clay::ClayContext* ctx) {
+    clay::ClayContext* activeCtx = ctx ? ctx : clay::ClayContext::getCurrent();
+    bool isStandalonePass = false;
+
+    if (!activeCtx) {
+        // Shared fallback arena - eliminates the per-widget 512KB micro-arena allocation!
+        static clay::ClayContext s_sharedFallbackCtx;
+        if (!s_sharedFallbackCtx.isInitialized()) {
+            s_sharedFallbackCtx.initialize(screenWidth, screenHeight, 512 * 1024);
+        }
+        activeCtx = &s_sharedFallbackCtx;
+        isStandalonePass = true;
+    }
+
+    if (isStandalonePass) {
+        activeCtx->setDimensions(screenWidth, screenHeight);
+        activeCtx->makeCurrent();
+        activeCtx->beginLayout();
+        declareLayout(*activeCtx, screenWidth, screenHeight, height);
+        activeCtx->endLayout();
+    }
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D{ b.x, b.y, b.width, b.height };
+    };
+
+    bounds_ = toRect(activeCtx->getElementData(CLAY_ID("BottomNavBar")).boundingBox);
     for (int i = 0; i < 5; ++i) {
-        float bx = padding + static_cast<float>(i) * (btnW + 8.0f);
-        tabBounds_[i] = Rect2D(bx, btnY, btnW, btnH);
+        tabBounds_[i] = toRect(activeCtx->getElementData(CLAY_IDI("BottomNavTab", static_cast<uint32_t>(i))).boundingBox);
     }
 }
 

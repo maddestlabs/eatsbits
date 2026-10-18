@@ -1,6 +1,8 @@
 #include "eatsbits/ui/views/mixer_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -8,6 +10,9 @@
 namespace eatsbits::ui {
 
 MixerView::MixerView() {
+    clayContext_ = std::make_unique<clay::ClayContext>();
+    clayContext_->initialize(1280.0f, 720.0f);
+
     masterChannel_.name = "MASTER";
     masterChannel_.type = "BUS";
     masterChannel_.r = 1.0f;
@@ -69,13 +74,19 @@ MixerView::MixerView() {
     propertiesDrawer_.onParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
         if (trackIdx < channels_.size()) {
             auto& ch = channels_[trackIdx];
-            if (paramName == "cutoff" || paramName == "tone" || paramName == "attack" || paramName == "param1") {
+            ch.setKnobValue(paramName, normVal);
+            drawerData_.setKnobValue(paramName, normVal);
+
+            std::string lowerParam = paramName;
+            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            if (lowerParam == "cutoff" || lowerParam == "tone" || lowerParam == "param1") {
                 ch.knob1 = normVal;
-            } else if (paramName == "resonance" || paramName == "snappy" || paramName == "punch" || paramName == "decay" || paramName == "param2") {
+            } else if (lowerParam == "resonance" || lowerParam == "snappy" || lowerParam == "punch" || lowerParam == "param2") {
                 ch.knob2 = normVal;
-            } else if (paramName == "decay" || paramName == "tune" || paramName == "bright" || paramName == "param3") {
+            } else if (lowerParam == "decay" || lowerParam == "tune" || lowerParam == "bright" || lowerParam == "param3") {
                 ch.knob3 = normVal;
-            } else if (paramName == "accent" || paramName == "tuning" || paramName == "crack" || paramName == "detune" || paramName == "param4") {
+            } else if (lowerParam == "accent" || lowerParam == "tuning" || lowerParam == "crack" || lowerParam == "detune" || lowerParam == "param4") {
                 ch.knob4 = normVal;
             }
         }
@@ -128,7 +139,7 @@ MixerView::MixerView() {
                     TrackMidiFxItem mfx;
                     mfx.id = entry.id;
                     mfx.name = entry.name;
-                    mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    mfx.type = (entry.engineTag.empty() || entry.engineTag == "MIDI Processor" || entry.engineTag == "DSP Effect") ? entry.name : entry.engineTag;
                     mfx.enabled = true;
                     mfx.isExpanded = true;
                     mfx.ensureDefaultKnobs();
@@ -253,6 +264,8 @@ MixerView::MixerView() {
     layout(Rect2D(0.0f, 56.0f, 1280.0f, 700.0f), defaultCtx);
 }
 
+MixerView::~MixerView() = default;
+
 void MixerView::setPreset(ModularMixerPreset preset) noexcept {
     switch (preset) {
         case ModularMixerPreset::Full:
@@ -341,30 +354,133 @@ void MixerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     // Top Options Toolbar (always visible, 32px height)
     float toolbarH = 32.0f;
-    float toolbarW = bounds_.w - ctx.browserOffset;
-    toolbarBounds_ = Rect2D(bounds_.x, bounds_.y, std::max(0.0f, toolbarW), toolbarH);
+    float toolbarW = std::max(0.0f, bounds_.w - ctx.browserOffset);
+    toolbarBounds_ = Rect2D(bounds_.x, bounds_.y, toolbarW, toolbarH);
 
     // Sliding Track Properties Drawer Layout
     propertiesDrawer_.layout(bounds_, ctx.browserOffset);
     float drawerTotalW = propertiesDrawer_.getEffectiveWidth();
 
-    float stripTopY = bounds_.y + toolbarH + 8.0f;
-    float stripH = bounds_.h - toolbarH - 16.0f;
+    // Declarative Clay flex container layout for mixer workspace
+    if (clayContext_ && clayContext_->isInitialized()) {
+        clayContext_->setDimensions(bounds_.w, bounds_.h);
+        clayContext_->beginLayout();
 
-    // Master Bus Strip Position (Left or Far-Right)
+        CLAY(CLAY_ID("MixerViewRoot"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(bounds_.h) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Toolbar row
+            CLAY(CLAY_ID("MixerToolbar"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(toolbarW), CLAY_SIZING_FIXED(toolbarH) },
+                    .padding = { 10, 10, 6, 6 },
+                    .childGap = 8,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {}
+
+            // Main Mixer Workspace Row
+            CLAY(CLAY_ID("MixerBody"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                    .padding = { 0, 0, 8, 8 },
+                    .childGap = 0,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                if (masterPosition_ == MixerMasterPosition::Right) {
+                    CLAY(CLAY_ID("ChannelsScrollArea"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                            .padding = { 40, 10, 0, 0 },
+                        }
+                    }) {}
+                    CLAY(CLAY_ID("MasterStrip"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(masterStripWidth_), CLAY_SIZING_GROW(0) },
+                        }
+                    }) {}
+                    if (drawerTotalW > 0.0f) {
+                        CLAY(CLAY_ID("PropertiesDrawerSlot"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_FIXED(drawerTotalW), CLAY_SIZING_GROW(0) },
+                            }
+                        }) {}
+                    }
+                } else {
+                    CLAY(CLAY_ID("MasterStrip"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(masterStripWidth_), CLAY_SIZING_GROW(0) },
+                        }
+                    }) {}
+                    float spacerW = (densityMode_ == MixerDensityMode::Comfortable) ? 55.0f :
+                                    ((densityMode_ == MixerDensityMode::Compact) ? 20.0f : 14.0f);
+                    CLAY(CLAY_ID("ChannelsSpacer"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(spacerW), CLAY_SIZING_GROW(0) },
+                        }
+                    }) {}
+                    CLAY(CLAY_ID("ChannelsScrollArea"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                        }
+                    }) {}
+                    if (drawerTotalW > 0.0f) {
+                        CLAY(CLAY_ID("PropertiesDrawerSlot"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_FIXED(drawerTotalW), CLAY_SIZING_GROW(0) },
+                            }
+                        }) {}
+                    }
+                }
+            }
+        }
+
+        clayContext_->endLayout(0.016f);
+
+        auto tbData = clayContext_->getElementData(CLAY_ID("MixerToolbar"));
+        if (tbData.found) {
+            toolbarBounds_ = Rect2D(bounds_.x + tbData.boundingBox.x, bounds_.y + tbData.boundingBox.y,
+                                    tbData.boundingBox.width, tbData.boundingBox.height);
+        }
+        auto masterData = clayContext_->getElementData(CLAY_ID("MasterStrip"));
+        if (masterData.found) {
+            masterBounds_ = Rect2D(bounds_.x + masterData.boundingBox.x, bounds_.y + masterData.boundingBox.y,
+                                   masterData.boundingBox.width, masterData.boundingBox.height);
+        }
+        auto channelsData = clayContext_->getElementData(CLAY_ID("ChannelsScrollArea"));
+        if (channelsData.found) {
+            channelsScrollBounds_ = Rect2D(bounds_.x + channelsData.boundingBox.x, bounds_.y + channelsData.boundingBox.y,
+                                           std::max(80.0f, channelsData.boundingBox.width), channelsData.boundingBox.height);
+        }
+    } else {
+        float stripTopY = bounds_.y + toolbarH + 8.0f;
+        float stripH = bounds_.h - toolbarH - 16.0f;
+
+        if (masterPosition_ == MixerMasterPosition::Right) {
+            float mX = bounds_.x + bounds_.w - drawerTotalW - ctx.browserOffset - masterStripWidth_ - 10.0f;
+            masterBounds_ = Rect2D(mX, stripTopY, masterStripWidth_, stripH);
+            channelsScrollBounds_ = Rect2D(bounds_.x + 40.0f, stripTopY, std::max(80.0f, mX - bounds_.x - 50.0f), stripH);
+        } else {
+            masterBounds_ = Rect2D(bounds_.x, stripTopY, masterStripWidth_, stripH);
+            float scrollX = (densityMode_ == MixerDensityMode::Comfortable) ? (bounds_.x + 195.0f) :
+                            ((densityMode_ == MixerDensityMode::Compact) ? (bounds_.x + masterStripWidth_ + 20.0f) :
+                                                                           (bounds_.x + masterStripWidth_ + 14.0f));
+            float scrollW = bounds_.w - scrollX - drawerTotalW - ctx.browserOffset;
+            channelsScrollBounds_ = Rect2D(scrollX, stripTopY, std::max(80.0f, scrollW), stripH);
+        }
+    }
+
     if (masterPosition_ == MixerMasterPosition::Right) {
-        float mX = bounds_.x + bounds_.w - drawerTotalW - ctx.browserOffset - masterStripWidth_ - 10.0f;
-        masterBounds_ = Rect2D(mX, stripTopY, masterStripWidth_, stripH);
-        channelsScrollBounds_ = Rect2D(bounds_.x + 40.0f, stripTopY, std::max(80.0f, mX - bounds_.x - 50.0f), stripH);
         optionsPillBounds_ = Rect2D(bounds_.x + 10.0f, bounds_.y + 6.0f, 68.0f, 20.0f);
     } else {
-        // Pinned Left (Default, matches Eatsbeats)
-        masterBounds_ = Rect2D(bounds_.x, stripTopY, masterStripWidth_, stripH);
-        float scrollX = (densityMode_ == MixerDensityMode::Comfortable) ? (bounds_.x + 195.0f) :
-                        ((densityMode_ == MixerDensityMode::Compact) ? (bounds_.x + masterStripWidth_ + 20.0f) :
-                                                                       (bounds_.x + masterStripWidth_ + 14.0f));
-        float scrollW = bounds_.w - scrollX - drawerTotalW - ctx.browserOffset;
-        channelsScrollBounds_ = Rect2D(scrollX, stripTopY, std::max(80.0f, scrollW), stripH);
         optionsPillBounds_ = Rect2D(bounds_.x + masterStripWidth_ + 14.0f, bounds_.y + 6.0f, 68.0f, 20.0f);
     }
 }

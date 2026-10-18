@@ -20,20 +20,26 @@ MidiFxType MidiPipelineEngine::detectMidiFxType(const std::string& code, const s
     std::string lowerCode = toLower(code);
     std::string lowerName = toLower(name);
 
-    if (lowerCode.find("eat.") != std::string::npos ||
-        lowerCode.find("def ") != std::string::npos ||
-        lowerCode.find("for ") != std::string::npos) {
-        return MidiFxType::Eatscript;
+    if (lowerCode.find("chord_arp") != std::string::npos ||
+        lowerName.find("chord arp") != std::string::npos ||
+        lowerName.find("chord arpeggiator") != std::string::npos) {
+        return MidiFxType::ChordArp;
+    }
+    if (lowerCode.find("chord_stabs") != std::string::npos ||
+        lowerCode.find("chord_gen") != std::string::npos ||
+        lowerName.find("chord_stabs") != std::string::npos ||
+        lowerName.find("chord voicer") != std::string::npos ||
+        lowerName.find("harmonic chord voicer") != std::string::npos ||
+        lowerName.find("chord gen") != std::string::npos ||
+        lowerName.find("voicer") != std::string::npos ||
+        lowerName.find("stabs") != std::string::npos) {
+        return MidiFxType::ChordStabs;
     }
     if (lowerCode.find("chord_follow") != std::string::npos ||
         lowerCode.find("chord_follower") != std::string::npos ||
         lowerName.find("chord follow") != std::string::npos ||
-        lowerName.find("harmonic") != std::string::npos) {
+        lowerName.find("harmonic follow") != std::string::npos) {
         return MidiFxType::ChordFollow;
-    }
-    if (lowerCode.find("chord_arp") != std::string::npos ||
-        lowerName.find("chord arp") != std::string::npos) {
-        return MidiFxType::ChordArp;
     }
     if (lowerCode.find("scale_snap") != std::string::npos ||
         lowerCode.find("scale") != std::string::npos ||
@@ -70,6 +76,11 @@ MidiFxType MidiPipelineEngine::detectMidiFxType(const std::string& code, const s
         lowerName.find("transpose") != std::string::npos ||
         lowerName.find("pitch transposer") != std::string::npos) {
         return MidiFxType::Transpose;
+    }
+    if (lowerCode.find("eat.") != std::string::npos ||
+        lowerCode.find("def ") != std::string::npos ||
+        lowerCode.find("for ") != std::string::npos) {
+        return MidiFxType::Eatscript;
     }
 
     return MidiFxType::Passthrough;
@@ -152,8 +163,21 @@ static std::vector<int> buildArpSequence(const std::vector<int>& sortedPitches, 
         return seq;
     }
 
-    // Default "up" or "asplayed"
+    if (pattern == "random") {
+        std::vector<int> seq = sortedPitches;
+        std::mt19937 g(1337);
+        std::shuffle(seq.begin(), seq.end(), g);
+        return seq;
+    }
+
+    // Default "up", "asplayed", or "chord"
     return sortedPitches;
+}
+
+std::vector<int> MidiPipelineEngine::generatePatternSequence(
+    const std::vector<int>& sortedPitches,
+    const std::string& pattern) {
+    return buildArpSequence(sortedPitches, pattern);
 }
 
 std::vector<MidiNote> MidiPipelineEngine::applyArpeggiator(

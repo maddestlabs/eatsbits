@@ -33,7 +33,8 @@
 #include "widgets/project_browser_drawer.hpp"
 #include "widgets/transport_header.hpp"
 #include "widgets/bottom_nav_bar.hpp"
-#include "widgets/terminal_console_drawer.hpp"
+// Terminal console drawer temporarily removed from GUI (disabled for now)
+class TerminalConsoleDrawer;
 #include "widgets/value_edit_dialog.hpp"
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
@@ -227,7 +228,8 @@ enum class ProjectHubAction {
     CrtPresetReset,
     CrtSlider,
     ToggleIncludeBinaryClapPath,
-    RescanClapPlugins
+    RescanClapPlugins,
+    ToggleMinimalGui
 };
 
 struct DialogFrameConfig {
@@ -662,6 +664,9 @@ public:
             virtualKeyboardAnimProgress_ = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
         }
     }
+    [[nodiscard]] bool isMinimalGuiEnabled() const noexcept;
+    void setMinimalGuiEnabled(bool enable) noexcept;
+    void toggleMinimalGui() noexcept;
     [[nodiscard]] int getActiveThemePreset() const noexcept { return activeThemePreset_; }
     void setActiveThemePreset(int preset) noexcept {
         activeThemePreset_ = preset;
@@ -691,30 +696,10 @@ public:
     [[nodiscard]] ProjectBrowserDrawer* getProjectBrowserDrawerWidget() noexcept { return projectBrowserDrawerWidget_.get(); }
     [[nodiscard]] TransportHeader* getTransportHeaderWidget() noexcept { return transportHeaderWidget_.get(); }
     [[nodiscard]] BottomNavBar* getBottomNavBarWidget() noexcept { return bottomNavBarWidget_.get(); }
-    [[nodiscard]] TerminalConsoleDrawer* getTerminalConsoleDrawerWidget() noexcept { return terminalConsoleDrawerWidget_.get(); }
-    [[nodiscard]] bool isTerminalConsoleOpen() const noexcept {
-        return terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded();
-    }
-    void toggleTerminalConsole() noexcept {
-        if (terminalConsoleDrawerWidget_) {
-            terminalConsoleDrawerWidget_->toggleExpanded();
-            if (terminalConsoleDrawerWidget_->isExpanded()) {
-                focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
-            } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
-                focusManager_.clearFocus();
-            }
-        }
-    }
-    void setTerminalConsoleOpen(bool open) noexcept {
-        if (terminalConsoleDrawerWidget_) {
-            terminalConsoleDrawerWidget_->setExpanded(open);
-            if (open) {
-                focusManager_.requestFocus(terminalConsoleDrawerWidget_.get());
-            } else if (focusManager_.hasFocus(terminalConsoleDrawerWidget_.get())) {
-                focusManager_.clearFocus();
-            }
-        }
-    }
+    [[nodiscard]] TerminalConsoleDrawer* getTerminalConsoleDrawerWidget() noexcept { return nullptr; }
+    [[nodiscard]] bool isTerminalConsoleOpen() const noexcept { return false; }
+    void toggleTerminalConsole() noexcept {}
+    void setTerminalConsoleOpen(bool open) noexcept { (void)open; }
     [[nodiscard]] KineticScroller& getKineticScroller() noexcept { return kineticScroller_; }
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
     [[nodiscard]] ViewContext createViewContext() noexcept;
@@ -931,6 +916,9 @@ public:
     [[nodiscard]] uint32_t getSelectedTrackIndex() const noexcept { return selectedTrackIndex_; }
     void setSelectedTrackIndex(uint32_t idx) noexcept;
     void addTrackToProject(const std::string& name = "", const std::string& instrumentEngine = "", float r = 1.0f, float g = 0.55f, float b = 0.0f);
+    void changeTrackInstrument(uint32_t tIdx, const std::string& instId, const std::string& instName);
+    void addAudioFxToTrackIndex(uint32_t trackIdx, const std::string& fxId, const std::string& fxNameHint = "", const std::string& engineTagHint = "");
+    void addMidiFxToTrackIndex(uint32_t trackIdx, const std::string& fxId, const std::string& fxNameHint = "", const std::string& engineTagHint = "");
     void deleteTrack(uint32_t trackIdx);
     void duplicateTrack(uint32_t trackIdx);
     void addClipToTrack(uint32_t trackIdx);
@@ -947,6 +935,7 @@ public:
     void syncTrackMidiFxToEngine(uint32_t trackIdx);
     void syncAllTracksFxToEngine();
     void bakeTrackChordsAndFx(uint32_t trackIdx);
+    void auditionTrackNote(uint32_t trackIdx, uint8_t note, float vel);
     void stopChordAudition() noexcept;
     [[nodiscard]] int getPreviewingPitch() const noexcept { return previewingPitch_; }
     [[nodiscard]] float getPreviewingVelocity() const noexcept { return previewingVelocity_; }
@@ -1383,7 +1372,7 @@ private:
     std::unique_ptr<ProjectBrowserDrawer> projectBrowserDrawerWidget_;
     std::unique_ptr<TransportHeader> transportHeaderWidget_;
     std::unique_ptr<BottomNavBar> bottomNavBarWidget_;
-    std::unique_ptr<TerminalConsoleDrawer> terminalConsoleDrawerWidget_;
+    // terminalConsoleDrawerWidget_ disabled for now
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;

@@ -1,6 +1,8 @@
 #include "eatsbits/ui/widgets/sliding_dock.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/views/view_base.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <cmath>
 #include <algorithm>
 
@@ -13,6 +15,10 @@ namespace eatsbits::ui {
 SlidingDrawer::SlidingDrawer(DrawerConfig config)
     : config_(std::move(config)), extent_(config_.tab.preferredExtent) {
 }
+
+SlidingDrawer::~SlidingDrawer() = default;
+SlidingDrawer::SlidingDrawer(SlidingDrawer&&) noexcept = default;
+SlidingDrawer& SlidingDrawer::operator=(SlidingDrawer&&) noexcept = default;
 
 void SlidingDrawer::setConfig(const DrawerConfig& config) {
     config_ = config;
@@ -57,6 +63,18 @@ void SlidingDrawer::updateGeometry() {
     const float progress = animProgress_;
     const float currentExtent = extent_ * progress;
 
+    if (!clayCtx_) {
+        clayCtx_ = std::make_unique<clay::ClayContext>();
+        float initW = containerBounds_.w > 0.0f ? containerBounds_.w : 1280.0f;
+        float initH = containerBounds_.h > 0.0f ? containerBounds_.h : 800.0f;
+        clayCtx_->initialize(initW, initH, 512 * 1024);
+    }
+    float curW = containerBounds_.w > 0.0f ? containerBounds_.w : 1280.0f;
+    float curH = containerBounds_.h > 0.0f ? containerBounds_.h : 800.0f;
+    clayCtx_->setDimensions(curW, curH);
+    clayCtx_->makeCurrent();
+    clayCtx_->beginLayout();
+
     if (config_.edge == DockEdge::Bottom) {
         const float effectiveW = (std::max)(100.0f, containerBounds_.w - edgeMargin_);
         const float drawerY = (containerBounds_.y + containerBounds_.h) - currentExtent;
@@ -65,17 +83,63 @@ void SlidingDrawer::updateGeometry() {
         // Pull-tab geometry
         const float tabW = config_.tab.tabWidth;
         const float tabH = config_.tab.tabHeight;
-        float tabX = containerBounds_.x + config_.tab.tabOffset;
+        float tabOffset = config_.tab.tabOffset;
         if (config_.tab.tabPlacement == DockTabPlacement::Center) {
-            tabX = containerBounds_.x + (effectiveW - tabW) * 0.5f + config_.tab.tabOffset;
+            tabOffset = (effectiveW - tabW) * 0.5f + config_.tab.tabOffset;
         } else if (config_.tab.tabPlacement == DockTabPlacement::End) {
-            tabX = containerBounds_.x + effectiveW - tabW - config_.tab.tabOffset;
+            tabOffset = effectiveW - tabW - config_.tab.tabOffset;
         }
 
         const float tabY = (progress <= 0.001f)
             ? (containerBounds_.y + containerBounds_.h - tabH)
             : (drawerY - tabH);
-        pullTabBounds_ = Rect2D(tabX, tabY, tabW, tabH);
+
+        CLAY(CLAY_ID("DrawerPullTabRow"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(tabH) },
+                .padding = { static_cast<uint16_t>(std::max(0.0f, tabOffset)), 0, 0, 0 },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            }
+        }) {
+            CLAY(CLAY_ID("DrawerPullTab"), {
+                .layout = { .sizing = { CLAY_SIZING_FIXED(tabW), CLAY_SIZING_FIXED(tabH) } }
+            }) {}
+        }
+
+        float headerH = config_.tab.showHeaderBar ? config_.tab.headerHeight : 0.0f;
+        if (progress > 0.001f) {
+            CLAY(CLAY_ID("DrawerBodyBottom"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(currentExtent) },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {
+                if (headerH > 0.0f) {
+                    CLAY(CLAY_ID("DrawerHeaderBottom"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(headerH) },
+                            .padding = { 12, 6, 3, 3 },
+                            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                        }
+                    }) {
+                        CLAY(CLAY_ID("DrawerHeaderSpacer"), { .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(headerH) } } }) {}
+                        CLAY(CLAY_ID("DrawerCloseBtnBottom"), {
+                            .layout = { .sizing = { CLAY_SIZING_FIXED(20.0f), CLAY_SIZING_FIXED(18.0f) } }
+                        }) {}
+                    }
+                }
+                CLAY(CLAY_ID("DrawerContentBottom"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(std::max(0.0f, currentExtent - headerH)) }
+                    }
+                }) {}
+            }
+        }
+
+        clayCtx_->endLayout();
+
+        pullTabBounds_ = Rect2D(containerBounds_.x + tabOffset, tabY, tabW, tabH);
 
         if (progress <= 0.001f) {
             headerBounds_ = Rect2D();
@@ -89,7 +153,6 @@ void SlidingDrawer::updateGeometry() {
         resizeHandleBounds_ = Rect2D(containerBounds_.x, drawerY - 4.0f, effectiveW, 8.0f);
 
         // Header and Close button
-        float headerH = config_.tab.showHeaderBar ? config_.tab.headerHeight : 0.0f;
         if (headerH > 0.0f) {
             headerBounds_ = Rect2D(containerBounds_.x, drawerY, effectiveW, headerH);
             closeButtonBounds_ = Rect2D(containerBounds_.x + effectiveW - 26.0f, drawerY + (headerH - 18.0f) * 0.5f, 20.0f, 18.0f);
@@ -121,6 +184,24 @@ void SlidingDrawer::updateGeometry() {
         }
 
         drawerBounds_ = Rect2D(rightBoundary + tabW, containerBounds_.y, extent_, effectiveH);
+
+        CLAY(CLAY_ID("DrawerRightStrip"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(tabW), CLAY_SIZING_FIXED(effectiveH) },
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {}
+
+        if (progress > 0.001f) {
+            CLAY(CLAY_ID("DrawerRightBody"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(extent_), CLAY_SIZING_FIXED(effectiveH) },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {}
+        }
+
+        clayCtx_->endLayout();
 
         if (progress <= 0.001f) {
             headerBounds_ = Rect2D();
@@ -177,6 +258,8 @@ void SlidingDrawer::updateGeometry() {
         }
         contentBounds_ = Rect2D(drawerBounds_.x, containerBounds_.y + headerH, drawerBounds_.w, (std::max)(0.0f, effectiveH - headerH));
 
+        clayCtx_->endLayout();
+
     } else if (config_.edge == DockEdge::Top) {
         const float effectiveW = containerBounds_.w;
         const float drawerY = containerBounds_.y + edgeMargin_;
@@ -186,6 +269,8 @@ void SlidingDrawer::updateGeometry() {
                                 drawerBounds_.y + drawerBounds_.h, config_.tab.tabWidth, config_.tab.tabHeight);
         resizeHandleBounds_ = Rect2D(containerBounds_.x, drawerBounds_.y + drawerBounds_.h - 4.0f, effectiveW, 8.0f);
         contentBounds_ = drawerBounds_;
+
+        clayCtx_->endLayout();
     }
 }
 
@@ -439,6 +524,10 @@ SlidingDock::SlidingDock(DockEdge edge)
     : edge_(edge) {
 }
 
+SlidingDock::~SlidingDock() = default;
+SlidingDock::SlidingDock(SlidingDock&&) noexcept = default;
+SlidingDock& SlidingDock::operator=(SlidingDock&&) noexcept = default;
+
 void SlidingDock::addTab(DockTabItem tab) {
     tabs_.push_back(std::move(tab));
     tabBoundsList_.resize(tabs_.size());
@@ -573,12 +662,23 @@ void SlidingDock::updateGeometry() {
     const float progress = animProgress_;
     const float currentExt = currentExtent_ * progress;
 
+    if (!clayCtx_) {
+        clayCtx_ = std::make_unique<clay::ClayContext>();
+        float initW = containerBounds_.w > 0.0f ? containerBounds_.w : 1280.0f;
+        float initH = containerBounds_.h > 0.0f ? containerBounds_.h : 800.0f;
+        clayCtx_->initialize(initW, initH, 512 * 1024);
+    }
+    float curW = containerBounds_.w > 0.0f ? containerBounds_.w : 1280.0f;
+    float curH = containerBounds_.h > 0.0f ? containerBounds_.h : 800.0f;
+    clayCtx_->setDimensions(curW, curH);
+    clayCtx_->makeCurrent();
+    clayCtx_->beginLayout();
+
     if (edge_ == DockEdge::Bottom) {
         const float effectiveW = (std::max)(100.0f, containerBounds_.w - edgeMargin_);
         const float drawerY = (containerBounds_.y + containerBounds_.h) - currentExt;
         drawerBounds_ = Rect2D(containerBounds_.x, drawerY, effectiveW, currentExt);
 
-        // Tab strip layout along top edge of drawer
         constexpr float kTabH = 22.0f;
         const float tabStripY = (progress <= 0.001f)
             ? (containerBounds_.y + containerBounds_.h - kTabH)
@@ -586,18 +686,78 @@ void SlidingDock::updateGeometry() {
 
         tabStripBounds_ = Rect2D(containerBounds_.x, tabStripY, effectiveW, kTabH);
 
-        // Layout individual tab pills
-        float currentTabX = containerBounds_.x + 12.0f;
-        for (size_t i = 0; i < tabs_.size(); ++i) {
-            const auto& t = tabs_[i];
-            float tabW = t.tabWidth > 0.0f ? t.tabWidth : 120.0f;
-            if (t.tabPlacement == DockTabPlacement::End) {
-                float endX = containerBounds_.x + effectiveW - tabW - 12.0f;
-                tabBoundsList_[i] = Rect2D(endX, tabStripY, tabW, kTabH);
-            } else {
-                tabBoundsList_[i] = Rect2D(currentTabX, tabStripY, tabW, kTabH);
-                currentTabX += tabW + 6.0f;
+        CLAY(CLAY_ID("DockBottomTabStrip"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(kTabH) },
+                .padding = { 12, 12, 0, 0 },
+                .childGap = 6,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
             }
+        }) {
+            for (size_t i = 0; i < tabs_.size(); ++i) {
+                if (tabs_[i].tabPlacement != DockTabPlacement::End) {
+                    float tabW = tabs_[i].tabWidth > 0.0f ? tabs_[i].tabWidth : 120.0f;
+                    CLAY(CLAY_IDI("DockTab", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(tabW), CLAY_SIZING_FIXED(kTabH) } }
+                    }) {}
+                }
+            }
+            bool hasEndTab = false;
+            for (const auto& t : tabs_) {
+                if (t.tabPlacement == DockTabPlacement::End) {
+                    hasEndTab = true;
+                    break;
+                }
+            }
+            if (hasEndTab) {
+                CLAY(CLAY_ID("DockTabSpacer"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(kTabH) } }
+                }) {}
+                for (size_t i = 0; i < tabs_.size(); ++i) {
+                    if (tabs_[i].tabPlacement == DockTabPlacement::End) {
+                        float tabW = tabs_[i].tabWidth > 0.0f ? tabs_[i].tabWidth : 120.0f;
+                        CLAY(CLAY_IDI("DockTab", static_cast<uint32_t>(i)), {
+                            .layout = { .sizing = { CLAY_SIZING_FIXED(tabW), CLAY_SIZING_FIXED(kTabH) } }
+                        }) {}
+                    }
+                }
+            }
+        }
+
+        if (progress > 0.001f) {
+            CLAY(CLAY_ID("DockBottomDrawerBody"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(currentExt) },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {
+                CLAY(CLAY_ID("DockBottomHeader"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(24.0f) },
+                        .padding = { 12, 6, 3, 3 },
+                        .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("DockBottomHeaderSpacer"), { .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(18.0f) } } }) {}
+                    CLAY(CLAY_ID("DockBottomCloseBtn"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(20.0f), CLAY_SIZING_FIXED(18.0f) } }
+                    }) {}
+                }
+                CLAY(CLAY_ID("DockBottomContent"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(effectiveW), CLAY_SIZING_FIXED(std::max(0.0f, currentExt - 24.0f)) }
+                    }
+                }) {}
+            }
+        }
+
+        clayCtx_->endLayout();
+
+        for (size_t i = 0; i < tabs_.size(); ++i) {
+            Clay_BoundingBox bb = clayCtx_->getElementData(CLAY_IDI("DockTab", static_cast<uint32_t>(i))).boundingBox;
+            tabBoundsList_[i] = Rect2D(containerBounds_.x + bb.x, tabStripY, bb.width, kTabH);
         }
 
         if (progress <= 0.001f) {
@@ -626,12 +786,55 @@ void SlidingDock::updateGeometry() {
         tabStripBounds_ = Rect2D(rightBoundary, containerBounds_.y, kTabW, effectiveH);
         drawerBounds_ = Rect2D(rightBoundary + kTabW, containerBounds_.y, currentExtent_, effectiveH);
 
-        float currentTabY = containerBounds_.y + 12.0f;
+        CLAY(CLAY_ID("DockRightTabStrip"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(kTabW), CLAY_SIZING_FIXED(effectiveH) },
+                .padding = { 0, 0, 12, 12 },
+                .childGap = 6,
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            for (size_t i = 0; i < tabs_.size(); ++i) {
+                float tabH = tabs_[i].tabHeight > 0.0f ? tabs_[i].tabHeight : 100.0f;
+                CLAY(CLAY_IDI("DockTabRight", static_cast<uint32_t>(i)), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(kTabW), CLAY_SIZING_FIXED(tabH) } }
+                }) {}
+            }
+        }
+
+        if (progress > 0.001f) {
+            CLAY(CLAY_ID("DockRightDrawerBody"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(currentExtent_), CLAY_SIZING_FIXED(effectiveH) },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {
+                CLAY(CLAY_ID("DockRightHeader"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(currentExtent_), CLAY_SIZING_FIXED(36.0f) },
+                        .padding = { 6, 6, 7, 7 },
+                        .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("DockRightHeaderSpacer"), { .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22.0f) } } }) {}
+                    CLAY(CLAY_ID("DockRightCloseBtn"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(22.0f), CLAY_SIZING_FIXED(22.0f) } }
+                    }) {}
+                }
+                CLAY(CLAY_ID("DockRightContent"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(currentExtent_), CLAY_SIZING_FIXED(std::max(0.0f, effectiveH - 36.0f)) }
+                    }
+                }) {}
+            }
+        }
+
+        clayCtx_->endLayout();
+
         for (size_t i = 0; i < tabs_.size(); ++i) {
-            const auto& t = tabs_[i];
-            float tabH = t.tabHeight > 0.0f ? t.tabHeight : 100.0f;
-            tabBoundsList_[i] = Rect2D(rightBoundary, currentTabY, kTabW, tabH);
-            currentTabY += tabH + 6.0f;
+            Clay_BoundingBox bb = clayCtx_->getElementData(CLAY_IDI("DockTabRight", static_cast<uint32_t>(i))).boundingBox;
+            tabBoundsList_[i] = Rect2D(rightBoundary, containerBounds_.y + bb.y, kTabW, bb.height);
         }
 
         if (progress <= 0.001f) {

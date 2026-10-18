@@ -10,8 +10,8 @@ namespace eatsbits::terminal {
 /**
  * @brief High-throughput, zero-allocation VT100/Xterm ANSI escape sequence state machine.
  * Parses raw byte streams (CSI, SGR TrueColor & 256-color, cursor repositioning, erase modes,
- * DEC private modes, bracketed paste, OSC window title, and UTF-8 multibyte characters)
- * and directly drives a TerminalGrid.
+ * character & line insertion/deletion, DECSTBM scrolling regions, DEC private modes, bracketed paste,
+ * OSC window title, and UTF-8 multibyte characters) and directly drives a TerminalGrid.
  */
 class AnsiParser {
 public:
@@ -48,6 +48,9 @@ private:
     // UTF-8 stream decoder state machine
     uint32_t utf8Codepoint_{0};
     int utf8BytesRemaining_{0};
+
+    // Tracking last written graphic character for REP (CSI n b)
+    char32_t lastGraphicCodepoint_{' '};
 
     // OSC buffer (e.g., window title)
     static constexpr size_t kMaxOscBuffer = 256;

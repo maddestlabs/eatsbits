@@ -77,10 +77,13 @@ public:
     size_t getCachedGlyphCount() const noexcept { return glyphCache_.size(); }
     uint64_t getCacheHits() const noexcept { return cacheHits_; }
     uint64_t getCacheMisses() const noexcept { return cacheMisses_; }
+    uint32_t getVersion() const noexcept { return version_; }
 
 private:
     bool allocateSlot(int glyphW, int glyphH, int& outX, int& outY);
     void markDirty(int x, int y, int w, int h) noexcept;
+
+    uint32_t version_{1};
 
     int width_{1024};
     int height_{1024};

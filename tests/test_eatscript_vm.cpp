@@ -291,6 +291,29 @@ def init():
     std::cout << "  -> Passed: Trailing commas and subscript indexing/assignment parsed and evaluated correctly." << std::endl;
 }
 
+void testVMMathAndParamsFunctions() {
+    std::cout << "[Test] Eatscript VM math functions (floor, exp, sqrt, random) and params.get..." << std::endl;
+    std::string script = R"(
+def process(time, freq, note, params):
+    cutoff = params.get("Cutoff", 850.0)
+    saw = 2.0 * (time * freq - math.floor(time * freq + 0.5))
+    e = math.exp(-time * 10.0)
+    s = math.sqrt(freq)
+    return saw + e + s
+)";
+
+    VM vm;
+    bool compiled = vm.compileSource(script);
+    assert(compiled);
+    assert(vm.hasCompiledProcess());
+
+    double out = vm.executeProcess(0.1, 440.0, 69.0);
+    assert(!std::isnan(out));
+    assert(!std::isinf(out));
+
+    std::cout << "  -> Passed: Successfully compiled and executed math.floor, math.exp, math.sqrt, and params.get without crashing." << std::endl;
+}
+
 int main() {
     std::cout << "=== Eatsbits Eatscript C++ Core Test Suite ===" << std::endl;
     testLexer();
@@ -298,8 +321,10 @@ int main() {
     testVMExecution();
     testVMMultiExpression();
     testVMStereoAudioFx();
+    testVMMathAndParamsFunctions();
     testASTEvaluator();
     testParserTrailingCommasAndSubscripts();
     std::cout << "=== ALL EATSCRIPT VM TESTS PASSED SUCCESSFULLY! ===" << std::endl;
     return 0;
 }
+

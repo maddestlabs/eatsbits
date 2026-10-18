@@ -4,6 +4,8 @@
 #include "eatsbits/ui/widgets/piano_keyboard.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -13,6 +15,9 @@
 namespace eatsbits::ui {
 
 EditView::EditView() {
+    clayContext_ = std::make_unique<clay::ClayContext>();
+    clayContext_->initialize(1280.0f, 720.0f);
+
     // Initial rich melodic pattern (Acid bass sequence)
     notes_ = {
         {"n0", 36,  0.0f, 1.0f, 0.90f, false, false, false, "normal", "", 0, "00"},
@@ -45,6 +50,8 @@ EditView::EditView() {
 
     formatEatscriptFromNotes();
 }
+
+EditView::~EditView() = default;
 
 void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
     activeTrackIndex_ = idx;
@@ -748,34 +755,138 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     bool showSidebar = hasSelectedNotes();
     float sidebarW = showSidebar ? 265.0f : 0.0f;
-
-    contentBounds_ = Rect2D(bounds_.x, bounds_.y + headerH, bounds_.w - sidebarW, bounds_.h - headerH);
-    sidebarBounds_ = Rect2D(bounds_.x + bounds_.w - sidebarW, bounds_.y + headerH, sidebarW, bounds_.h - headerH);
-
-    float btnW = ctx.isMobile ? 32.0f : ((bounds_.w < 950.0f) ? std::clamp((bounds_.w - 480.0f) / 4.5f, 60.0f, 88.0f) : 88.0f);
-    float btnH = 26.0f;
-    float btnY = bounds_.y + 4.0f;
-    float rightMargin = bounds_.x + bounds_.w - 12.0f;
-
-    btnScript_ = Rect2D(rightMargin - btnW, btnY, btnW, btnH);
-    btnScore_ = Rect2D(btnScript_.x - btnW - 6.0f, btnY, btnW, btnH);
-    btnTracker_ = Rect2D(btnScore_.x - btnW - 6.0f, btnY, btnW, btnH);
-    btnPianoRoll_ = Rect2D(btnTracker_.x - btnW - 6.0f, btnY, btnW, btnH);
-
-    float sliderW = (bounds_.w < 850.0f) ? 70.0f : 90.0f;
-    float ghostW = (bounds_.w < 850.0f) ? 54.0f : 65.0f;
-    ghostSliderBounds_ = Rect2D(btnPianoRoll_.x - sliderW - 8.0f, btnY, sliderW, btnH);
-    ghostToggleBtn_ = Rect2D(ghostSliderBounds_.x - ghostW - 6.0f, btnY, ghostW, btnH);
-
-    float bakeW = ctx.isMobile ? 60.0f : 92.0f;
-    btnBake_ = Rect2D(ghostToggleBtn_.x - bakeW - 8.0f, btnY, bakeW, btnH);
-
     float gutterW = 80.0f;
     float velocityH = 72.0f;
 
-    pianoGutterBounds_ = Rect2D(contentBounds_.x, contentBounds_.y, gutterW, contentBounds_.h - velocityH);
-    gridBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y, contentBounds_.w - gutterW, contentBounds_.h - velocityH);
-    velocityLaneBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y + contentBounds_.h - velocityH, contentBounds_.w - gutterW, velocityH);
+    if (clayContext_ && clayContext_->isInitialized()) {
+        clayContext_->setDimensions(bounds_.w, bounds_.h);
+        clayContext_->beginLayout();
+
+        CLAY(CLAY_ID("EditViewRoot"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(bounds_.h) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Header
+            CLAY(CLAY_ID("EditHeader"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(headerH) },
+                }
+            }) {}
+
+            // Main row: Content + Note Inspector Sidebar
+            CLAY(CLAY_ID("EditBody"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                    .childGap = 0,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("EditContent"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                        .childGap = 0,
+                        .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                    }
+                }) {
+                    CLAY(CLAY_ID("EditRollRow"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                            .childGap = 0,
+                            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                        }
+                    }) {
+                        CLAY(CLAY_ID("PianoGutter"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_FIXED(gutterW), CLAY_SIZING_GROW(0) },
+                            }
+                        }) {}
+                        CLAY(CLAY_ID("EditGrid"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                            }
+                        }) {}
+                    }
+
+                    CLAY(CLAY_ID("VelocityLaneRow"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(velocityH) },
+                            .childGap = 0,
+                            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                        }
+                    }) {
+                        CLAY(CLAY_ID("VelocityGutterSpacer"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_FIXED(gutterW), CLAY_SIZING_FIXED(velocityH) },
+                            }
+                        }) {}
+                        CLAY(CLAY_ID("VelocityLane"), {
+                            .layout = {
+                                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(velocityH) },
+                            }
+                        }) {}
+                    }
+                }
+
+                if (showSidebar) {
+                    CLAY(CLAY_ID("NoteInspectorSidebar"), {
+                        .layout = {
+                            .sizing = { CLAY_SIZING_FIXED(sidebarW), CLAY_SIZING_GROW(0) },
+                        }
+                    }) {}
+                }
+            }
+        }
+
+        clayContext_->endLayout(0.016f);
+
+        auto hdrData = clayContext_->getElementData(CLAY_ID("EditHeader"));
+        if (hdrData.found) {
+            headerBounds_ = Rect2D(bounds_.x + hdrData.boundingBox.x, bounds_.y + hdrData.boundingBox.y,
+                                   hdrData.boundingBox.width, hdrData.boundingBox.height);
+        }
+        auto cntData = clayContext_->getElementData(CLAY_ID("EditContent"));
+        if (cntData.found) {
+            contentBounds_ = Rect2D(bounds_.x + cntData.boundingBox.x, bounds_.y + cntData.boundingBox.y,
+                                    cntData.boundingBox.width, cntData.boundingBox.height);
+        }
+        auto sbData = clayContext_->getElementData(CLAY_ID("NoteInspectorSidebar"));
+        if (sbData.found) {
+            sidebarBounds_ = Rect2D(bounds_.x + sbData.boundingBox.x, bounds_.y + sbData.boundingBox.y,
+                                    sbData.boundingBox.width, sbData.boundingBox.height);
+        } else {
+            sidebarBounds_ = Rect2D(bounds_.x + bounds_.w, bounds_.y + headerH, 0.0f, bounds_.h - headerH);
+        }
+        auto gutData = clayContext_->getElementData(CLAY_ID("PianoGutter"));
+        if (gutData.found) {
+            pianoGutterBounds_ = Rect2D(bounds_.x + gutData.boundingBox.x, bounds_.y + gutData.boundingBox.y,
+                                       gutData.boundingBox.width, gutData.boundingBox.height);
+        }
+        auto gridData = clayContext_->getElementData(CLAY_ID("EditGrid"));
+        if (gridData.found) {
+            gridBounds_ = Rect2D(bounds_.x + gridData.boundingBox.x, bounds_.y + gridData.boundingBox.y,
+                                 gridData.boundingBox.width, gridData.boundingBox.height);
+        }
+        auto velData = clayContext_->getElementData(CLAY_ID("VelocityLane"));
+        if (velData.found) {
+            velocityLaneBounds_ = Rect2D(bounds_.x + velData.boundingBox.x, bounds_.y + velData.boundingBox.y,
+                                         velData.boundingBox.width, velData.boundingBox.height);
+        }
+    } else {
+        contentBounds_ = Rect2D(bounds_.x, bounds_.y + headerH, bounds_.w - sidebarW, bounds_.h - headerH);
+        sidebarBounds_ = Rect2D(bounds_.x + bounds_.w - sidebarW, bounds_.y + headerH, sidebarW, bounds_.h - headerH);
+
+        pianoGutterBounds_ = Rect2D(contentBounds_.x, contentBounds_.y, gutterW, contentBounds_.h - velocityH);
+        gridBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y, contentBounds_.w - gutterW, contentBounds_.h - velocityH);
+        velocityLaneBounds_ = Rect2D(contentBounds_.x + gutterW, contentBounds_.y + contentBounds_.h - velocityH, contentBounds_.w - gutterW, velocityH);
+    }
 
     float maxScroll = std::max(0.0f, static_cast<float>(maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
     scrollY_ = std::clamp(scrollY_, 0.0f, maxScroll);

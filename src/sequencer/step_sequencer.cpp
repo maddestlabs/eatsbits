@@ -121,6 +121,59 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
         }
     }
 
+    // 2. Intra-block sub-clock arpeggiator processing (for sub-step rates: 1/32, 1/64, 1/128, 50Hz C64)
+    if (activePatternIndex_ < patterns_.size()) {
+        auto& activePattern = patterns_[activePatternIndex_];
+        bool hasSolo = false;
+        for (const auto& track : activePattern.tracks) {
+            if (track.isSolo()) { hasSolo = true; break; }
+        }
+
+        for (auto& track : activePattern.tracks) {
+            if (!track.isArpActive() || track.getArpPitches().empty() || track.isMuted() || track.isFrozen()) {
+                continue;
+            }
+            if (hasSolo && !track.isSolo()) continue;
+
+            double samplesPerTick = track.getSamplesPerArpTick();
+            // Trigger sub-step ticks for fast rates (1/32, 1/64, 1/128, 50Hz)
+            if (samplesPerTick > 0.0 && track.getArpRate() < 1.0f) {
+                double counter = track.getArpSampleCounter() + numFrames;
+                if (counter >= samplesPerTick) {
+                    while (counter >= samplesPerTick) {
+                        counter -= samplesPerTick;
+                        track.incrementArpCycleIndex();
+                        const auto& pitches = track.getArpPitches();
+                        size_t pIdx = track.getArpCycleIndex() % pitches.size();
+                        uint8_t nextNote = pitches[pIdx];
+
+                        // Send NoteOff for previous arp note
+                        if (track.getLastArpNote() != 0 && track.getTargetNodeId() != 0) {
+                            AudioEvent offEv{};
+                            offEv.type = AudioEventType::NoteOff;
+                            offEv.note = track.getLastArpNote();
+                            graph.sendNodeEvent(track.getTargetNodeId(), offEv);
+                        }
+
+                        // Send NoteOn for new arp note
+                        AudioEvent onEv{};
+                        onEv.type = AudioEventType::NoteOn;
+                        onEv.note = nextNote;
+                        onEv.velocity = track.getArpVelocity();
+                        if (track.getTargetNodeId() != 0) {
+                            graph.sendNodeEvent(track.getTargetNodeId(), onEv);
+                        }
+                        track.setLastArpNote(nextNote);
+
+                        uint32_t gateFrames = static_cast<uint32_t>(std::clamp(track.getArpGate() * samplesPerTick, 32.0, samplesPerTick * 1.5));
+                        scheduleNoteOff(track.getTargetNodeId(), nextNote, gateFrames);
+                    }
+                }
+                track.setArpSampleCounter(counter);
+            }
+        }
+    }
+
     // 2. Advance transport clock and gather step triggers
     std::array<StepTick, 8> ticks{};
     size_t tickCount = transport_.advance(numFrames, ticks);
@@ -164,116 +217,225 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
 
             uint32_t stepIdx = tick.stepIndex % track.getNumSteps();
             const StepData& step = track.getStep(stepIdx);
-            if (!step.active) continue;
 
-            // Probability gate check
-            if (step.probability < 1.0f && nextRandomFloat() > step.probability) {
+            bool isArpContinuation = !step.active && track.isArpActive() && track.getArpStepsRemaining() > 0 && !track.getArpPitches().empty();
+
+            if (!step.active && !isArpContinuation) {
+                track.setArpActive(false);
+                track.setArpStepsRemaining(0);
                 continue;
             }
 
-            // Parameter lock dispatch
-            if (step.paramLockId > 0) {
-                AudioEvent pEvent{};
-                pEvent.type = AudioEventType::SetParameter;
-                pEvent.paramId = step.paramLockId;
-                pEvent.paramValue = step.paramLockValue;
-                if (track.getTargetNodeId() != 0) {
-                    graph.sendNodeEvent(track.getTargetNodeId(), pEvent);
-                } else {
-                    graph.broadcastEvent(pEvent);
+            int noteNum = 60;
+            float vel = 0.8f;
+            std::vector<uint8_t> exNotes;
+            bool slide = false;
+            bool accent = false;
+            float gateDurationSteps = 0.75f;
+
+            if (isArpContinuation) {
+                track.decrementArpSteps();
+                if (track.getArpStepsRemaining() == 0) {
+                    track.setArpActive(false);
                 }
-            }
-
-            int noteNum = std::clamp(static_cast<int>(step.note) + track.getTranspose(), 0, 127);
-            float vel = std::clamp(step.velocity * track.getVolume(), 0.0f, 1.0f);
-            std::vector<uint8_t> exNotes = step.extraNotes;
-
-            // 2. Harmonic Track Follow Mode (BASS, CHORD, SCALE, COLOR)
-            if (track.getChordFollowMode() != theory::ChordFollowMode::Off && activeChord != nullptr) {
-                noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, track.getChordFollowMode());
-                for (auto& en : exNotes) {
-                    int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
-                    en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, track.getChordFollowMode()));
+                if (track.getArpRate() < 1.0f) {
+                    // Sub-step engine handles intra-step triggers continuously
+                    continue;
                 }
-            }
+                uint32_t stepInterval = static_cast<uint32_t>(std::max(1.0f, std::round(track.getArpRate())));
+                if (stepInterval > 1 && (tick.stepIndex % stepInterval != 0)) {
+                    continue;
+                }
+                track.incrementArpCycleIndex();
+                const auto& pitches = track.getArpPitches();
+                size_t pIdx = track.getArpCycleIndex() % pitches.size();
+                noteNum = pitches[pIdx];
+                vel = track.getArpVelocity();
+                gateDurationSteps = std::clamp(track.getArpGate(), 0.1f, 3.5f);
+            } else {
+                // Probability gate check
+                if (step.probability < 1.0f && nextRandomFloat() > step.probability) {
+                    continue;
+                }
 
-            // Live MIDI FX Pipeline Processing
-            const auto& midiFx = track.getMidiFxRack();
-            if (!midiFx.empty()) {
-                for (const auto& fx : midiFx) {
-                    if (!fx.enabled) continue;
-                    if (fx.type == eatscript::MidiFxType::ScaleSnap) {
-                        int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : (fx.params.count("root") ? static_cast<int>(fx.params.at("root")) : timeContext_.songKeyRoot);
-                        bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : timeContext_.isSongKeyMinor);
-                        noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
-                        for (auto& en : exNotes) {
-                            int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
-                            en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(enTrans, root, minor));
-                        }
-                    } else if (fx.type == eatscript::MidiFxType::Arpeggiator) {
-                        int octaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : (fx.params.count("octaves") ? std::max(1, static_cast<int>(fx.params.at("octaves"))) : 2);
-                        int stepCycle = static_cast<int>(tick.stepIndex) % (octaves * 2);
-                        int octOffset = (stepCycle < octaves) ? stepCycle : ((octaves * 2 - 1) - stepCycle);
-                        noteNum = std::clamp(noteNum + octOffset * 12, 0, 127);
-                        if (!exNotes.empty()) {
-                            size_t noteIdx = tick.stepIndex % (exNotes.size() + 1);
-                            if (noteIdx > 0 && noteIdx - 1 < exNotes.size()) {
-                                noteNum = exNotes[noteIdx - 1];
+                // Parameter lock dispatch
+                if (step.paramLockId > 0) {
+                    AudioEvent pEvent{};
+                    pEvent.type = AudioEventType::SetParameter;
+                    pEvent.paramId = step.paramLockId;
+                    pEvent.paramValue = step.paramLockValue;
+                    if (track.getTargetNodeId() != 0) {
+                        graph.sendNodeEvent(track.getTargetNodeId(), pEvent);
+                    } else {
+                        graph.broadcastEvent(pEvent);
+                    }
+                }
+
+                noteNum = std::clamp(static_cast<int>(step.note) + track.getTranspose(), 0, 127);
+                vel = std::clamp(step.velocity * track.getVolume(), 0.0f, 1.0f);
+                exNotes = step.extraNotes;
+                slide = step.slide;
+                accent = step.accent;
+                gateDurationSteps = step.gateLength;
+
+                // 2. Harmonic Track Follow Mode (BASS, CHORD, SCALE, COLOR)
+                if (track.getChordFollowMode() != theory::ChordFollowMode::Off && activeChord != nullptr) {
+                    noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, track.getChordFollowMode());
+                    for (auto& en : exNotes) {
+                        int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                        en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, track.getChordFollowMode()));
+                    }
+                }
+
+                // Live MIDI FX Pipeline Processing
+                const auto& midiFx = track.getMidiFxRack();
+                bool hasArp = false;
+                int arpOctaves = 2;
+                std::string arpPattern = "up";
+                float arpGate = 0.75f;
+                float arpRate = 1.0f;
+                if (!midiFx.empty()) {
+                    for (const auto& fx : midiFx) {
+                        if (!fx.enabled) continue;
+                        if (fx.type == eatscript::MidiFxType::ScaleSnap) {
+                            int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : (fx.params.count("root") ? static_cast<int>(fx.params.at("root")) : timeContext_.songKeyRoot);
+                            bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : timeContext_.isSongKeyMinor);
+                            noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                            for (auto& en : exNotes) {
+                                int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                                en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(enTrans, root, minor));
                             }
-                        }
-                    } else if (fx.type == eatscript::MidiFxType::ChordArp) {
-                        if (activeChord != nullptr && !timeContext_.chordPitchClasses.empty()) {
-                            const auto& pcs = timeContext_.chordPitchClasses;
-                            int pcIdx = static_cast<int>(tick.stepIndex) % static_cast<int>(pcs.size());
-                            int oct = (static_cast<int>(tick.stepIndex) / static_cast<int>(pcs.size())) % 2;
-                            int baseOct = noteNum / 12;
-                            noteNum = std::clamp((baseOct + oct) * 12 + pcs[pcIdx], 0, 127);
-                        }
-                    } else if (fx.type == eatscript::MidiFxType::ChordStabs) {
-                        if (exNotes.empty()) {
-                            if (activeChord != nullptr) {
-                                for (int pc : timeContext_.chordPitchClasses) {
-                                    if (pc != (noteNum % 12)) {
-                                        int chordNote = ((noteNum / 12) * 12) + pc;
-                                        if (chordNote < noteNum) chordNote += 12;
-                                        exNotes.push_back(static_cast<uint8_t>(std::clamp(chordNote, 0, 127)));
+                        } else if (fx.type == eatscript::MidiFxType::ChordStabs) {
+                            if (exNotes.empty()) {
+                                if (activeChord != nullptr) {
+                                    for (int pc : timeContext_.chordPitchClasses) {
+                                        if (pc != (noteNum % 12)) {
+                                            int chordNote = ((noteNum / 12) * 12) + pc;
+                                            if (chordNote < noteNum) chordNote += 12;
+                                            exNotes.push_back(static_cast<uint8_t>(std::clamp(chordNote, 0, 127)));
+                                        }
                                     }
+                                } else {
+                                    bool isMinor = timeContext_.isSongKeyMinor;
+                                    int third = isMinor ? 3 : 4;
+                                    int fifth = 7;
+                                    exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                                    exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                                }
+                            }
+                        } else if (fx.type == eatscript::MidiFxType::Transpose) {
+                            int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
+                            noteNum = std::clamp(noteNum + semi, 0, 127);
+                            for (auto& en : exNotes) {
+                                en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
+                            }
+                        } else if (fx.type == eatscript::MidiFxType::Humanize) {
+                            float velAmt = fx.params.count("humanizeVelocity") ? fx.params.at("humanizeVelocity") : (fx.params.count("velocity") ? fx.params.at("velocity") : 0.20f);
+                            float velJitter = (nextRandomFloat() - 0.5f) * velAmt;
+                            vel = std::clamp(vel + velJitter, 0.05f, 1.0f);
+                        } else if (fx.type == eatscript::MidiFxType::Arpeggiator || fx.type == eatscript::MidiFxType::ChordArp) {
+                            hasArp = true;
+                            arpOctaves = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : (fx.params.count("octaves") ? std::max(1, static_cast<int>(fx.params.at("octaves"))) : 2);
+                            if (fx.params.count("Rate")) arpRate = fx.params.at("Rate");
+                            else if (fx.params.count("rate")) arpRate = fx.params.at("rate");
+                            if (fx.params.count("Pattern")) {
+                                int pInt = static_cast<int>(fx.params.at("Pattern"));
+                                static const char* kPats[] = {"up", "down", "updown", "downup", "converge", "diverge", "random", "chord", "asplayed"};
+                                if (pInt >= 0 && pInt < 9) arpPattern = kPats[pInt];
+                            } else if (fx.params.count("pattern")) {
+                                int pInt = std::clamp(static_cast<int>(std::round(fx.params.at("pattern") * 8.0f)), 0, 8);
+                                static const char* kPats[] = {"up", "down", "updown", "downup", "converge", "diverge", "random", "chord", "asplayed"};
+                                arpPattern = kPats[pInt];
+                            }
+                            if (fx.params.count("Gate")) arpGate = fx.params.at("Gate");
+                            else if (fx.params.count("gate")) arpGate = fx.params.at("gate");
+
+                            if (fx.type == eatscript::MidiFxType::ChordArp && exNotes.empty()) {
+                                if (activeChord != nullptr && !timeContext_.chordPitchClasses.empty()) {
+                                    for (int pc : timeContext_.chordPitchClasses) {
+                                        if (pc != (noteNum % 12)) {
+                                            int chordNote = ((noteNum / 12) * 12) + pc;
+                                            if (chordNote < noteNum) chordNote += 12;
+                                            exNotes.push_back(static_cast<uint8_t>(std::clamp(chordNote, 0, 127)));
+                                        }
+                                    }
+                                } else {
+                                    bool isMinor = timeContext_.isSongKeyMinor;
+                                    int third = isMinor ? 3 : 4;
+                                    int fifth = 7;
+                                    exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                                    exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                                }
+                            }
+                        } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
+                            if (activeChord != nullptr) {
+                                noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, theory::ChordFollowMode::Chord);
+                                for (auto& en : exNotes) {
+                                    int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                                    en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, theory::ChordFollowMode::Chord));
                                 }
                             } else {
-                                bool isMinor = timeContext_.isSongKeyMinor;
-                                int third = isMinor ? 3 : 4;
-                                int fifth = 7;
-                                exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
-                                exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
-                            }
-                        }
-                    } else if (fx.type == eatscript::MidiFxType::Transpose) {
-                        int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
-                        noteNum = std::clamp(noteNum + semi, 0, 127);
-                        for (auto& en : exNotes) {
-                            en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
-                        }
-                    } else if (fx.type == eatscript::MidiFxType::Humanize) {
-                        float velAmt = fx.params.count("humanizeVelocity") ? fx.params.at("humanizeVelocity") : (fx.params.count("velocity") ? fx.params.at("velocity") : 0.20f);
-                        float velJitter = (nextRandomFloat() - 0.5f) * velAmt;
-                        vel = std::clamp(vel + velJitter, 0.05f, 1.0f);
-                    } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
-                        if (activeChord != nullptr) {
-                            noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, theory::ChordFollowMode::Chord);
-                            for (auto& en : exNotes) {
-                                int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
-                                en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, *activeChord, theory::ChordFollowMode::Chord));
-                            }
-                        } else {
-                            theory::ChordEvent chEvent;
-                            chEvent.rootPitchClass = timeContext_.activeChordRoot;
-                            noteNum = theory::ChordTheory::remapPitchForChord(noteNum, chEvent, theory::ChordFollowMode::Chord);
-                            for (auto& en : exNotes) {
-                                int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
-                                en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, chEvent, theory::ChordFollowMode::Chord));
+                                theory::ChordEvent chEvent;
+                                chEvent.rootPitchClass = timeContext_.activeChordRoot;
+                                noteNum = theory::ChordTheory::remapPitchForChord(noteNum, chEvent, theory::ChordFollowMode::Chord);
+                                for (auto& en : exNotes) {
+                                    int enTrans = std::clamp(static_cast<int>(en) + track.getTranspose(), 0, 127);
+                                    en = static_cast<uint8_t>(theory::ChordTheory::remapPitchForChord(enTrans, chEvent, theory::ChordFollowMode::Chord));
+                                }
                             }
                         }
                     }
+                }
+
+                if (hasArp) {
+                    std::vector<int> sortedPitches;
+                    sortedPitches.push_back(noteNum);
+                    for (uint8_t en : exNotes) {
+                        sortedPitches.push_back(static_cast<int>(en));
+                    }
+                    std::sort(sortedPitches.begin(), sortedPitches.end());
+
+                    std::vector<int> multiOctave;
+                    for (int oct = 0; oct < arpOctaves; ++oct) {
+                        for (int p : sortedPitches) {
+                            multiOctave.push_back(std::clamp(p + oct * 12, 0, 127));
+                        }
+                    }
+
+                    auto patterned = eatscript::MidiPipelineEngine::generatePatternSequence(multiOctave, arpPattern);
+                    std::vector<uint8_t> allPitches;
+                    allPitches.reserve(patterned.size());
+                    for (int p : patterned) {
+                        allPitches.push_back(static_cast<uint8_t>(std::clamp(p, 0, 127)));
+                    }
+
+                    exNotes.clear();
+                    size_t nextCycle = 0;
+                    if (track.isArpActive() && !track.getArpPitches().empty() && track.getArpPitches() == allPitches) {
+                        nextCycle = (track.getArpCycleIndex() + 1) % allPitches.size();
+                    }
+                    track.setArpActive(true);
+                    track.setArpPitches(allPitches);
+                    track.setArpCycleIndex(nextCycle);
+                    track.setArpVelocity(vel);
+                    track.setArpRate(arpRate);
+                    track.setArpGate(arpGate);
+                    double samplesPerTick = std::max(32.0, static_cast<double>(arpRate) * tick.stepDurationSamples);
+                    track.setSamplesPerArpTick(samplesPerTick);
+                    track.setArpSampleCounter(0.0);
+                    uint32_t sustainedSteps = (step.gateLength > 1.0f)
+                                                  ? (static_cast<uint32_t>(step.gateLength) - 1)
+                                                  : static_cast<uint32_t>(allPitches.size() > 1 ? (allPitches.size() - 1) : 3);
+                    track.setArpStepsRemaining(sustainedSteps);
+
+                    if (!allPitches.empty()) {
+                        noteNum = allPitches[nextCycle];
+                    }
+                    track.setLastArpNote(static_cast<uint8_t>(noteNum));
+                    gateDurationSteps = std::clamp(arpGate, 0.1f, 3.5f);
+                } else {
+                    track.setArpActive(false);
+                    track.setArpStepsRemaining(0);
                 }
             }
 
@@ -283,15 +445,15 @@ void StepSequencer::processBlock(uint32_t numFrames, audio::AudioGraph& graph) n
             noteEvent.note = static_cast<uint8_t>(noteNum);
             noteEvent.velocity = vel;
             // Channel byte bit0 = slide, bit1 = accent
-            noteEvent.channel = (step.slide ? 0x01 : 0x00) | (step.accent ? 0x02 : 0x00);
+            noteEvent.channel = (slide ? 0x01 : 0x00) | (accent ? 0x02 : 0x00);
 
             if (track.getTargetNodeId() != 0) {
                 graph.sendNodeEvent(track.getTargetNodeId(), noteEvent);
             }
 
             // Schedule NoteOff
-            if (track.getTargetNodeId() != 0 && (!step.slide || step.gateLength < 1.0f)) {
-                double duration = std::clamp(step.gateLength, 0.05f, 128.0f) * tick.stepDurationSamples;
+            if (track.getTargetNodeId() != 0 && (!slide || gateDurationSteps < 1.0f)) {
+                double duration = std::clamp(gateDurationSteps, 0.05f, 128.0f) * tick.stepDurationSamples;
                 uint32_t framesUntilOff = tick.frameOffset + static_cast<uint32_t>(duration);
                 scheduleNoteOff(track.getTargetNodeId(), noteEvent.note, framesUntilOff);
                 for (uint8_t exNote : exNotes) {

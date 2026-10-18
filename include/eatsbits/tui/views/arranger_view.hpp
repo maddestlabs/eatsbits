@@ -6,6 +6,10 @@
 #include <vector>
 #include <memory>
 
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
+
 namespace eatsbits::tui {
 
 struct AudioClip {
@@ -49,7 +53,7 @@ struct DragState {
 class ArrangerView {
 public:
     ArrangerView();
-    ~ArrangerView() = default;
+    ~ArrangerView();
 
     void setupDefaultProject();
 
@@ -94,6 +98,8 @@ private:
     void renderTrackHeader(CellSurface& surface, const Rect& area, ArrangerTrack& track, int trackIdx, bool isSelected);
     void renderTrackLane(CellSurface& surface, const Rect& area, ArrangerTrack& track, int trackIdx, int startBar, int numBars, const TelemetrySnapshot& telemetry);
     void renderInspector(CellSurface& surface, const Rect& area);
+
+    std::unique_ptr<ui::clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::tui

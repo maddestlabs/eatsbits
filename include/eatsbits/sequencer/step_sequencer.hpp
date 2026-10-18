@@ -88,6 +88,30 @@ public:
     std::vector<eatscript::MidiFxInsert>& getMidiFxRack() noexcept { return midiFxRack_; }
     void setMidiFxRack(std::vector<eatscript::MidiFxInsert> rack) { midiFxRack_ = std::move(rack); }
 
+    // --- Arpeggiator Playback Tracking State ---
+    [[nodiscard]] bool isArpActive() const noexcept { return arpActive_; }
+    void setArpActive(bool active) noexcept { arpActive_ = active; }
+    [[nodiscard]] const std::vector<uint8_t>& getArpPitches() const noexcept { return arpPitches_; }
+    void setArpPitches(std::vector<uint8_t> pitches) { arpPitches_ = std::move(pitches); }
+    [[nodiscard]] uint32_t getArpStepsRemaining() const noexcept { return arpStepsRemaining_; }
+    void setArpStepsRemaining(uint32_t steps) noexcept { arpStepsRemaining_ = steps; }
+    void decrementArpSteps() noexcept { if (arpStepsRemaining_ > 0) --arpStepsRemaining_; }
+    [[nodiscard]] float getArpVelocity() const noexcept { return arpVelocity_; }
+    void setArpVelocity(float vel) noexcept { arpVelocity_ = vel; }
+    [[nodiscard]] uint32_t getArpCycleIndex() const noexcept { return arpCycleIndex_; }
+    void setArpCycleIndex(uint32_t idx) noexcept { arpCycleIndex_ = idx; }
+    void incrementArpCycleIndex() noexcept { ++arpCycleIndex_; }
+    [[nodiscard]] float getArpRate() const noexcept { return arpRate_; }
+    void setArpRate(float rate) noexcept { arpRate_ = rate; }
+    [[nodiscard]] float getArpGate() const noexcept { return arpGate_; }
+    void setArpGate(float gate) noexcept { arpGate_ = gate; }
+    [[nodiscard]] double getArpSampleCounter() const noexcept { return arpSampleCounter_; }
+    void setArpSampleCounter(double c) noexcept { arpSampleCounter_ = c; }
+    [[nodiscard]] double getSamplesPerArpTick() const noexcept { return samplesPerArpTick_; }
+    void setSamplesPerArpTick(double s) noexcept { samplesPerArpTick_ = s; }
+    [[nodiscard]] uint8_t getLastArpNote() const noexcept { return lastArpNote_; }
+    void setLastArpNote(uint8_t n) noexcept { lastArpNote_ = n; }
+
     // --- Chord Follow Mode ---
     [[nodiscard]] theory::ChordFollowMode getChordFollowMode() const noexcept { return chordFollowMode_; }
     void setChordFollowMode(theory::ChordFollowMode mode) noexcept { chordFollowMode_ = mode; }
@@ -220,6 +244,18 @@ private:
 
     // MIDI FX Rack
     std::vector<eatscript::MidiFxInsert> midiFxRack_{};
+
+    // Arpeggiator playback tracking state
+    bool arpActive_{false};
+    std::vector<uint8_t> arpPitches_{};
+    uint32_t arpStepsRemaining_{0};
+    uint32_t arpCycleIndex_{0};
+    float arpVelocity_{0.8f};
+    float arpRate_{1.0f};
+    float arpGate_{0.85f};
+    double arpSampleCounter_{0.0};
+    double samplesPerArpTick_{0.0};
+    uint8_t lastArpNote_{0};
 
     // Chord Follow Mode
     theory::ChordFollowMode chordFollowMode_{theory::ChordFollowMode::Off};

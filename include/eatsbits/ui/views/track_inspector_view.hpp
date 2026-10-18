@@ -30,6 +30,7 @@ struct InspectorTrackChannel {
     TrackAudioFxData audioFx;
     std::vector<TrackMidiFxItem> midiFxList;
     std::vector<TrackAudioFxItem> audioFxList;
+    std::optional<GuiPanelDef> customGuiPanel;
 
     void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
         for (auto& k : knobs) {

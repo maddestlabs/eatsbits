@@ -44,8 +44,13 @@ static void tb303_set_param(void* instance, uint32_t paramId, float value) {
         case 2: inst->core.setEnvMod(value); break;
         case 3: inst->core.setDecay(value); break;
         case 4: inst->core.setAccent(value); break;
-        case 5: inst->core.setOverdrive(value); break;
-        case 6: inst->core.setWaveform(value); break;
+        case 5: inst->core.setWaveform(value); break;
+        case 6: inst->core.setOverdrive(value); break;
+        case 7: inst->core.setTuning(value); break;
+        case 8: inst->core.setOctave(static_cast<int>(std::round(value))); break;
+        case 9: inst->core.setSubVolume(value); break;
+        case 10: inst->core.setSubWaveform(value); break;
+        case 11: inst->core.setGlideCurve(value); break;
         default: break;
     }
 }
@@ -65,7 +70,7 @@ static void tb303_note_off(void* instance, uint8_t /*pitch*/) {
 const EatsPluginDescriptor g_plugin_tb303 = {
     "org.eatsbits.tb303",
     "Roland TB-303 Acid Bassline",
-    7,
+    12,
     tb303_create,
     tb303_destroy,
     tb303_process,

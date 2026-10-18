@@ -1,5 +1,6 @@
 #include "eatsbits/terminal/terminal_grid.hpp"
 #include <stdexcept>
+#include <algorithm>
 
 namespace eatsbits::terminal {
 
@@ -29,6 +30,8 @@ TerminalGrid::TerminalGrid(int cols, int rows, size_t maxScrollback)
     : cols_(std::max(1, cols)),
       rows_(std::max(1, rows)),
       maxScrollback_(maxScrollback),
+      scrollTop_(0),
+      scrollBottom_(std::max(1, rows) - 1),
       dirtyRows_(static_cast<size_t>(rows_), true),
       anyDirty_(true) {
     initBuffer(primaryScreen_);
@@ -42,6 +45,10 @@ void TerminalGrid::initBuffer(ScreenBuffer& buf) {
     buf.back.assign(count, blank);
     buf.cursor = {0, 0, true, true};
     buf.savedCursor = {0, 0, true, true};
+    buf.scrollTop = 0;
+    buf.scrollBottom = rows_ - 1;
+    buf.mouseTrackingMode = 0;
+    buf.sgrMouse = false;
 }
 
 void TerminalGrid::resize(int cols, int rows) {
@@ -71,10 +78,15 @@ void TerminalGrid::resize(int cols, int rows) {
         }
         buf.front = std::move(newFront);
         buf.back = std::move(newBack);
+        buf.scrollTop = 0;
+        buf.scrollBottom = rows_ - 1;
     };
 
     resizeBuf(primaryScreen_);
     resizeBuf(altScreen_);
+
+    scrollTop_ = 0;
+    scrollBottom_ = rows_ - 1;
 
     cursor_.x = std::clamp(cursor_.x, 0, cols_ - 1);
     cursor_.y = std::clamp(cursor_.y, 0, rows_ - 1);
@@ -290,10 +302,10 @@ int TerminalGrid::getCellSpan(int col, int row) const noexcept {
 }
 
 void TerminalGrid::newline() {
-    if (cursor_.y < rows_ - 1) {
-        cursor_.y++;
-    } else {
+    if (cursor_.y == scrollBottom_) {
         scrollUp(1);
+    } else if (cursor_.y < rows_ - 1) {
+        cursor_.y++;
     }
 }
 
@@ -313,12 +325,14 @@ void TerminalGrid::tab() noexcept {
 
 void TerminalGrid::scrollUp(int lines) {
     if (lines <= 0) return;
-    lines = std::min(lines, rows_);
+    int regionHeight = scrollBottom_ - scrollTop_ + 1;
+    if (regionHeight <= 0) return;
+    lines = std::min(lines, regionHeight);
 
     auto& screen = currentScreen();
 
-    // Push evicted top lines into scrollback buffer (primary screen only)
-    if (!usingAltScreen_ && maxScrollback_ > 0) {
+    // Push evicted top lines into scrollback buffer (primary screen only, when scrolling full screen)
+    if (!usingAltScreen_ && maxScrollback_ > 0 && scrollTop_ == 0 && scrollBottom_ == rows_ - 1) {
         for (int l = 0; l < lines; ++l) {
             std::vector<tui::Cell> rowCells(cols_);
             size_t srcOffset = static_cast<size_t>(l * cols_);
@@ -331,40 +345,52 @@ void TerminalGrid::scrollUp(int lines) {
         }
     }
 
-    // Shift remaining rows upward
-    size_t copyCount = static_cast<size_t>((rows_ - lines) * cols_);
-    if (copyCount > 0) {
-        std::copy_n(&screen.back[static_cast<size_t>(lines * cols_)], copyCount, &screen.back[0]);
+    // Shift rows within [scrollTop_, scrollBottom_] upward
+    int rowsToMove = regionHeight - lines;
+    if (rowsToMove > 0) {
+        size_t dst = static_cast<size_t>(scrollTop_ * cols_);
+        size_t src = static_cast<size_t>((scrollTop_ + lines) * cols_);
+        size_t count = static_cast<size_t>(rowsToMove * cols_);
+        std::copy_n(&screen.back[src], count, &screen.back[dst]);
     }
 
-    // Clear newly opened bottom rows
+    // Clear newly opened bottom rows within [scrollBottom_ - lines + 1, scrollBottom_]
     tui::Cell blank{' ', activeFg_, activeBg_, 0};
-    size_t blankStart = static_cast<size_t>((rows_ - lines) * cols_);
+    size_t blankStart = static_cast<size_t>((scrollBottom_ - lines + 1) * cols_);
     size_t blankCount = static_cast<size_t>(lines * cols_);
     std::fill_n(&screen.back[blankStart], blankCount, blank);
 
-    markAllDirty();
+    for (int r = scrollTop_; r <= scrollBottom_; ++r) {
+        markRowDirty(r);
+    }
 }
 
 void TerminalGrid::scrollDown(int lines) {
     if (lines <= 0) return;
-    lines = std::min(lines, rows_);
+    int regionHeight = scrollBottom_ - scrollTop_ + 1;
+    if (regionHeight <= 0) return;
+    lines = std::min(lines, regionHeight);
 
     auto& screen = currentScreen();
 
-    // Shift rows downward
-    size_t copyCount = static_cast<size_t>((rows_ - lines) * cols_);
-    if (copyCount > 0) {
-        std::copy_backward(&screen.back[0],
-                           &screen.back[copyCount],
-                           &screen.back[static_cast<size_t>(rows_ * cols_)]);
+    // Shift rows downward within [scrollTop_, scrollBottom_]
+    int rowsToMove = regionHeight - lines;
+    if (rowsToMove > 0) {
+        size_t srcStart = static_cast<size_t>(scrollTop_ * cols_);
+        size_t srcEnd = static_cast<size_t>((scrollTop_ + rowsToMove) * cols_);
+        size_t dstEnd = static_cast<size_t>((scrollBottom_ + 1) * cols_);
+        std::copy_backward(&screen.back[srcStart], &screen.back[srcEnd], &screen.back[dstEnd]);
     }
 
-    // Clear newly opened top rows
+    // Clear newly opened top rows within [scrollTop_, scrollTop_ + lines - 1]
     tui::Cell blank{' ', activeFg_, activeBg_, 0};
-    std::fill_n(&screen.back[0], static_cast<size_t>(lines * cols_), blank);
+    size_t blankStart = static_cast<size_t>(scrollTop_ * cols_);
+    size_t blankCount = static_cast<size_t>(lines * cols_);
+    std::fill_n(&screen.back[blankStart], blankCount, blank);
 
-    markAllDirty();
+    for (int r = scrollTop_; r <= scrollBottom_; ++r) {
+        markRowDirty(r);
+    }
 }
 
 const std::vector<tui::Cell>& TerminalGrid::getScrollbackRow(size_t index) const {
@@ -406,17 +432,18 @@ void TerminalGrid::eraseInLine(int mode) {
     auto& screen = currentScreen();
     tui::Cell blank{' ', activeFg_, activeBg_, 0};
     size_t rowOffset = static_cast<size_t>(cursor_.y * cols_);
+    int curX = std::clamp(cursor_.x, 0, cols_ - 1);
 
     if (mode == 0) {
         // Cursor to end of line
-        size_t start = rowOffset + static_cast<size_t>(cursor_.x);
+        size_t start = rowOffset + static_cast<size_t>(curX);
         size_t end = rowOffset + static_cast<size_t>(cols_);
         std::fill(&screen.back[start], &screen.back[end], blank);
         markRowDirty(cursor_.y);
     } else if (mode == 1) {
         // Start of line to cursor
         size_t start = rowOffset;
-        size_t end = rowOffset + static_cast<size_t>(cursor_.x + 1);
+        size_t end = rowOffset + static_cast<size_t>(std::min(cols_, curX + 1));
         std::fill(&screen.back[start], &screen.back[end], blank);
         markRowDirty(cursor_.y);
     } else if (mode == 2) {
@@ -428,18 +455,141 @@ void TerminalGrid::eraseInLine(int mode) {
     }
 }
 
+void TerminalGrid::eraseCharacters(int count) {
+    if (count <= 0 || cursor_.y < 0 || cursor_.y >= rows_) return;
+    int startCol = std::clamp(cursor_.x, 0, cols_ - 1);
+    int endCol = std::min(cols_, startCol + count);
+    tui::Cell blank{' ', activeFg_, activeBg_, 0};
+    auto& screen = currentScreen();
+    size_t rowOffset = static_cast<size_t>(cursor_.y * cols_);
+    std::fill(&screen.back[rowOffset + static_cast<size_t>(startCol)],
+              &screen.back[rowOffset + static_cast<size_t>(endCol)],
+              blank);
+    markRowDirty(cursor_.y);
+}
+
+void TerminalGrid::deleteCharacters(int count) {
+    if (count <= 0 || cursor_.y < 0 || cursor_.y >= rows_) return;
+    int startCol = std::clamp(cursor_.x, 0, cols_ - 1);
+    count = std::min(count, cols_ - startCol);
+    auto& screen = currentScreen();
+    size_t rowOffset = static_cast<size_t>(cursor_.y * cols_);
+
+    int moveCount = cols_ - startCol - count;
+    if (moveCount > 0) {
+        std::copy_n(&screen.back[rowOffset + static_cast<size_t>(startCol + count)],
+                    static_cast<size_t>(moveCount),
+                    &screen.back[rowOffset + static_cast<size_t>(startCol)]);
+    }
+    tui::Cell blank{' ', activeFg_, activeBg_, 0};
+    std::fill_n(&screen.back[rowOffset + static_cast<size_t>(cols_ - count)],
+                static_cast<size_t>(count),
+                blank);
+    markRowDirty(cursor_.y);
+}
+
+void TerminalGrid::insertCharacters(int count) {
+    if (count <= 0 || cursor_.y < 0 || cursor_.y >= rows_) return;
+    int startCol = std::clamp(cursor_.x, 0, cols_ - 1);
+    count = std::min(count, cols_ - startCol);
+    auto& screen = currentScreen();
+    size_t rowOffset = static_cast<size_t>(cursor_.y * cols_);
+
+    int moveCount = cols_ - startCol - count;
+    if (moveCount > 0) {
+        std::copy_backward(&screen.back[rowOffset + static_cast<size_t>(startCol)],
+                           &screen.back[rowOffset + static_cast<size_t>(startCol + moveCount)],
+                           &screen.back[rowOffset + static_cast<size_t>(cols_)]);
+    }
+    tui::Cell blank{' ', activeFg_, activeBg_, 0};
+    std::fill_n(&screen.back[rowOffset + static_cast<size_t>(startCol)],
+                static_cast<size_t>(count),
+                blank);
+    markRowDirty(cursor_.y);
+}
+
+void TerminalGrid::deleteLines(int count) {
+    if (count <= 0 || cursor_.y < scrollTop_ || cursor_.y > scrollBottom_) return;
+    int regionHeight = scrollBottom_ - cursor_.y + 1;
+    count = std::min(count, regionHeight);
+
+    auto& screen = currentScreen();
+    int rowsToMove = regionHeight - count;
+    if (rowsToMove > 0) {
+        size_t dst = static_cast<size_t>(cursor_.y * cols_);
+        size_t src = static_cast<size_t>((cursor_.y + count) * cols_);
+        size_t numCells = static_cast<size_t>(rowsToMove * cols_);
+        std::copy_n(&screen.back[src], numCells, &screen.back[dst]);
+    }
+
+    tui::Cell blank{' ', activeFg_, activeBg_, 0};
+    size_t blankStart = static_cast<size_t>((scrollBottom_ - count + 1) * cols_);
+    size_t blankCount = static_cast<size_t>(count * cols_);
+    std::fill_n(&screen.back[blankStart], blankCount, blank);
+
+    for (int r = cursor_.y; r <= scrollBottom_; ++r) {
+        markRowDirty(r);
+    }
+}
+
+void TerminalGrid::insertLines(int count) {
+    if (count <= 0 || cursor_.y < scrollTop_ || cursor_.y > scrollBottom_) return;
+    int regionHeight = scrollBottom_ - cursor_.y + 1;
+    count = std::min(count, regionHeight);
+
+    auto& screen = currentScreen();
+    int rowsToMove = regionHeight - count;
+    if (rowsToMove > 0) {
+        size_t srcStart = static_cast<size_t>(cursor_.y * cols_);
+        size_t srcEnd = static_cast<size_t>((cursor_.y + rowsToMove) * cols_);
+        size_t dstEnd = static_cast<size_t>((scrollBottom_ + 1) * cols_);
+        std::copy_backward(&screen.back[srcStart], &screen.back[srcEnd], &screen.back[dstEnd]);
+    }
+
+    tui::Cell blank{' ', activeFg_, activeBg_, 0};
+    size_t blankStart = static_cast<size_t>(cursor_.y * cols_);
+    size_t blankCount = static_cast<size_t>(count * cols_);
+    std::fill_n(&screen.back[blankStart], blankCount, blank);
+
+    for (int r = cursor_.y; r <= scrollBottom_; ++r) {
+        markRowDirty(r);
+    }
+}
+
+void TerminalGrid::setScrollRegion(int top, int bottom) {
+    if (top < 0) top = 0;
+    if (bottom >= rows_ || bottom < 0) bottom = rows_ - 1;
+    if (top >= bottom) {
+        top = 0;
+        bottom = rows_ - 1;
+    }
+    scrollTop_ = top;
+    scrollBottom_ = bottom;
+    currentScreen().scrollTop = top;
+    currentScreen().scrollBottom = bottom;
+    setCursorPos(0, 0); // VT100 standard: setting DECSTBM moves cursor to home (0, 0)
+}
+
 void TerminalGrid::setAlternateScreen(bool enable) {
     if (enable == usingAltScreen_) return;
 
     // Save active state into the leaving screen buffer
     currentScreen().cursor = cursor_;
     currentScreen().savedCursor = savedCursor_;
+    currentScreen().scrollTop = scrollTop_;
+    currentScreen().scrollBottom = scrollBottom_;
+    currentScreen().mouseTrackingMode = mouseTrackingMode_;
+    currentScreen().sgrMouse = sgrMouse_;
 
     usingAltScreen_ = enable;
 
     // Restore active state from entering screen buffer
     cursor_ = currentScreen().cursor;
     savedCursor_ = currentScreen().savedCursor;
+    scrollTop_ = currentScreen().scrollTop;
+    scrollBottom_ = currentScreen().scrollBottom;
+    mouseTrackingMode_ = currentScreen().mouseTrackingMode;
+    sgrMouse_ = currentScreen().sgrMouse;
 
     markAllDirty();
 }
@@ -450,9 +600,10 @@ std::string TerminalGrid::dumpRowText(int row) const {
     const auto& screen = currentScreen();
     size_t offset = static_cast<size_t>(row * cols_);
     for (int c = 0; c < cols_; ++c) {
-        out += codepointToUtf8(screen.back[offset + c].codepoint);
+        char32_t cp = screen.back[offset + c].codepoint;
+        if (cp == 0) cp = ' ';
+        out += codepointToUtf8(cp);
     }
-    // Trim trailing spaces for clean assertions
     while (!out.empty() && out.back() == ' ') {
         out.pop_back();
     }
@@ -463,7 +614,9 @@ std::string TerminalGrid::dumpScreenText() const {
     std::string out;
     for (int r = 0; r < rows_; ++r) {
         out += dumpRowText(r);
-        if (r + 1 < rows_) out += "\n";
+        if (r < rows_ - 1) {
+            out += "\n";
+        }
     }
     return out;
 }

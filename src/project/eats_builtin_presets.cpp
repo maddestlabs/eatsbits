@@ -266,28 +266,93 @@ PresetDefinition BuiltinPresetRegistry::createHarpsichordCembalo() {
 PresetDefinition BuiltinPresetRegistry::createClavinetD6() {
     PresetDefinition p{};
     p.metadata.id = "clavinet_d6";
-    p.metadata.name = "Clavinet D6";
+    p.metadata.name = "Hohner Clavinet D6";
     p.metadata.category = "instruments";
-    p.metadata.description = "Electromechanical funk clavinet with rubber-tipped tangent strike and dual magnetic pickups.";
+    p.metadata.description = "Authentic physical model of the 1971 Hohner Clavinet D6: rubber-tipped hammer strike, taut steel string waveguide, key-off yarn damper thump, dual single-coil pickups with funk quack (A-B), 4-rocker EQ filter bank, and tube preamp bite.";
 
-    p.params["Drive"] = {"Drive", 1.0f, 5.0f, 1.5f, 1.5f, 0.05f, "x", true};
-    p.params["PickupM"] = {"PickupM", 0.0f, 1.0f, 0.7f, 0.7f, 0.01f, "", true};
-    p.params["Brilliance"] = {"Brilliance", 0.1f, 2.0f, 1.2f, 1.2f, 0.05f, "", true};
-    p.params["WahEnv"] = {"WahEnv", 0.0f, 1.0f, 0.5f, 0.5f, 0.01f, "", true};
+    p.params["PickupSelect"] = {"PickupSelect", 0.0f, 1.0f, 0.5f, 0.5f, 0.01f, "", true};
+    p.params["PhaseInvert"] = {"PhaseInvert", 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, "", true};
+    p.params["Brilliant"] = {"Brilliant", 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, "", true};
+    p.params["Treble"] = {"Treble", 0.0f, 1.0f, 0.8f, 0.8f, 1.0f, "", true};
+    p.params["Medium"] = {"Medium", 0.0f, 1.0f, 0.5f, 0.5f, 1.0f, "", true};
+    p.params["Soft"] = {"Soft", 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, "", true};
+    p.params["HammerHardness"] = {"HammerHardness", 0.2f, 3.0f, 1.4f, 1.4f, 0.05f, "", true};
+    p.params["HammerSnap"] = {"HammerSnap", 0.0f, 2.0f, 0.9f, 0.9f, 0.05f, "", true};
+    p.params["Sustain"] = {"Sustain", 0.8f, 0.999f, 0.993f, 0.993f, 0.001f, "", true};
+    p.params["DamperThump"] = {"DamperThump", 0.0f, 1.0f, 0.45f, 0.45f, 0.02f, "", true};
+    p.params["Drive"] = {"Drive", 0.5f, 3.0f, 1.08f, 1.08f, 0.05f, "", true};
 
     p.guiRoot.type = GuiNodeType::Panel;
-    p.guiRoot.title = "CLAVINET D6";
-    p.guiRoot.subtitle = "Electromechanical Tangent String Model";
-    p.guiRoot.accent = "#E05A2B";
+    p.guiRoot.title = "HOHNER CLAVINET D6";
+    p.guiRoot.subtitle = "Electromechanical Steel String Keyboard";
+    p.guiRoot.accent = "#FF8C00";
+    p.guiRoot.background = "walnut";
+    p.guiRoot.defaultKnobStyle = "vintage";
 
-    GuiLayoutNode row{};
-    row.type = GuiNodeType::Row;
-    row.children.push_back(makeKnob("Drive", "DRIVE", "x"));
-    row.children.push_back(makeKnob("PickupM", "PICKUP", ""));
-    row.children.push_back(makeKnob("Brilliance", "BRILL", ""));
-    row.children.push_back(makeKnob("WahEnv", "WAH", ""));
+    // 1. Group 1: 4-ROCKER TONE FILTER MATRIX
+    GuiLayoutNode gFilter{};
+    gFilter.type = GuiNodeType::Group;
+    gFilter.label = "4-ROCKER TONE FILTER MATRIX";
+    gFilter.accent = "#FF8C00";
 
-    p.guiRoot.children.push_back(row);
+    GuiLayoutNode rFilter{};
+    rFilter.type = GuiNodeType::Row;
+
+    auto makeSwitch = [](const std::string& param, const std::string& label) {
+        GuiLayoutNode sw{};
+        sw.type = GuiNodeType::Switch;
+        sw.paramName = param;
+        sw.label = label;
+        sw.hardwareStyle = "rocker";
+        return sw;
+    };
+
+    rFilter.children.push_back(makeSwitch("Brilliant", "BRILLIANT"));
+    rFilter.children.push_back(makeSwitch("Treble", "TREBLE"));
+    rFilter.children.push_back(makeSwitch("Medium", "MEDIUM"));
+    rFilter.children.push_back(makeSwitch("Soft", "SOFT"));
+    gFilter.children.push_back(rFilter);
+
+    // 2. Group 2: PICKUPS & DAMPING DYNAMICS
+    GuiLayoutNode gPickups{};
+    gPickups.type = GuiNodeType::Group;
+    gPickups.label = "PICKUPS & DAMPING DYNAMICS";
+    gPickups.accent = "#E5A93C";
+
+    GuiLayoutNode rKnobs{};
+    rKnobs.type = GuiNodeType::Row;
+
+    auto makeVintageKnob = [](const std::string& param, const std::string& label, float size = 52.0f) {
+        GuiLayoutNode k{};
+        k.type = GuiNodeType::Knob;
+        k.paramName = param;
+        k.label = label;
+        k.hardwareStyle = "vintage";
+        k.size = size;
+        return k;
+    };
+
+    rKnobs.children.push_back(makeVintageKnob("PickupSelect", "PICKUP A/B"));
+    rKnobs.children.push_back(makeSwitch("PhaseInvert", "PHASE (A-B)"));
+    rKnobs.children.push_back(makeVintageKnob("HammerHardness", "HAMMER"));
+    rKnobs.children.push_back(makeVintageKnob("DamperThump", "DAMPER"));
+    rKnobs.children.push_back(makeVintageKnob("Drive", "DRIVE"));
+
+    GuiLayoutNode rSlider{};
+    rSlider.type = GuiNodeType::Row;
+    GuiLayoutNode sl{};
+    sl.type = GuiNodeType::Slider;
+    sl.paramName = "Sustain";
+    sl.label = "STRING SUSTAIN & YARN DAMPING";
+    sl.hardwareStyle = "capsule";
+    rSlider.children.push_back(sl);
+
+    gPickups.children.push_back(rKnobs);
+    gPickups.children.push_back(rSlider);
+
+    p.guiRoot.children.push_back(gFilter);
+    p.guiRoot.children.push_back(gPickups);
+
     p.compactGuiRoot = p.guiRoot;
     return p;
 }

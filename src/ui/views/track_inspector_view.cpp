@@ -62,6 +62,10 @@ TrackInspectorView::TrackInspectorView() {
         if (onBakeChords) onBakeChords(idx);
     };
     panel_.onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
+        if (idx < tracks_.size()) {
+            tracks_[idx].setKnobValue(paramName, normVal);
+            drawerData_.setKnobValue(paramName, normVal);
+        }
         if (onParamChanged) onParamChanged(idx, paramName, normVal);
     };
     panel_.onMidiFxParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
@@ -189,7 +193,7 @@ TrackInspectorView::TrackInspectorView() {
                 TrackMidiFxItem mfx;
                 mfx.id = entry.id;
                 mfx.name = entry.name;
-                mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                mfx.type = (entry.engineTag.empty() || entry.engineTag == "MIDI Processor" || entry.engineTag == "DSP Effect") ? entry.name : entry.engineTag;
                 mfx.enabled = true;
                 mfx.isExpanded = true;
                 mfx.ensureDefaultKnobs();
@@ -430,12 +434,26 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
             {"EchoFeedback", "ECHO FDBK", 0.55f / 0.90f, "55%"},
             {"EchoVolume", "ECHO VOL", 0.40f, "40%"}
         };
+    } else if (trk.instrumentEngine == "ambient_pad" || trk.instrumentEngine == "astral_pad" || trk.instrumentEngine == "astral_shimmer_pad" ||
+               trk.instrument.find("astral") != std::string::npos || trk.instrument.find("Astral") != std::string::npos ||
+               trk.name.find("Astral") != std::string::npos || trk.name.find("astral") != std::string::npos ||
+               trk.instrument.find("shimmer") != std::string::npos || trk.name.find("Shimmer") != std::string::npos) {
+        trk.knobs = {
+            {"Cutoff", "CUTOFF", (2400.0f - 100.0f) / 15900.0f, "2400.0 Hz"},
+            {"Resonance", "RESO", (0.55f - 0.1f) / 4.9f, "0.55"},
+            {"Detune", "DETUNE", (14.0f - 1.0f) / 34.0f, "14.0 ct"},
+            {"Warmth", "WARMTH", 0.65f, "65%"},
+            {"Attack", "ATTACK", (0.85f - 0.05f) / 3.95f, "0.85 s"},
+            {"Decay", "DECAY", (1.5f - 0.1f) / 5.9f, "1.50 s"},
+            {"Sustain", "SUSTAIN", 0.85f, "85%"},
+            {"Release", "RELEASE", (2.5f - 0.1f) / 7.9f, "2.50 s"}
+        };
     } else {
         trk.knobs = {
-            {"param1", "TONE", 0.50f, "50%"},
-            {"param2", "TIMBRE", 0.60f, "60%"},
-            {"param3", "ATTACK", 0.30f, "30%"},
-            {"param4", "DECAY", 0.55f, "55%"},
+            {"param1", "PARAM 1", 0.50f, "50%"},
+            {"param2", "PARAM 2", 0.60f, "60%"},
+            {"param3", "PARAM 3", 0.30f, "30%"},
+            {"param4", "PARAM 4", 0.55f, "55%"},
             {"param5", "COLOR", 0.40f, "40%"},
             {"param6", "OUTPUT", 0.80f, "80%"}
         };

@@ -197,13 +197,18 @@ Value Evaluator::callFunction(const std::string& funcName,
         return Value();
     }
 
-    const Value& fnVal = it->second;
-    if (fnVal.hostFn) {
-        return fnVal.hostFn(args, kwargs);
+    return invokeCallable(it->second, args, kwargs);
+}
+
+Value Evaluator::invokeCallable(const Value& callable,
+                                const std::vector<Value>& args,
+                                const std::map<std::string, Value>& kwargs) {
+    if (callable.hostFn) {
+        return callable.hostFn(args, kwargs);
     }
 
-    if (fnVal.funcDef) {
-        auto* def = fnVal.funcDef.get();
+    if (callable.funcDef) {
+        auto* def = callable.funcDef.get();
         // Save current variable state for parameters
         std::map<std::string, Value> savedLocals;
         for (size_t i = 0; i < def->params.size(); ++i) {
@@ -472,36 +477,7 @@ Value Evaluator::evalCall(CallExpr* call) {
 
     // Otherwise evaluate callee to a callable Value
     Value fnVal = evalExpr(call->callee.get());
-    if (fnVal.hostFn) {
-        return fnVal.hostFn(args, kwargs);
-    }
-
-    if (fnVal.funcDef) {
-        auto* def = fnVal.funcDef.get();
-        std::map<std::string, Value> savedLocals;
-        for (size_t i = 0; i < def->params.size(); ++i) {
-            const std::string& pName = def->params[i];
-            if (hasVariable(pName)) savedLocals[pName] = getVariable(pName);
-            Value pVal = resolveArg(args, kwargs, i, pName, Value());
-            setVariable(pName, pVal);
-        }
-
-        returning_ = false;
-        returnValue_ = Value();
-        for (const auto& stmt : def->body) {
-            evalStmt(stmt.get());
-            if (returning_) break;
-        }
-        returning_ = false;
-        Value result = returnValue_;
-
-        for (const auto& pName : def->params) {
-            auto sIt = savedLocals.find(pName);
-            if (sIt != savedLocals.end()) setVariable(pName, sIt->second);
-            else globals_.erase(pName);
-        }
-        return result;
-    }
+    return invokeCallable(fnVal, args, kwargs);
 
     return Value();
 }

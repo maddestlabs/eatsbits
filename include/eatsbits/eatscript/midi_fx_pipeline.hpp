@@ -97,6 +97,11 @@ public:
         const TimeContext* timeContext = nullptr,
         bool useChordTrackTones = false);
 
+    /// Generates pitches in the specified pattern sequence: "up", "down", "updown", "downup", "converge", "diverge", "random", "chord", "asplayed".
+    [[nodiscard]] static std::vector<int> generatePatternSequence(
+        const std::vector<int>& sortedPitches,
+        const std::string& pattern);
+
     /// Conforms notes dynamically to the active Chord Track / active chord.
     /// Modes: "chord", "bass", "scale", "colorLead".
     [[nodiscard]] static std::vector<MidiNote> applyChordFollow(

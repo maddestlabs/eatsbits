@@ -1,7 +1,11 @@
 #include "eatsbits/ui/widgets/text_editor_widget.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/base64.hpp"
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <filesystem>
+#include <cctype>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -1100,6 +1104,63 @@ bool TextEditorWidget::handleToolbarPointer(const PointerEvent& ev, const ViewCo
     }
 
     return false;
+}
+
+bool TextEditorWidget::embedAssetFromFile(const std::string& filePath, bool insertAtTop) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) return false;
+
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+    if (bytes.empty()) return false;
+
+    std::filesystem::path p(filePath);
+    std::string ext = p.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    std::string mimeType = "application/octet-stream";
+    if (ext == ".png") mimeType = "image/png";
+    else if (ext == ".jpg" || ext == ".jpeg") mimeType = "image/jpeg";
+    else if (ext == ".qoi") mimeType = "image/qoi";
+    else if (ext == ".bmp") mimeType = "image/bmp";
+    else if (ext == ".webp") mimeType = "image/webp";
+    else if (ext == ".wav") mimeType = "audio/wav";
+
+    std::string stem = p.stem().string();
+    std::string varName;
+    for (char c : stem) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            varName.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+        } else {
+            varName.push_back('_');
+        }
+    }
+    if (varName.empty() || std::isdigit(static_cast<unsigned char>(varName[0]))) {
+        varName = "ASSET_" + varName;
+    }
+
+    std::string decl = generateEmbeddedAssetDeclaration(varName, mimeType, bytes.data(), bytes.size());
+
+    if (insertAtTop) {
+        presenter_.getDocument().insert({0, 0}, decl);
+    } else {
+        presenter_.insertText(decl);
+    }
+
+    if (onTextChanged) {
+        onTextChanged(getText());
+    }
+    return true;
+}
+
+bool TextEditorWidget::handleFileDrop(const std::vector<std::string>& filePaths) {
+    bool anySuccess = false;
+    for (const auto& path : filePaths) {
+        if (embedAssetFromFile(path, true)) {
+            anySuccess = true;
+        }
+    }
+    return anySuccess;
 }
 
 } // namespace eatsbits::ui

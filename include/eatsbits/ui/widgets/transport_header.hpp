@@ -12,6 +12,10 @@ namespace eatsbits::audio {
     class AudioEngine;
 }
 
+namespace eatsbits::ui::clay {
+    class ClayContext;
+}
+
 namespace eatsbits::ui {
 
 /**
@@ -21,10 +25,15 @@ namespace eatsbits::ui {
  */
 class TransportHeader {
 public:
-    TransportHeader() = default;
-    ~TransportHeader() = default;
+    TransportHeader();
+    ~TransportHeader();
+    TransportHeader(const TransportHeader&) = delete;
+    TransportHeader& operator=(const TransportHeader&) = delete;
+    TransportHeader(TransportHeader&&) noexcept;
+    TransportHeader& operator=(TransportHeader&&) noexcept;
 
-    void layout(float screenWidth, float height = 48.0f);
+    void declareLayout(clay::ClayContext& ctx, float screenWidth, float height = 48.0f);
+    void layout(float screenWidth, float height = 48.0f, clay::ClayContext* ctx = nullptr);
     void render(BatchRenderer2D& r, const ThemeTokens& theme, audio::AudioEngine* engine, bool isBrowserOpen);
     bool handlePointer(const PointerEvent& ev, audio::AudioEngine* engine);
 

@@ -90,9 +90,25 @@ public:
     void clearScrollback() noexcept { scrollback_.clear(); }
     [[nodiscard]] const std::vector<tui::Cell>& getScrollbackRow(size_t index) const;
 
-    // Erase Modes
+    // Erase Modes & In-Line / In-Region Editing Primitives
     void eraseInDisplay(int mode); // 0 = cursor to end, 1 = start to cursor, 2 = all, 3 = all + scrollback
     void eraseInLine(int mode);    // 0 = cursor to end, 1 = start to cursor, 2 = all
+    void eraseCharacters(int count);  // ECH: Erase count characters from cursor (replace with blanks)
+    void deleteCharacters(int count); // DCH: Delete count characters at cursor (shift left)
+    void insertCharacters(int count); // ICH: Insert count blank characters at cursor (shift right)
+    void deleteLines(int count);      // DL: Delete count lines at cursor within scrolling region
+    void insertLines(int count);      // IL: Insert count blank lines at cursor within scrolling region
+
+    // Scrolling Margins (DECSTBM)
+    void setScrollRegion(int top, int bottom);
+    [[nodiscard]] int getScrollTop() const noexcept { return scrollTop_; }
+    [[nodiscard]] int getScrollBottom() const noexcept { return scrollBottom_; }
+
+    // Mouse Tracking Modes & Protocols (DEC private 1000, 1002, 1003, 1006)
+    void setMouseTrackingMode(int mode) noexcept { mouseTrackingMode_ = mode; }
+    [[nodiscard]] int getMouseTrackingMode() const noexcept { return mouseTrackingMode_; }
+    void setSgrMouse(bool enable) noexcept { sgrMouse_ = enable; }
+    [[nodiscard]] bool isSgrMouse() const noexcept { return sgrMouse_; }
 
     // Screen Buffers (Primary vs Alternate)
     void setAlternateScreen(bool enable);
@@ -116,11 +132,19 @@ private:
         std::vector<tui::Cell> back;
         CursorState cursor;
         CursorState savedCursor;
+        int scrollTop{0};
+        int scrollBottom{23};
+        int mouseTrackingMode{0};
+        bool sgrMouse{false};
     };
 
     int cols_{80};
     int rows_{24};
     size_t maxScrollback_{1000};
+    int scrollTop_{0};
+    int scrollBottom_{23};
+    int mouseTrackingMode_{0};
+    bool sgrMouse_{false};
 
     ScreenBuffer primaryScreen_;
     ScreenBuffer altScreen_;

@@ -782,6 +782,23 @@ void IconRegistry::initStockLibrary() {
         "M 18 14 L 19 16.5 L 21.5 17.5 L 19 18.5 L 18 21 L 17 18.5 L 14.5 17.5 L 17 16.5 Z",
         {0, 0, 24, 24}, true
     });
+
+    // UI Action: Add (+)
+    registerIcon({
+        "ui_add", "Add Plus", "UI",
+        {"ui", "add", "plus", "new", "create"},
+        "M 11 4 L 13 4 L 13 11 L 20 11 L 20 13 L 13 13 L 13 20 L 11 20 L 11 13 L 4 13 L 4 11 L 11 11 Z",
+        {0, 0, 24, 24}, true
+    });
+
+    // UI Action: Playlist / Chain Add (Icons.playlist_add)
+    registerIcon({
+        "ui_playlist_add", "Playlist Add", "UI",
+        {"ui", "playlist_add", "chain", "fx", "insert"},
+        "M 3 6 L 15 6 L 15 8 L 3 8 Z M 3 11 L 15 11 L 15 13 L 3 13 Z M 3 16 L 11 16 L 11 18 L 3 18 Z "
+        "M 17 14 L 19 14 L 19 17 L 22 17 L 22 19 L 19 19 L 19 22 L 17 22 L 17 19 L 14 19 L 14 17 L 17 17 Z",
+        {0, 0, 24, 24}, true
+    });
 }
 
 } // namespace eatsbits::ui

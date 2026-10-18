@@ -81,6 +81,12 @@ public:
             case 0: setFilterCutoff(value); break;
             case 1: setFilterResonance(value); break;
             case 2: setWaveform(static_cast<::eatsbits::dsp::Waveform>(static_cast<int>(value))); break;
+            case 3: synth_.setAttack(value); break;
+            case 4: synth_.setDecay(value); break;
+            case 5: synth_.setSustain(value); break;
+            case 6: synth_.setRelease(value); break;
+            case 7: synth_.setDetune(value); break;
+            case 8: synth_.setWarmth(value); break;
             default: break;
         }
     }

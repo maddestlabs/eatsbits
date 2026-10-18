@@ -1,12 +1,21 @@
 #include "eatsbits/tui/views/arranger_view.hpp"
+#include "eatsbits/tui/clay_tui_bridge.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 
 namespace eatsbits::tui {
 
 ArrangerView::ArrangerView() {
+    clayContext_ = std::make_unique<ui::clay::ClayContext>();
+    clayContext_->initialize(120.0f, 40.0f);
+    clayContext_->setDefaultMonospaceMeasure(1.0f, 1.0f);
+
     setupDefaultProject();
 }
+
+ArrangerView::~ArrangerView() = default;
 
 void ArrangerView::setupDefaultProject() {
     tracks_.clear();
@@ -80,11 +89,66 @@ void ArrangerView::render(CellSurface& surface, const Rect& area, const Telemetr
 
     const int headerWidth = 24;
     const int inspectorWidth = showInspector_ ? std::min(24, area.width / 4) : 0;
-    const int timelineWidth = area.width - 2 - headerWidth - inspectorWidth;
 
-    cachedTrackHeadersArea_ = {area.x + 1, area.y + 1, headerWidth, area.height - 2};
-    cachedTimelineArea_ = {area.x + 1 + headerWidth, area.y + 1, timelineWidth, area.height - 2};
-    cachedInspectorArea_ = {area.x + 1 + headerWidth + timelineWidth, area.y + 1, inspectorWidth, area.height - 2};
+    if (clayContext_ && clayContext_->isInitialized()) {
+        float innerW = static_cast<float>(area.width - 2);
+        float innerH = static_cast<float>(area.height - 2);
+        clayContext_->setDimensions(innerW, innerH);
+        clayContext_->beginLayout();
+
+        CLAY(CLAY_ID("TuiArrangerRoot"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(innerW), CLAY_SIZING_FIXED(innerH) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            }
+        }) {
+            CLAY(CLAY_ID("TuiTrackHeaders"), {
+                .layout = { .sizing = { CLAY_SIZING_FIXED(static_cast<float>(headerWidth)), CLAY_SIZING_GROW(0) } }
+            }) {}
+
+            CLAY(CLAY_ID("TuiTimeline"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } }
+            }) {}
+
+            if (showInspector_ && inspectorWidth > 0) {
+                CLAY(CLAY_ID("TuiInspector"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(static_cast<float>(inspectorWidth)), CLAY_SIZING_GROW(0) } }
+                }) {}
+            }
+        }
+
+        clayContext_->endLayout(0.016f);
+
+        auto thData = clayContext_->getElementData(CLAY_ID("TuiTrackHeaders"));
+        if (thData.found) {
+            cachedTrackHeadersArea_ = ClayTuiBridge::snapToCells(thData.boundingBox);
+            cachedTrackHeadersArea_.x += area.x + 1;
+            cachedTrackHeadersArea_.y += area.y + 1;
+        }
+        auto tlData = clayContext_->getElementData(CLAY_ID("TuiTimeline"));
+        if (tlData.found) {
+            cachedTimelineArea_ = ClayTuiBridge::snapToCells(tlData.boundingBox);
+            cachedTimelineArea_.x += area.x + 1;
+            cachedTimelineArea_.y += area.y + 1;
+        }
+        if (showInspector_ && inspectorWidth > 0) {
+            auto inspData = clayContext_->getElementData(CLAY_ID("TuiInspector"));
+            if (inspData.found) {
+                cachedInspectorArea_ = ClayTuiBridge::snapToCells(inspData.boundingBox);
+                cachedInspectorArea_.x += area.x + 1;
+                cachedInspectorArea_.y += area.y + 1;
+            }
+        } else {
+            cachedInspectorArea_ = {0, 0, 0, 0};
+        }
+    } else {
+        const int timelineWidth = area.width - 2 - headerWidth - inspectorWidth;
+        cachedTrackHeadersArea_ = {area.x + 1, area.y + 1, headerWidth, area.height - 2};
+        cachedTimelineArea_ = {area.x + 1 + headerWidth, area.y + 1, timelineWidth, area.height - 2};
+        cachedInspectorArea_ = {area.x + 1 + headerWidth + timelineWidth, area.y + 1, inspectorWidth, area.height - 2};
+    }
 
     // 1. Timeline Ruler (Top row of timeline)
     Rect rulerArea{cachedTimelineArea_.x, cachedTimelineArea_.y, cachedTimelineArea_.width, 1};
@@ -107,7 +171,7 @@ void ArrangerView::render(CellSurface& surface, const Rect& area, const Telemetr
         Rect headerRect{cachedTrackHeadersArea_.x, rowY, headerWidth, 2};
         renderTrackHeader(surface, headerRect, track, trackIdx, isSelected);
 
-        Rect laneRect{cachedTimelineArea_.x, rowY, timelineWidth, 2};
+        Rect laneRect{cachedTimelineArea_.x, rowY, cachedTimelineArea_.width, 2};
         renderTrackLane(surface, laneRect, track, trackIdx, timelineScrollX_, numBars, telemetry);
     }
 

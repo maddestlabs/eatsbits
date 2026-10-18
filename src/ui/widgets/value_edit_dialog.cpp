@@ -1,6 +1,7 @@
 #include "eatsbits/ui/widgets/value_edit_dialog.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/icon_registry.hpp"
+#include <clay.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -12,7 +13,8 @@
 namespace eatsbits::ui {
 
 ValueEditDialog::ValueEditDialog() {
-    dialogBounds_ = Rect2D(0.0f, 0.0f, 370.0f, 240.0f);
+    dialogBounds_ = Rect2D(0.0f, 0.0f, 370.0f, 260.0f);
+    layout(1280.0f, 800.0f);
 }
 
 void ValueEditDialog::open(const ValueEditRequest& req) {
@@ -43,6 +45,7 @@ void ValueEditDialog::open(const ValueEditRequest& req) {
 
     presenter_.open(cfg);
     textModel_.setText(presenter_.getInitialEditText(), /*selectAllOnSet=*/ true);
+    layout(screenWidth_, screenHeight_);
 }
 
 void ValueEditDialog::formatBufferFromValue(float val) {
@@ -112,66 +115,230 @@ void ValueEditDialog::layout(float screenW, float screenH) {
     screenWidth_ = screenW;
     screenHeight_ = screenH;
 
+    if (!clayCtx_.isInitialized()) {
+        clayCtx_.initialize(screenW, screenH);
+    } else {
+        clayCtx_.setDimensions(screenW, screenH);
+    }
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D(b.x, b.y, b.width, b.height);
+    };
+
     if (req_.isTextMode) {
         float dw = 400.0f;
         float dh = (req_.onActionLink && !req_.actionLinkLabel.empty()) ? 210.0f : 170.0f;
-        float dx = std::max(12.0f, (screenW - dw) * 0.5f);
-        float dy = std::max(12.0f, (screenH - dh) * 0.5f);
-        dialogBounds_ = Rect2D(dx, dy, dw, dh);
 
-        closeBtnBounds_ = Rect2D(dx + dw - 34.0f, dy + 12.0f, 22.0f, 22.0f);
+        clayCtx_.beginLayout();
+        CLAY(CLAY_ID("ValueEditTextOverlay"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+                .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+            }
+        }) {
+            CLAY(CLAY_ID("ValueEditTextCard"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(dw), CLAY_SIZING_FIXED(dh) },
+                    .padding = { 20, 12, 12, 12 },
+                    .childGap = 10,
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {
+                // Header row
+                CLAY(CLAY_ID("ValueEditTextHeaderRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) },
+                        .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("ValueEditTextTitleArea"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) } }
+                    }) {}
+                    CLAY(CLAY_ID("ValueEditTextCloseBtn"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(22), CLAY_SIZING_FIXED(22) } }
+                    }) {}
+                }
+
+                // Subtitle / Prompt hint (height 18)
+                CLAY(CLAY_ID("ValueEditTextHintSpacer"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(18) } }
+                }) {}
+
+                // Text Input Field
+                CLAY(CLAY_ID("ValueEditTextInputField"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(38) } }
+                }) {}
+
+                // Optional Action Link
+                if (req_.onActionLink && !req_.actionLinkLabel.empty()) {
+                    CLAY(CLAY_ID("ValueEditTextActionLink"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(32) } }
+                    }) {}
+                }
+
+                // Spacer before footer
+                CLAY(CLAY_ID("ValueEditTextFooterSpacer"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } }
+                }) {}
+
+                // Footer Row (Cancel & OK)
+                CLAY(CLAY_ID("ValueEditTextFooterRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(26) },
+                        .childGap = 10,
+                        .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("ValueEditTextCancelBtn"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(76), CLAY_SIZING_FIXED(26) } }
+                    }) {}
+                    CLAY(CLAY_ID("ValueEditTextOkBtn"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(74), CLAY_SIZING_FIXED(26) } }
+                    }) {}
+                }
+            }
+        }
+        clayCtx_.endLayout(0.016f);
+
+        dialogBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextCard")).boundingBox);
+        closeBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextCloseBtn")).boundingBox);
+        inputFieldBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextInputField")).boundingBox);
         percentToggleBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         defaultBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         sliderBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         isDraggingSlider_ = false;
         quickPercentPills_.clear();
 
-        inputFieldBounds_ = Rect2D(dx + 20.0f, dy + 62.0f, dw - 40.0f, 38.0f);
-
         if (req_.onActionLink && !req_.actionLinkLabel.empty()) {
-            actionLinkBounds_ = Rect2D(dx + 20.0f, dy + 110.0f, dw - 40.0f, 32.0f);
+            actionLinkBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextActionLink")).boundingBox);
         } else {
             actionLinkBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         }
 
-        cancelBtnBounds_ = Rect2D(dx + dw - 180.0f, dy + dh - 38.0f, 76.0f, 26.0f);
-        okBtnBounds_ = Rect2D(dx + dw - 94.0f, dy + dh - 38.0f, 74.0f, 26.0f);
+        cancelBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextCancelBtn")).boundingBox);
+        okBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditTextOkBtn")).boundingBox);
         return;
     }
 
     float dw = 370.0f;
     float dh = 260.0f;
-    float dx = std::max(12.0f, (screenW - dw) * 0.5f);
-    float dy = std::max(12.0f, (screenH - dh) * 0.5f);
-    dialogBounds_ = Rect2D(dx, dy, dw, dh);
 
-    closeBtnBounds_ = Rect2D(dx + dw - 34.0f, dy + 12.0f, 22.0f, 22.0f);
-    percentToggleBounds_ = Rect2D(dx + dw - 74.0f, dy + 12.0f, 32.0f, 22.0f);
-    defaultBtnBounds_ = Rect2D(dx + dw - 150.0f, dy + 12.0f, 70.0f, 22.0f);
+    clayCtx_.beginLayout();
+    CLAY(CLAY_ID("ValueEditNumOverlay"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+            .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+        }
+    }) {
+        CLAY(CLAY_ID("ValueEditNumCard"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(dw), CLAY_SIZING_FIXED(dh) },
+                .padding = { 20, 12, 12, 14 },
+                .childGap = 8,
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Header Row (Title, Default, %, Close)
+            CLAY(CLAY_ID("ValueEditNumHeaderRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) },
+                    .childGap = 8,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("ValueEditNumTitleArea"), {
+                    .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) } }
+                }) {}
+                CLAY(CLAY_ID("ValueEditNumDefaultBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(70), CLAY_SIZING_FIXED(22) } }
+                }) {}
+                CLAY(CLAY_ID("ValueEditNumPercentBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(32), CLAY_SIZING_FIXED(22) } }
+                }) {}
+                CLAY(CLAY_ID("ValueEditNumCloseBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(22), CLAY_SIZING_FIXED(22) } }
+                }) {}
+            }
+
+            // Subtitle / Range hint row (starts at 12 + 22 + 8 = 42, height 18 -> ends at 60)
+            CLAY(CLAY_ID("ValueEditNumHintRow"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(18) } }
+            }) {}
+
+            // Input field (gap 8 -> starts at 60 + 8 = 68, height 40 -> ends at 108)
+            CLAY(CLAY_ID("ValueEditNumInputField"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(40) } }
+            }) {}
+
+            // Slider (gap 8 -> starts at 108 + 8 = 116, height 18 -> ends at 134)
+            CLAY(CLAY_ID("ValueEditNumSlider"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(18) } }
+            }) {}
+
+            // Quick percent pills row (starts at 134 + 10 = 144, height 24 -> ends at 168)
+            CLAY(CLAY_ID("ValueEditNumPillsRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24) },
+                    .padding = { 0, 0, 2, 0 },
+                    .childGap = 15,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                for (int i = 0; i < 5; ++i) {
+                    CLAY(CLAY_IDI("ValueEditNumPill", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(54), CLAY_SIZING_FIXED(24) } }
+                    }) {}
+                }
+            }
+
+            // Spacer before footer
+            CLAY(CLAY_ID("ValueEditNumFooterSpacer"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } }
+            }) {}
+
+            // Footer Row (Cancel & OK)
+            CLAY(CLAY_ID("ValueEditNumFooterRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(28) },
+                    .childGap = 10,
+                    .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("ValueEditNumCancelBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(76), CLAY_SIZING_FIXED(28) } }
+                }) {}
+                CLAY(CLAY_ID("ValueEditNumOkBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(74), CLAY_SIZING_FIXED(28) } }
+                }) {}
+            }
+        }
+    }
+    clayCtx_.endLayout(0.016f);
+
+    dialogBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumCard")).boundingBox);
+    closeBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumCloseBtn")).boundingBox);
+    percentToggleBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumPercentBtn")).boundingBox);
+    defaultBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumDefaultBtn")).boundingBox);
     actionLinkBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+    inputFieldBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumInputField")).boundingBox);
+    sliderBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumSlider")).boundingBox);
 
-    inputFieldBounds_ = Rect2D(dx + 20.0f, dy + 68.0f, dw - 40.0f, 40.0f);
-
-    // Ergonomic direct slider below input field
-    sliderBounds_ = Rect2D(dx + 20.0f, dy + 116.0f, dw - 40.0f, 18.0f);
-
-    // 5 Quick percentage shortcut pills: 0%, 25%, 50%, 75%, 100%
-    quickPercentPills_.clear();
-    float pillY = dy + 144.0f;
-    float pillW = 54.0f;
-    float pillGap = 15.0f;
-    float startPillX = dx + 20.0f;
     const float pcts[5] = {0.0f, 25.0f, 50.0f, 75.0f, 100.0f};
+    quickPercentPills_.clear();
     for (int i = 0; i < 5; ++i) {
         quickPercentPills_.push_back({
-            Rect2D(startPillX + static_cast<float>(i) * (pillW + pillGap), pillY, pillW, 24.0f),
+            toRect(Clay_GetElementData(CLAY_IDI("ValueEditNumPill", static_cast<uint32_t>(i))).boundingBox),
             pcts[i]
         });
     }
 
-    // Action buttons: CANCEL, OK
-    cancelBtnBounds_ = Rect2D(dx + dw - 180.0f, dy + dh - 42.0f, 76.0f, 28.0f);
-    okBtnBounds_ = Rect2D(dx + dw - 94.0f, dy + dh - 42.0f, 74.0f, 28.0f);
+    cancelBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumCancelBtn")).boundingBox);
+    okBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("ValueEditNumOkBtn")).boundingBox);
 }
 
 void ValueEditDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {

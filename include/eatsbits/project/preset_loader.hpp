@@ -95,8 +95,11 @@ struct GuiLayoutNode {
     std::string label;
     std::string unit;
     float size{52.0f};
-    std::string hardwareStyle{"standard"}; // "tb303_selector", "tb303_potentiometer", "chromeFluted", "vintageBakelite", "two_tone_stepped"
+    std::string hardwareStyle{"standard"}; // "tb303_selector", "tb303_potentiometer", "chromeFluted", "vintageBakelite", "two_tone_stepped", "studio_clean", "studio_ruby", etc.
     bool showValue{true};
+    std::string labelAlignment{"stacked"}; // "stacked", "inline_right", "inline_left", "bottom_stacked"
+    std::string sublabel;                  // Secondary label (e.g. "ANDALL", "12AX7", "FILTER", "7-UNISON")
+    bool showValueBox{false};              // Pill container box for value readout
 
     // ListBox and Button properties
     std::vector<std::string> options;
@@ -156,6 +159,7 @@ public:
     static PresetDefinition createUprightBassPreset();
     static PresetDefinition createSpanishGuitarPreset();
     static PresetDefinition createSteelAcousticGuitarPreset();
+    static PresetDefinition createAstralShimmerPadPreset();
 
     // Compute bounding boxes for declarative layout hierarchy
     static void computeLayoutBounds(GuiLayoutNode& node, float x, float y, float availableW, float availableH);

@@ -8,18 +8,32 @@
 
 namespace eatsbits::ui {
 
-void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
-void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a = 1.0f);
-void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
+void drawVectorString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, float red, float green, float blue, float alpha = 1.0f);
+inline void drawVectorString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, const Color& c) {
+    drawVectorString(r, str, x, y, scale, c.r, c.g, c.b, c.a);
+}
 
+void drawVectorString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
 inline void drawVectorString(std::string_view str, float x, float y, float scale, const Color& c) {
     drawVectorString(str, x, y, scale, c.r, c.g, c.b, c.a);
 }
 
+void drawVectorStringCentered(BatchRenderer2D& r, std::string_view str, float cx, float cy, float scale, float red, float green, float blue, float alpha = 1.0f);
+inline void drawVectorStringCentered(BatchRenderer2D& r, std::string_view str, float cx, float cy, float scale, const Color& c) {
+    drawVectorStringCentered(r, str, cx, cy, scale, c.r, c.g, c.b, c.a);
+}
+
+void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a = 1.0f);
 inline void drawVectorStringCentered(std::string_view str, float cx, float cy, float scale, const Color& c) {
     drawVectorStringCentered(str, cx, cy, scale, c.r, c.g, c.b, c.a);
 }
 
+void drawMonoString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, float red, float green, float blue, float alpha = 1.0f);
+inline void drawMonoString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, const Color& c) {
+    drawMonoString(r, str, x, y, scale, c.r, c.g, c.b, c.a);
+}
+
+void drawMonoString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f);
 inline void drawMonoString(std::string_view str, float x, float y, float scale, const Color& c) {
     drawMonoString(str, x, y, scale, c.r, c.g, c.b, c.a);
 }
@@ -222,4 +236,157 @@ inline void drawTriangle(BatchRenderer2D& r, float x0, float y0, float x1, float
 
 float getMonoCharAdvance(float size);
 
+// =========================================================================
+// Unified Composable Control Core (Knobs & Sliders)
+// =========================================================================
+
+enum class KnobLayoutMode : uint8_t {
+    StackedVertical = 0, // Label top, knob center, value bottom (gui-minimal / standard)
+    InlineRight = 1,     // SMAOLAB style: knob on left, value & label stacked on the right
+    MicroInline = 2,     // Compact 16-24px dial for dense track headers and mixers
+    OverlayOnHover = 3,  // Value swaps with label inside dial on hover
+    BottomStacked = 4,   // gui-astral style: knob on top, label below, value pill badge below
+    InlineLeft = 5       // Value & label stacked on left, knob on right
+};
+
+enum class KnobArcType : uint8_t {
+    None = 0,
+    Unipolar = 1,          // 0.0 -> 1.0 (Amount, Retune, Filter Cutoff)
+    BipolarCenterZero = 2, // -1.0 -> +1.0 or 0.5 center (Pan, EQ Cut/Boost, Pitch)
+    SteppedGraduations = 3 // Discrete ticks around perimeter
+};
+
+enum class RotorSurface : uint8_t {
+    FlatVector = 0,      // Pure minimalist flat circle (gui-minimal, Bitwig, Ableton)
+    SubtleGradient = 1,  // Soft modern 3-stop studio lighting (gui-variations, SMAOLAB)
+    BrushedAluminum = 2, // Lathe metallic finish
+    FlutedHardware = 3   // Vintage fluted ridges
+};
+
+struct KnobStyleCore {
+    KnobLayoutMode layout{KnobLayoutMode::StackedVertical};
+    KnobArcType arcType{KnobArcType::Unipolar};
+    RotorSurface surface{RotorSurface::SubtleGradient};
+
+    float arcThickness{2.2f};
+    float arcRadiusOffset{3.5f};
+    float pointerLengthRatio{0.75f};
+    float pointerWidth{1.8f};
+
+    int tickCount{0};
+    bool hasCenterDetent{false};
+    float centerDetentVal{0.5f};
+
+    uint32_t filmstripTexture{0};
+    int filmstripFrames{0};
+    bool filmstripHorizontal{false};
+
+    std::optional<Color> trackColor{std::nullopt};
+    std::optional<Color> arcColor{std::nullopt};
+    std::optional<Color> bodyColor{std::nullopt};
+    std::optional<Color> pointerColor{std::nullopt};
+    std::optional<Color> labelColor{std::nullopt};
+    std::optional<Color> valueColor{std::nullopt};
+
+    static KnobStyleCore minimal(const Color& accent, bool bipolar = false) {
+        KnobStyleCore k;
+        k.layout = KnobLayoutMode::StackedVertical;
+        k.arcType = bipolar ? KnobArcType::BipolarCenterZero : KnobArcType::Unipolar;
+        k.surface = RotorSurface::FlatVector;
+        k.arcThickness = 2.2f;
+        k.arcRadiusOffset = 3.5f;
+        k.pointerLengthRatio = 0.72f;
+        k.pointerWidth = 1.6f;
+        k.arcColor = accent;
+        k.hasCenterDetent = bipolar;
+        return k;
+    }
+
+    static KnobStyleCore studio(const Color& accent, bool bipolar = false) {
+        KnobStyleCore k;
+        k.layout = KnobLayoutMode::InlineRight;
+        k.arcType = bipolar ? KnobArcType::BipolarCenterZero : KnobArcType::Unipolar;
+        k.surface = RotorSurface::SubtleGradient;
+        k.arcThickness = 2.5f;
+        k.arcRadiusOffset = 3.5f;
+        k.pointerLengthRatio = 0.80f;
+        k.pointerWidth = 2.0f;
+        k.arcColor = accent;
+        k.hasCenterDetent = bipolar;
+        return k;
+    }
+
+    static KnobStyleCore micro(const Color& accent, bool bipolar = false) {
+        KnobStyleCore k;
+        k.layout = KnobLayoutMode::MicroInline;
+        k.arcType = bipolar ? KnobArcType::BipolarCenterZero : KnobArcType::Unipolar;
+        k.surface = RotorSurface::FlatVector;
+        k.arcThickness = 1.8f;
+        k.arcRadiusOffset = 2.0f;
+        k.pointerLengthRatio = 0.70f;
+        k.pointerWidth = 1.5f;
+        k.arcColor = accent;
+        k.hasCenterDetent = bipolar;
+        return k;
+    }
+};
+
+enum class SliderOrientation : uint8_t {
+    Horizontal = 0,
+    Vertical = 1
+};
+
+enum class SliderThumbStyle : uint8_t {
+    None = 0,       // Fill without thumb
+    PillThumb = 1,  // Rounded modern pill (Arranger track style)
+    HardwareCap = 2 // Studio fader cap
+};
+
+struct SliderStyleCore {
+    SliderOrientation orientation{SliderOrientation::Horizontal};
+    SliderThumbStyle thumbStyle{SliderThumbStyle::PillThumb};
+    bool bipolar{false}; // Center-zero for pan sliders
+    float trackHeight{4.0f};
+    float thumbRadius{5.0f};
+    float cornerRadius{2.0f};
+    std::optional<Color> trackColor{std::nullopt};
+    std::optional<Color> fillColor{std::nullopt};
+    std::optional<Color> thumbColor{std::nullopt};
+
+    uint32_t filmstripTexture{0};
+    int filmstripFrames{0};
+    bool filmstripHorizontal{false};
+
+    static SliderStyleCore horizontalTrack(const Color& accent, float trackH = 4.0f) {
+        SliderStyleCore s;
+        s.orientation = SliderOrientation::Horizontal;
+        s.thumbStyle = SliderThumbStyle::PillThumb;
+        s.trackHeight = trackH;
+        s.fillColor = accent;
+        return s;
+    }
+
+    static SliderStyleCore verticalFader(const Color& accent) {
+        SliderStyleCore s;
+        s.orientation = SliderOrientation::Vertical;
+        s.thumbStyle = SliderThumbStyle::HardwareCap;
+        s.trackHeight = 6.0f;
+        s.fillColor = accent;
+        return s;
+    }
+};
+
+void drawUnifiedKnob(BatchRenderer2D& r, float cx, float cy, float radius, float normVal,
+                     const KnobStyleCore& style,
+                     std::string_view label = {}, std::string_view valueText = {},
+                     const ThemeTokens* theme = nullptr,
+                     bool isActive = false, bool isHovered = false);
+
+void drawUnifiedSlider(BatchRenderer2D& r, const Rect2D& bounds, float normVal,
+                      const SliderStyleCore& style,
+                      const Color& accent,
+                      const ThemeTokens* theme = nullptr,
+                      bool isActive = false, bool isHovered = false);
+
 } // namespace eatsbits::ui
+

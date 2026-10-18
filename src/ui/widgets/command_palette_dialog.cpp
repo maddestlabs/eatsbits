@@ -126,32 +126,83 @@ void CommandPaletteDialog::layout(float screenW, float screenH) noexcept {
     screenWidth_ = screenW;
     screenHeight_ = screenH;
 
-    const float dlgW = std::min(580.0f, screenW - 40.0f);
-    const float dlgH = std::min(440.0f, screenH - 60.0f);
-    const float dlgX = (screenW - dlgW) * 0.5f;
-    const float dlgY = (screenH - dlgH) * 0.35f; // Position slightly above vertical center
-
-    dialogBounds_ = Rect2D(dlgX, dlgY, dlgW, dlgH);
-
-    // Search Box at top
-    searchBoxBounds_ = Rect2D(dlgX + 16.0f, dlgY + 16.0f, dlgW - 32.0f, 36.0f);
-
-    // Category filter pills row
-    const float catBarY = searchBoxBounds_.y + searchBoxBounds_.h + 10.0f;
-    categoryBarBounds_ = Rect2D(dlgX + 16.0f, catBarY, dlgW - 32.0f, 22.0f);
-
-    categoryPillBounds_.clear();
-    const float pillGap = 6.0f;
-    const float pillW = (categoryBarBounds_.w - 5.0f * pillGap) / 6.0f;
-    for (size_t i = 0; i < 6; ++i) {
-        float px = categoryBarBounds_.x + static_cast<float>(i) * (pillW + pillGap);
-        categoryPillBounds_.push_back(Rect2D(px, catBarY, pillW, 22.0f));
+    if (!clayCtx_.isInitialized()) {
+        clayCtx_.initialize(screenW, screenH);
+    } else {
+        clayCtx_.setDimensions(screenW, screenH);
     }
 
-    // Results list area
-    const float listY = catBarY + 28.0f;
-    const float listH = dlgY + dlgH - listY - 26.0f; // Leave 26px for footer
-    resultsListBounds_ = Rect2D(dlgX + 16.0f, listY, dlgW - 32.0f, listH);
+    const float dlgW = std::min(580.0f, screenW - 40.0f);
+    const float dlgH = std::min(440.0f, screenH - 60.0f);
+    const float topOffset = (screenH - dlgH) * 0.35f;
+
+    clayCtx_.beginLayout();
+
+    CLAY(CLAY_ID("PaletteOverlay"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+            .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_TOP },
+        }
+    }) {
+        CLAY(CLAY_ID("PaletteDialogCard"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(dlgW), CLAY_SIZING_FIXED(dlgH) },
+                .padding = { 16, 16, 16, 26 },
+                .childGap = 10,
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            },
+            .floating = {
+                .offset = { 0.0f, topOffset },
+                .attachTo = CLAY_ATTACH_TO_PARENT,
+            }
+        }) {
+            // Search Box at top (height 36)
+            CLAY(CLAY_ID("PaletteSearchBox"), {
+                .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(36) } }
+            }) {}
+
+            // Category filter pills row (height 22)
+            CLAY(CLAY_ID("PaletteCategoryBar"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) },
+                    .childGap = 6,
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                for (size_t i = 0; i < 6; ++i) {
+                    CLAY(CLAY_IDI("PaletteCategoryPill", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(22) } }
+                    }) {}
+                }
+            }
+
+            // Results list area (flex grow filling down to footer padding 26)
+            CLAY(CLAY_ID("PaletteResultsList"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                },
+                .clip = { .vertical = true }
+            }) {}
+        }
+    }
+
+    clayCtx_.endLayout(0.016f);
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D{ b.x, b.y, b.width, b.height };
+    };
+
+    dialogBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("PaletteDialogCard")).boundingBox);
+    searchBoxBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("PaletteSearchBox")).boundingBox);
+    categoryBarBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("PaletteCategoryBar")).boundingBox);
+
+    categoryPillBounds_.clear();
+    for (size_t i = 0; i < 6; ++i) {
+        categoryPillBounds_.push_back(toRect(clayCtx_.getElementData(CLAY_IDI("PaletteCategoryPill", static_cast<uint32_t>(i))).boundingBox));
+    }
+
+    resultsListBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("PaletteResultsList")).boundingBox);
 }
 
 void CommandPaletteDialog::update(float dt) noexcept {

@@ -12,6 +12,10 @@ namespace eatsbits::ui {
 
 struct ViewContext;
 
+namespace clay {
+class ClayContext;
+}
+
 /**
  * @brief Foundational 2D scene graph node for Eatsbits UI hierarchy.
  * Encapsulates parent-child trees, local/global coordinate transformations,
@@ -104,10 +108,22 @@ public:
     [[nodiscard]] bool isDirty() const noexcept { return dirty_; }
     void markDirty() noexcept;
     void clearDirty() noexcept;
-
     [[nodiscard]] bool isLayoutDirty() const noexcept { return layoutDirty_; }
     void markLayoutDirty() noexcept { layoutDirty_ = true; markDirty(); }
 
+    // --- Declarative Clay Layout Lifecycle ---
+
+    /**
+     * @brief Declaratively specify Clay layout structure for this element and its subtree.
+     */
+    virtual void declareLayout([[maybe_unused]] clay::ClayContext& ctx) {}
+
+    // --- Legacy Layout Lifecycle (Deprecated in favor of declareLayout) ---
+
+    /**
+     * @brief Legacy manual coordinate layout callback.
+     * @note New and refactored components should override declareLayout(clay::ClayContext&) instead.
+     */
     virtual void onLayout([[maybe_unused]] const Rect2D& bounds, [[maybe_unused]] const ViewContext& ctx) {}
     void layout(const Rect2D& bounds, const ViewContext& ctx);
 

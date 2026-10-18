@@ -20,6 +20,7 @@ endif()
 # Global Includes
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clay
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
@@ -270,7 +271,19 @@ target_include_directories(eats_text PUBLIC
 )
 target_link_libraries(eats_text PUBLIC freetype harfbuzz eats_core)
 
-# 5. Hardware-Accelerated 2D Batch Renderer (Dawn/WebGPU & Monospace Glyph Engine)
+# 5. Declarative Flexbox UI Layout Engine (Clay)
+add_library(eats_clay STATIC
+    src/ui/clay/clay_context.cpp
+    src/ui/clay/eatscript_clay_bridge.cpp
+    src/ui/base64.cpp
+)
+target_include_directories(eats_clay PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clay
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(eats_clay PUBLIC eats_core)
+
+# 6. Hardware-Accelerated 2D Batch Renderer (Dawn/WebGPU & Monospace Glyph Engine)
 add_library(eats_render_wgpu STATIC
     src/ui/batch_renderer_2d.cpp
     src/ui/dawn_bridge.cpp
@@ -281,9 +294,10 @@ add_library(eats_render_wgpu STATIC
     src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
+    src/ui/clay/clay_batch_bridge.cpp
     third_party/stb/stb_image.c
 )
-target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter eats_text)
+target_link_libraries(eats_render_wgpu PUBLIC eats_core eats_presenter eats_text eats_clay)
 
 if(EMSCRIPTEN)
     target_compile_options(eats_render_wgpu PUBLIC --use-port=emdawnwebgpu -fexceptions)
@@ -299,17 +313,18 @@ elseif(UNIX)
     target_link_libraries(eats_render_wgpu PUBLIC glfw)
 endif()
 
-# 6. ANSI Diff Cell Surface & Terminal State Machine
+# 7. ANSI Diff Cell Surface & Terminal State Machine
 add_library(eats_render_tui STATIC
     src/tui/cell_surface.cpp
     src/tui/ansi_diff_renderer.cpp
     src/tui/terminal_device.cpp
     src/tui/input_parser.cpp
     src/tui/audio_telemetry.cpp
+    src/tui/clay_tui_bridge.cpp
     src/terminal/terminal_grid.cpp
     src/terminal/ansi_parser.cpp
 )
-target_link_libraries(eats_render_tui PUBLIC eats_core eats_presenter eats_audio)
+target_link_libraries(eats_render_tui PUBLIC eats_core eats_presenter eats_audio eats_clay)
 
 # 7. Deterministic Headless Audio-Visual Video & Frame Exporter
 add_library(eats_video_export STATIC
@@ -367,7 +382,7 @@ add_library(eatsbits_tui_core STATIC
     src/tui/views/param_rack.cpp
     src/tui/tui_app.cpp
 )
-target_link_libraries(eatsbits_tui_core PUBLIC eats_render_tui eats_presenter eats_audio eats_core)
+target_link_libraries(eatsbits_tui_core PUBLIC eats_render_tui eats_presenter eats_audio eats_core eats_clay)
 
 if (EMSCRIPTEN)
     # WebAssembly & WebGPU Application
@@ -482,7 +497,7 @@ if(BUILD_TESTING)
     enable_testing()
 
     add_executable(test_tui_surface tests/test_tui_surface.cpp)
-    target_link_libraries(test_tui_surface PRIVATE eatsbits_tui_core eatsbits_core)
+    target_link_libraries(test_tui_surface PRIVATE eatsbits_tui_core eatsbits_core eats_clay)
     add_test(NAME TuiSurfaceTest COMMAND test_tui_surface)
 
     add_executable(test_audio_realtime tests/test_audio_realtime.cpp)
@@ -706,5 +721,13 @@ target_include_directories(test_daisysp_nodes PRIVATE
 )
 target_link_libraries(test_daisysp_nodes PRIVATE eats_audio eats_daisysp eats_core)
 add_test(NAME DaisySpNodesTest COMMAND test_daisysp_nodes)
+
+add_executable(test_clay_layout tests/test_clay_layout.cpp)
+target_include_directories(test_clay_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clay
+)
+target_link_libraries(test_clay_layout PRIVATE eatsbits_gui_core eats_script eats_render_wgpu eats_render_tui eats_core)
+add_test(NAME ClayLayoutTest COMMAND test_clay_layout)
 
 endif() # BUILD_TESTING

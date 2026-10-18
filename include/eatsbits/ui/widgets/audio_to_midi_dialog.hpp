@@ -65,6 +65,8 @@ public:
     [[nodiscard]] bool isAuditioning() const noexcept { return isAuditioning_; }
     void stopAudition() noexcept;
 
+    [[nodiscard]] const std::string& getStatusMessage() const noexcept { return statusMessage_; }
+
     // Public Callbacks
     std::function<void(const audio::TranscribedMidiTrack& track,
                        bool createNewTrack,

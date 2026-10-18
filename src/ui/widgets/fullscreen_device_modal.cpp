@@ -12,8 +12,6 @@
 
 namespace eatsbits::ui {
 
-
-
 FullscreenDeviceModal::FullscreenDeviceModal() {
     trackData_.knobs = {
         {"tuning", "TUNING", 0.50f, "440 Hz"},
@@ -94,6 +92,24 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         }
         fx.ensureDefaultKnobs();
 
+        if (fx.customGuiPanel.has_value()) {
+            guiPanel_ = *fx.customGuiPanel;
+            trackData_.knobs = fx.knobs;
+            for (auto& row : guiPanel_.rows) {
+                for (auto& w : row.widgets) {
+                    for (const auto& k : fx.knobs) {
+                        if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                            stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                            w.currentVal = k.value;
+                            if (!k.display.empty()) w.valueDisplay = k.display;
+                            break;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         guiPanel_.title = fx.name;
         guiPanel_.subtitle = "Studio DSP Insert Effect • " + fx.type + " • Unit " + std::to_string(std::max(1, target_.fxIndex + 1));
 
@@ -130,7 +146,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
             w.type = GuiWidgetType::Knob;
             w.label = k.label;
             w.param = k.name;
-            w.knobStyle = static_cast<GuiKnobStyle>(i % 5);
+            w.knobStyle = GuiKnobStyle::StudioClean;
             w.size = 64.0f;
             w.currentVal = k.value;
             w.minVal = 0.0f;
@@ -154,6 +170,24 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         }
         fx.ensureDefaultKnobs();
 
+        if (fx.customGuiPanel.has_value()) {
+            guiPanel_ = *fx.customGuiPanel;
+            trackData_.knobs = fx.knobs;
+            for (auto& row : guiPanel_.rows) {
+                for (auto& w : row.widgets) {
+                    for (const auto& k : fx.knobs) {
+                        if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                            stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                            w.currentVal = k.value;
+                            if (!k.display.empty()) w.valueDisplay = k.display;
+                            break;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         guiPanel_.title = fx.name;
         guiPanel_.subtitle = "MIDI Real-Time Transform Processor • " + fx.type + " • Unit " + std::to_string(std::max(1, target_.fxIndex + 1));
         guiPanel_.accentColor = Color(0.95f, 0.60f, 0.15f, 1.0f);
@@ -172,7 +206,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
             w.type = GuiWidgetType::Knob;
             w.label = k.label;
             w.param = k.name;
-            w.knobStyle = static_cast<GuiKnobStyle>((i + 1) % 5);
+            w.knobStyle = GuiKnobStyle::StudioClean;
             w.size = 64.0f;
             w.currentVal = k.value;
             w.minVal = 0.0f;
@@ -185,193 +219,16 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         return;
     }
 
-    guiPanel_.title = trackData_.presetTitle.empty() ? trackData_.instrument : trackData_.presetTitle;
-    guiPanel_.subtitle = trackData_.presetSubtitle.empty() ? (trackData_.trackName + " • " + trackData_.instrument) : trackData_.presetSubtitle;
-    guiPanel_.accentColor = Color(trackData_.r, trackData_.g, trackData_.b, 1.0f);
-
-    const std::string& eng = trackData_.instrumentEngine;
-    bool is303 = (eng == "tb303" || trackData_.instrument.find("303") != std::string::npos ||
-                  guiPanel_.title.find("303") != std::string::npos);
-
-    auto findKnobVal = [&](const std::string& p1, const std::string& p2, float def) -> float {
-        for (const auto& k : trackData_.knobs) {
-            if (stringEqualsIgnoreCase(k.name, p1) || stringEqualsIgnoreCase(k.label, p1) ||
-                (!p2.empty() && (stringEqualsIgnoreCase(k.name, p2) || stringEqualsIgnoreCase(k.label, p2)))) {
-                return k.value;
-            }
-        }
-        return def;
-    };
-
-    auto getListBoxVal = [&](const GuiWidgetDef& wid, float def) -> float {
-        float raw = findKnobVal(wid.param, "", def);
-        int totalOpts = static_cast<int>(wid.options.size());
-        if (totalOpts > 1 && raw > 0.0f && raw < 1.0f) {
-            raw = std::round(raw * static_cast<float>(totalOpts - 1));
-        }
-        return std::clamp(raw, 0.0f, static_cast<float>(std::max(0, totalOpts - 1)));
-    };
-
-    auto getNixieVal = [&](const GuiWidgetDef& wid, float def) -> float {
-        float raw = findKnobVal(wid.param, "", def);
-        if (raw > 0.0f && raw <= 1.0f) {
-            raw = raw * wid.maxVal;
-        }
-        return std::clamp(raw, wid.minVal, wid.maxVal);
-    };
-
-    if (is303) {
-        guiPanel_.chassisStyle = GuiChassisStyle::MinimalWhite;
-        guiPanel_.woodCheeks = false;
-        guiPanel_.hideHeader = true;
-        guiPanel_.cornerRadius = 6.0f;
-
-        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 8) {
-            guiPanel_.rows.clear();
-
-            GuiRowDef r1;
-            r1.widgets.push_back({"w_waveform", GuiWidgetType::Knob, "WAVEFORM", "waveform", GuiKnobStyle::Tb303SelectorSilver, 56.0f, findKnobVal("waveform", "wave", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"div1", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-            r1.widgets.push_back({"w_pitch", GuiWidgetType::Knob, "PITCH", "pitch", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("pitch", "tuning", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"w_cutoff", GuiWidgetType::Knob, "CUTOFF", "cutoff", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("cutoff", "", 0.65f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"w_res", GuiWidgetType::Knob, "RESONANCE", "resonance", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("resonance", "reson", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"w_env", GuiWidgetType::Knob, "ENV MOD", "envMod", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("envMod", "env", 0.60f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"w_decay", GuiWidgetType::Knob, "DECAY", "decay", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("decay", "", 0.45f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r1.widgets.push_back({"w_accent", GuiWidgetType::Knob, "ACCENT", "accent", GuiKnobStyle::Tb303Potentiometer, 56.0f, findKnobVal("accent", "", 0.75f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            guiPanel_.rows.push_back(r1);
-
-            GuiRowDef r2;
-            r2.widgets.push_back({"w_octave", GuiWidgetType::Knob, "OCTAVE", "octave", GuiKnobStyle::Tb303SelectorBlack, 56.0f, findKnobVal("octave", "", 0.5f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r2.widgets.push_back({"div2", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-            r2.widgets.push_back({"w_subosc", GuiWidgetType::ToggleSwitch, "SUB OSC", "subOsc", GuiKnobStyle::Standard, 52.0f, findKnobVal("subOsc", "subWaveform", 0.0f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r2.widgets.push_back({"w_subvol", GuiWidgetType::Knob, "SUB VOL", "subVol", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("subVol", "subVolume", 0.35f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r2.widgets.push_back({"div3", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-            r2.widgets.push_back({"w_glide", GuiWidgetType::Knob, "GLIDE CURVE", "glideCurve", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("glideCurve", "glide", 0.40f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            r2.widgets.push_back({"div4", GuiWidgetType::Divider, "", "", GuiKnobStyle::Standard, 14.0f, 0.0f, 0.0f, 1.0f, "", {}});
-            r2.widgets.push_back({"w_drive", GuiWidgetType::Knob, "DRIVE", "drive", GuiKnobStyle::MiniPotCream, 52.0f, findKnobVal("drive", "overdrive", 0.25f), 0.0f, 1.0f, "", guiPanel_.accentColor});
-            guiPanel_.rows.push_back(r2);
-        } else {
-            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
-                auto& row = guiPanel_.rows[rIdx];
-                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
-                    auto& w = row.widgets[wIdx];
-                    if (w.type == GuiWidgetType::Divider) continue;
-                    if (isDraggingKnob_ && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
-                    w.currentVal = findKnobVal(w.param, "", w.currentVal);
-                }
-            }
-        }
-        return;
-    }
-
-    auto containsSfxr = [](std::string_view s) noexcept -> bool {
-        std::string lower;
-        lower.reserve(s.size());
-        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-        return lower.find("sfxr") != std::string::npos;
-    };
-    auto containsSnes = [](std::string_view s) noexcept -> bool {
-        std::string lower;
-        lower.reserve(s.size());
-        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-        return lower.find("snes") != std::string::npos;
-    };
-    bool isSfxr = (stringEqualsIgnoreCase(eng, "sfxr") || containsSfxr(trackData_.instrument) || containsSfxr(trackData_.presetTitle));
-    bool isSnes = !isSfxr && (stringEqualsIgnoreCase(eng, "snes") || stringEqualsIgnoreCase(eng, "snes_synth") ||
-                              stringEqualsIgnoreCase(eng, "snes_console_synth") || containsSnes(trackData_.instrument) || containsSnes(trackData_.presetTitle));
-
-    if (isSfxr) {
-        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
-        guiPanel_.woodCheeks = false;
-        guiPanel_.hideHeader = true;
-        guiPanel_.cornerRadius = 10.0f;
-        guiPanel_.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
-
-        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 4 || guiPanel_.rows[1].widgets.size() != 9) {
-            guiPanel_.rows.clear();
-
-            GuiRowDef r1;
-            GuiWidgetDef lbType;
-            lbType.id = "w_sfxtype";
-            lbType.type = GuiWidgetType::ListBox;
-            lbType.label = "SFX TYPE";
-            lbType.param = "SFXType";
-            lbType.options = {"Laser", "Explosion", "Powerup", "Coin", "Jump", "Hurt", "Lose", "Button", "Warp", "Mutate", "Custom SNES"};
-            lbType.currentVal = getListBoxVal(lbType, 0.0f);
-            lbType.minVal = 0.0f;
-            lbType.maxVal = 10.0f;
-            r1.widgets.push_back(lbType);
-
-            GuiWidgetDef lbWave;
-            lbWave.id = "w_wavetable";
-            lbWave.type = GuiWidgetType::ListBox;
-            lbWave.label = "WAVETABLE";
-            lbWave.param = "Waveform";
-            lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
-            lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
-            lbWave.minVal = 0.0f;
-            lbWave.maxVal = 11.0f;
-            r1.widgets.push_back(lbWave);
-
-            GuiWidgetDef wSeed;
-            wSeed.id = "w_seed";
-            wSeed.type = GuiWidgetType::NixieDisplay;
-            wSeed.label = "RNG SEED";
-            wSeed.param = "Seed";
-            wSeed.currentVal = getNixieVal(wSeed, 42.0f);
-            wSeed.minVal = 1.0f;
-            wSeed.maxVal = 9999.0f;
-            r1.widgets.push_back(wSeed);
-
-            GuiWidgetDef wRand;
-            wRand.id = "w_randomize";
-            wRand.type = GuiWidgetType::ActionButton;
-            wRand.label = "RANDOMIZE";
-            wRand.action = "randomize";
-            r1.widgets.push_back(wRand);
-            guiPanel_.rows.push_back(r1);
-
-            GuiRowDef r2;
-            auto addKnob = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
-                GuiWidgetDef k;
-                k.id = id;
-                k.type = GuiWidgetType::Knob;
-                k.label = label;
-                k.param = param;
-                k.knobStyle = GuiKnobStyle::TwoToneStepped;
-                k.size = 52.0f;
-                k.currentVal = findKnobVal(param, "", defVal);
-                k.minVal = minV;
-                k.maxVal = maxV;
-                k.unit = unit;
-                k.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
-                r2.widgets.push_back(k);
-            };
-
-            addKnob("w_attack", "ATTACK", "Attack", 0.01f, 0.0f, 1.0f, "s");
-            addKnob("w_decay", "DECAY", "Decay", 0.18f, 0.0f, 1.0f, "s");
-            addKnob("w_sustain", "SUSTAIN", "Sustain", 0.20f, 0.0f, 1.0f, "");
-            addKnob("w_release", "RELEASE", "Release", 0.10f, 0.0f, 1.0f, "s");
-            addKnob("w_sweep", "SWEEP", "PitchSweep", 0.38f, 0.0f, 1.0f, "");
-            addKnob("w_vibrate", "VIB RATE", "VibratoRate", 0.0f, 0.0f, 1.0f, "Hz");
-            addKnob("w_vibdepth", "VIB DEPTH", "VibratoDepth", 0.0f, 0.0f, 1.0f, "");
-            addKnob("w_echoms", "ECHO MS", "EchoDelay", 0.25f, 0.0f, 1.0f, "ms");
-            addKnob("w_echovol", "ECHO VOL", "EchoVolume", 0.35f, 0.0f, 1.0f, "");
-
-            guiPanel_.rows.push_back(r2);
-        } else {
-            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
-                auto& row = guiPanel_.rows[rIdx];
-                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
-                    auto& w = row.widgets[wIdx];
-                    if (w.type == GuiWidgetType::Divider || w.type == GuiWidgetType::ActionButton) continue;
-                    if (isDraggingKnob_ && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
-                    if (w.type == GuiWidgetType::ListBox) {
-                        w.currentVal = getListBoxVal(w, w.currentVal);
-                    } else if (w.type == GuiWidgetType::NixieDisplay) {
-                        w.currentVal = getNixieVal(w, w.currentVal);
-                    } else {
-                        w.currentVal = findKnobVal(w.param, "", w.currentVal);
+    if (trackData_.customGuiPanel.has_value()) {
+        guiPanel_ = *trackData_.customGuiPanel;
+        for (auto& row : guiPanel_.rows) {
+            for (auto& w : row.widgets) {
+                for (const auto& k : trackData_.knobs) {
+                    if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                        stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                        w.currentVal = k.value;
+                        if (!k.display.empty()) w.valueDisplay = k.display;
+                        break;
                     }
                 }
             }
@@ -379,208 +236,10 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         return;
     }
 
-    if (isSnes) {
-        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
-        guiPanel_.woodCheeks = false;
-        guiPanel_.hideHeader = true;
-        guiPanel_.cornerRadius = 10.0f;
-        guiPanel_.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
-
-        if (guiPanel_.rows.size() != 2 || guiPanel_.rows[0].widgets.size() != 3 || guiPanel_.rows[1].widgets.size() != 9) {
-            guiPanel_.rows.clear();
-
-            GuiRowDef r1;
-            GuiWidgetDef lbWave;
-            lbWave.id = "w_wavetable";
-            lbWave.type = GuiWidgetType::ListBox;
-            lbWave.label = "WAVETABLE";
-            lbWave.param = "Waveform";
-            lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
-            lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
-            lbWave.minVal = 0.0f;
-            lbWave.maxVal = 11.0f;
-            r1.widgets.push_back(lbWave);
-
-            GuiWidgetDef wSeed;
-            wSeed.id = "w_seed";
-            wSeed.type = GuiWidgetType::NixieDisplay;
-            wSeed.label = "RNG SEED";
-            wSeed.param = "Seed";
-            wSeed.currentVal = getNixieVal(wSeed, 42.0f);
-            wSeed.minVal = 1.0f;
-            wSeed.maxVal = 9999.0f;
-            r1.widgets.push_back(wSeed);
-
-            GuiWidgetDef wRand;
-            wRand.id = "w_randomize";
-            wRand.type = GuiWidgetType::ActionButton;
-            wRand.label = "RANDOMIZE";
-            wRand.action = "randomize";
-            r1.widgets.push_back(wRand);
-            guiPanel_.rows.push_back(r1);
-
-            GuiRowDef r2;
-            auto addKnob = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
-                GuiWidgetDef k;
-                k.id = id;
-                k.type = GuiWidgetType::Knob;
-                k.label = label;
-                k.param = param;
-                k.knobStyle = GuiKnobStyle::TwoToneStepped;
-                k.size = 52.0f;
-                k.currentVal = findKnobVal(param, "", defVal);
-                k.minVal = minV;
-                k.maxVal = maxV;
-                k.unit = unit;
-                k.accentColor = Color(0.90f, 0.15f, 0.15f, 1.0f);
-                r2.widgets.push_back(k);
-            };
-
-            addKnob("w_attack", "ATTACK", "Attack", 0.01f, 0.0f, 1.0f, "s");
-            addKnob("w_decay", "DECAY", "Decay", 0.15f, 0.0f, 1.0f, "s");
-            addKnob("w_sustain", "SUSTAIN", "Sustain", 0.50f, 0.0f, 1.0f, "");
-            addKnob("w_release", "RELEASE", "Release", 0.12f, 0.0f, 1.0f, "s");
-            addKnob("w_vibrate", "VIB RATE", "VibratoRate", 0.28f, 0.0f, 1.0f, "Hz");
-            addKnob("w_vibdepth", "VIB DEPTH", "VibratoDepth", 0.10f, 0.0f, 1.0f, "");
-            addKnob("w_echoms", "ECHO MS", "EchoDelay", 0.29f, 0.0f, 1.0f, "ms");
-            addKnob("w_echofdbk", "ECHO FDBK", "EchoFeedback", 0.55f, 0.0f, 1.0f, "");
-            addKnob("w_echovol", "ECHO VOL", "EchoVolume", 0.40f, 0.0f, 1.0f, "");
-
-            guiPanel_.rows.push_back(r2);
-        } else {
-            for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
-                auto& row = guiPanel_.rows[rIdx];
-                for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx) {
-                    auto& w = row.widgets[wIdx];
-                    if (w.type == GuiWidgetType::Divider || w.type == GuiWidgetType::ActionButton) continue;
-                    if (isDraggingKnob_ && draggingRow_ == static_cast<int>(rIdx) && draggingWidget_ == static_cast<int>(wIdx)) continue;
-                    if (w.type == GuiWidgetType::ListBox) {
-                        w.currentVal = getListBoxVal(w, w.currentVal);
-                    } else if (w.type == GuiWidgetType::NixieDisplay) {
-                        w.currentVal = getNixieVal(w, w.currentVal);
-                    } else {
-                        w.currentVal = findKnobVal(w.param, "", w.currentVal);
-                    }
-                }
-            }
-        }
-        return;
-    }
-
-    guiPanel_.hideHeader = false;
-    guiPanel_.woodCheeks = true;
-    guiPanel_.cornerRadius = 8.0f;
-
-    if (eng == "tr808" || eng == "tr909") {
-        guiPanel_.chassisStyle = GuiChassisStyle::Grunge;
-    } else if (eng == "dx7") {
-        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
-    } else if (eng == "piano" || eng == "piano_physical") {
-        guiPanel_.chassisStyle = GuiChassisStyle::Walnut;
-    } else if (eng == "snes") {
-        guiPanel_.chassisStyle = GuiChassisStyle::Snes;
-        guiPanel_.woodCheeks = false;
-    } else if (eng == "c64") {
-        guiPanel_.chassisStyle = GuiChassisStyle::PcbGreen;
-        guiPanel_.woodCheeks = false;
-    } else if (eng == "convolver") {
-        guiPanel_.chassisStyle = GuiChassisStyle::BrushedSteel;
-    } else {
-        guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
-    }
-
-    size_t numKnobs = trackData_.knobs.size();
-    if (numKnobs == 0) {
-        trackData_.knobs = {
-            {"cutoff", "CUTOFF", 0.65f, "65%"},
-            {"resonance", "RESON", 0.50f, "50%"},
-            {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
-            {"decay", "DECAY", 0.45f, "225 ms"},
-            {"accent", "ACCENT", 0.70f, "70%"},
-            {"tuning", "TUNING", 0.50f, "440 Hz"}
-        };
-        numKnobs = trackData_.knobs.size();
-    }
-
-    size_t displayKnobs = std::min(numKnobs, size_t{6});
-
-    if (guiPanel_.rows.empty() || guiPanel_.rows[0].widgets.size() != displayKnobs) {
-        guiPanel_.rows.clear();
-        GuiRowDef r1;
-        for (size_t i = 0; i < displayKnobs; ++i) {
-            const auto& k = trackData_.knobs[i];
-            GuiKnobStyle kStyle = GuiKnobStyle::Standard;
-            if (eng == "tr808" || eng == "tr909") {
-                if (i == 0) kStyle = GuiKnobStyle::BakeliteSkirt;
-                else if (i == 1) kStyle = GuiKnobStyle::CreamFluted;
-                else if (i == 2) kStyle = GuiKnobStyle::AnodizedKnurled;
-                else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
-                else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
-                else kStyle = GuiKnobStyle::Standard;
-            } else if (eng == "dx7") {
-                if (i == 0) kStyle = GuiKnobStyle::AnodizedKnurled;
-                else if (i == 1) kStyle = GuiKnobStyle::TwoToneStepped;
-                else if (i == 2) kStyle = GuiKnobStyle::BakeliteSkirt;
-                else if (i == 3) kStyle = GuiKnobStyle::CreamFluted;
-                else if (i == 4) kStyle = GuiKnobStyle::Standard;
-                else kStyle = GuiKnobStyle::Tb303Halo;
-            } else {
-                kStyle = static_cast<GuiKnobStyle>(i % 5);
-            }
-
-            GuiWidgetDef w;
-            w.id = "w_" + k.name;
-            w.type = GuiWidgetType::Knob;
-            w.label = k.label;
-            w.param = k.name;
-            w.knobStyle = kStyle;
-            w.size = 64.0f;
-            w.currentVal = k.value;
-            w.minVal = 0.0f;
-            w.maxVal = 1.0f;
-            w.unit = "";
-            w.accentColor = guiPanel_.accentColor;
-            r1.widgets.push_back(w);
-        }
-        guiPanel_.rows.push_back(r1);
-
-        if (numKnobs > 6) {
-            GuiRowDef r2;
-            for (size_t i = 6; i < numKnobs && i < 12; ++i) {
-                const auto& k = trackData_.knobs[i];
-                GuiWidgetDef w;
-                w.id = "w_" + k.name;
-                w.type = GuiWidgetType::Knob;
-                w.label = k.label;
-                w.param = k.name;
-                w.knobStyle = static_cast<GuiKnobStyle>(i % 5);
-                w.size = 56.0f;
-                w.currentVal = k.value;
-                w.minVal = 0.0f;
-                w.maxVal = 1.0f;
-                w.unit = "";
-                w.accentColor = guiPanel_.accentColor;
-                r2.widgets.push_back(w);
-            }
-            guiPanel_.rows.push_back(r2);
-        }
-    } else {
-        // Sync values to existing widgets
-        for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
-            for (size_t wIdx = 0; wIdx < guiPanel_.rows[rIdx].widgets.size(); ++wIdx) {
-                size_t kIdx = rIdx * 6 + wIdx;
-                if (kIdx < trackData_.knobs.size()) {
-                    auto& w = guiPanel_.rows[rIdx].widgets[wIdx];
-                    if (!isDraggingKnob_ || draggingRow_ != static_cast<int>(rIdx) || draggingWidget_ != static_cast<int>(wIdx)) {
-                        w.currentVal = trackData_.knobs[kIdx].value;
-                        w.label = trackData_.knobs[kIdx].label;
-                        w.param = trackData_.knobs[kIdx].name;
-                        w.accentColor = guiPanel_.accentColor;
-                    }
-                }
-            }
-        }
-    }
+    // Canonical Instrument GUI Panel matching Track Properties, Track Tab, and Design View
+    populateCanonicalInstrumentGuiPanel(guiPanel_, trackData_,
+        isDraggingKnob_ ? draggingRow_ : -1,
+        isDraggingKnob_ ? draggingWidget_ : -1);
 }
 
 void FullscreenDeviceModal::setAudioScopeBuffer(const float* buffer, size_t count) noexcept {
@@ -1406,7 +1065,11 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                         for (auto& k : trackData_.knobs) {
                             if (stringEqualsIgnoreCase(k.name, w.param)) {
                                 k.value = w.currentVal;
-                                k.display = (w.currentVal > 0.5f) ? "On" : "Off";
+                                if (w.options.size() == 2) {
+                                    k.display = (w.currentVal > 0.5f) ? w.options[1] : w.options[0];
+                                } else {
+                                    k.display = (w.currentVal > 0.5f) ? "On" : "Off";
+                                }
                                 break;
                             }
                         }
@@ -1592,7 +1255,11 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                     draggingWidget_ = static_cast<int>(wIdx);
                     activeKnobIndex_ = (rIdx == 0) ? static_cast<int>(wIdx) : -1;
                     dragStartY_ = my;
-                    dragStartVal_ = w.currentVal;
+                    if (w.maxVal > w.minVal) {
+                        dragStartVal_ = std::clamp((w.currentVal - w.minVal) / (w.maxVal - w.minVal), 0.0f, 1.0f);
+                    } else {
+                        dragStartVal_ = std::clamp(w.currentVal, 0.0f, 1.0f);
+                    }
                     return true;
                 }
             }
@@ -1642,12 +1309,32 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             auto& row = guiPanel_.rows[draggingRow_];
             if (draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(row.widgets.size())) {
                 auto& w = row.widgets[draggingWidget_];
-                w.currentVal = newVal;
+                bool isStepped = false;
+                float stepVal = 0.0f;
+                if (w.step > 0.0f && w.maxVal > w.minVal) {
+                    float scaled = w.minVal + newVal * (w.maxVal - w.minVal);
+                    scaled = w.minVal + std::round((scaled - w.minVal) / w.step) * w.step;
+                    scaled = std::clamp(scaled, w.minVal, w.maxVal);
+                    newVal = (scaled - w.minVal) / (w.maxVal - w.minVal);
+                    w.currentVal = scaled;
+                    isStepped = true;
+                    stepVal = scaled;
+                } else if (w.maxVal > w.minVal) {
+                    w.currentVal = w.minVal + newVal * (w.maxVal - w.minVal);
+                } else {
+                    w.currentVal = newVal;
+                }
                 for (auto& k : trackData_.knobs) {
                     if (stringEqualsIgnoreCase(k.name, w.param)) {
                         k.value = newVal;
-                        int pct = static_cast<int>(std::round(newVal * 100.0f));
-                        k.display = std::to_string(pct) + "%";
+                        if (isStepped) {
+                            k.display = std::to_string(static_cast<int>(std::round(stepVal)));
+                        } else if (w.maxVal > w.minVal) {
+                            k.display = w.getFormattedValue();
+                        } else {
+                            int pct = static_cast<int>(std::round(newVal * 100.0f));
+                            k.display = std::to_string(pct) + "%";
+                        }
                         break;
                     }
                 }

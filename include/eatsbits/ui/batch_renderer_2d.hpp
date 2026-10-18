@@ -65,6 +65,15 @@ public:
     virtual void setAntiAliasingMode(int /*mode*/) {}
     virtual void setBlendMode(BlendMode /*mode*/) {}
     virtual void renderRgba(float /*x*/, float /*y*/, float /*w*/, float /*h*/, const uint8_t* /*rgba*/, int /*imgW*/, int /*imgH*/, float /*opacity*/) {}
+    virtual void renderRgbaRegion(float dstX, float dstY, float dstW, float dstH,
+                                  const uint8_t* rgba, int imgW, int imgH,
+                                  float u0, float v0, float u1, float v1,
+                                  float opacity = 1.0f) {
+        if (std::abs(u0) < 0.001f && std::abs(v0) < 0.001f &&
+            std::abs(u1 - 1.0f) < 0.001f && std::abs(v1 - 1.0f) < 0.001f) {
+            renderRgba(dstX, dstY, dstW, dstH, rgba, imgW, imgH, opacity);
+        }
+    }
     virtual void applyBackdropBlur(float /*radius*/ = 3.0f, float /*dimFactor*/ = 0.50f) {}
     virtual void setScissorRect(float /*x*/, float /*y*/, float /*w*/, float /*h*/) {}
     virtual void clearScissorRect() {}
@@ -191,11 +200,47 @@ public:
                                   float r0, float g0, float b0, float a0,
                                   float r1, float g1, float b1, float a1,
                                   float angleRad = 1.5707963f, int segments = 36);
+    void drawDeclinedScoopGradient(float cx, float cy, float capRadius,
+                                   float currentAngle, float chordDistRatio,
+                                   float crestR, float crestG, float crestB, float crestA,
+                                   float midR, float midG, float midB, float midA,
+                                   float rimR, float rimG, float rimB, float rimA,
+                                   float midStop = 0.45f, int segments = 24);
     void drawCircleOutline(float cx, float cy, float radius, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f, int segments = 36);
     void drawArc(float cx, float cy, float radius, float startAngle, float endAngle, float r, float g, float b, float a = 1.0f, float lineWidth = 2.0f, int segments = 36);
     void drawLine(float x0, float y0, float x1, float y1, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f);
     void drawCatenaryBezier(Point2D p0, Point2D cp0, Point2D cp1, Point2D p1, float r, float g, float b, float a, float lineWidth);
     void drawRgbaBitmap(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity = 1.0f);
+    void drawRgbaBitmapRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
+                              float u0, float v0, float u1, float v1, float opacity = 1.0f);
+
+    // --- In-Memory Texture Assets & Filmstrip Knobs/Sliders ---
+    struct TextureInfo {
+        uint32_t handle{0};
+        int width{0};
+        int height{0};
+        int channels{4};
+        bool valid{false};
+    };
+
+    uint32_t createTexture(int width, int height, const uint8_t* rgbaPixels);
+    uint32_t createTextureFromMemory(const void* data, size_t len);
+    uint32_t loadTextureFromUri(std::string_view uriOrPath);
+    bool destroyTexture(uint32_t handle);
+    [[nodiscard]] bool hasTexture(uint32_t handle) const noexcept;
+    [[nodiscard]] TextureInfo getTextureInfo(uint32_t handle) const noexcept;
+    [[nodiscard]] const uint8_t* getTexturePixels(uint32_t handle) const noexcept;
+
+    void drawTexturedQuad(uint32_t textureHandle, float x, float y, float w, float h,
+                          float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f,
+                          float opacity = 1.0f);
+
+    void drawFilmstripFrame(uint32_t textureHandle, float x, float y, float w, float h,
+                            int frameIndex, int totalFrames, bool isHorizontal = false,
+                            float opacity = 1.0f);
+
+    static void setActiveBatchRenderer(BatchRenderer2D* renderer);
+    [[nodiscard]] static BatchRenderer2D* getActiveBatchRenderer();
 
     // --- Render Scale (HiDPI / UI Scaling Transform) ---
     void setRenderScale(float sx, float sy) noexcept {
@@ -261,6 +306,8 @@ public:
     // --- Font & Texture Atlas ---
     void updateFontAtlas(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH);
     void drawTexturedTriangles(const float* verts, const float* tcoords, const unsigned int* colors, int nverts);
+    [[nodiscard]] uint32_t getFontAtlasVersion() const noexcept { return fontAtlasVersion_; }
+    void setFontAtlasVersion(uint32_t v) noexcept { fontAtlasVersion_ = v; }
 
     // --- Monospace Text & High-Throughput Terminal Glyph Pipeline ---
     void initDefaultMonospaceAtlas();
@@ -349,6 +396,18 @@ private:
     uint32_t chromeCacheHeight_{0};
     std::vector<uint32_t> chromeCachePixels_{};
     uint64_t chromeDrawCallsAvoided_{0};
+    uint32_t fontAtlasVersion_{0};
+
+    // In-Memory GPU/Software Texture Store
+    struct ImageTexture {
+        uint32_t handle{0};
+        int width{0};
+        int height{0};
+        int channels{4};
+        std::vector<uint8_t> pixels;
+    };
+    std::unordered_map<uint32_t, ImageTexture> textures_;
+    uint32_t nextTextureId_{1};
 
     inline void applyTransform(float& x, float& y) const noexcept {
         if (transformActive_) {

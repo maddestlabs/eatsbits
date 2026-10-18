@@ -11,7 +11,12 @@
 #include <vector>
 #include <map>
 #include <functional>
+#include <memory>
 #include <span>
+
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
 
 namespace eatsbits::ui {
 
@@ -101,7 +106,7 @@ struct ModularModuleDef {
 class DesignView : public ViewBase {
 public:
     DesignView();
-    ~DesignView() override = default;
+    ~DesignView() override;
 
     void layout(const Rect2D& bounds, const ViewContext& ctx) override;
     void render(const ViewContext& ctx) override;
@@ -389,6 +394,8 @@ private:
     Rect2D btnFilterFx_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnFilterMidi_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D explorerSearchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    std::unique_ptr<clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::ui

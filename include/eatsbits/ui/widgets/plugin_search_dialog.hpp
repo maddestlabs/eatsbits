@@ -5,6 +5,7 @@
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
 #include "scrollable_area.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
 #include "eatsbits/project/preset_manager.hpp"
 #include <string>
 #include <vector>
@@ -70,6 +71,8 @@ public:
     void setSelectedCategoryIndex(int idx) noexcept { selectedCategoryIndex_ = idx; }
     [[nodiscard]] size_t getFilteredCount() const { return getFilteredEntries().size(); }
     [[nodiscard]] const Rect2D& getBounds() const noexcept { return dialogBounds_; }
+    [[nodiscard]] const Rect2D& getCardsAreaBounds() const noexcept { return cardsAreaBounds_; }
+    [[nodiscard]] const std::vector<Rect2D>& getCategoryChipBounds() const noexcept { return categoryChipBounds_; }
 
     void refreshLibrary() { initLibrary(); }
 
@@ -82,6 +85,7 @@ public:
     std::function<void()> onClose;
 
 private:
+    clay::ClayContext clayCtx_;
     void initLibrary();
     [[nodiscard]] std::vector<PluginEntry> getFilteredEntries() const;
     void selectHighlightedCard();
@@ -107,6 +111,8 @@ private:
     Rect2D rescanBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchBoxBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D searchClearBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D cardsAreaBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    std::vector<Rect2D> categoryChipBounds_{};
 
     ScrollableArea scrollArea_;
     float scrollY_{0.0f};
@@ -115,6 +121,9 @@ private:
     bool isDraggingScroll_{false};
     float dragStartY_{0.0f};
     float dragStartScrollY_{0.0f};
+    int pendingCardIndex_{-1};
+    bool touchDragCommitted_{false};
+    float touchStartY_{0.0f};
 
     std::vector<PluginEntry> allPresetLibrary_;
     std::vector<PluginEntry> instrumentLibrary_;

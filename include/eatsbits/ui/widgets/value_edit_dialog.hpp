@@ -10,6 +10,7 @@
 #include "../input/pointer_event.hpp"
 #include "text_field_state.hpp"
 #include "eatsbits/presenter/value_edit_presenter.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
 
 namespace eatsbits::ui {
 
@@ -96,6 +97,7 @@ public:
     std::function<std::string()> onPasteFromClipboard;
 
 private:
+    clay::ClayContext clayCtx_;
     void formatBufferFromValue(float val);
     void setQuickPercent(float pct);
 

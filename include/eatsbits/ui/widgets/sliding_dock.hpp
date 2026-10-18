@@ -87,10 +87,18 @@ struct DrawerConfig {
  * Encapsulates the animation physics, geometry calculations, pull-tab rendering,
  * drag-resizing, header bar, close button, and viewport clipping for all 4 edges.
  */
+namespace clay {
+    class ClayContext;
+}
+
 class SlidingDrawer {
 public:
     explicit SlidingDrawer(DrawerConfig config = {});
-    virtual ~SlidingDrawer() = default;
+    virtual ~SlidingDrawer();
+    SlidingDrawer(const SlidingDrawer&) = delete;
+    SlidingDrawer& operator=(const SlidingDrawer&) = delete;
+    SlidingDrawer(SlidingDrawer&&) noexcept;
+    SlidingDrawer& operator=(SlidingDrawer&&) noexcept;
 
     void setConfig(const DrawerConfig& config);
     [[nodiscard]] const DrawerConfig& getConfig() const noexcept { return config_; }
@@ -162,6 +170,8 @@ protected:
     float tabDragStartCoord_{0.0f};
     float tabDragStartExtent_{0.0f};
     bool tabDragMoved_{false};
+
+    std::unique_ptr<clay::ClayContext> clayCtx_;
 };
 
 /**
@@ -173,7 +183,11 @@ protected:
 class SlidingDock {
 public:
     explicit SlidingDock(DockEdge edge = DockEdge::Bottom);
-    ~SlidingDock() = default;
+    ~SlidingDock();
+    SlidingDock(const SlidingDock&) = delete;
+    SlidingDock& operator=(const SlidingDock&) = delete;
+    SlidingDock(SlidingDock&&) noexcept;
+    SlidingDock& operator=(SlidingDock&&) noexcept;
 
     void setEdge(DockEdge edge) noexcept { edge_ = edge; }
     [[nodiscard]] DockEdge getEdge() const noexcept { return edge_; }
@@ -250,6 +264,8 @@ private:
     bool isResizing_{false};
     float resizeStartCoord_{0.0f};
     float resizeStartExtent_{0.0f};
+
+    std::unique_ptr<clay::ClayContext> clayCtx_;
 };
 
 } // namespace eatsbits::ui

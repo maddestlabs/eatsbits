@@ -147,6 +147,12 @@ struct ThemeSeed {
     std::optional<Color> overrideSyntaxType;
 };
 
+enum class ControlAestheticMode : uint8_t {
+    AutoThemeDefault = 0, // Respects plugin/preset skeuomorphic styling
+    ForceMinimal     = 1, // Global override: clean minimalist vector aesthetics DAW-wide
+    HighContrastFlat = 2  // Pure flat lines & high contrast
+};
+
 /**
  * Comprehensive table of semantic UI tokens consumed across all DAW panels and widgets.
  */
@@ -221,6 +227,11 @@ struct ThemeTokens {
 
     // 7. Contextual 2.5D Lighting & Shadows
     LightSource2D globalLight{640.0f, -180.0f, 500.0f, 0.85f};
+
+    // 8. Global Aesthetic & Performance Flags
+    ControlAestheticMode controlMode{ControlAestheticMode::AutoThemeDefault};
+    bool showControlGradients{true};
+    bool showControlDropShadows{true};
 };
 
 /**
@@ -272,6 +283,10 @@ public:
 
     /// Get rich catalog metadata for theme browsing
     static const std::vector<PresetMetadata>& getPresetCatalog();
+
+    /// Global Aesthetic & Performance Override (e.g. Minimalist GUI Mode)
+    static void setControlMode(ControlAestheticMode mode);
+    static ControlAestheticMode getControlMode();
 };
 
 } // namespace eatsbits::ui

@@ -253,12 +253,12 @@ void VM::compileExpr(Expr* expr) {
                 if (callMem->member == "sin") processChunk_.emitOp(OpCode::MathSin);
                 else if (callMem->member == "cos") processChunk_.emitOp(OpCode::MathCos);
                 else if (callMem->member == "tanh") processChunk_.emitOp(OpCode::MathTanh);
-                else if (mem->member == "exp") processChunk_.emitOp(OpCode::MathExp);
-                else if (mem->member == "floor") processChunk_.emitOp(OpCode::MathFloor);
-                else if (mem->member == "sqrt") processChunk_.emitOp(OpCode::MathSqrt);
-                else if (mem->member == "random") processChunk_.emitOp(OpCode::MathRandom);
+                else if (callMem->member == "exp") processChunk_.emitOp(OpCode::MathExp);
+                else if (callMem->member == "floor") processChunk_.emitOp(OpCode::MathFloor);
+                else if (callMem->member == "sqrt") processChunk_.emitOp(OpCode::MathSqrt);
+                else if (callMem->member == "random") processChunk_.emitOp(OpCode::MathRandom);
                 return;
-            } else if (objId && objId->name == "params" && mem->member == "get") {
+            } else if (objId && objId->name == "params" && callMem->member == "get") {
                 // params.get("ParamName", default)
                 uint8_t paramIdx = 0;
                 if (!call->args.empty()) {

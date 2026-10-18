@@ -153,7 +153,8 @@ public:
                 else if (t == "group") node.type = GuiNodeType::Group;
                 else if (t == "knob") node.type = GuiNodeType::Knob;
                 else if (t == "nixie") node.type = GuiNodeType::Nixie;
-                else if (t == "slider") node.type = GuiNodeType::Slider;
+                else if (t == "slider" || t == "hslider" || t == "vslider") node.type = GuiNodeType::Slider;
+                else if (t == "switch" || t == "rocker" || t == "toggle") node.type = GuiNodeType::Switch;
                 else if (t == "scope") node.type = GuiNodeType::Scope;
                 else if (t == "divider") node.type = GuiNodeType::Divider;
                 else if (t == "spacer") node.type = GuiNodeType::Spacer;
@@ -201,6 +202,12 @@ public:
                 node.size = static_cast<float>(current_.num); advance();
             } else if (key == "showValue") {
                 node.showValue = current_.bVal; advance();
+            } else if (key == "labelAlignment" || key == "alignLabels") {
+                node.labelAlignment = current_.str; advance();
+            } else if (key == "sublabel" || key == "subLabel") {
+                node.sublabel = current_.str; advance();
+            } else if (key == "showValueBox" || key == "valueBox") {
+                node.showValueBox = current_.bVal; advance();
             } else if (key == "orientation") {
                 node.orientation = current_.str; advance();
             } else if (key == "align") {
@@ -285,7 +292,8 @@ GuiLayoutNode convertValueToGuiNode(const eatscript::Value& val) {
     else if (t == "group") node.type = GuiNodeType::Group;
     else if (t == "knob") node.type = GuiNodeType::Knob;
     else if (t == "nixie") node.type = GuiNodeType::Nixie;
-    else if (t == "slider") node.type = GuiNodeType::Slider;
+    else if (t == "slider" || t == "hslider" || t == "vslider") node.type = GuiNodeType::Slider;
+    else if (t == "switch" || t == "rocker" || t == "toggle") node.type = GuiNodeType::Switch;
     else if (t == "scope") node.type = GuiNodeType::Scope;
     else if (t == "divider") node.type = GuiNodeType::Divider;
     else if (t == "spacer") node.type = GuiNodeType::Spacer;
@@ -319,6 +327,12 @@ GuiLayoutNode convertValueToGuiNode(const eatscript::Value& val) {
     node.unit = val.get("unit").asString();
     node.size = val.get("size", eatscript::Value(0.0)).asFloat();
     node.showValue = val.get("showValue", eatscript::Value(false)).asBoolean();
+    if (val.hasKey("labelAlignment")) node.labelAlignment = val.get("labelAlignment").asString();
+    else if (val.hasKey("alignLabels")) node.labelAlignment = val.get("alignLabels").asString();
+    if (val.hasKey("sublabel")) node.sublabel = val.get("sublabel").asString();
+    else if (val.hasKey("subLabel")) node.sublabel = val.get("subLabel").asString();
+    if (val.hasKey("showValueBox")) node.showValueBox = val.get("showValueBox").asBoolean();
+    else if (val.hasKey("valueBox")) node.showValueBox = val.get("valueBox").asBoolean();
     node.orientation = val.get("orientation").asString();
     node.align = val.get("align").asString();
     node.crossAlign = val.get("crossAlign").asString();
@@ -1495,6 +1509,106 @@ PresetDefinition PresetLoader::createSteelAcousticGuitarPreset() {
     return p;
 }
 
+PresetDefinition PresetLoader::createAstralShimmerPadPreset() {
+    PresetDefinition p{};
+    p.metadata.id = "astral_shimmer_pad";
+    p.metadata.name = "ASTRAL SHIMMER PAD";
+    p.metadata.category = "instrument";
+    p.metadata.description = "7-unison detuned analog ambient pad with wide stereo spread, slow sweeping resonant filter, and lush ADSR envelope.";
+    p.metadata.engineId = "ambient_pad";
+
+    p.params["Cutoff"] = {"Cutoff", 100.0f, 16000.0f, 2400.0f, 2400.0f, 0.0f, "Hz", true};
+    p.params["Resonance"] = {"Resonance", 0.1f, 5.0f, 0.55f, 0.55f, 0.0f, "", true};
+    p.params["Detune"] = {"Detune", 1.0f, 35.0f, 14.0f, 14.0f, 0.0f, "ct", true};
+    p.params["Warmth"] = {"Warmth", 0.0f, 1.0f, 0.65f, 0.65f, 0.0f, "", true};
+    p.params["Attack"] = {"Attack", 0.05f, 4.0f, 0.85f, 0.85f, 0.0f, "s", true};
+    p.params["Decay"] = {"Decay", 0.1f, 6.0f, 1.5f, 1.5f, 0.0f, "s", true};
+    p.params["Sustain"] = {"Sustain", 0.0f, 1.0f, 0.85f, 0.85f, 0.0f, "", true};
+    p.params["Release"] = {"Release", 0.1f, 8.0f, 2.5f, 2.5f, 0.0f, "s", true};
+
+    p.guiRoot.type = GuiNodeType::Panel;
+    p.guiRoot.title = "ASTRAL SHIMMER PAD";
+    p.guiRoot.subtitle = "7-Unison Detuned Analog Ambient Synthesizer";
+    p.guiRoot.background = "minimal_white";
+    p.guiRoot.accent = "#00E5FF";
+
+    // Row 1: Filter & Timbre Dynamics
+    GuiLayoutNode row1{};
+    row1.type = GuiNodeType::Row;
+    row1.align = "space_around";
+
+    GuiLayoutNode kCutoff{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Cutoff", "CUTOFF", "Hz", 52.0f, "studio_cyan", true};
+    kCutoff.labelAlignment = "inline_right";
+    kCutoff.sublabel = "FILTER";
+    row1.children.push_back(kCutoff);
+
+    GuiLayoutNode kReso{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Resonance", "RESO", "", 52.0f, "studio_ruby", true};
+    kReso.labelAlignment = "inline_right";
+    kReso.sublabel = "Q PEAK";
+    row1.children.push_back(kReso);
+
+    GuiLayoutNode kDetune{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Detune", "DETUNE", "ct", 52.0f, "studio_magenta", true};
+    kDetune.labelAlignment = "inline_right";
+    kDetune.sublabel = "7-UNISON";
+    row1.children.push_back(kDetune);
+
+    GuiLayoutNode kWarmth{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Warmth", "WARMTH", "", 52.0f, "studio_clean", true};
+    kWarmth.labelAlignment = "inline_right";
+    kWarmth.sublabel = "DRIVE";
+    row1.children.push_back(kWarmth);
+
+    // Row 2: ADSR Envelope
+    GuiLayoutNode row2{};
+    row2.type = GuiNodeType::Row;
+    row2.align = "space_around";
+
+    GuiLayoutNode kAttack{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Attack", "ATTACK", "s", 52.0f, "studio_cyan", true};
+    kAttack.labelAlignment = "inline_right";
+    kAttack.sublabel = "ENVELOPE";
+    row2.children.push_back(kAttack);
+
+    GuiLayoutNode kDecay{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Decay", "DECAY", "s", 52.0f, "studio_cyan", true};
+    kDecay.labelAlignment = "inline_right";
+    kDecay.sublabel = "STAGE";
+    row2.children.push_back(kDecay);
+
+    GuiLayoutNode kSustain{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Sustain", "SUSTAIN", "", 52.0f, "studio_cyan", true};
+    kSustain.labelAlignment = "inline_right";
+    kSustain.sublabel = "LEVEL";
+    row2.children.push_back(kSustain);
+
+    GuiLayoutNode kRelease{GuiNodeType::Knob, "", "", "", "", "hardware", "", "", "", "Release", "RELEASE", "s", 52.0f, "studio_cyan", true};
+    kRelease.labelAlignment = "inline_right";
+    kRelease.sublabel = "TAIL";
+    row2.children.push_back(kRelease);
+
+    p.guiRoot.children.push_back(row1);
+    p.guiRoot.children.push_back(row2);
+
+    p.rawScript =
+        "# @id: astral_shimmer_pad\n"
+        "# @name: Astral Shimmer Pad\n"
+        "# @category: instrument\n"
+        "# @engine: ambient_pad\n\n"
+        "AstralShimmerPad = True\n\n"
+        "def init():\n"
+        "    eat.use_engine('ambient_pad')\n"
+        "    return {\n"
+        "        'Cutoff': eat.param('Cutoff', 100.0, 16000.0, 2400.0, unit='Hz'),\n"
+        "        'Resonance': eat.param('Resonance', 0.1, 5.0, 0.55, unit=''),\n"
+        "        'Detune': eat.param('Detune', 1.0, 35.0, 14.0, unit='cents'),\n"
+        "        'Warmth': eat.param('Warmth', 0.0, 1.0, 0.65, unit=''),\n"
+        "        'Attack': eat.param('Attack', 0.05, 4.0, 0.85, unit='s'),\n"
+        "        'Decay': eat.param('Decay', 0.1, 6.0, 1.5, unit='s'),\n"
+        "        'Sustain': eat.param('Sustain', 0.0, 1.0, 0.85, unit=''),\n"
+        "        'Release': eat.param('Release', 0.1, 8.0, 2.5, unit='s'),\n"
+        "    }\n\n"
+        "def process(time, freq, note, params):\n"
+        "    return eat.synth(note, time, params)\n";
+
+    return p;
+}
+
 std::vector<PresetDefinition> PresetLoader::getBuiltinPresets() {
     return {
         createEats303Preset(),
@@ -1510,7 +1624,8 @@ std::vector<PresetDefinition> PresetLoader::getBuiltinPresets() {
         createConcertGrandPianoPreset(),
         createUprightBassPreset(),
         createSpanishGuitarPreset(),
-        createSteelAcousticGuitarPreset()
+        createSteelAcousticGuitarPreset(),
+        createAstralShimmerPadPreset()
     };
 }
 
@@ -1555,9 +1670,17 @@ void PresetLoader::computeLayoutBounds(GuiLayoutNode& node, float x, float y, fl
         float innerH = std::max(availableH - headerH - 8.0f, 40.0f);
         size_t n = node.children.size();
         if (n > 0) {
-            float slotW = (availableW - 20.0f) / static_cast<float>(n);
-            for (size_t i = 0; i < n; ++i) {
-                computeLayoutBounds(node.children[i], x + 10.0f + i * slotW, innerY, slotW, innerH);
+            bool hasRowChildren = (node.children[0].type == GuiNodeType::Row);
+            if (hasRowChildren) {
+                float slotH = innerH / static_cast<float>(n);
+                for (size_t i = 0; i < n; ++i) {
+                    computeLayoutBounds(node.children[i], x + 10.0f, innerY + i * slotH, availableW - 20.0f, slotH);
+                }
+            } else {
+                float slotW = (availableW - 20.0f) / static_cast<float>(n);
+                for (size_t i = 0; i < n; ++i) {
+                    computeLayoutBounds(node.children[i], x + 10.0f + i * slotW, innerY, slotW, innerH);
+                }
             }
         }
     } else if (node.type == GuiNodeType::Knob || node.type == GuiNodeType::Nixie ||

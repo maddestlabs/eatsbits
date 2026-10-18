@@ -3661,6 +3661,25 @@ void testShapedKnobVectorEngine() {
         auto cream = getKnobShapeDef(GuiKnobStyle::CreamFluted);
         assert(cream.shape == KnobBodyShape::FlutedScalloped);
         assert(cream.flutes == 14);
+
+        // Validate Studio / Neumorphic presets (gui-variations aesthetic)
+        auto studioClean = getKnobShapeDef(GuiKnobStyle::StudioClean);
+        assert(studioClean.shape == KnobBodyShape::Round);
+        assert(studioClean.isLightRotor == true);
+        assert(studioClean.showHaloArc == true);
+        assert(studioClean.trackColor.has_value());
+
+        auto studioRuby = getKnobShapeDef(GuiKnobStyle::StudioRuby);
+        assert(studioRuby.indicatorColor.r > 0.8f && studioRuby.indicatorColor.g < 0.2f); // Ruby Red
+
+        auto studioMagenta = getKnobShapeDef(GuiKnobStyle::StudioMagenta);
+        assert(studioMagenta.indicatorColor.r > 0.6f && studioMagenta.indicatorColor.b > 0.5f); // Magenta/Purple
+
+        auto studioCyan = getKnobShapeDef(GuiKnobStyle::StudioCyan);
+        assert(studioCyan.indicatorColor.b > 0.9f && studioCyan.indicatorColor.r < 0.2f); // Cyan
+
+        auto studioBipolar = getKnobShapeDef(GuiKnobStyle::StudioBipolar);
+        assert(studioBipolar.hasCenterDetent == true);
     }
 
     // 2. Validate custom shape configuration on GuiWidgetDef
@@ -3723,6 +3742,27 @@ void testShapedKnobVectorEngine() {
         wEncoder.accentColor = Color(0.0f, 0.95f, 1.0f);
         drawKnobWidget(r, 500.0f, 300.0f, 26.0f, 0.85f, wEncoder, light, true, true, false);
 
+        // Test StudioClean / StudioCyan / StudioRuby presets (gui-variations styling)
+        GuiWidgetDef wStudioCyan;
+        wStudioCyan.knobStyle = GuiKnobStyle::StudioCyan;
+        wStudioCyan.label = "CUTOFF";
+        wStudioCyan.sublabel = "FILTER";
+        wStudioCyan.currentVal = 2400.0f;
+        wStudioCyan.unit = "Hz";
+        wStudioCyan.labelAlignment = KnobLayoutMode::InlineRight;
+        assert(wStudioCyan.getFormattedValue() == "2400.0 Hz");
+        drawKnobWidget(r, 600.0f, 300.0f, 26.0f, 0.70f, wStudioCyan, light, false, false, true);
+
+        GuiWidgetDef wStudioRuby;
+        wStudioRuby.knobStyle = GuiKnobStyle::StudioRuby;
+        wStudioRuby.label = "RESO";
+        wStudioRuby.sublabel = "Q PEAK";
+        wStudioRuby.currentVal = 0.55f;
+        wStudioRuby.labelAlignment = KnobLayoutMode::BottomStacked;
+        wStudioRuby.showValueBox = true;
+        assert(wStudioRuby.getFormattedValue() == "0.55");
+        drawKnobWidget(r, 700.0f, 300.0f, 26.0f, 0.55f, wStudioRuby, light, true, false, true);
+
         // Verify vertex emission and mode 5 (seamless interior mesh)
         assert(!r.getVertices().empty());
         bool hasMode5 = false;
@@ -3764,6 +3804,209 @@ void testShapedKnobVectorEngine() {
     std::cout << "  [PASS] Shaped rotating knob vector core, skeuomorphic styles, and designer integration validated." << std::endl;
 }
 
+void testModularFaceplateClayLayout() {
+    std::cout << "[Test 29] Modular Faceplate Clay Declarative Layout (GuiPanelDef & DesignView)..." << std::endl;
+
+    GuiPanelDef panel;
+    panel.title = "TEST ACID SYNTH";
+    panel.subtitle = "Modular Faceplate Clay Layout";
+    panel.layoutMode = GuiLayoutMode::AutoRowFlow;
+
+    GuiRowDef row0;
+    row0.widgets.push_back({.id = "w_tune", .type = GuiWidgetType::Knob, .label = "TUNE"});
+    row0.widgets.push_back({.id = "w_cut", .type = GuiWidgetType::Knob, .label = "CUTOFF"});
+    row0.widgets.push_back({.id = "w_res", .type = GuiWidgetType::Knob, .label = "RESONANCE"});
+    row0.widgets.push_back({.id = "w_div", .type = GuiWidgetType::Divider});
+    row0.widgets.push_back({.id = "w_nixie", .type = GuiWidgetType::NixieDisplay, .label = "NOTE"});
+    row0.widgets.push_back({.id = "w_btn", .type = GuiWidgetType::ActionButton, .label = "TRIG"});
+
+    GuiRowDef row1;
+    row1.widgets.push_back({.id = "w_slider", .type = GuiWidgetType::Slider, .label = "DECAY"});
+    row1.widgets.push_back({.id = "w_switch", .type = GuiWidgetType::ToggleSwitch, .label = "WAVE"});
+
+    panel.rows.push_back(row0);
+    panel.rows.push_back(row1);
+
+    panel.layoutControls(Rect2D(50.0f, 50.0f, 700.0f, 360.0f));
+
+    assert(panel.rows.size() == 2);
+    assert(panel.rows[0].bounds.w > 0.0f);
+    assert(panel.rows[0].bounds.h > 0.0f);
+    assert(panel.rows[1].bounds.y > panel.rows[0].bounds.y);
+
+    // Verify widgets in row 0
+    const auto& r0w = panel.rows[0].widgets;
+    assert(r0w.size() == 6);
+    assert(r0w[3].type == GuiWidgetType::Divider);
+    assert(r0w[3].bounds.w > 0.0f);
+
+    // Stacked Nixie + Button: Button must be positioned vertically below Nixie
+    const auto& nixie = r0w[4];
+    const auto& btn = r0w[5];
+    assert(nixie.type == GuiWidgetType::NixieDisplay);
+    assert(btn.type == GuiWidgetType::ActionButton);
+    assert(nixie.bounds.w > 0.0f);
+    assert(btn.bounds.w > 0.0f);
+    assert(btn.bounds.y >= nixie.bounds.y + nixie.bounds.h - 1.0f);
+
+    // Verify widgets in row 1
+    const auto& r1w = panel.rows[1].widgets;
+    assert(r1w.size() == 2);
+    assert(r1w[0].bounds.w > 0.0f);
+    assert(r1w[1].bounds.x >= r1w[0].bounds.x + r1w[0].bounds.w - 1.0f);
+
+    std::cout << "  [PASS] Modular faceplate rows, dividers, and stacked controls validated." << std::endl;
+}
+
+void testProjectBrowserAndPluginDialogOptimizations() {
+    std::cout << "[Test 30] Project Browser 3-Zone Card Model, Badge Dragging, and Plugin Dialog Drag-Scroll..." << std::endl;
+
+    // 1. PluginSearchDialog Touch/Mouse Drag vs Tap
+    {
+        PluginSearchDialog dialog;
+        bool selected = false;
+        std::string selectedName;
+        dialog.onPluginSelected = [&](PluginDialogMode, const PluginEntry& e, uint32_t) {
+            selected = true;
+            selectedName = e.name;
+        };
+        dialog.open(PluginDialogMode::AddInstrument, "", 0);
+        dialog.layout(1280.0f, 800.0f);
+
+        auto bounds = dialog.getBounds();
+        float cardX = bounds.x + 24.0f + 60.0f; // on text area, not button
+        float cardY = bounds.y + 130.0f;
+
+        // A. Drag scroll test on card text (move > slop threshold)
+        PointerEvent downEv = makePointer(cardX, cardY, PointerAction::Down, PointerType::Touch);
+        dialog.handlePointer(downEv);
+        assert(!selected);
+
+        // Move 25px vertically (> 10px slop) -> triggers drag scroll
+        PointerEvent moveEv = makePointer(cardX, cardY - 25.0f, PointerAction::Move, PointerType::Touch);
+        dialog.handlePointer(moveEv);
+        assert(!selected);
+
+        // Up event after dragging -> MUST NOT select
+        PointerEvent upEv = makePointer(cardX, cardY - 25.0f, PointerAction::Up, PointerType::Touch);
+        dialog.handlePointer(upEv);
+        assert(!selected);
+
+        // B. Tap test on card text (within slop threshold)
+        PointerEvent tapDown = makePointer(cardX, cardY, PointerAction::Down, PointerType::Touch);
+        dialog.handlePointer(tapDown);
+        assert(!selected);
+
+        PointerEvent tapUp = makePointer(cardX, cardY + 2.0f, PointerAction::Up, PointerType::Touch);
+        dialog.handlePointer(tapUp);
+        assert(selected); // Selected on release!
+
+        // C. Direct click on "+ ADD" button -> commits immediately on Down
+        dialog.open(PluginDialogMode::AddInstrument, "", 0);
+        selected = false;
+        float btnX = bounds.x + bounds.w - 70.0f; // inside btnRect
+        float btnY = bounds.y + 130.0f;
+        PointerEvent btnDown = makePointer(btnX, btnY, PointerAction::Down, PointerType::Mouse);
+        dialog.handlePointer(btnDown);
+        assert(selected); // Immediate commit!
+    }
+
+    // 2. ProjectBrowserDrawer 3-Zone Card Model & Badge Dragging
+    {
+        ProjectBrowserDrawer browser;
+        browser.open();
+        browser.setTab(BrowserDrawerTab::Scripts);
+        browser.setScriptCategoryFilter("ALL");
+        browser.layout(1280.0f, 800.0f, 56.0f, 48.0f);
+        browser.update(1.0f); // fully opened
+
+        bool replacedTriggered = false;
+        std::string replacedId;
+        browser.onReplaceActiveTrackInstrument = [&](const std::string& id) {
+            replacedTriggered = true;
+            replacedId = id;
+        };
+
+        bool addedTrackTriggered = false;
+        std::string addedTrackId;
+        browser.onAddPresetTrack = [&](const std::string& id) {
+            addedTrackTriggered = true;
+            addedTrackId = id;
+        };
+
+        bool droppedTriggered = false;
+        BrowserScriptItem droppedScript;
+        float dropTargetX = 0.0f, dropTargetY = 0.0f;
+        browser.onDropScript = [&](const BrowserScriptItem& s, float x, float y) {
+            droppedTriggered = true;
+            droppedScript = s;
+            dropTargetX = x;
+            dropTargetY = y;
+        };
+
+        auto db = browser.getDrawerBounds();
+        float itemY = db.y + 120.0f;
+
+        // Zone 1: Badge dragging (badge is at db.x + 12 to db.x + 48)
+        float badgeX = db.x + 30.0f;
+        PointerEvent badgeDown = makePointer(badgeX, itemY, PointerAction::Down, PointerType::Mouse);
+        browser.handlePointer(badgeDown);
+        assert(browser.isDraggingScriptBadge());
+        assert(browser.getDraggedScript().category == "SYNTH");
+
+        // Move outside drawer bounds onto Arranger
+        PointerEvent badgeMove = makePointer(300.0f, 250.0f, PointerAction::Move, PointerType::Mouse);
+        browser.handlePointer(badgeMove);
+        assert(browser.isDraggingScriptBadge());
+
+        // Release on Arranger
+        PointerEvent badgeUp = makePointer(300.0f, 250.0f, PointerAction::Up, PointerType::Mouse);
+        browser.handlePointer(badgeUp);
+        assert(!browser.isDraggingScriptBadge());
+        assert(droppedTriggered);
+        assert(dropTargetX == 300.0f && dropTargetY == 250.0f);
+        assert(droppedScript.category == "SYNTH");
+
+        // Zone 2: Middle Text Click (replaces active track instrument)
+        float textX = db.x + 100.0f; // text region
+        PointerEvent textDown = makePointer(textX, itemY, PointerAction::Down, PointerType::Mouse);
+        browser.handlePointer(textDown);
+        assert(!browser.isDraggingScriptBadge());
+        assert(!replacedTriggered);
+
+        PointerEvent textUp = makePointer(textX, itemY, PointerAction::Up, PointerType::Mouse);
+        browser.handlePointer(textUp);
+        assert(replacedTriggered);
+        assert(!replacedId.empty());
+
+        // Zone 3: Far right circle '+' button (Add as New Track)
+        float plusBtnX = db.x + db.w - 24.0f;
+        PointerEvent plusDown = makePointer(plusBtnX, itemY, PointerAction::Down, PointerType::Mouse);
+        browser.handlePointer(plusDown);
+        assert(addedTrackTriggered);
+        assert(!addedTrackId.empty());
+    }
+
+    // 3. ArrangerView Track and Below-Track Hit Testing
+    {
+        ArrangerView arranger;
+        ViewContext ctx;
+        ctx.isMobile = false;
+        arranger.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+
+        // Test track index hit
+        int trk0 = arranger.getTrackIndexAt(100.0f, 150.0f);
+        assert(trk0 >= 0);
+
+        // Coordinates below all tracks
+        float belowY = 150.0f + static_cast<float>(arranger.getTracks().size()) * 70.0f;
+        assert(arranger.isBelowLastTrack(100.0f, belowY));
+        assert(arranger.getTrackIndexAt(100.0f, belowY) == -1);
+    }
+
+    std::cout << "  [PASS] Project Browser 3-Zone Card Model, Badge Dragging, and Plugin Dialog Drag-Scroll validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -3797,8 +4040,10 @@ int main() {
     testPanningFxDeletionAndHeaderDoubleClick();
     testUnifiedSlidingDockAndDrawer();
     testShapedKnobVectorEngine();
+    testModularFaceplateClayLayout();
+    testProjectBrowserAndPluginDialogOptimizations();
 
-    std::cout << "\n>>> ALL 28 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 30 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

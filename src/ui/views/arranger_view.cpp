@@ -1,6 +1,8 @@
 #include "eatsbits/ui/views/arranger_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -20,6 +22,9 @@ static const float kQuickPalette[8][3] = {
 };
 
 ArrangerView::ArrangerView() {
+    clayContext_ = std::make_unique<clay::ClayContext>();
+    clayContext_->initialize(1280.0f, 720.0f);
+
     // 1. 303 Acid Bass
     ArrangerTimelineTrack t1;
     t1.name = "303 Acid Bass";
@@ -264,13 +269,19 @@ ArrangerView::ArrangerView() {
     propertiesDrawer_.onParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
         if (trackIdx < tracks_.size()) {
             auto& trk = tracks_[trackIdx];
-            if (paramName == "cutoff" || paramName == "tone" || paramName == "attack" || paramName == "param1") {
+            trk.setKnobValue(paramName, normVal);
+            drawerData_.setKnobValue(paramName, normVal);
+
+            std::string lowerParam = paramName;
+            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            if (lowerParam == "cutoff" || lowerParam == "tone" || lowerParam == "param1") {
                 trk.knob1 = normVal;
-            } else if (paramName == "resonance" || paramName == "snappy" || paramName == "punch" || paramName == "decay" || paramName == "param2") {
+            } else if (lowerParam == "resonance" || lowerParam == "snappy" || lowerParam == "punch" || lowerParam == "param2") {
                 trk.knob2 = normVal;
-            } else if (paramName == "decay" || paramName == "tune" || paramName == "bright" || paramName == "param3") {
+            } else if (lowerParam == "decay" || lowerParam == "tune" || lowerParam == "bright" || lowerParam == "param3") {
                 trk.knob3 = normVal;
-            } else if (paramName == "accent" || paramName == "tuning" || paramName == "crack" || paramName == "detune" || paramName == "param4") {
+            } else if (lowerParam == "accent" || lowerParam == "tuning" || lowerParam == "crack" || lowerParam == "detune" || lowerParam == "param4") {
                 trk.knob4 = normVal;
             }
         }
@@ -322,7 +333,7 @@ ArrangerView::ArrangerView() {
                     TrackMidiFxItem mfx;
                     mfx.id = entry.id;
                     mfx.name = entry.name;
-                    mfx.type = entry.engineTag.empty() ? entry.name : entry.engineTag;
+                    mfx.type = (entry.engineTag.empty() || entry.engineTag == "MIDI Processor" || entry.engineTag == "DSP Effect") ? entry.name : entry.engineTag;
                     mfx.enabled = true;
                     mfx.isExpanded = true;
                     mfx.ensureDefaultKnobs();
@@ -348,18 +359,23 @@ ArrangerView::ArrangerView() {
     propertiesDrawer_.onRemoveMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFx.size()) {
             tracks_[trackIdx].midiFx.erase(tracks_[trackIdx].midiFx.begin() + fxIdx);
+            syncDrawerDataForTrack(trackIdx);
             if (onMidiFxChanged) onMidiFxChanged(trackIdx);
         }
     };
     propertiesDrawer_.onRemoveAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].audioFx.size()) {
             tracks_[trackIdx].audioFx.erase(tracks_[trackIdx].audioFx.begin() + fxIdx);
+            syncDrawerDataForTrack(trackIdx);
             if (onAudioFxChanged) onAudioFxChanged(trackIdx);
         }
     };
     propertiesDrawer_.onToggleMidiFx = [this](uint32_t trackIdx, size_t fxIdx, bool en) {
         if (trackIdx < tracks_.size() && fxIdx < tracks_[trackIdx].midiFx.size()) {
             tracks_[trackIdx].midiFx[fxIdx].enabled = en;
+            if (fxIdx < drawerData_.midiFx.size()) {
+                drawerData_.midiFx[fxIdx].enabled = en;
+            }
             if (onToggleMidiFx) onToggleMidiFx(trackIdx, fxIdx, en);
             if (onMidiFxChanged) onMidiFxChanged(trackIdx);
         }
@@ -405,6 +421,17 @@ ArrangerView::ArrangerView() {
         if (trackIdx < tracks_.size()) {
             tracks_[trackIdx].midiFx = drawerData_.midiFx;
             if (onMidiFxChanged) onMidiFxChanged(trackIdx);
+        }
+    };
+    propertiesDrawer_.onMidiFxParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+        if (trackIdx < tracks_.size()) {
+            tracks_[trackIdx].midiFx = drawerData_.midiFx;
+            if (onMidiFxParamChanged) {
+                onMidiFxParamChanged(trackIdx, paramName, normVal);
+            }
+            if (onMidiFxChanged) {
+                onMidiFxChanged(trackIdx);
+            }
         }
     };
     propertiesDrawer_.onAudioFxParamChanged = [this](uint32_t trackIdx, size_t fxIdx, const std::string& paramName, float normVal) {
@@ -516,6 +543,8 @@ ArrangerView::ArrangerView() {
     };
 }
 
+ArrangerView::~ArrangerView() = default;
+
 void ArrangerView::setMasterLevels(float masterVol, float masterPan, bool masterMute,
                                    float masterPeakL, float masterPeakR,
                                    const float* chPeaksL, const float* chPeaksR, size_t numPeaks) {
@@ -582,6 +611,7 @@ void ArrangerView::syncDrawerDataForTrack(uint32_t trackIdx) {
         }
         drawerData_.midiFx = track.midiFx;
         drawerData_.audioFx = track.audioFx;
+        drawerData_.customGuiPanel = track.customGuiPanel;
     }
 }
 
@@ -747,6 +777,32 @@ void ArrangerView::addAudioFxToTrack(uint32_t trackIdx, const std::string& name,
         tracks_[trackIdx].audioFx.push_back({name, type, 0.5f, 0.5f, true});
         if (onAudioFxChanged) onAudioFxChanged(trackIdx);
     }
+}
+
+int ArrangerView::getTrackIndexAt(float x, float y) const noexcept {
+    float minX = tracksListBounds_.x;
+    float maxX = gridBounds_.x + gridBounds_.w;
+    if (x < minX || x > maxX) return -1;
+    if (y < tracksListBounds_.y || y > tracksListBounds_.y + tracksListBounds_.h) return -1;
+
+    float localY = y - tracksListBounds_.y + scrollY_;
+    if (localY < 0.0f) return -1;
+    int idx = static_cast<int>(localY / trackRowHeight_);
+    if (idx >= 0 && idx < static_cast<int>(tracks_.size())) {
+        return idx;
+    }
+    return -1;
+}
+
+bool ArrangerView::isBelowLastTrack(float x, float y) const noexcept {
+    float minX = tracksListBounds_.x;
+    float maxX = gridBounds_.x + gridBounds_.w;
+    if (x < minX || x > maxX) return false;
+    if (y < tracksListBounds_.y || y > tracksListBounds_.y + tracksListBounds_.h) return false;
+
+    float localY = y - tracksListBounds_.y + scrollY_;
+    float bottomOfLastTrack = static_cast<float>(tracks_.size()) * trackRowHeight_;
+    return localY >= bottomOfLastTrack;
 }
 
 // -------------------------------------------------------------------------
@@ -971,19 +1027,150 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     float inspW = propertiesDrawer_.getEffectiveWidth();
     float mainW = bounds_.w - inspW - ctx.browserOffset;
 
-    rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
-    minimapBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_, mainW - trackHeaderWidth_, minimapHeight_);
+    if (clayContext_ && clayContext_->isInitialized()) {
+        clayContext_->setDimensions(bounds_.w, bounds_.h);
+        clayContext_->beginLayout();
 
-    // Dedicated Chord Track Lane & Chord Header Card (Eatsbeats parity)
-    chordLaneBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_ + minimapHeight_, mainW - trackHeaderWidth_, chordLaneHeight_);
-    chordHeaderBounds_ = Rect2D(bounds_.x, bounds_.y + rulerHeight_ + minimapHeight_, trackHeaderWidth_, chordLaneHeight_);
+        CLAY(CLAY_ID("ArrangerViewRoot"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(bounds_.w), CLAY_SIZING_FIXED(bounds_.h) },
+                .childGap = 0,
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            }
+        }) {
+            // Main workspace column
+            CLAY(CLAY_ID("ArrangerMainWorkspace"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_FIXED(mainW), CLAY_SIZING_GROW(0) },
+                    .childGap = 0,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                }
+            }) {
+                // Ruler row
+                CLAY(CLAY_ID("RulerRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(rulerHeight_) },
+                        .childGap = 0,
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("RulerHeaderSpacer"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(trackHeaderWidth_), CLAY_SIZING_FIXED(rulerHeight_) } }
+                    }) {}
+                    CLAY(CLAY_ID("TimelineRuler"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(rulerHeight_) } }
+                    }) {}
+                }
 
-    float gridTopY = bounds_.y + rulerHeight_ + minimapHeight_ + chordLaneHeight_;
-    float gridH = bounds_.h - rulerHeight_ - minimapHeight_ - chordLaneHeight_;
+                // Minimap row
+                CLAY(CLAY_ID("MinimapRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(minimapHeight_) },
+                        .childGap = 0,
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("MinimapHeaderSpacer"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(trackHeaderWidth_), CLAY_SIZING_FIXED(minimapHeight_) } }
+                    }) {}
+                    CLAY(CLAY_ID("TimelineMinimap"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(minimapHeight_) } }
+                    }) {}
+                }
 
-    tracksListBounds_ = Rect2D(bounds_.x, gridTopY, trackHeaderWidth_, gridH);
-    gridBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, gridTopY, mainW - trackHeaderWidth_, gridH);
-    inspectorBounds_ = propertiesDrawer_.getDrawerBounds();
+                // Chord Lane row
+                CLAY(CLAY_ID("ChordLaneRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(chordLaneHeight_) },
+                        .childGap = 0,
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("ChordHeader"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(trackHeaderWidth_), CLAY_SIZING_FIXED(chordLaneHeight_) } }
+                    }) {}
+                    CLAY(CLAY_ID("ChordLane"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(chordLaneHeight_) } }
+                    }) {}
+                }
+
+                // Tracks and Timeline Grid row
+                CLAY(CLAY_ID("TracksAndGridRow"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                        .childGap = 0,
+                        .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                    }
+                }) {
+                    CLAY(CLAY_ID("TrackHeadersList"), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(trackHeaderWidth_), CLAY_SIZING_GROW(0) } }
+                    }) {}
+                    CLAY(CLAY_ID("TimelineGrid"), {
+                        .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } }
+                    }) {}
+                }
+            }
+
+            // Right Inspector Slot
+            if (inspW > 0.0f) {
+                CLAY(CLAY_ID("ArrangerInspectorSlot"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(inspW), CLAY_SIZING_GROW(0) },
+                    }
+                }) {}
+            }
+        }
+
+        clayContext_->endLayout(0.016f);
+
+        auto rData = clayContext_->getElementData(CLAY_ID("TimelineRuler"));
+        if (rData.found) {
+            rulerBounds_ = Rect2D(bounds_.x + rData.boundingBox.x, bounds_.y + rData.boundingBox.y,
+                                  rData.boundingBox.width, rData.boundingBox.height);
+        }
+        auto mData = clayContext_->getElementData(CLAY_ID("TimelineMinimap"));
+        if (mData.found) {
+            minimapBounds_ = Rect2D(bounds_.x + mData.boundingBox.x, bounds_.y + mData.boundingBox.y,
+                                    mData.boundingBox.width, mData.boundingBox.height);
+        }
+        auto chHData = clayContext_->getElementData(CLAY_ID("ChordHeader"));
+        if (chHData.found) {
+            chordHeaderBounds_ = Rect2D(bounds_.x + chHData.boundingBox.x, bounds_.y + chHData.boundingBox.y,
+                                        chHData.boundingBox.width, chHData.boundingBox.height);
+        }
+        auto chLData = clayContext_->getElementData(CLAY_ID("ChordLane"));
+        if (chLData.found) {
+            chordLaneBounds_ = Rect2D(bounds_.x + chLData.boundingBox.x, bounds_.y + chLData.boundingBox.y,
+                                      chLData.boundingBox.width, chLData.boundingBox.height);
+        }
+        auto trkData = clayContext_->getElementData(CLAY_ID("TrackHeadersList"));
+        if (trkData.found) {
+            tracksListBounds_ = Rect2D(bounds_.x + trkData.boundingBox.x, bounds_.y + trkData.boundingBox.y,
+                                       trkData.boundingBox.width, trkData.boundingBox.height);
+        }
+        auto grData = clayContext_->getElementData(CLAY_ID("TimelineGrid"));
+        if (grData.found) {
+            gridBounds_ = Rect2D(bounds_.x + grData.boundingBox.x, bounds_.y + grData.boundingBox.y,
+                                 grData.boundingBox.width, grData.boundingBox.height);
+        }
+        inspectorBounds_ = propertiesDrawer_.getDrawerBounds();
+    } else {
+        rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
+        minimapBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_, mainW - trackHeaderWidth_, minimapHeight_);
+
+        // Dedicated Chord Track Lane & Chord Header Card (Eatsbeats parity)
+        chordLaneBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_ + minimapHeight_, mainW - trackHeaderWidth_, chordLaneHeight_);
+        chordHeaderBounds_ = Rect2D(bounds_.x, bounds_.y + rulerHeight_ + minimapHeight_, trackHeaderWidth_, chordLaneHeight_);
+
+        float gridTopY = bounds_.y + rulerHeight_ + minimapHeight_ + chordLaneHeight_;
+        float gridH = bounds_.h - rulerHeight_ - minimapHeight_ - chordLaneHeight_;
+
+        tracksListBounds_ = Rect2D(bounds_.x, gridTopY, trackHeaderWidth_, gridH);
+        gridBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, gridTopY, mainW - trackHeaderWidth_, gridH);
+        inspectorBounds_ = propertiesDrawer_.getDrawerBounds();
+    }
 
     // + ADD track row directly below the last track
     float addRowY = tracksListBounds_.y + static_cast<float>(tracks_.size()) * trackRowHeight_ - scrollY_;
@@ -1456,7 +1643,7 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
                         track.solo ? 0.95f : 0.20f, track.solo ? 0.80f : 0.20f, 0.10f, 0.95f);
         drawText(r, "S", tracksListBounds_.x + tracksListBounds_.w - 18.0f, btnY + 2.5f, 8.0f, 1.0f, 1.0f, 1.0f, 1.0f);
 
-        // Volume Horizontal Pill Slider (VOL 85%) moved down by 10px
+        // Volume Horizontal Pill Slider (VOL)
         drawText(r, "VOL", tracksListBounds_.x + 14.0f, rowY + 40.0f, 8.5f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
@@ -1465,25 +1652,17 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
         float sliderX = tracksListBounds_.x + 36.0f;
         float sliderY = rowY + 44.0f;
 
-        // Slider track
-        drawRoundedRect(r, sliderX, sliderY, sliderW, sliderH, 2.0f,
-                        0.10f, 0.10f, 0.12f, 1.0f);
-        // Colored volume progress fill
+        Color trackCol{track.r, track.g, track.b, 1.0f};
         float normV = std::clamp(track.volume / 1.5f, 0.0f, 1.0f);
-        drawRoundedRect(r, sliderX, sliderY, sliderW * normV, sliderH, 2.0f,
-                        track.r, track.g, track.b, 1.0f);
-        // Slider pill thumb
-        float thumbX = sliderX + sliderW * normV;
-        drawCircle(r, thumbX, sliderY + 2.0f, 5.0f, 0.85f, 0.85f, 0.90f, 1.0f);
+        SliderStyleCore volStyle = SliderStyleCore::horizontalTrack(trackCol, sliderH);
+        drawUnifiedSlider(r, Rect2D{sliderX, sliderY, sliderW, sliderH}, normV, volStyle, trackCol, &theme);
 
-        // Pan Knob with center detent indicator line (moved down by 10px, text readout removed)
+        // Pan Micro-Knob with center detent indicator line
         float knobX = tracksListBounds_.x + tracksListBounds_.w - 22.0f;
         float knobY = rowY + 46.0f;
-        drawCircle(r, knobX, knobY, 9.0f, 0.15f, 0.16f, 0.18f, 1.0f);
-        drawCircle(r, knobX, knobY, 7.5f, 0.08f, 0.08f, 0.09f, 1.0f);
-        float pAngle = -1.57f + track.pan * 2.2f;
-        drawLine(r, knobX, knobY, knobX + std::cos(pAngle) * 6.5f, knobY + std::sin(pAngle) * 6.5f,
-                 track.r, track.g, track.b, 1.0f, 1.5f);
+        float normPan = std::clamp((track.pan + 1.0f) * 0.5f, 0.0f, 1.0f);
+        KnobStyleCore panStyle = KnobStyleCore::micro(trackCol, true);
+        drawUnifiedKnob(r, knobX, knobY, 9.0f, normPan, panStyle, {}, {}, &theme);
 
         drawLine(r, tracksListBounds_.x, rowY + trackRowHeight_, tracksListBounds_.x + tracksListBounds_.w, rowY + trackRowHeight_,
                  theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.45f, 1.0f);

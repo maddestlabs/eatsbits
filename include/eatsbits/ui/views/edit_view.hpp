@@ -29,6 +29,10 @@ namespace eatsbits::ui {
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 
+namespace eatsbits::ui::clay {
+class ClayContext;
+}
+
 namespace eatsbits::ui {
 
 enum class EditSubViewMode {
@@ -67,7 +71,7 @@ struct PianoRollNote {
 class EditView : public ViewBase {
 public:
     EditView();
-    ~EditView() override = default;
+    ~EditView() override;
 
     void layout(const Rect2D& bounds, const ViewContext& ctx) override;
     void render(const ViewContext& ctx) override;
@@ -311,6 +315,8 @@ private:
     float lastMouseX_{0.0f};
     float lastMouseY_{0.0f};
     float sidebarScrollY_{0.0f};
+
+    std::unique_ptr<clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::ui

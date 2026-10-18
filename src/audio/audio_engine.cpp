@@ -34,6 +34,7 @@
 #include "eatsbits/audio/graph/nodes/drum_kit_node.hpp"
 #include "eatsbits/audio/graph/nodes/dx7_node.hpp"
 #include "eatsbits/audio/graph/nodes/physical_instrument_node.hpp"
+#include "eatsbits/audio/graph/nodes/clavinet_node.hpp"
 #include "eatsbits/audio/graph/nodes/sid_node.hpp"
 #include "eatsbits/audio/graph/nodes/snes_node.hpp"
 #include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
@@ -134,6 +135,12 @@ void AudioEngine::setupDefaultAcidGraph() {
     graph_.connect(delayId, 0, gainId, 0);
     graph_.setOutputNode(gainId, 0);
 
+    trackSourceNodeCache_[0] = tbId;
+    trackFxNodeIds_[0] = {delayId};
+    if (sequencer_.getNumTracks() > 0 && sequencer_.getTrack(0)) {
+        sequencer_.getTrack(0)->setTargetNodeId(tbId);
+    }
+
     engineMode_ = SynthEngineMode::ModularGraph;
 }
 
@@ -154,6 +161,12 @@ void AudioEngine::setupDefaultPolyGraph() {
     graph_.connect(biquadId, 0, delayId, 0);
     graph_.connect(delayId, 0, gainId, 0);
     graph_.setOutputNode(gainId, 0);
+
+    trackSourceNodeCache_[0] = polyId;
+    trackFxNodeIds_[0] = {delayId};
+    if (sequencer_.getNumTracks() > 0 && sequencer_.getTrack(0)) {
+        sequencer_.getTrack(0)->setTargetNodeId(polyId);
+    }
 
     engineMode_ = SynthEngineMode::ModularGraph;
 }
@@ -256,6 +269,12 @@ void AudioEngine::setupDefaultAcidBeatGraph() {
     trackFxNodeIds_[4] = {};
     trackFxConfigs_[4] = {};
 
+    for (const auto& [t, srcId] : trackSourceNodeCache_) {
+        if (t < sequencer_.getNumTracks() && sequencer_.getTrack(t)) {
+            sequencer_.getTrack(t)->setTargetNodeId(srcId);
+        }
+    }
+
     graph_.setOutputNode(masterId, 0);
     engineMode_ = SynthEngineMode::ModularGraph;
 }
@@ -302,6 +321,12 @@ void AudioEngine::setupDefaultRhodesGrandGraph() {
     trackSourceNodeCache_[1] = pianoId;
     trackFxNodeIds_[1] = {};
     trackFxConfigs_[1] = {};
+
+    for (const auto& [t, srcId] : trackSourceNodeCache_) {
+        if (t < sequencer_.getNumTracks() && sequencer_.getTrack(t)) {
+            sequencer_.getTrack(t)->setTargetNodeId(srcId);
+        }
+    }
 
     graph_.setOutputNode(masterId, 0);
     engineMode_ = SynthEngineMode::ModularGraph;
@@ -352,6 +377,7 @@ uint32_t AudioEngine::getBufferFrameSize() const noexcept {
 
 bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool isAccent, int trackIndex, bool applyMidiFx) noexcept {
     uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    std::vector<uint8_t> exNotes;
     if (applyMidiFx && tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
         if (trk) {
@@ -369,12 +395,49 @@ bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool is
             for (const auto& fx : trk->getMidiFxRack()) {
                 if (!fx.enabled) continue;
                 if (fx.type == eatscript::MidiFxType::ScaleSnap) {
-                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : 0;
-                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : false;
+                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : (fx.params.count("root") ? static_cast<int>(fx.params.at("root")) : 0);
+                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : false);
                     noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                    for (auto& en : exNotes) {
+                        en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(en, root, minor));
+                    }
                 } else if (fx.type == eatscript::MidiFxType::Transpose) {
                     int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
                     noteNum = std::clamp(noteNum + semi, 0, 127);
+                    for (auto& en : exNotes) {
+                        en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
+                    }
+                } else if (fx.type == eatscript::MidiFxType::ChordStabs || fx.type == eatscript::MidiFxType::ChordArp) {
+                    if (exNotes.empty()) {
+                        bool isMinor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : false);
+                        int third = isMinor ? 3 : 4;
+                        int fifth = 7;
+                        exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                        exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                        if (fx.type == eatscript::MidiFxType::ChordArp) {
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + 12, 0, 127)));
+                        }
+                    }
+                } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
+                    float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+                    const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+                    if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                        activeChord = &sequencer_.getChordTrack().front();
+                    }
+                    if (activeChord) {
+                        noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, theory::ChordFollowMode::Chord);
+                    }
+                } else if (fx.type == eatscript::MidiFxType::Arpeggiator) {
+                    if (exNotes.empty()) {
+                        int octs = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : (fx.params.count("octaves") ? std::max(1, static_cast<int>(fx.params.at("octaves"))) : 2);
+                        for (int o = 1; o < octs; ++o) {
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + o * 12, 0, 127)));
+                        }
+                    }
+                } else if (fx.type == eatscript::MidiFxType::Humanize) {
+                    float velAmt = fx.params.count("humanizeVelocity") ? fx.params.at("humanizeVelocity") : (fx.params.count("velocity") ? fx.params.at("velocity") : 0.20f);
+                    float velJitter = (((rand() % 100) / 50.0f) - 1.0f) * velAmt;
+                    velocity = std::clamp(velocity + velJitter, 0.05f, 1.0f);
                 }
             }
             note = static_cast<uint8_t>(std::clamp(noteNum, 0, 127));
@@ -404,11 +467,19 @@ bool AudioEngine::postNoteOn(uint8_t note, float velocity, bool isSlide, bool is
     }
     evt.targetNodeId = targetNodeId;
     evt.channel = 0;
-    return eventQueue_.push(evt);
+    bool pushed = eventQueue_.push(evt);
+
+    for (uint8_t exNote : exNotes) {
+        AudioEvent exEvt = evt;
+        exEvt.note = exNote;
+        eventQueue_.push(exEvt);
+    }
+    return pushed;
 }
 
 bool AudioEngine::postNoteOff(uint8_t note, int trackIndex, bool applyMidiFx) noexcept {
     uint32_t tIdx = (trackIndex >= 0) ? static_cast<uint32_t>(trackIndex) : activeTrackIndex_.load(std::memory_order_relaxed);
+    std::vector<uint8_t> exNotes;
     if (applyMidiFx && tIdx < sequencer_.getNumTracks()) {
         const auto* trk = sequencer_.getTrack(tIdx);
         if (trk) {
@@ -426,12 +497,45 @@ bool AudioEngine::postNoteOff(uint8_t note, int trackIndex, bool applyMidiFx) no
             for (const auto& fx : trk->getMidiFxRack()) {
                 if (!fx.enabled) continue;
                 if (fx.type == eatscript::MidiFxType::ScaleSnap) {
-                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : 0;
-                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : false;
+                    int root = fx.params.count("rootKey") ? static_cast<int>(fx.params.at("rootKey")) : (fx.params.count("root") ? static_cast<int>(fx.params.at("root")) : 0);
+                    bool minor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : false);
                     noteNum = eatscript::MidiPipelineEngine::snapToScale(noteNum, root, minor);
+                    for (auto& en : exNotes) {
+                        en = static_cast<uint8_t>(eatscript::MidiPipelineEngine::snapToScale(en, root, minor));
+                    }
                 } else if (fx.type == eatscript::MidiFxType::Transpose) {
                     int semi = fx.params.count("semitones") ? static_cast<int>(fx.params.at("semitones")) : (fx.params.count("transpose") ? static_cast<int>(fx.params.at("transpose")) : 0);
                     noteNum = std::clamp(noteNum + semi, 0, 127);
+                    for (auto& en : exNotes) {
+                        en = static_cast<uint8_t>(std::clamp(static_cast<int>(en) + semi, 0, 127));
+                    }
+                } else if (fx.type == eatscript::MidiFxType::ChordStabs || fx.type == eatscript::MidiFxType::ChordArp) {
+                    if (exNotes.empty()) {
+                        bool isMinor = fx.params.count("scaleMode") ? (fx.params.at("scaleMode") > 0.5f) : (fx.params.count("scale") ? (fx.params.at("scale") > 0.5f) : false);
+                        int third = isMinor ? 3 : 4;
+                        int fifth = 7;
+                        exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + third, 0, 127)));
+                        exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + fifth, 0, 127)));
+                        if (fx.type == eatscript::MidiFxType::ChordArp) {
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + 12, 0, 127)));
+                        }
+                    }
+                } else if (fx.type == eatscript::MidiFxType::ChordFollow) {
+                    float currentBar = static_cast<float>(sequencer_.getTransport().getCurrentStep()) / 16.0f;
+                    const auto* activeChord = sequencer_.getActiveChordAtBar(currentBar);
+                    if (!activeChord && !sequencer_.getChordTrack().empty()) {
+                        activeChord = &sequencer_.getChordTrack().front();
+                    }
+                    if (activeChord) {
+                        noteNum = theory::ChordTheory::remapPitchForChord(noteNum, *activeChord, theory::ChordFollowMode::Chord);
+                    }
+                } else if (fx.type == eatscript::MidiFxType::Arpeggiator) {
+                    if (exNotes.empty()) {
+                        int octs = fx.params.count("Octaves") ? std::max(1, static_cast<int>(fx.params.at("Octaves"))) : (fx.params.count("octaves") ? std::max(1, static_cast<int>(fx.params.at("octaves"))) : 2);
+                        for (int o = 1; o < octs; ++o) {
+                            exNotes.push_back(static_cast<uint8_t>(std::clamp(noteNum + o * 12, 0, 127)));
+                        }
+                    }
                 }
             }
             note = static_cast<uint8_t>(std::clamp(noteNum, 0, 127));
@@ -458,7 +562,14 @@ bool AudioEngine::postNoteOff(uint8_t note, int trackIndex, bool applyMidiFx) no
     }
     evt.targetNodeId = targetNodeId;
     evt.channel = 0;
-    return eventQueue_.push(evt);
+    bool pushed = eventQueue_.push(evt);
+
+    for (uint8_t exNote : exNotes) {
+        AudioEvent exEvt = evt;
+        exEvt.note = exNote;
+        eventQueue_.push(exEvt);
+    }
+    return pushed;
 }
 
 bool AudioEngine::postTrackNoteOn(uint32_t trackIndex, uint8_t note, float velocity, bool isSlide, bool isAccent) noexcept {
@@ -643,8 +754,11 @@ NodeId AudioEngine::assignTrackInstrument(uint32_t trackIndex, const std::string
         } else if (key.find("dx7") != std::string::npos || key.find("rhodes") != std::string::npos ||
                    key.find("epiano") != std::string::npos || key.find("fm") != std::string::npos) {
             newInstrument = std::make_shared<Dx7Node>(nodeName);
+        } else if (key.find("clavinet") != std::string::npos || key.find("clav") != std::string::npos ||
+                   key.find("d6") != std::string::npos) {
+            newInstrument = std::make_shared<ClavinetNode>(nodeName);
         } else if (key.find("piano") != std::string::npos || key.find("grand") != std::string::npos ||
-                   key.find("harpsichord") != std::string::npos || key.find("clavinet") != std::string::npos) {
+                   key.find("harpsichord") != std::string::npos) {
             newInstrument = std::make_shared<PhysicalInstrumentNode>(PhysicalModelType::ConcertGrandPiano, nodeName);
         } else if (key.find("upright_bass") != std::string::npos || key.find("double_bass") != std::string::npos ||
                    (key.find("bass") != std::string::npos && key.find("synth") == std::string::npos && key.find("sub") == std::string::npos)) {
@@ -1324,8 +1438,8 @@ void AudioEngine::processEvents() noexcept {
                     attachedPluginDesc_->note_on(attachedPluginInstance_, evt.note, evt.velocity);
                 }
                 if (engineMode_ == SynthEngineMode::Tb303Acid) {
-                    const bool isSlide = (evt.paramId != 0);
-                    const bool isAccent = (evt.paramValue > 0.5f);
+                    const bool isSlide = (evt.paramId != 0) || ((evt.channel & 0x01) != 0);
+                    const bool isAccent = (evt.paramValue > 0.5f) || ((evt.channel & 0x02) != 0) || (evt.velocity > 0.75f);
                     tb303_.noteOn(evt.note, evt.velocity, isSlide, isAccent);
                 } else {
                     polySynth_.noteOn(evt.note, evt.velocity);
@@ -1359,8 +1473,30 @@ void AudioEngine::processEvents() noexcept {
                 } else if (evt.paramId == 1) { // Resonance
                     polySynth_.setResonance(evt.paramValue);
                     tb303_.setResonance(evt.paramValue);
-                } else if (evt.paramId == 2) { // Volume
-                    masterMixer_.setVolume(evt.paramValue);
+                } else if (evt.paramId == 2) { // Volume or EnvMod
+                    if (engineMode_ == SynthEngineMode::Tb303Acid) {
+                        tb303_.setEnvMod(evt.paramValue);
+                    } else {
+                        masterMixer_.setVolume(evt.paramValue);
+                    }
+                } else if (evt.paramId == 3) {
+                    tb303_.setDecay(evt.paramValue);
+                } else if (evt.paramId == 4) {
+                    tb303_.setAccent(evt.paramValue);
+                } else if (evt.paramId == 5) {
+                    tb303_.setWaveform(evt.paramValue);
+                } else if (evt.paramId == 6) {
+                    tb303_.setOverdrive(evt.paramValue);
+                } else if (evt.paramId == 7) {
+                    tb303_.setTuning(evt.paramValue);
+                } else if (evt.paramId == 8) {
+                    tb303_.setOctave(static_cast<int>(std::round(evt.paramValue)));
+                } else if (evt.paramId == 9) {
+                    tb303_.setSubVolume(evt.paramValue);
+                } else if (evt.paramId == 10) {
+                    tb303_.setSubWaveform(evt.paramValue);
+                } else if (evt.paramId == 11) {
+                    tb303_.setGlideCurve(evt.paramValue);
                 }
                 break;
 

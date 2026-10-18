@@ -1,6 +1,7 @@
 #include "eatsbits/ui/widgets/plugin_search_dialog.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
+#include <clay.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -24,6 +25,7 @@ static std::string toUpperStr(std::string s) {
 
 PluginSearchDialog::PluginSearchDialog() {
     initLibrary();
+    layout(1280.0f, 800.0f);
 }
 
 void PluginSearchDialog::initLibrary() {
@@ -235,22 +237,123 @@ void PluginSearchDialog::open(PluginDialogMode mode, const std::string& targetTr
     selectedItemIndex_ = 0;
     scrollY_ = 0.0f;
     scrollArea_.setScrollY(0.0f);
+    layout(screenWidth_, screenHeight_);
 }
 
 void PluginSearchDialog::layout(float screenW, float screenH) {
     screenWidth_ = screenW;
     screenHeight_ = screenH;
 
+    if (!clayCtx_.isInitialized()) {
+        clayCtx_.initialize(screenW, screenH);
+    } else {
+        clayCtx_.setDimensions(screenW, screenH);
+    }
+
     float dw = std::min(screenW * 0.90f, 620.0f);
     float dh = std::min(screenH * 0.85f, 540.0f);
-    float dx = (screenW - dw) * 0.5f;
-    float dy = (screenH - dh) * 0.5f;
 
-    dialogBounds_ = Rect2D(dx, dy, dw, dh);
-    closeBtnBounds_ = Rect2D(dx + dw - 36.0f, dy + 14.0f, 24.0f, 24.0f);
-    rescanBtnBounds_ = Rect2D(closeBtnBounds_.x - 80.0f, dy + 15.0f, 70.0f, 22.0f);
-    searchBoxBounds_ = Rect2D(dx + 20.0f, dy + 92.0f, dw - 40.0f, 32.0f);
+    const auto& cats = (mode_ == PluginDialogMode::SelectPreset) ? selectPresetCategories_ :
+                       (mode_ == PluginDialogMode::AddInstrument) ? instrumentCategories_ :
+                       (mode_ == PluginDialogMode::AddDrums) ? drumsCategories_ :
+                       (mode_ == PluginDialogMode::AddMidiFx) ? midiFxCategories_ :
+                       (mode_ == PluginDialogMode::AddMidiSeq) ? midiSeqCategories_ :
+                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ :
+                       (mode_ == PluginDialogMode::AddModule) ? moduleCategories_ : audioFxCategories_;
+
+    clayCtx_.beginLayout();
+
+    CLAY(CLAY_ID("PluginDialogOverlay"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+            .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+        }
+    }) {
+        CLAY(CLAY_ID("PluginDialogCard"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_FIXED(dw), CLAY_SIZING_FIXED(dh) },
+                .padding = { 20, 20, 14, 16 },
+                .childGap = 10,
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+            }
+        }) {
+            // Header Row: Title area (grow), Rescan btn (fixed 70x22), Close btn (fixed 24x24)
+            CLAY(CLAY_ID("PluginHeaderRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(26) },
+                    .childGap = 8,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                CLAY(CLAY_ID("PluginTitleArea"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24) }
+                    }
+                }) {}
+                CLAY(CLAY_ID("PluginRescanBtn"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(70), CLAY_SIZING_FIXED(22) }
+                    }
+                }) {}
+                CLAY(CLAY_ID("PluginCloseBtn"), {
+                    .layout = {
+                        .sizing = { CLAY_SIZING_FIXED(24), CLAY_SIZING_FIXED(24) }
+                    }
+                }) {}
+            }
+
+            // Category Filter Row
+            CLAY(CLAY_ID("PluginCategoryRow"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24) },
+                    .childGap = 6,
+                    .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER },
+                    .layoutDirection = CLAY_LEFT_TO_RIGHT,
+                }
+            }) {
+                for (size_t i = 0; i < cats.size(); ++i) {
+                    float chipW = static_cast<float>(cats[i].length()) * 7.5f + 16.0f;
+                    CLAY(CLAY_IDI("PluginCatChip", static_cast<uint32_t>(i)), {
+                        .layout = { .sizing = { CLAY_SIZING_FIXED(chipW), CLAY_SIZING_FIXED(24) } }
+                    }) {}
+                }
+            }
+
+            // Search Box Row
+            CLAY(CLAY_ID("PluginSearchBox"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(32) }
+                }
+            }) {}
+
+            // Cards Scrollable Area (Flex Grow remaining vertical space)
+            CLAY(CLAY_ID("PluginCardsArea"), {
+                .layout = {
+                    .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) }
+                },
+                .clip = { .vertical = true }
+            }) {}
+        }
+    }
+
+    clayCtx_.endLayout(0.016f);
+
+    auto toRect = [](const Clay_BoundingBox& b) noexcept -> Rect2D {
+        return Rect2D(b.x, b.y, b.width, b.height);
+    };
+
+    dialogBounds_ = toRect(Clay_GetElementData(CLAY_ID("PluginDialogCard")).boundingBox);
+    closeBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("PluginCloseBtn")).boundingBox);
+    rescanBtnBounds_ = toRect(Clay_GetElementData(CLAY_ID("PluginRescanBtn")).boundingBox);
+    searchBoxBounds_ = toRect(Clay_GetElementData(CLAY_ID("PluginSearchBox")).boundingBox);
     searchClearBtnBounds_ = Rect2D(searchBoxBounds_.x + searchBoxBounds_.w - 28.0f, searchBoxBounds_.y + 4.0f, 24.0f, 24.0f);
+    cardsAreaBounds_ = toRect(Clay_GetElementData(CLAY_ID("PluginCardsArea")).boundingBox);
+
+    categoryChipBounds_.resize(cats.size());
+    for (size_t i = 0; i < cats.size(); ++i) {
+        categoryChipBounds_[i] = toRect(Clay_GetElementData(CLAY_IDI("PluginCatChip", static_cast<uint32_t>(i))).boundingBox);
+    }
 }
 
 void PluginSearchDialog::setSearchQuery(const std::string& query) {
@@ -351,8 +454,7 @@ std::vector<PluginEntry> PluginSearchDialog::getFilteredEntries() const {
 }
 
 void PluginSearchDialog::scrollIndexIntoView(int index) {
-    float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
-    float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
+    float listH = cardsAreaBounds_.h;
     float cardH = 54.0f;
     float cardSpacing = 8.0f;
     float itemTop = static_cast<float>(index) * (cardH + cardSpacing);
@@ -480,7 +582,8 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                     (std::hypot(lastMouseX_ - clCenterX, lastMouseY_ - clCenterY) <= 13.0f);
     drawScrewCloseButton(r, clCenterX, clCenterY, 9.0f, closeHov, theme.primaryAccent);
 
-    drawLine(r, dialogBounds_.x, dialogBounds_.y + 48.0f, dialogBounds_.x + dialogBounds_.w, dialogBounds_.y + 48.0f,
+    float headerBottom = rescanBtnBounds_.y + rescanBtnBounds_.h + 5.0f;
+    drawLine(r, dialogBounds_.x, headerBottom, dialogBounds_.x + dialogBounds_.w, headerBottom,
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
 
     // 4. Category Filter Chips
@@ -492,26 +595,22 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                        (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ :
                        (mode_ == PluginDialogMode::AddModule) ? moduleCategories_ : audioFxCategories_;
 
-    float chipX = dialogBounds_.x + 20.0f;
-    float chipY = dialogBounds_.y + 58.0f;
-    for (size_t i = 0; i < cats.size(); ++i) {
-        float chipW = static_cast<float>(cats[i].length()) * 7.5f + 16.0f;
+    for (size_t i = 0; i < cats.size() && i < categoryChipBounds_.size(); ++i) {
+        const auto& chipBounds = categoryChipBounds_[i];
         bool isAct = (static_cast<int>(i) == selectedCategoryIndex_);
 
-        drawRoundedRect(r, chipX, chipY, chipW, 24.0f, 4.0f,
+        drawRoundedRect(r, chipBounds.x, chipBounds.y, chipBounds.w, chipBounds.h, 4.0f,
                         isAct ? theme.secondaryAccent.r * 0.25f : theme.controlBackground.r,
                         isAct ? theme.secondaryAccent.g * 0.25f : theme.controlBackground.g,
                         isAct ? theme.secondaryAccent.b * 0.25f : theme.controlBackground.b, 0.9f);
         if (isAct) {
-            drawRoundedRectOutline(r, chipX, chipY, chipW, 24.0f, 4.0f,
+            drawRoundedRectOutline(r, chipBounds.x, chipBounds.y, chipBounds.w, chipBounds.h, 4.0f,
                                    theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f, 1.2f);
         }
-        drawCenteredText(r, cats[i], chipX, chipY, chipW, 24.0f, 9.5f,
+        drawCenteredText(r, cats[i], chipBounds.x, chipBounds.y, chipBounds.w, chipBounds.h, 9.5f,
                          isAct ? theme.secondaryAccent.r : theme.textMuted.r,
                          isAct ? theme.secondaryAccent.g : theme.textMuted.g,
                          isAct ? theme.secondaryAccent.b : theme.textMuted.b, 1.0f);
-
-        chipX += chipW + 6.0f;
     }
 
     // 5. Refined Filter Text Box with Focus Glow & Blinking Cursor
@@ -575,35 +674,36 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     }
 
     // 6. Plugin Cards List with ScrollableArea & STRICT SCISSOR CONTAINMENT
-    float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
-    float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
-    float cardW = dialogBounds_.w - 40.0f;
+    float listY = cardsAreaBounds_.y;
+    float listH = cardsAreaBounds_.h;
+    float cardW = cardsAreaBounds_.w;
     float cardH = 54.0f;
     float cardSpacing = 8.0f;
+    float cx = cardsAreaBounds_.x;
 
     float totalContentH = static_cast<float>(entries.size()) * (cardH + cardSpacing);
-    scrollArea_.setViewport(dialogBounds_.x + 20.0f, listY, cardW, listH);
+    scrollArea_.setViewport(cx, listY, cardW, listH);
     scrollArea_.setContentHeight(totalContentH);
     scrollArea_.setScrollY(scrollY_);
     scrollY_ = scrollArea_.getScrollY();
 
     // STRICT SCISSOR CONTAINMENT: Completely confines scrolling within vertical layout bounds
     {
-        BatchRenderer2D::ScissorScope listScissor(r, dialogBounds_.x + 18.0f, listY, cardW + 4.0f, listH);
+        BatchRenderer2D::ScissorScope listScissor(r, cx - 2.0f, listY, cardW + 4.0f, listH);
 
         if (entries.empty()) {
             float emptyY = listY + listH * 0.32f;
             drawCenteredText(r, "NO MATCHING PRESETS OR PLUGINS FOUND",
-                             dialogBounds_.x + 20.0f, emptyY, cardW, 20.0f, 12.0f,
+                             cx, emptyY, cardW, 20.0f, 12.0f,
                              theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
             std::string queryHint = "No results matching \"" + searchQuery_ + "\"";
             drawCenteredText(r, queryHint,
-                             dialogBounds_.x + 20.0f, emptyY + 24.0f, cardW, 16.0f, 10.0f,
+                             cx, emptyY + 24.0f, cardW, 16.0f, 10.0f,
                              theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.9f);
 
             drawCenteredText(r, "Click [X] or press Esc to clear filter",
-                             dialogBounds_.x + 20.0f, emptyY + 44.0f, cardW, 16.0f, 9.5f,
+                             cx, emptyY + 44.0f, cardW, 16.0f, 9.5f,
                              theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.6f);
         } else {
             for (size_t i = 0; i < entries.size(); ++i) {
@@ -612,10 +712,10 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
 
                 const auto& entry = entries[i];
                 bool isKeyboardHighlighted = (static_cast<int>(i) == selectedItemIndex_);
-                bool isHovered = Rect2D(dialogBounds_.x + 20.0f, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
+                bool isHovered = Rect2D(cx, cy, cardW, cardH).contains(lastMouseX_, lastMouseY_);
 
                 // Card Container
-                drawRoundedRect(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                drawRoundedRect(r, cx, cy, cardW, cardH, 6.0f,
                                 isKeyboardHighlighted ? theme.controlBackground.r * 1.35f :
                                 (isHovered ? theme.controlBackground.r * 1.15f : theme.controlBackground.r),
                                 isKeyboardHighlighted ? theme.controlBackground.g * 1.35f :
@@ -624,27 +724,27 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                                 (isHovered ? theme.controlBackground.b * 1.15f : theme.controlBackground.b), 0.96f);
 
                 if (isKeyboardHighlighted) {
-                    drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                    drawRoundedRectOutline(r, cx, cy, cardW, cardH, 6.0f,
                                            theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
                 } else {
-                    drawRoundedRectOutline(r, dialogBounds_.x + 20.0f, cy, cardW, cardH, 6.0f,
+                    drawRoundedRectOutline(r, cx, cy, cardW, cardH, 6.0f,
                                            theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, isHovered ? 0.9f : 0.6f, 1.0f);
                 }
 
                 // Color tag strip on left
-                drawRoundedRect(r, dialogBounds_.x + 22.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
+                drawRoundedRect(r, cx + 2.0f, cy + 4.0f, 5.0f, cardH - 8.0f, 2.0f,
                                 entry.r, entry.g, entry.b, 1.0f);
 
                 // Category Badge
                 std::string catBadge = toUpperStr(entry.category);
                 float catW = catBadge.length() * 6.0f + 10.0f;
-                drawRoundedRect(r, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 3.0f,
+                drawRoundedRect(r, cx + 16.0f, cy + 8.0f, catW, 14.0f, 3.0f,
                                 entry.r * 0.25f, entry.g * 0.25f, entry.b * 0.25f, 0.9f);
-                drawCenteredText(r, catBadge, dialogBounds_.x + 36.0f, cy + 8.0f, catW, 14.0f, 8.0f,
+                drawCenteredText(r, catBadge, cx + 16.0f, cy + 8.0f, catW, 14.0f, 8.0f,
                                  entry.r, entry.g, entry.b, 1.0f);
 
                 // Title
-                float titleX = dialogBounds_.x + 36.0f + catW + 8.0f;
+                float titleX = cx + 16.0f + catW + 8.0f;
                 drawText(r, entry.name, titleX, cy + 8.0f, 12.0f,
                          theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
@@ -660,20 +760,20 @@ void PluginSearchDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
 
                 // Author (if provided)
                 if (!entry.author.empty() && entry.author != "Eatsbeats / Eatsbits") {
-                    drawText(r, "by " + entry.author, dialogBounds_.x + cardW - 190.0f, cy + 9.5f, 8.5f,
+                    drawText(r, "by " + entry.author, cx + cardW - 190.0f, cy + 9.5f, 8.5f,
                              theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.7f);
                 }
 
                 // Description
                 std::string desc = entry.description;
                 if (desc.length() > 95) desc = desc.substr(0, 92) + "...";
-                drawText(r, desc, dialogBounds_.x + 36.0f, cy + 29.0f, 9.5f,
+                drawText(r, desc, cx + 16.0f, cy + 29.0f, 9.5f,
                          theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
 
                 // Action Button on Right (+ LOAD / + ADD)
                 float btnW = 68.0f;
                 float btnH = 26.0f;
-                float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
+                float btnX = cx + cardW - btnW - 12.0f;
                 float btnY = cy + (cardH - btnH) * 0.5f;
 
                 bool btnHover = Rect2D(btnX, btnY, btnW, btnH).contains(lastMouseX_, lastMouseY_);
@@ -702,11 +802,12 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     lastMouseY_ = ev.y;
 
     auto entries = getFilteredEntries();
-    float listY = searchBoxBounds_.y + searchBoxBounds_.h + 12.0f;
-    float listH = dialogBounds_.y + dialogBounds_.h - listY - 16.0f;
-    float cardW = dialogBounds_.w - 40.0f;
+    float listY = cardsAreaBounds_.y;
+    float listH = cardsAreaBounds_.h;
+    float cardW = cardsAreaBounds_.w;
     float cardH = 54.0f;
     float cardSpacing = 8.0f;
+    float cx = cardsAreaBounds_.x;
     float totalContentH = static_cast<float>(entries.size()) * (cardH + cardSpacing);
     float maxScroll = std::max(0.0f, totalContentH - listH);
 
@@ -727,20 +828,41 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
 
     if (ev.action == PointerAction::Move && isDraggingScroll_) {
         float dy = ev.y - dragStartY_;
-        scrollY_ = std::clamp(dragStartScrollY_ - dy, 0.0f, maxScroll);
-        scrollArea_.setScrollY(scrollY_);
+        float slop = (ev.type == PointerType::Touch) ? 10.0f : 4.0f;
+        if (std::abs(dy) > slop) {
+            touchDragCommitted_ = true;
+        }
+        if (touchDragCommitted_) {
+            scrollY_ = std::clamp(dragStartScrollY_ - dy, 0.0f, maxScroll);
+            scrollArea_.setScrollY(scrollY_);
+        }
         return true;
     }
 
-    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+    if (ev.action == PointerAction::Up) {
+        if (isDraggingScroll_) {
+            if (!touchDragCommitted_ && pendingCardIndex_ >= 0) {
+                // User obviously just tapped/touched the instrument rather than dragging
+                selectedItemIndex_ = pendingCardIndex_;
+                selectHighlightedCard();
+                pendingCardIndex_ = -1;
+                isDraggingScroll_ = false;
+                touchDragCommitted_ = false;
+                return true;
+            }
+            isDraggingScroll_ = false;
+            touchDragCommitted_ = false;
+            pendingCardIndex_ = -1;
+        }
+    }
+
+    if (ev.action == PointerAction::Cancel) {
         isDraggingScroll_ = false;
+        touchDragCommitted_ = false;
+        pendingCardIndex_ = -1;
     }
 
     if (ev.action != PointerAction::Down) return true; // Absorb events behind modal
-
-    isDraggingScroll_ = true;
-    dragStartY_ = ev.y;
-    dragStartScrollY_ = scrollY_;
 
     // Click outside dialog to close
     if (!dialogBounds_.contains(ev.x, ev.y)) {
@@ -785,27 +907,14 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
     }
 
     // Category Chips
-    const auto& cats = (mode_ == PluginDialogMode::SelectPreset) ? selectPresetCategories_ :
-                       (mode_ == PluginDialogMode::AddInstrument) ? instrumentCategories_ :
-                       (mode_ == PluginDialogMode::AddDrums) ? drumsCategories_ :
-                       (mode_ == PluginDialogMode::AddMidiFx) ? midiFxCategories_ :
-                       (mode_ == PluginDialogMode::AddMidiSeq) ? midiSeqCategories_ :
-                       (mode_ == PluginDialogMode::AddUtility) ? utilityCategories_ :
-                       (mode_ == PluginDialogMode::AddModule) ? moduleCategories_ : audioFxCategories_;
-
-    float chipX = dialogBounds_.x + 20.0f;
-    float chipY = dialogBounds_.y + 58.0f;
-    for (size_t i = 0; i < cats.size(); ++i) {
-        float chipW = static_cast<float>(cats[i].length()) * 7.5f + 16.0f;
-        Rect2D chipRect(chipX, chipY, chipW, 24.0f);
-        if (chipRect.contains(ev.x, ev.y)) {
+    for (size_t i = 0; i < categoryChipBounds_.size(); ++i) {
+        if (categoryChipBounds_[i].contains(ev.x, ev.y)) {
             selectedCategoryIndex_ = static_cast<int>(i);
             selectedItemIndex_ = 0;
             scrollY_ = 0.0f;
             scrollArea_.setScrollY(0.0f);
             return true;
         }
-        chipX += chipW + 6.0f;
     }
 
     // Card Add Buttons / Card Selection: Strictly confined to vertical list bounds [listY, listY + listH]
@@ -816,18 +925,41 @@ bool PluginSearchDialog::handlePointer(const PointerEvent& ev) {
 
             float btnW = 68.0f;
             float btnH = 26.0f;
-            float btnX = dialogBounds_.x + 20.0f + cardW - btnW - 12.0f;
+            float btnX = cx + cardW - btnW - 12.0f;
             float btnY = cy + (cardH - btnH) * 0.5f;
 
-            Rect2D cardRect(dialogBounds_.x + 20.0f, cy, cardW, cardH);
+            Rect2D cardRect(cx, cy, cardW, cardH);
             Rect2D btnRect(btnX, btnY, btnW, btnH);
 
-            if (btnRect.contains(ev.x, ev.y) || cardRect.contains(ev.x, ev.y)) {
+            if (btnRect.contains(ev.x, ev.y)) {
+                // Direct click on the respective instrument's '+ ADD' button
                 selectedItemIndex_ = static_cast<int>(i);
                 selectHighlightedCard();
                 return true;
             }
+
+            if (cardRect.contains(ev.x, ev.y)) {
+                // Pressing down on card text starts potential drag-scroll, with tap-to-select if released without dragging
+                pendingCardIndex_ = static_cast<int>(i);
+                touchStartY_ = ev.y;
+                dragStartY_ = ev.y;
+                dragStartScrollY_ = scrollY_;
+                isDraggingScroll_ = true;
+                touchDragCommitted_ = false;
+                return true;
+            }
         }
+    }
+
+    // Click on empty space in cards area starts drag scroll
+    if (cardsAreaBounds_.contains(ev.x, ev.y)) {
+        pendingCardIndex_ = -1;
+        touchStartY_ = ev.y;
+        dragStartY_ = ev.y;
+        dragStartScrollY_ = scrollY_;
+        isDraggingScroll_ = true;
+        touchDragCommitted_ = false;
+        return true;
     }
 
     return true; // Modal absorbed

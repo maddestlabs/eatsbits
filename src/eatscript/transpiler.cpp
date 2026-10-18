@@ -541,8 +541,13 @@ std::string Transpiler::emitClapPluginEntry(const Program& program, const Depend
         ss << "            case 2: tb303_.setEnvMod(static_cast<float>(val)); break;\n";
         ss << "            case 3: tb303_.setDecay(static_cast<float>(val)); break;\n";
         ss << "            case 4: tb303_.setAccent(static_cast<float>(val)); break;\n";
-        ss << "            case 5: tb303_.setOverdrive(static_cast<float>(val)); break;\n";
-        ss << "            case 6: tb303_.setWaveform(static_cast<float>(val)); break;\n";
+        ss << "            case 5: tb303_.setWaveform(static_cast<float>(val)); break;\n";
+        ss << "            case 6: tb303_.setOverdrive(static_cast<float>(val)); break;\n";
+        ss << "            case 7: tb303_.setTuning(static_cast<float>(val)); break;\n";
+        ss << "            case 8: tb303_.setOctave(static_cast<int>(std::round(val))); break;\n";
+        ss << "            case 9: tb303_.setSubVolume(static_cast<float>(val)); break;\n";
+        ss << "            case 10: tb303_.setSubWaveform(static_cast<float>(val)); break;\n";
+        ss << "            case 11: tb303_.setGlideCurve(static_cast<float>(val)); break;\n";
         ss << "            default: break;\n";
         ss << "        }\n";
     }

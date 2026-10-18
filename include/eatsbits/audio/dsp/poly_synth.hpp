@@ -148,6 +148,20 @@ public:
         }
     }
 
+    void setAttack(float a) noexcept { setAdsr(a, decay_, sustain_, release_); }
+    void setDecay(float d) noexcept { setAdsr(attack_, d, sustain_, release_); }
+    void setSustain(float s) noexcept { setAdsr(attack_, decay_, s, release_); }
+    void setRelease(float r) noexcept { setAdsr(attack_, decay_, sustain_, r); }
+    [[nodiscard]] float getAttack() const noexcept { return attack_; }
+    [[nodiscard]] float getDecay() const noexcept { return decay_; }
+    [[nodiscard]] float getSustain() const noexcept { return sustain_; }
+    [[nodiscard]] float getRelease() const noexcept { return release_; }
+
+    void setDetune(float cents) noexcept { detuneCents_ = cents; }
+    [[nodiscard]] float getDetune() const noexcept { return detuneCents_; }
+    void setWarmth(float w) noexcept { warmth_ = std::clamp(w, 0.0f, 1.0f); }
+    [[nodiscard]] float getWarmth() const noexcept { return warmth_; }
+
     void applyFilterParamsIfDirty() noexcept {
         if (filterDirty_) {
             for (auto& v : voices_) {
@@ -188,8 +202,12 @@ public:
 
     void processBlock(float* outL, float* outR, size_t count) noexcept {
         applyFilterParamsIfDirty();
+        float drive = 1.0f + warmth_ * 1.5f;
         for (size_t i = 0; i < count; ++i) {
-            const float s = processSample();
+            float s = processSample();
+            if (warmth_ > 0.001f) {
+                s = std::tanh(s * drive) / drive;
+            }
             outL[i] = s;
             outR[i] = s;
         }
@@ -221,6 +239,8 @@ private:
     float decay_{0.1f};
     float sustain_{0.7f};
     float release_{0.3f};
+    float detuneCents_{14.0f};
+    float warmth_{0.0f};
     bool filterDirty_{false};
 };
 

@@ -7,5 +7,7 @@
 #include "delay_node.hpp"
 #include "chorus_node.hpp"
 #include "compressor_node.hpp"
+#include "arpeggiator_node.hpp"
+#include "scale_quantizer_node.hpp"
 
 #endif // EATS_MODULAR_NODES_HPP

@@ -142,6 +142,8 @@ public:
     std::function<void(const std::string& presetId)> onAddPresetTrack;
     std::function<void(const std::string& fxId)> onAddAudioFx;
     std::function<void(const std::string& fxId)> onAddMidiFx;
+    std::function<void(const std::string& instrumentId)> onReplaceActiveTrackInstrument;
+    std::function<void(const BrowserScriptItem& item, float dropX, float dropY)> onDropScript;
     std::function<void(const std::string& filePath)> onLoadProject;
     std::function<void(const std::string& filePath)> onSaveProject;
     std::function<void()> onSaveProjectAs;
@@ -154,6 +156,10 @@ public:
     std::function<void()> onClearHistory;
     std::function<void()> onLaunchAudioToMidi;
     std::function<void()> onClose;
+
+    [[nodiscard]] bool isDraggingScriptBadge() const noexcept { return isDraggingScriptBadge_; }
+    [[nodiscard]] const BrowserScriptItem& getDraggedScript() const noexcept { return draggedScript_; }
+    void cancelScriptDrag() noexcept { isDraggingScriptBadge_ = false; }
 
 private:
     void initData();
@@ -181,6 +187,17 @@ private:
     bool isDraggingScroll_{false};
     float dragStartY_{0.0f};
     float dragStartOffset_{0.0f};
+
+    // Script badge drag-and-drop state
+    bool isDraggingScriptBadge_{false};
+    BrowserScriptItem draggedScript_{};
+    float dragBadgeStartX_{0.0f};
+    float dragBadgeStartY_{0.0f};
+
+    // Script text tap-vs-scroll disambiguation
+    int pendingScriptIndex_{-1};
+    bool touchDragCommitted_{false};
+    float touchStartY_{0.0f};
 
     bool canUndo_{false};
     bool canRedo_{false};

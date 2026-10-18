@@ -3,6 +3,7 @@
 #include "geometry.hpp"
 #include "theme.hpp"
 #include "batch_renderer_2d.hpp"
+#include "draw_utils.hpp"
 #include <string>
 #include <vector>
 
@@ -37,7 +38,13 @@ enum class GuiKnobStyle {
     ChickenHead,
     PastelDimple,
     ModernEncoder,
-    CustomShape
+    CustomShape,
+    StudioClean,
+    StudioRuby,
+    StudioMagenta,
+    StudioCyan,
+    StudioDark,
+    StudioBipolar
 };
 
 enum class KnobBodyShape : uint8_t {
@@ -54,7 +61,27 @@ enum class KnobCapStyle : uint8_t {
     LatheMetallic = 1,   // Brushed concentric lathe machining rings with specular highlight
     Domed = 2,           // Spherical 3D highlight
     IndentedDimple = 3,  // Soft fingertip dish / center dimple (e.g. Joni style)
-    InlayDisc = 4        // Contrasting color or metallic inlay disc
+    InlayDisc = 4,       // Contrasting color or metallic inlay disc
+    DeclinedScoop = 5    // Authentic Roland TB-303 sloped wedge scoop with integrated etched pointer notch
+};
+
+enum class SwitchStyle : uint8_t {
+    VintageBatLever = 0, // Classic gold/brass collar & ball-tipped lever
+    RectangularSlide = 1 // Authentic hardware rectangular slide switch with corrugated thumb
+};
+
+enum class SwitchOrientation : uint8_t {
+    Vertical = 0,
+    Horizontal = 1
+};
+
+enum class SwitchSymbol : uint8_t {
+    None = 0,
+    SquareWave = 1,
+    SawWave = 2,
+    SineWave = 3,
+    TriangleWave = 4,
+    Power = 5
 };
 
 enum class KnobIndicatorType : uint8_t {
@@ -82,6 +109,18 @@ struct KnobShapeDef {
     Color capColor{0.82f, 0.84f, 0.88f, 1.0f};     // Cap / inlay color
     Color indicatorColor{0.0f, 0.95f, 1.0f, 1.0f}; // Needle / glow color
     bool showHaloArc{true};                        // LED progress arc around dial
+    float sunkenSlotWidth{0.0f};                  // Faceplate recessed mounting gutter width (0.0f = unrendered)
+    Color sunkenSlotColor{0.10f, 0.11f, 0.13f, 1.0f}; // Recessed trench color
+    std::vector<std::string> dialLabels;          // Custom perimeter graduations (any string array, e.g. {"0".."10"}, {"low", "mid", "high"})
+    int dialTicks{0};                             // Graduation tick count (0 = auto from dialLabels)
+    bool hasCenterDetent{false};                  // Center detent tick at 12 o'clock
+    bool hasBlockCenterDetent{false};             // TB-303 authentic bold calibration block at 12 o'clock
+    float dialLabelDistanceRatio{1.28f};          // Radius multiplier for text label placement
+    float dialLabelFontSize{7.5f};                // Base font size for dial labels
+    std::optional<Color> dialLabelColor{std::nullopt};
+    std::optional<Color> dialTickColor{std::nullopt};
+    std::optional<Color> trackColor{std::nullopt};
+    bool isLightRotor{false};
 };
 
 enum class GuiChassisStyle {
@@ -129,6 +168,19 @@ struct GuiWidgetDef {
     float scrollOffset{0.0f};
     std::string action; // e.g. "randomize"
     std::optional<KnobShapeDef> customShape{std::nullopt};
+    float step{0.0f}; // 0.0f = continuous; > 0.0f = discrete step increment (e.g. 1.0f for octaves 0..10)
+    SwitchStyle switchStyle{SwitchStyle::VintageBatLever};
+    SwitchOrientation switchOrientation{SwitchOrientation::Vertical};
+    SwitchSymbol switchSymbolTop{SwitchSymbol::None};
+    SwitchSymbol switchSymbolBottom{SwitchSymbol::None};
+    std::vector<std::string> dialLabels;          // Optional per-widget dial labels override
+    float sunkenSlotWidth{0.0f};                  // Optional per-widget sunken slot width override (0.0f = unrendered)
+    KnobLayoutMode labelAlignment{KnobLayoutMode::StackedVertical}; // Label/value alignment configuration
+    std::string sublabel;                         // Secondary label (e.g. "ANDALL", "12AX7", "FILTER", "7-UNISON")
+    bool showValueBox{false};                     // Skeuomorphic dark pill container box for value readout
+    std::string valueDisplay;                     // Explicit formatted string override
+
+    [[nodiscard]] std::string getFormattedValue() const;
 };
 
 struct GuiRowDef {
@@ -153,6 +205,8 @@ struct GuiPanelDef {
     std::vector<GuiWidgetDef> widgets; // For AbsoluteCanvas layout
     std::vector<GuiRowDef> rows;       // For AutoRowFlow layout
     Rect2D bounds{0.0f, 0.0f, 0.0f, 0.0f};
+
+    void layoutControls(const Rect2D& rect);
 
     [[nodiscard]] std::vector<const GuiWidgetDef*> getMacroWidgets() const noexcept {
         std::vector<const GuiWidgetDef*> res;
@@ -233,6 +287,7 @@ void drawKnobWidget(BatchRenderer2D& r,
                     const GuiWidgetDef& w,
                     const LightSource2D& light,
                     bool isActive = false, bool isHovered = false,
-                    bool isLightChassis = false);
+                    bool isLightChassis = false,
+                    const ThemeTokens* theme = nullptr);
 
 } // namespace eatsbits::ui

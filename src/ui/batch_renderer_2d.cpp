@@ -1,10 +1,14 @@
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "eatsbits/ui/monospace_font_8x16.hpp"
+#include "eatsbits/ui/base64.hpp"
 #include "eatsbits/tui/types.hpp"
+#include "stb_image.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
 #include <iostream>
+#include <fstream>
+#include <mutex>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -29,6 +33,21 @@
 #endif
 
 namespace eatsbits::ui {
+
+namespace {
+    BatchRenderer2D* s_activeRenderer = nullptr;
+    std::mutex s_activeRendererMutex;
+}
+
+void BatchRenderer2D::setActiveBatchRenderer(BatchRenderer2D* renderer) {
+    std::lock_guard<std::mutex> lock(s_activeRendererMutex);
+    s_activeRenderer = renderer;
+}
+
+BatchRenderer2D* BatchRenderer2D::getActiveBatchRenderer() {
+    std::lock_guard<std::mutex> lock(s_activeRendererMutex);
+    return s_activeRenderer;
+}
 
 // ============================================================================
 // Filament Batch Backend (Modern GPU / Filament PBR Stream + Zero-OpenGL DIB Presenter)
@@ -337,7 +356,10 @@ public:
         }
     }
 
-    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+    void renderRgbaRegion(float x, float y, float w, float h,
+                          const uint8_t* rgba, int imgW, int imgH,
+                          float u0, float v0, float u1, float v1,
+                          float opacity) override {
         if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || framebuffer_.empty() || opacity <= 0.001f) return;
 
         int clipMinX, clipMaxX, clipMinY, clipMaxY;
@@ -351,9 +373,12 @@ public:
 
         const float invW = 1.0f / w;
         const float invH = 1.0f / h;
+        const float du = u1 - u0;
+        const float dv = v1 - v0;
 
         for (int py = minY; py <= maxY; ++py) {
-            float v = std::clamp((static_cast<float>(py) + 0.5f - y) * invH, 0.0f, 1.0f);
+            float normY = std::clamp((static_cast<float>(py) + 0.5f - y) * invH, 0.0f, 1.0f);
+            float v = v0 + normY * dv;
             float fy = v * static_cast<float>(imgH) - 0.5f;
             int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, imgH - 1);
             int y1 = std::min(y0 + 1, imgH - 1);
@@ -361,7 +386,8 @@ public:
 
             uint32_t* dstPtr = &framebuffer_[py * viewportWidth_ + minX];
             for (int px = minX; px <= maxX; ++px, ++dstPtr) {
-                float u = std::clamp((static_cast<float>(px) + 0.5f - x) * invW, 0.0f, 1.0f);
+                float normX = std::clamp((static_cast<float>(px) + 0.5f - x) * invW, 0.0f, 1.0f);
+                float u = u0 + normX * du;
                 float fx = u * static_cast<float>(imgW) - 0.5f;
                 int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, imgW - 1);
                 int x1 = std::min(x0 + 1, imgW - 1);
@@ -400,6 +426,10 @@ public:
                 }
             }
         }
+    }
+
+    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+        renderRgbaRegion(x, y, w, h, rgba, imgW, imgH, 0.0f, 0.0f, 1.0f, 1.0f, opacity);
     }
 
     void applyBackdropBlur(float radius = 3.0f, float dimFactor = 0.50f) override {
@@ -964,7 +994,7 @@ private:
                                 uint32_t a = (c0_a * fontAlpha) / 255;
                                 *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
                             }
-                        } else if (isText) {
+                        } else if (isText && !fontAtlas_.empty() && atlasWidth_ > 0 && atlasHeight_ > 0) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
                             float fx = u * static_cast<float>(atlasWidth_) - 0.5f;
@@ -1058,7 +1088,7 @@ private:
                                 uint32_t a = (effA * fontAlpha) / 255;
                                 *rowDst = blendPixel(*rowDst, c0_r, c0_g, c0_b, a);
                             }
-                        } else if (isText) {
+                        } else if (isText && !fontAtlas_.empty() && atlasWidth_ > 0 && atlasHeight_ > 0) {
                             float u = (e1 * t0.u + e2 * t1.u + e0 * t2.u) * invArea;
                             float v = (e1 * t0.v + e2 * t1.v + e0 * t2.v) * invArea;
 
@@ -1446,7 +1476,8 @@ public:
         wgpuCommandBufferRelease(commands);
     }
 
-    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+    void renderRgbaRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
+                          float u0, float v0, float u1, float v1, float opacity) override {
         if (!device_ || !rgbaTexture_ || !rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f) return;
 
         uint32_t uploadW = static_cast<uint32_t>(std::min(imgW, 256));
@@ -1471,15 +1502,24 @@ public:
         uint8_t aByte = static_cast<uint8_t>(std::clamp(opacity * 255.0f, 0.0f, 255.0f));
         uint32_t col = (static_cast<uint32_t>(aByte) << 24) | 0x00FFFFFF;
 
+        float qU0 = u0 * maxU;
+        float qV0 = v0 * maxV;
+        float qU1 = u1 * maxU;
+        float qV1 = v1 * maxV;
+
         std::vector<Vertex2D> quad(6);
-        quad[0] = { x,     y,     0.0f, 0.0f, col, 3u, {0.0f, 0.0f} };
-        quad[1] = { x + w, y,     maxU, 0.0f, col, 3u, {0.0f, 0.0f} };
-        quad[2] = { x + w, y + h, maxU, maxV, col, 3u, {0.0f, 0.0f} };
-        quad[3] = { x,     y,     0.0f, 0.0f, col, 3u, {0.0f, 0.0f} };
-        quad[4] = { x + w, y + h, maxU, maxV, col, 3u, {0.0f, 0.0f} };
-        quad[5] = { x,     y + h, 0.0f, maxV, col, 3u, {0.0f, 0.0f} };
+        quad[0] = { x,     y,     qU0, qV0, col, 3u, {0.0f, 0.0f} };
+        quad[1] = { x + w, y,     qU1, qV0, col, 3u, {0.0f, 0.0f} };
+        quad[2] = { x + w, y + h, qU1, qV1, col, 3u, {0.0f, 0.0f} };
+        quad[3] = { x,     y,     qU0, qV0, col, 3u, {0.0f, 0.0f} };
+        quad[4] = { x + w, y + h, qU1, qV1, col, 3u, {0.0f, 0.0f} };
+        quad[5] = { x,     y + h, qU0, qV1, col, 3u, {0.0f, 0.0f} };
 
         renderBatch(quad);
+    }
+
+    void renderRgba(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) override {
+        renderRgbaRegion(x, y, w, h, rgba, imgW, imgH, 0.0f, 0.0f, 1.0f, 1.0f, opacity);
     }
 
     void endPass() override {
@@ -1761,9 +1801,19 @@ private:
 // ============================================================================
 BatchRenderer2D::BatchRenderer2D() {
     vertices_.reserve(32768);
+    std::lock_guard<std::mutex> lock(s_activeRendererMutex);
+    if (!s_activeRenderer) {
+        s_activeRenderer = this;
+    }
 }
 
 BatchRenderer2D::~BatchRenderer2D() {
+    {
+        std::lock_guard<std::mutex> lock(s_activeRendererMutex);
+        if (s_activeRenderer == this) {
+            s_activeRenderer = nullptr;
+        }
+    }
     shutdown();
 }
 
@@ -1793,6 +1843,7 @@ bool BatchRenderer2D::initialize(void* windowHandle, uint32_t width, uint32_t he
 void BatchRenderer2D::shutdown() {
     invalidateChromeCache();
     chromeCachePixels_.clear();
+    textures_.clear();
     if (backend_) {
         backend_->shutdown();
         backend_.reset();
@@ -2432,7 +2483,105 @@ void BatchRenderer2D::drawCircleLinearGradient(float cx, float cy, float radius,
     }
 }
 
+void BatchRenderer2D::drawDeclinedScoopGradient(float cx, float cy, float capRadius,
+                                               float currentAngle, float chordDistRatio,
+                                               float crestR, float crestG, float crestB, float crestA,
+                                               float midR, float midG, float midB, float midA,
+                                               float rimR, float rimG, float rimB, float rimA,
+                                               float midStop, int segments) {
+    if (capRadius <= 0.0f) return;
+
+    // chordDistRatio is typically -0.12f to -0.15f (chord is slightly behind the center)
+    float clampedRatio = std::clamp(chordDistRatio, -0.95f, 0.95f);
+    float chordDist = clampedRatio * capRadius;
+    float thetaChord = std::acos(clampedRatio); // Half-angle of arc spanning the scoop
+
+    float sinA = std::sin(currentAngle);
+    float cosA = std::cos(currentAngle);
+
+    // Forward direction towards pointer
+    float dirX = sinA;
+    float dirY = -cosA;
+    // Transverse direction along chord
+    float perpX = -cosA;
+    float perpY = -sinA;
+
+    int segs = std::clamp(segments, 8, 64);
+    float dPhi = (2.0f * thetaChord) / static_cast<float>(segs);
+    float clampedMid = std::clamp(midStop, 0.05f, 0.95f);
+
+    uint32_t colCrest = packColor(crestR, crestG, crestB, crestA);
+    uint32_t colMid = packColor(midR, midG, midB, midA);
+    uint32_t colRim = packColor(rimR, rimG, rimB, rimA);
+
+    for (int i = 0; i < segs; ++i) {
+        float phi0 = -thetaChord + static_cast<float>(i) * dPhi;
+        float phi1 = -thetaChord + static_cast<float>(i + 1) * dPhi;
+
+        // Arc coordinates in local frame (u along dir, v along perp)
+        float uArc0 = capRadius * std::cos(phi0);
+        float vArc0 = capRadius * std::sin(phi0);
+
+        float uArc1 = capRadius * std::cos(phi1);
+        float vArc1 = capRadius * std::sin(phi1);
+
+        // Chord points in local frame (u = chordDist, v matching arc)
+        float uCh0 = chordDist;
+        float vCh0 = vArc0;
+
+        float uCh1 = chordDist;
+        float vCh1 = vArc1;
+
+        // Intermediate mid-stop points
+        float uMid0 = uCh0 + clampedMid * (uArc0 - uCh0);
+        float vMid0 = vCh0 + clampedMid * (vArc0 - vCh0);
+
+        float uMid1 = uCh1 + clampedMid * (uArc1 - uCh1);
+        float vMid1 = vCh1 + clampedMid * (vArc1 - vCh1);
+
+        // Convert local (u, v) points to world coordinates
+        Vertex2D c0{cx + uCh0 * dirX + vCh0 * perpX, cy + uCh0 * dirY + vCh0 * perpY, 0.0f, 0.0f, colCrest, 0, {0, 0}};
+        Vertex2D c1{cx + uCh1 * dirX + vCh1 * perpX, cy + uCh1 * dirY + vCh1 * perpY, 0.0f, 0.0f, colCrest, 0, {0, 0}};
+
+        Vertex2D m0{cx + uMid0 * dirX + vMid0 * perpX, cy + uMid0 * dirY + vMid0 * perpY, 0.0f, 0.0f, colMid, 0, {0, 0}};
+        Vertex2D m1{cx + uMid1 * dirX + vMid1 * perpX, cy + uMid1 * dirY + vMid1 * perpY, 0.0f, 0.0f, colMid, 0, {0, 0}};
+
+        Vertex2D a0{cx + uArc0 * dirX + vArc0 * perpX, cy + uArc0 * dirY + vArc0 * perpY, 0.0f, 0.0f, colRim, 0, {0, 0}};
+        Vertex2D a1{cx + uArc1 * dirX + vArc1 * perpX, cy + uArc1 * dirY + vArc1 * perpY, 0.0f, 0.0f, colRim, 0, {0, 0}};
+
+        applyTransform(c0.x, c0.y);
+        applyTransform(c1.x, c1.y);
+        applyTransform(m0.x, m0.y);
+        applyTransform(m1.x, m1.y);
+        applyTransform(a0.x, a0.y);
+        applyTransform(a1.x, a1.y);
+
+        // Inner quad (Crest -> Mid)
+        vertices_.push_back(c0);
+        vertices_.push_back(c1);
+        vertices_.push_back(m1);
+
+        vertices_.push_back(c0);
+        vertices_.push_back(m1);
+        vertices_.push_back(m0);
+
+        // Outer quad (Mid -> Rim)
+        vertices_.push_back(m0);
+        vertices_.push_back(m1);
+        vertices_.push_back(a1);
+
+        vertices_.push_back(m0);
+        vertices_.push_back(a1);
+        vertices_.push_back(a0);
+    }
+}
+
 void BatchRenderer2D::drawRgbaBitmap(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity) {
+    drawRgbaBitmapRegion(x, y, w, h, rgba, imgW, imgH, 0.0f, 0.0f, 1.0f, 1.0f, opacity);
+}
+
+void BatchRenderer2D::drawRgbaBitmapRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
+                                           float u0, float v0, float u1, float v1, float opacity) {
     if (!rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
     if (backend_ && !vertices_.empty()) {
         if (std::abs(renderScaleX_ - 1.0f) > 0.001f || std::abs(renderScaleY_ - 1.0f) > 0.001f) {
@@ -2450,8 +2599,122 @@ void BatchRenderer2D::drawRgbaBitmap(float x, float y, float w, float h, const u
         vertices_.clear();
     }
     if (backend_) {
-        backend_->renderRgba(x * renderScaleX_, y * renderScaleY_, w * renderScaleX_, h * renderScaleY_, rgba, imgW, imgH, opacity);
+        backend_->renderRgbaRegion(x * renderScaleX_, y * renderScaleY_, w * renderScaleX_, h * renderScaleY_,
+                                   rgba, imgW, imgH, u0, v0, u1, v1, opacity);
     }
+}
+
+uint32_t BatchRenderer2D::createTexture(int width, int height, const uint8_t* rgbaPixels) {
+    if (width <= 0 || height <= 0 || !rgbaPixels) return 0;
+    uint32_t handle = nextTextureId_++;
+    ImageTexture tex;
+    tex.handle = handle;
+    tex.width = width;
+    tex.height = height;
+    tex.channels = 4;
+    size_t byteCount = static_cast<size_t>(width) * height * 4;
+    tex.pixels.assign(rgbaPixels, rgbaPixels + byteCount);
+    textures_[handle] = std::move(tex);
+    return handle;
+}
+
+uint32_t BatchRenderer2D::createTextureFromMemory(const void* data, size_t len) {
+    if (!data || len == 0) return 0;
+    int w = 0, h = 0, comp = 0;
+    stbi_uc* decoded = stbi_load_from_memory(static_cast<const stbi_uc*>(data), static_cast<int>(len), &w, &h, &comp, 4);
+    if (!decoded || w <= 0 || h <= 0) {
+        if (decoded) stbi_image_free(decoded);
+        return 0;
+    }
+    uint32_t handle = createTexture(w, h, decoded);
+    stbi_image_free(decoded);
+    return handle;
+}
+
+uint32_t BatchRenderer2D::loadTextureFromUri(std::string_view uriOrPath) {
+    if (uriOrPath.empty()) return 0;
+
+    // 1. Try parsing as Data URI (e.g. data:image/png;base64,...)
+    auto parsed = parseDataUri(uriOrPath);
+    if (parsed && !parsed->data.empty()) {
+        uint32_t handle = createTextureFromMemory(parsed->data.data(), parsed->data.size());
+        if (handle > 0) return handle;
+    }
+
+    // 2. Try raw base64 decode if it could be base64
+    auto rawBytes = base64Decode(uriOrPath);
+    if (!rawBytes.empty()) {
+        uint32_t handle = createTextureFromMemory(rawBytes.data(), rawBytes.size());
+        if (handle > 0) return handle;
+    }
+
+    // 3. Fallback: try reading as local file
+    std::ifstream file(std::string(uriOrPath), std::ios::binary);
+    if (file.is_open()) {
+        std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(file)),
+                                       std::istreambuf_iterator<char>());
+        if (!fileBytes.empty()) {
+            return createTextureFromMemory(fileBytes.data(), fileBytes.size());
+        }
+    }
+
+    return 0;
+}
+
+bool BatchRenderer2D::destroyTexture(uint32_t handle) {
+    auto it = textures_.find(handle);
+    if (it != textures_.end()) {
+        textures_.erase(it);
+        return true;
+    }
+    return false;
+}
+
+bool BatchRenderer2D::hasTexture(uint32_t handle) const noexcept {
+    return textures_.find(handle) != textures_.end();
+}
+
+BatchRenderer2D::TextureInfo BatchRenderer2D::getTextureInfo(uint32_t handle) const noexcept {
+    auto it = textures_.find(handle);
+    if (it != textures_.end()) {
+        return TextureInfo{it->second.handle, it->second.width, it->second.height, it->second.channels, true};
+    }
+    return TextureInfo{0, 0, 0, 0, false};
+}
+
+const uint8_t* BatchRenderer2D::getTexturePixels(uint32_t handle) const noexcept {
+    auto it = textures_.find(handle);
+    return (it != textures_.end() && !it->second.pixels.empty()) ? it->second.pixels.data() : nullptr;
+}
+
+void BatchRenderer2D::drawTexturedQuad(uint32_t textureHandle, float x, float y, float w, float h,
+                                       float u0, float v0, float u1, float v1,
+                                       float opacity) {
+    if (textureHandle == 0 || w <= 0.0f || h <= 0.0f || opacity <= 0.001f) return;
+    auto it = textures_.find(textureHandle);
+    if (it == textures_.end() || it->second.pixels.empty()) return;
+
+    const auto& tex = it->second;
+    drawRgbaBitmapRegion(x, y, w, h, tex.pixels.data(), tex.width, tex.height, u0, v0, u1, v1, opacity);
+}
+
+void BatchRenderer2D::drawFilmstripFrame(uint32_t textureHandle, float x, float y, float w, float h,
+                                         int frameIndex, int totalFrames, bool isHorizontal,
+                                         float opacity) {
+    if (textureHandle == 0 || totalFrames <= 0) return;
+    int clampedIndex = std::clamp(frameIndex, 0, totalFrames - 1);
+    float step = 1.0f / static_cast<float>(totalFrames);
+
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    if (isHorizontal) {
+        u0 = static_cast<float>(clampedIndex) * step;
+        u1 = u0 + step;
+    } else {
+        v0 = static_cast<float>(clampedIndex) * step;
+        v1 = v0 + step;
+    }
+
+    drawTexturedQuad(textureHandle, x, y, w, h, u0, v0, u1, v1, opacity);
 }
 
 void BatchRenderer2D::drawCircleOutline(float cx, float cy, float radius,

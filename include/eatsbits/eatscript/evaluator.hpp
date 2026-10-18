@@ -148,6 +148,9 @@ public:
     Value callFunction(const std::string& funcName,
                        const std::vector<Value>& args = {},
                        const std::map<std::string, Value>& kwargs = {});
+    Value invokeCallable(const Value& callable,
+                         const std::vector<Value>& args = {},
+                         const std::map<std::string, Value>& kwargs = {});
 
     // Logging
     void addLog(std::string msg) { logs_.push_back(std::move(msg)); }

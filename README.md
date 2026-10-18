@@ -9,7 +9,7 @@
 
 While **Eatsbits** seeks to poise itself as a cutting-edge Digital Audio Workstation, it is architected as the flagship anchor application for a much larger ambition: a **lean, web-first, mobile-first, dual-surface (GUI + TUI) game and application engine**.
 
-We're seeking to prove out the engine's design by applying it against the brutal real-time constraints of hard real-time audio threads, zero-allocation DSP, 120 FPS WebGPU vector rendering, and dual-surface TUI/GUI behavioral parity.
+We're seeking to prove out the engine's design by applying it against the constraints of hard real-time audio threads, zero-allocation DSP, 120 FPS WebGPU vector rendering, and dual-surface TUI/GUI behavioral parity.
 
 * **Flagship Anchor Application:** Eatsbits DAW (multitrack sequencer, modular synthesizer, and live-coding studio).
 * **Universal Scripting Core:** [Eatscript](include/eatsbits/eatscript), a Pythonic DSL featuring both a zero-allocation bytecode VM and an AOT C-ABI transpiler.

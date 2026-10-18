@@ -7,9 +7,12 @@
 #include "../gui_panel_def.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "eatsbits/ui/clay/components.hpp"
 
 #include <string>
 #include <vector>
+#include <optional>
 #include <functional>
 #include <algorithm>
 #include <cmath>
@@ -47,6 +50,7 @@ struct TrackMidiFxItem {
     std::string background{"dark"};
     float accentR{1.0f}, accentG{0.75f}, accentB{0.2f};
     std::vector<TrackPropertiesKnob> knobs;
+    std::optional<GuiPanelDef> customGuiPanel;
 
     TrackMidiFxItem() = default;
     TrackMidiFxItem(std::string n, std::string t, bool en = true)
@@ -69,12 +73,25 @@ struct TrackMidiFxItem {
                 {"octaves", "OCTAVES", 0.33f, "2", "oct"},
                 {"gate", "GATE", 0.75f, "75%", ""}
             };
-        } else if (tUpper.find("HUMANIZE") != std::string::npos) {
+        } else if (tUpper.find("HUMANIZE") != std::string::npos || tUpper.find("GROOVE") != std::string::npos) {
             knobs = {
                 {"timing", "TIMING", 0.25f, "15 ms", "ms"},
                 {"velocity", "VELOCITY", 0.35f, "20%", "%"},
                 {"swing", "SWING", 0.50f, "50%", "%"},
                 {"chance", "CHANCE", 1.0f, "100%", "%"}
+            };
+        } else if (tUpper.find("TRANSPOSE") != std::string::npos || tUpper.find("PITCH") != std::string::npos) {
+            knobs = {
+                {"semitones", "SEMITONES", 0.5f, "0 st", "st"},
+                {"octaves", "OCTAVES", 0.5f, "0 oct", "oct"},
+                {"fine", "FINE", 0.5f, "0 ct", "ct"}
+            };
+        } else if (tUpper.find("CHORD") != std::string::npos || tUpper.find("VOICING") != std::string::npos || tUpper.find("STAB") != std::string::npos) {
+            knobs = {
+                {"voicing", "VOICING", 0.0f, "Triad", ""},
+                {"inversion", "INVERSION", 0.0f, "Root", ""},
+                {"spread", "SPREAD", 0.0f, "Close", ""},
+                {"velocity", "VELOCITY", 0.85f, "85%", "%"}
             };
         } else { // SCALE_SNAP / generic
             knobs = {
@@ -98,6 +115,7 @@ struct TrackAudioFxItem {
     std::string background{"snes"}; // "snes", "dark", "grunge", "silver", "minimal_white"
     float accentR{0.13f}, accentG{0.75f}, accentB{1.0f};
     std::vector<TrackPropertiesKnob> knobs;
+    std::optional<GuiPanelDef> customGuiPanel;
 
     TrackAudioFxItem() = default;
     TrackAudioFxItem(std::string n, std::string t, float d = 0.5f, float m = 0.8f, bool en = true)
@@ -338,6 +356,7 @@ struct TrackPropertiesDrawerData {
     std::string presetTitle{""};
     std::string presetSubtitle{""};
     bool instrumentExpanded{true};
+    std::optional<GuiPanelDef> customGuiPanel;
 
     // Harmonic Chord Track Follow
     ChordFollowMode chordFollowMode{ChordFollowMode::Off};
@@ -398,6 +417,17 @@ struct TrackPropertiesDrawerData {
     bool isClapPlugin{false};
     bool hasNativeGui{false};
     bool isGuiOpen{false};
+
+    void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
+        for (auto& k : knobs) {
+            if (stringEqualsIgnoreCase(k.name, paramName) || stringEqualsIgnoreCase(k.label, paramName)) {
+                k.value = val;
+                if (!disp.empty()) k.display = disp;
+                return;
+            }
+        }
+        knobs.push_back({paramName, paramName, val, disp.empty() ? std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%" : disp, ""});
+    }
 
     void syncKnobsIfEmpty() {
         for (auto& fx : audioFx) fx.ensureDefaultKnobs();
@@ -496,18 +526,65 @@ struct TrackPropertiesDrawerData {
                 {"EchoFeedback", "ECHO FDBK", 0.55f / 0.90f, "55%"},
                 {"EchoVolume", "ECHO VOL", 0.40f, "40%"}
             };
+        } else if (instrumentEngine == "clavinet" || instrument.find("clav") != std::string::npos ||
+                   instrument.find("Clav") != std::string::npos || presetTitle.find("Clav") != std::string::npos ||
+                   presetTitle.find("clav") != std::string::npos || instrument.find("d6") != std::string::npos ||
+                   instrument.find("D6") != std::string::npos) {
+            knobs = {
+                {"Brilliant", "BRILLIANT", 1.0f, "On"},
+                {"Treble", "TREBLE", 1.0f, "On"},
+                {"Medium", "MEDIUM", 0.0f, "Off"},
+                {"Soft", "SOFT", 0.0f, "Off"},
+                {"PickupSelect", "PICKUP A/B", 0.5f, "A+B"},
+                {"PhaseInvert", "PHASE (A-B)", 0.0f, "In Phase"},
+                {"HammerHardness", "HAMMER", 1.4f / 3.0f, "1.4"},
+                {"DamperThump", "DAMPER", 0.45f, "45%"},
+                {"Drive", "DRIVE", (1.08f - 0.5f) / 2.5f, "1.08x"},
+                {"Sustain", "SUSTAIN", (0.993f - 0.8f) / (0.999f - 0.8f), "99.3%"}
+            };
+        } else if (instrumentEngine == "ambient_pad" || instrumentEngine == "astral_pad" || instrumentEngine == "astral_shimmer_pad" ||
+                   instrument.find("astral") != std::string::npos || instrument.find("Astral") != std::string::npos ||
+                   presetTitle.find("Astral") != std::string::npos || presetTitle.find("astral") != std::string::npos ||
+                   instrument.find("shimmer") != std::string::npos || presetTitle.find("Shimmer") != std::string::npos) {
+            knobs = {
+                {"Cutoff", "CUTOFF", (2400.0f - 100.0f) / 15900.0f, "2400.0 Hz"},
+                {"Resonance", "RESO", (0.55f - 0.1f) / 4.9f, "0.55"},
+                {"Detune", "DETUNE", (14.0f - 1.0f) / 34.0f, "14.0 ct"},
+                {"Warmth", "WARMTH", 0.65f, "65%"},
+                {"Attack", "ATTACK", (0.85f - 0.05f) / 3.95f, "0.85 s"},
+                {"Decay", "DECAY", (1.5f - 0.1f) / 5.9f, "1.50 s"},
+                {"Sustain", "SUSTAIN", 0.85f, "85%"},
+                {"Release", "RELEASE", (2.5f - 0.1f) / 7.9f, "2.50 s"}
+            };
         } else {
             knobs = {
-                {"param1", knob1Name, knob1, std::to_string(static_cast<int>(std::round(knob1 * 100.0f))) + "%"},
-                {"param2", knob2Name, knob2, std::to_string(static_cast<int>(std::round(knob2 * 100.0f))) + "%"},
-                {"param3", knob3Name, knob3, std::to_string(static_cast<int>(std::round(knob3 * 100.0f))) + "%"},
-                {"param4", knob4Name, knob4, std::to_string(static_cast<int>(std::round(knob4 * 100.0f))) + "%"},
-                {"decay", "DECAY", 0.55f, "55%"},
-                {"output", "OUTPUT", 0.80f, "80%"}
+                {"param1", knob1Name.empty() ? "PARAM 1" : knob1Name, knob1, std::to_string(static_cast<int>(std::round(knob1 * 100.0f))) + "%"},
+                {"param2", knob2Name.empty() ? "PARAM 2" : knob2Name, knob2, std::to_string(static_cast<int>(std::round(knob2 * 100.0f))) + "%"},
+                {"param3", knob3Name.empty() ? "PARAM 3" : knob3Name, knob3, std::to_string(static_cast<int>(std::round(knob3 * 100.0f))) + "%"},
+                {"param4", knob4Name.empty() ? "PARAM 4" : knob4Name, knob4, std::to_string(static_cast<int>(std::round(knob4 * 100.0f))) + "%"},
+                {"param5", "COLOR", 0.50f, "50%"},
+                {"param6", "OUTPUT", 0.80f, "80%"}
             };
         }
     }
 };
+
+/**
+ * Canonical Instrument GUI Panel Builder
+ *
+ * Populates a GuiPanelDef with the authentic hardware faceplate layout matching
+ * Eatsbeats for the given instrument data.
+ * Used identically across:
+ * - Track Properties sidebar drawer (TrackPropertiesPanel)
+ * - Fullscreen Dedicated Device Modal (FullscreenDeviceModal)
+ * - Track Tab Hardware Inspector (TrackInspectorView)
+ * - Design > GUI Tab Faceplate Preview (DesignView)
+ * - Floating Detached Windows (FloatingWindowManager)
+ */
+void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
+                                         const TrackPropertiesDrawerData& data,
+                                         int draggingRow = -1,
+                                         int draggingWidget = -1);
 
 enum class TrackPropertiesHitArea {
     None,
@@ -629,6 +706,7 @@ public:
 
     [[nodiscard]] const Rect2D& getBounds() const noexcept { return bounds_; }
     [[nodiscard]] const Rect2D& getHeaderCardBounds() const noexcept { return headerCardBounds_; }
+    [[nodiscard]] const Rect2D& getFaceplateBounds() const noexcept { return faceplateBounds_; }
     [[nodiscard]] bool isDragging() const noexcept { return dragMode_ != DragMode::None; }
 
     void syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data);
@@ -800,6 +878,7 @@ private:
     PluginSearchDialog pluginDialog_;
     ColorPickerDialog colorPickerDialog_;
     bool isInsideDrawer_{false};
+    std::unique_ptr<clay::ClayContext> clayContext_;
 
     std::chrono::steady_clock::time_point lastClickTime_{};
     float lastClickX_{0.0f};

@@ -8,6 +8,7 @@
 #include "../theme.hpp"
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
 
 namespace eatsbits::ui {
 
@@ -95,6 +96,7 @@ private:
 
     float screenWidth_{1280.0f};
     float screenHeight_{800.0f};
+    clay::ClayContext clayCtx_;
 };
 
 } // namespace eatsbits::ui

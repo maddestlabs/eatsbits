@@ -14,6 +14,7 @@ void AnsiParser::reset() noexcept {
     resetCsi();
     utf8Codepoint_ = 0;
     utf8BytesRemaining_ = 0;
+    lastGraphicCodepoint_ = ' ';
     oscLength_ = 0;
     oscBuffer_[0] = '\0';
 }
@@ -71,7 +72,9 @@ void AnsiParser::parseByte(uint8_t byte) {
                 // UTF-8 Decoder State Machine
                 if ((byte & 0x80) == 0) {
                     // Single-byte ASCII [0x00..0x7F]
-                    grid_.writeCodepoint(static_cast<char32_t>(byte));
+                    char32_t cp = static_cast<char32_t>(byte);
+                    grid_.writeCodepoint(cp);
+                    lastGraphicCodepoint_ = cp;
                 } else if ((byte & 0xE0) == 0xC0) {
                     // 2-byte UTF-8 sequence lead byte
                     utf8Codepoint_ = byte & 0x1F;
@@ -91,6 +94,7 @@ void AnsiParser::parseByte(uint8_t byte) {
                         utf8BytesRemaining_--;
                         if (utf8BytesRemaining_ == 0) {
                             grid_.writeCodepoint(static_cast<char32_t>(utf8Codepoint_));
+                            lastGraphicCodepoint_ = static_cast<char32_t>(utf8Codepoint_);
                         }
                     }
                 } else {
@@ -252,6 +256,54 @@ void AnsiParser::handleCsi(char finalChar) {
             grid_.eraseInLine(paramCount_ >= 1 ? params_[0] : 0);
             break;
 
+        case 'X': // ECH - Erase Character (replace with blanks without moving cursor)
+            grid_.eraseCharacters(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case 'P': // DCH - Delete Character (shift remaining line characters left)
+            grid_.deleteCharacters(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case '@': // ICH - Insert Character (shift line characters right, insert blank)
+            grid_.insertCharacters(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case 'M': // DL - Delete Line (shift lower lines upward within scroll region)
+            grid_.deleteLines(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case 'L': // IL - Insert Line (shift lower lines downward within scroll region)
+            grid_.insertLines(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case 'd': // VPA - Line Position Absolute (1-indexed row)
+            grid_.setCursorPos(grid_.getCursorX(), (paramCount_ >= 1 && params_[0] > 0) ? (params_[0] - 1) : 0);
+            break;
+
+        case 'e': // VPR - Vertical Position Relative (downwards)
+            grid_.moveCursor(0, paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1);
+            break;
+
+        case 'a': // HPR - Horizontal Position Relative (rightwards)
+            grid_.moveCursor(paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1, 0);
+            break;
+
+        case 'b': { // REP - Repeat preceding graphic character
+            int count = paramCount_ >= 1 && params_[0] > 0 ? params_[0] : 1;
+            for (int k = 0; k < count; ++k) {
+                grid_.writeCodepoint(lastGraphicCodepoint_);
+            }
+            break;
+        }
+
+        case 'r': // DECSTBM - Set Top and Bottom Margins (CSI Pt ; Pb r)
+            if (!isPrivate_) {
+                int top = (paramCount_ >= 1 && params_[0] > 0) ? (params_[0] - 1) : 0;
+                int bottom = (paramCount_ >= 2 && params_[1] > 0) ? (params_[1] - 1) : (grid_.getRows() - 1);
+                grid_.setScrollRegion(top, bottom);
+            }
+            break;
+
         case 'S': // SU - Scroll Up
             grid_.scrollUp(std::max(1, params_[0]));
             break;
@@ -270,26 +322,38 @@ void AnsiParser::handleCsi(char finalChar) {
 
         case 'h': // Set Mode / DEC Private Mode Set
             if (isPrivate_) {
-                int p = (paramCount_ >= 1) ? params_[0] : 0;
-                if (p == 25) {
-                    grid_.setCursorVisible(true);
-                } else if (p == 1049) {
-                    grid_.setAlternateScreen(true);
-                } else if (p == 2004) {
-                    grid_.setBracketedPaste(true);
+                for (size_t i = 0; i < paramCount_; ++i) {
+                    int p = params_[i];
+                    if (p == 25) {
+                        grid_.setCursorVisible(true);
+                    } else if (p == 1049) {
+                        grid_.setAlternateScreen(true);
+                    } else if (p == 2004) {
+                        grid_.setBracketedPaste(true);
+                    } else if (p == 1000 || p == 1002 || p == 1003) {
+                        grid_.setMouseTrackingMode(p);
+                    } else if (p == 1006) {
+                        grid_.setSgrMouse(true);
+                    }
                 }
             }
             break;
 
         case 'l': // Reset Mode / DEC Private Mode Reset
             if (isPrivate_) {
-                int p = (paramCount_ >= 1) ? params_[0] : 0;
-                if (p == 25) {
-                    grid_.setCursorVisible(false);
-                } else if (p == 1049) {
-                    grid_.setAlternateScreen(false);
-                } else if (p == 2004) {
-                    grid_.setBracketedPaste(false);
+                for (size_t i = 0; i < paramCount_; ++i) {
+                    int p = params_[i];
+                    if (p == 25) {
+                        grid_.setCursorVisible(false);
+                    } else if (p == 1049) {
+                        grid_.setAlternateScreen(false);
+                    } else if (p == 2004) {
+                        grid_.setBracketedPaste(false);
+                    } else if (p == 1000 || p == 1002 || p == 1003) {
+                        grid_.setMouseTrackingMode(0);
+                    } else if (p == 1006) {
+                        grid_.setSgrMouse(false);
+                    }
                 }
             }
             break;

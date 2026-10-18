@@ -1,6 +1,8 @@
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
 #include "eatsbits/audio/graph/audio_graph.hpp"
+#include "eatsbits/audio/graph/nodes/arpeggiator_node.hpp"
+#include "eatsbits/audio/graph/nodes/scale_quantizer_node.hpp"
 #include <cassert>
 #include <iostream>
 #include <cmath>
@@ -12,6 +14,10 @@ void testMidiFxTypeDetection() {
     std::cout << "[Test 1] MidiFxType detection..." << std::endl;
     assert(MidiPipelineEngine::detectMidiFxType("def process(notes, ctx):", "") == MidiFxType::Eatscript);
     assert(MidiPipelineEngine::detectMidiFxType("", "Arpeggiator") == MidiFxType::Arpeggiator);
+    assert(MidiPipelineEngine::detectMidiFxType("arpeggiator_midi_fx", "Arpeggiator FX MIDI Processor") == MidiFxType::Arpeggiator);
+    assert(MidiPipelineEngine::detectMidiFxType("chord_arp_midi_fx", "Chord Arpeggiator FX MIDI Processor") == MidiFxType::ChordArp);
+    assert(MidiPipelineEngine::detectMidiFxType("def init():\n  eat.arpeggiate(rate=1.0)", "Arpeggiator FX") == MidiFxType::Arpeggiator);
+    assert(MidiPipelineEngine::detectMidiFxType("def init():\n  eat.chord_arp(rate=1.0)", "Chord Arp FX") == MidiFxType::ChordArp);
     assert(MidiPipelineEngine::detectMidiFxType("scale_snap(notes)", "") == MidiFxType::ScaleSnap);
     assert(MidiPipelineEngine::detectMidiFxType("", "Chord Follower") == MidiFxType::ChordFollow);
     assert(MidiPipelineEngine::detectMidiFxType("humanize(notes)", "") == MidiFxType::Humanize);
@@ -269,6 +275,230 @@ void testInspectorMidiFxBridgeAndLivePlayback() {
     std::cout << "  Passed." << std::endl;
 }
 
+void testPolyphonicChordAndChordStabsDispatch() {
+    std::cout << "[Test 9] Polyphonic ExtraNotes and ChordStabs Dispatch...\n";
+    StepSequencer seq;
+    seq.setBpm(120.0);
+    seq.addTrack("Chords", 1, 16);
+
+    auto* track = seq.getTrack(0);
+    assert(track != nullptr);
+
+    eatsbits::audio::AudioGraph graph;
+    auto capture = std::make_shared<TestCaptureNode>();
+    eatsbits::audio::NodeId capId = graph.addNode(capture);
+    track->setTargetNodeId(capId);
+
+    // Step 0: Note 60 with extraNotes 64 (E4) and 67 (G4)
+    StepData sd;
+    sd.active = true;
+    sd.note = 60;
+    sd.velocity = 0.8f;
+    sd.extraNotes = {64, 67};
+    track->setStep(0, sd);
+
+    seq.start();
+    seq.processBlock(256, graph);
+    assert(capture->receivedNotes.size() == 3);
+    assert(capture->receivedNotes[0] == 60);
+    assert(capture->receivedNotes[1] == 64);
+    assert(capture->receivedNotes[2] == 67);
+
+    // Test with ChordStabs MIDI FX
+    capture->receivedNotes.clear();
+    sd.extraNotes.clear(); // Clear manual extra notes, let ChordStabs generate them
+    track->setStep(0, sd);
+
+    std::vector<MidiFxInsert> rack = {
+        {"mfx_stabs", "Chord Voicing", true, MidiFxType::ChordStabs, "", {{"scaleMode", 0.0f}}}
+    };
+    track->setMidiFxRack(rack);
+
+    seq.stop();
+    seq.start();
+    seq.processBlock(256, graph);
+    assert(capture->receivedNotes.size() == 3);
+    assert(capture->receivedNotes[0] == 60);
+    assert(capture->receivedNotes[1] == 64); // Major 3rd (+4)
+    assert(capture->receivedNotes[2] == 67); // Perfect 5th (+7)
+
+    std::cout << "  Passed." << std::endl;
+}
+
+void testSustainedNoteArpeggiatorAcrossSteps() {
+    std::cout << "[Test 10] Sustained Note Arpeggiator Across Steps...\n";
+    StepSequencer seq;
+    seq.setBpm(120.0);
+    seq.addTrack("ArpTrack", 1, 16);
+
+    auto* track = seq.getTrack(0);
+    assert(track != nullptr);
+
+    eatsbits::audio::AudioGraph graph;
+    auto capture = std::make_shared<TestCaptureNode>();
+    eatsbits::audio::NodeId capId = graph.addNode(capture);
+    track->setTargetNodeId(capId);
+
+    // Step 0: Sustained for 4 steps (gateLength = 4.0f) with extra notes 64, 67
+    StepData sd;
+    sd.active = true;
+    sd.note = 60;
+    sd.velocity = 0.8f;
+    sd.gateLength = 4.0f;
+    sd.extraNotes = {64, 67};
+    track->setStep(0, sd);
+    for (uint32_t s = 1; s < 4; ++s) {
+        StepData inactiveSd{};
+        inactiveSd.active = false;
+        track->setStep(s, inactiveSd);
+    }
+
+    std::vector<MidiFxInsert> rack = {
+        {"mfx_arp", "Arpeggiator", true, MidiFxType::Arpeggiator, "", {{"Octaves", 1.0f}}}
+    };
+    track->setMidiFxRack(rack);
+
+    seq.start();
+    // Step 0
+    seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 60);
+
+    const uint32_t stepDuration = static_cast<uint32_t>(seq.getTransport().getStepLength(0));
+
+    // Step 1: Inactive step, but Arp continues and triggers note 64
+    capture->receivedNotes.clear();
+    seq.processBlock(stepDuration, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 64);
+
+    // Step 2: Inactive step, Arp triggers note 67
+    capture->receivedNotes.clear();
+    seq.processBlock(stepDuration, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 67);
+
+    // Step 3: Inactive step, Arp cycles back to note 60
+    capture->receivedNotes.clear();
+    seq.processBlock(stepDuration, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 60);
+
+    std::cout << "  Passed." << std::endl;
+}
+
+void testSubStepAndC64FastArpeggiator() {
+    std::cout << "[Test 11] Sub-Step Rate & Fast C64 Chiptune Arpeggiation Verification...\n";
+    StepSequencer seq;
+    seq.setBpm(120.0);
+    seq.addTrack("C64ArpTrack", 1, 16);
+
+    auto* track = seq.getTrack(0);
+    assert(track != nullptr);
+
+    eatsbits::audio::AudioGraph graph;
+    auto capture = std::make_shared<TestCaptureNode>();
+    eatsbits::audio::NodeId capId = graph.addNode(capture);
+    track->setTargetNodeId(capId);
+
+    // Step 0: Note 60 with extra notes 64, 67 (C major triad), held for 2 steps
+    StepData sd;
+    sd.active = true;
+    sd.note = 60;
+    sd.velocity = 0.8f;
+    sd.gateLength = 2.0f;
+    sd.extraNotes = {64, 67};
+    track->setStep(0, sd);
+
+    // Rate = 0.5 (1/32 note) -> should fire twice per 16th note step
+    std::vector<MidiFxInsert> rack32nd = {
+        {"mfx_arp", "Arpeggiator", true, MidiFxType::Arpeggiator, "", {{"Rate", 0.5f}, {"Octaves", 1.0f}}}
+    };
+    track->setMidiFxRack(rack32nd);
+
+    seq.start();
+    // Step 0 begins: triggers initial note 60
+    seq.processBlock(256, graph);
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.front() == 60);
+
+    // Now advance by half a 16th note step (32nd note interval = ~3000 frames)
+    capture->receivedNotes.clear();
+    const uint32_t stepDuration = static_cast<uint32_t>(seq.getTransport().getStepLength(0));
+    seq.processBlock(stepDuration / 2, graph);
+    // Sub-step clock should trigger the next arp note (64)
+    assert(!capture->receivedNotes.empty());
+    assert(capture->receivedNotes.back() == 64);
+
+    // Test C64 50Hz Fast Rate (Rate = 0.05f)
+    seq.stop();
+    capture->receivedNotes.clear();
+    std::vector<MidiFxInsert> rackC64 = {
+        {"mfx_arp", "Arpeggiator", true, MidiFxType::Arpeggiator, "", {{"Rate", 0.05f}, {"Octaves", 1.0f}}}
+    };
+    track->setMidiFxRack(rackC64);
+    seq.start();
+
+    // Trigger step 0
+    seq.processBlock(256, graph);
+    capture->receivedNotes.clear();
+
+    // Process 2000 frames (at 48kHz, 50Hz = 960 frames/note, so ~2 note triggers in 2000 frames)
+    seq.processBlock(2000, graph);
+    assert(capture->receivedNotes.size() >= 2);
+
+    std::cout << "  Passed." << std::endl;
+}
+
+void testModularArpeggiatorAndScaleQuantizerNodes() {
+    std::cout << "[Test 12] Modular Arpeggiator & Scale Quantizer Graph Nodes...\n";
+    using namespace eatsbits::audio;
+
+    AudioGraph graph;
+    auto qNode = std::make_shared<ScaleQuantizerNode>("TestQuant");
+    qNode->prepare(48000.0, 512);
+    qNode->setRootKey(0); // C Major
+    qNode->setScaleMode(ScaleQuantizerNode::ScaleMode::Major);
+
+    auto arpNode = std::make_shared<ArpeggiatorNode>("TestArp");
+    arpNode->prepare(48000.0, 512);
+    arpNode->setRateIndex(6); // C64 50Hz mode
+    arpNode->setVoicing(ArpeggiatorNode::ArpVoicing::MajorTriad); // 0, 4, 7 semitones
+    arpNode->setOctaves(1);
+
+    NodeId arpId = graph.addNode(arpNode);
+    NodeId qId = graph.addNode(qNode);
+
+    // Connect Arpeggiator Pitch CV Out (Port 0) -> Scale Quantizer CV In (Port 0)
+    bool conn = graph.connect(arpId, 0, qId, 0);
+    assert(conn);
+
+    // Process blocks through the audio graph
+    graph.prepare(48000.0, 512);
+    float dummyL[512]{0};
+    float dummyR[512]{0};
+    graph.process(dummyL, dummyR, 512);
+
+    float* quantOut = qNode->getOutputBuffer(0, 0);
+    assert(quantOut != nullptr);
+
+    // Run for multiple blocks (simulate 50Hz cycling)
+    for (int b = 0; b < 10; ++b) {
+        graph.process(dummyL, dummyR, 512);
+    }
+
+    quantOut = qNode->getOutputBuffer(0, 0);
+    assert(quantOut != nullptr);
+    float val = quantOut[0];
+    assert(!std::isnan(val));
+
+    // Verify trigger pulse output is present on Port 1
+    float* trigOut = qNode->getOutputBuffer(1, 0);
+    assert(trigOut != nullptr);
+
+    std::cout << "  Passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running MIDI FX Pipeline Tests ===" << std::endl;
     testMidiFxTypeDetection();
@@ -279,6 +509,10 @@ int main() {
     testSequencerTrackInterop();
     testStepSequencerLiveMidiFxPipeline();
     testInspectorMidiFxBridgeAndLivePlayback();
+    testPolyphonicChordAndChordStabsDispatch();
+    testSustainedNoteArpeggiatorAcrossSteps();
+    testSubStepAndC64FastArpeggiator();
+    testModularArpeggiatorAndScaleQuantizerNodes();
     std::cout << "All MIDI FX Pipeline Tests Passed Successfully!" << std::endl;
     return 0;
 }

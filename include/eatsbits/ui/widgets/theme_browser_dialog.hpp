@@ -4,6 +4,7 @@
 #include "../theme.hpp"
 #include "../batch_renderer_2d.hpp"
 #include "../input/pointer_event.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
 #include <string>
 #include <vector>
 #include <functional>
@@ -38,6 +39,7 @@ public:
     void setSelectedCategoryIndex(int idx) noexcept;
     [[nodiscard]] int getSelectedItemIndex() const noexcept { return selectedItemIndex_; }
     void setSelectedItemIndex(int idx);
+    [[nodiscard]] size_t getFilteredCount() const noexcept { return filteredIndices_.size(); }
     [[nodiscard]] float getScrollY() const noexcept { return scrollY_; }
     [[nodiscard]] float getMaxScrollY() const noexcept { return maxScrollY_; }
     [[nodiscard]] bool isDraggingScrollbar() const noexcept { return isDraggingScrollbar_; }
@@ -46,6 +48,7 @@ public:
     std::function<void()> onClose;
 
 private:
+    clay::ClayContext clayCtx_;
     struct ThemeCardItem {
         Theme::Preset preset;
         std::string name;

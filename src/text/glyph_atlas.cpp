@@ -96,6 +96,7 @@ void GlyphAtlas::clear() {
 
 void GlyphAtlas::markDirty(int x, int y, int w, int h) noexcept {
     if (w <= 0 || h <= 0) return;
+    ++version_;
     int x1 = std::clamp(x, 0, width_);
     int y1 = std::clamp(y, 0, height_);
     int x2 = std::clamp(x + w, 0, width_);

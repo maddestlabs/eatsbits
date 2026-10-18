@@ -9,6 +9,8 @@
 #include "eatsbits/ui/input/pointer_event.hpp"
 #include "eatsbits/ui/element2d.hpp"
 #include "eatsbits/ui/views/view_base.hpp"
+#include "eatsbits/ui/gui_panel_def.hpp"
+#include "eatsbits/ui/widgets/track_properties_panel.hpp"
 
 #include <iostream>
 #include <cassert>
@@ -262,7 +264,68 @@ void testContextualLightingAndTb303() {
     float dotDown = std::cos(toothAngleDown) * lDir.x + std::sin(toothAngleDown) * lDir.y;
     assertNear(dotDown, -1.0f, 0.01f, "Downward tooth facing away should have N.L = -1.0");
 
-    std::cout << "  [PASS] Contextual LightSource2D and TB-303 tests passed." << std::endl;
+    // Stepped Knob tests (e.g. Eats 303 Octave 0..10)
+    SkeuomorphicKnob steppedKnob(kBounds, "OCTAVE", 0.5f, 0.0f, 10.0f, "", KnobStyle::Tb303Selector, 1.0f);
+    assert(steppedKnob.step == 1.0f);
+    assertNear(steppedKnob.getDisplayValue(), 5.0f, 0.01f, "Initial snapped display value");
+    assert(steppedKnob.getFormattedValue() == "5");
+
+    // Drag stepped knob: drag upward to increase
+    steppedKnob.handleDrag(-30.0f); // Upward drag
+    assert(steppedKnob.getDisplayValue() >= 5.0f);
+    // Display value must always be integer multiple of step
+    float disp = steppedKnob.getDisplayValue();
+    assertNear(disp, std::round(disp), 0.001f, "Display value must snap to exact integer step");
+
+    // TB-303 Potentiometer authentic hardware style: 48 serrated flutes and DeclinedScoop cap
+    KnobShapeDef tb303Shape = getKnobShapeDef(GuiKnobStyle::Tb303Potentiometer);
+    assert(tb303Shape.capStyle == KnobCapStyle::DeclinedScoop);
+    assert(tb303Shape.flutes == 48);
+    assert(tb303Shape.hasSkirt == true);
+    assert(tb303Shape.indicator == KnobIndicatorType::None); // Integrated scoop notch
+    assert(tb303Shape.sunkenSlotWidth == 1.8f);
+    assert(tb303Shape.hasBlockCenterDetent == true);
+    assert(tb303Shape.dialLabels.size() == 11);
+    assert(tb303Shape.dialLabels.front() == "0");
+    assert(tb303Shape.dialLabels.back() == "10");
+
+    // Configurable knob custom shape: flutes, skirt, sunken slot (0.0 disables), and semantic string array
+    KnobShapeDef customFluted;
+    customFluted.flutes = 20;
+    customFluted.fluteDepth = 0.16f;
+    customFluted.skirtRatio = 1.25f;
+    customFluted.hasSkirt = true;
+    customFluted.sunkenSlotWidth = 0.0f; // 0 = unrendered
+    customFluted.dialLabels = {"low", "mid", "high"};
+    assert(customFluted.flutes == 20);
+    assert(customFluted.sunkenSlotWidth == 0.0f);
+    assert(customFluted.dialLabels.size() == 3);
+    assert(customFluted.dialLabels[1] == "mid");
+
+    // Slide switch with waveform symbols configuration
+    GuiWidgetDef waveSwitch;
+    waveSwitch.id = "w_waveform";
+    waveSwitch.type = GuiWidgetType::ToggleSwitch;
+    waveSwitch.switchStyle = SwitchStyle::RectangularSlide;
+    waveSwitch.switchOrientation = SwitchOrientation::Vertical;
+    waveSwitch.switchSymbolTop = SwitchSymbol::SquareWave;
+    waveSwitch.switchSymbolBottom = SwitchSymbol::SawWave;
+    assert(waveSwitch.switchStyle == SwitchStyle::RectangularSlide);
+    assert(waveSwitch.switchOrientation == SwitchOrientation::Vertical);
+    assert(waveSwitch.switchSymbolTop == SwitchSymbol::SquareWave);
+    assert(waveSwitch.switchSymbolBottom == SwitchSymbol::SawWave);
+
+    // BatchRenderer2D drawDeclinedScoopGradient zero-allocation test
+    BatchRenderer2D renderer;
+    size_t initialVerts = renderer.getVertexCount();
+    renderer.drawDeclinedScoopGradient(100.0f, 100.0f, 20.0f, 0.0f, -0.12f,
+                                       1.0f, 1.0f, 1.0f, 1.0f,
+                                       0.8f, 0.8f, 0.8f, 1.0f,
+                                       0.3f, 0.3f, 0.3f, 1.0f,
+                                       0.45f, 24);
+    assert(renderer.getVertexCount() > initialVerts);
+
+    std::cout << "  [PASS] Contextual LightSource2D, scoop gradient, and TB-303 tests passed." << std::endl;
 }
 
 void testScrollableArea() {
@@ -549,6 +612,288 @@ void testElement2D() {
     std::cout << "  [PASS] Element2D hierarchy & event bubbling validated." << std::endl;
 }
 
+void testUnifiedControlsCore() {
+    std::cout << "[Test] Unified Composable Control Core (Knobs, Sliders, Minimal Mode)..." << std::endl;
+
+    ThemeTokens theme;
+    theme.isLight = false;
+    theme.primaryAccent = Color(0.18f, 0.85f, 0.95f, 1.0f);
+    theme.controlMode = ControlAestheticMode::AutoThemeDefault;
+
+    BatchRenderer2D renderer;
+    renderer.beginFrame(800.0f, 600.0f);
+
+    // 1. Minimal Vector Knob (gui-minimal / Bitwig / Ableton)
+    KnobStyleCore minStyle = KnobStyleCore::minimal(theme.primaryAccent, false);
+    assert(minStyle.layout == KnobLayoutMode::StackedVertical);
+    assert(minStyle.arcType == KnobArcType::Unipolar);
+    assert(minStyle.surface == RotorSurface::FlatVector);
+
+    size_t v0 = renderer.getVertexCount();
+    drawUnifiedKnob(renderer, 100.0f, 100.0f, 24.0f, 0.75f, minStyle, "AMOUNT", "75 %", &theme);
+    size_t v1 = renderer.getVertexCount();
+    assert(v1 > v0);
+
+    // 2. Studio Modern Knob with Bipolar Center-Zero Arc (gui-variations / SMAOLAB)
+    KnobStyleCore studioStyle = KnobStyleCore::studio(theme.primaryAccent, true);
+    assert(studioStyle.layout == KnobLayoutMode::InlineRight);
+    assert(studioStyle.arcType == KnobArcType::BipolarCenterZero);
+    assert(studioStyle.surface == RotorSurface::SubtleGradient);
+    assert(studioStyle.hasCenterDetent == true);
+
+    size_t v2 = renderer.getVertexCount();
+    drawUnifiedKnob(renderer, 250.0f, 100.0f, 28.0f, 0.65f, studioStyle, "BRILLIANCE", "+2.5 dB", &theme);
+    size_t v3 = renderer.getVertexCount();
+    assert(v3 > v2);
+
+    // 3. Micro-Knob (Arranger track header)
+    KnobStyleCore microStyle = KnobStyleCore::micro(Color(1.0f, 0.55f, 0.0f, 1.0f), true);
+    assert(microStyle.layout == KnobLayoutMode::MicroInline);
+    size_t v4 = renderer.getVertexCount();
+    drawUnifiedKnob(renderer, 400.0f, 100.0f, 9.0f, 0.5f, microStyle, {}, {}, &theme);
+    size_t v5 = renderer.getVertexCount();
+    assert(v5 > v4);
+
+    // 4. Unified Sliders (Horizontal Track & Vertical Fader)
+    SliderStyleCore horizStyle = SliderStyleCore::horizontalTrack(theme.primaryAccent, 4.0f);
+    assert(horizStyle.orientation == SliderOrientation::Horizontal);
+    assert(horizStyle.thumbStyle == SliderThumbStyle::PillThumb);
+
+    size_t v6 = renderer.getVertexCount();
+    drawUnifiedSlider(renderer, Rect2D{50.0f, 200.0f, 120.0f, 12.0f}, 0.85f, horizStyle, theme.primaryAccent, &theme);
+    size_t v7 = renderer.getVertexCount();
+    assert(v7 > v6);
+
+    SliderStyleCore vertStyle = SliderStyleCore::verticalFader(theme.primaryAccent);
+    assert(vertStyle.orientation == SliderOrientation::Vertical);
+    size_t v8 = renderer.getVertexCount();
+    drawUnifiedSlider(renderer, Rect2D{50.0f, 250.0f, 24.0f, 100.0f}, 0.60f, vertStyle, theme.primaryAccent, &theme);
+    size_t v9 = renderer.getVertexCount();
+    assert(v9 > v8);
+
+    // 5. Global ControlAestheticMode::ForceMinimal Setting Fast-Path
+    GuiWidgetDef w;
+    w.knobStyle = GuiKnobStyle::DaviesFluted; // heavily fluted skeuomorphic style
+    w.accentColor = theme.primaryAccent;
+
+    // Normal full skeuomorphic mode
+    BatchRenderer2D rSkeuo;
+    rSkeuo.beginFrame(800.0f, 600.0f);
+    theme.controlMode = ControlAestheticMode::AutoThemeDefault;
+    drawKnobWidget(rSkeuo, 100.0f, 400.0f, 28.0f, 0.5f, w, theme.globalLight, false, false, false, &theme);
+    size_t skeuoVerts = rSkeuo.getVertexCount();
+
+    // Now switch to ForceMinimal
+    BatchRenderer2D rMin;
+    rMin.beginFrame(800.0f, 600.0f);
+    theme.controlMode = ControlAestheticMode::ForceMinimal;
+    drawKnobWidget(rMin, 100.0f, 400.0f, 28.0f, 0.5f, w, theme.globalLight, false, false, false, &theme);
+    size_t minimalVerts = rMin.getVertexCount();
+
+    assert(minimalVerts > 0);
+    // Minimal mode bypasses skirts, 3D fluting, lathe scoops, and drop shadows:
+    assert(minimalVerts < skeuoVerts);
+
+    std::cout << "  [PASS] Minimal mode vertex reduction verified: " << minimalVerts 
+              << " verts (minimal) vs " << skeuoVerts << " verts (skeuomorphic)." << std::endl;
+    std::cout << "  [PASS] Unified Composable Control Core validated successfully." << std::endl;
+}
+
+void testAstralKnobNormalizationAndFullRange() {
+    std::cout << "[Test] Astral Shimmer Pad knob normalization and full rotational range..." << std::endl;
+
+    TrackPropertiesDrawerData data;
+    data.instrumentEngine = "ambient_pad";
+    data.instrument = "astral_shimmer_pad";
+    data.presetTitle = "ASTRAL SHIMMER PAD";
+    data.syncKnobsIfEmpty();
+
+    GuiPanelDef panel;
+    populateCanonicalInstrumentGuiPanel(panel, data, -1, -1);
+
+    assert(panel.rows.size() == 2);
+    assert(panel.rows[0].widgets.size() == 4);
+    assert(panel.rows[1].widgets.size() == 4);
+
+    // Verify Cutoff initialization
+    const auto& cutoffWidget = panel.rows[0].widgets[0];
+    assert(cutoffWidget.param == "Cutoff");
+    assert(cutoffWidget.minVal == 100.0f);
+    assert(cutoffWidget.maxVal == 16000.0f);
+    // Engineering value should be initialized properly to 2400.0f
+    assertNear(cutoffWidget.currentVal, 2400.0f, 1.0f, "Cutoff currentVal should be ~2400 Hz");
+
+    // Normalized value for rotation should be ~0.1446f
+    float norm = (cutoffWidget.currentVal - cutoffWidget.minVal) / (cutoffWidget.maxVal - cutoffWidget.minVal);
+    assertNear(norm, 0.1446f, 0.01f, "Cutoff normalized rotation should be ~0.1446, NOT 0.0f");
+
+    // Formatted value should show "2400.0 Hz"
+    std::string fmt = cutoffWidget.getFormattedValue();
+    assert(fmt.find("2400") != std::string::npos);
+    assert(fmt.find("Hz") != std::string::npos);
+
+    // Verify interaction in TrackPropertiesPanel
+    TrackPropertiesPanel propPanel;
+    ViewContext ctx{};
+    propPanel.layout(Rect2D(0.0f, 0.0f, 600.0f, 800.0f), ctx);
+    propPanel.syncGuiPanelFromTrackData(data);
+
+    // Give row 0, widget 0 (Cutoff) concrete bounds inside faceplate
+    const auto& fp = propPanel.getFaceplateBounds();
+    propPanel.getGuiPanel().rows[0].widgets[0].bounds = Rect2D(fp.x + 20.0f, fp.y + 40.0f, 60.0f, 60.0f);
+
+    // Start pointer down inside Cutoff knob
+    PointerEvent downEv{};
+    downEv.type = PointerType::Mouse;
+    downEv.action = PointerAction::Down;
+    downEv.x = fp.x + 30.0f;
+    downEv.y = fp.y + 50.0f;
+    bool downHandled = propPanel.handlePointer(downEv, data, ctx);
+    if (!downHandled) {
+        std::cerr << "Assertion failed: downHandled must be true" << std::endl;
+        std::abort();
+    }
+
+    // Drag up 160px (full sweep to max 1.0)
+    PointerEvent moveEv{};
+    moveEv.type = PointerType::Mouse;
+    moveEv.action = PointerAction::Move;
+    moveEv.x = downEv.x;
+    moveEv.y = downEv.y - 160.0f; // Drag up 160px
+    propPanel.handlePointer(moveEv, data, ctx);
+
+    // Should reach max cutoff (16000 Hz)
+    const auto& updatedPanel = propPanel.getGuiPanel();
+    const auto& updatedCutoff = updatedPanel.rows[0].widgets[0];
+    assertNear(updatedCutoff.currentVal, 16000.0f, 10.0f, "Cutoff should reach ~16000 Hz at full upward drag");
+    float normMax = (updatedCutoff.currentVal - updatedCutoff.minVal) / (updatedCutoff.maxVal - updatedCutoff.minVal);
+    assertNear(normMax, 1.0f, 0.01f, "Cutoff rotation norm should be 1.0 at full drag");
+
+    // Drag down 300px to reach min 0.0
+    moveEv.y = downEv.y + 160.0f;
+    propPanel.handlePointer(moveEv, data, ctx);
+    const auto& minCutoff = propPanel.getGuiPanel().rows[0].widgets[0];
+    assertNear(minCutoff.currentVal, 100.0f, 5.0f, "Cutoff should reach ~100 Hz at full downward drag");
+    float normMin = (minCutoff.currentVal - minCutoff.minVal) / (minCutoff.maxVal - minCutoff.minVal);
+    assertNear(normMin, 0.0f, 0.01f, "Cutoff rotation norm should be 0.0 at full downward drag");
+
+    std::cout << "  [PASS] Astral Shimmer Pad knob normalization, full 270-degree range, and unit readouts verified." << std::endl;
+}
+
+void testDetuneDecayIndependenceAndSync() {
+    std::cout << "[Test] Detune and Decay parameter independence and no cross-talk..." << std::endl;
+
+    TrackPropertiesDrawerData data;
+    data.instrument = "Astral Shimmer Pad";
+    data.instrumentEngine = "ambient_pad";
+    data.syncKnobsIfEmpty();
+
+    assert(data.knobs.size() == 8);
+    // Find Detune and Decay in data.knobs
+    int detuneIdx = -1;
+    int decayIdx = -1;
+    for (size_t i = 0; i < data.knobs.size(); ++i) {
+        if (data.knobs[i].name == "Detune") detuneIdx = static_cast<int>(i);
+        if (data.knobs[i].name == "Decay") decayIdx = static_cast<int>(i);
+    }
+    assert(detuneIdx >= 0 && "Detune must exist in data.knobs");
+    assert(decayIdx >= 0 && "Decay must exist in data.knobs");
+    assert(detuneIdx != decayIdx && "Detune and Decay must be separate slots");
+
+    // 1. Modifying Detune must not alter Decay
+    float origDecay = data.knobs[decayIdx].value;
+    data.setKnobValue("Detune", 0.85f, "29.9 ct");
+    assertNear(data.knobs[detuneIdx].value, 0.85f, 0.001f, "Detune should be 0.85");
+    assertNear(data.knobs[decayIdx].value, origDecay, 0.001f, "Decay must NOT change when Detune changes");
+
+    // 2. Modifying Decay must not alter Detune
+    data.setKnobValue("Decay", 0.25f, "1.58 s");
+    assertNear(data.knobs[decayIdx].value, 0.25f, 0.001f, "Decay should be 0.25");
+    assertNear(data.knobs[detuneIdx].value, 0.85f, 0.001f, "Detune must NOT change when Decay changes");
+
+    // 3. Sync to TrackPropertiesPanel and verify GUI widget values
+    TrackPropertiesPanel propPanel;
+    ViewContext ctx{};
+    propPanel.layout(Rect2D(0.0f, 0.0f, 600.0f, 800.0f), ctx);
+    propPanel.syncGuiPanelFromTrackData(data);
+
+    const auto& fp = propPanel.getFaceplateBounds();
+    auto& panelDef = propPanel.getGuiPanel();
+    // Row 0 widget 2 is Detune (1.0 .. 35.0 ct)
+    const auto& detuneWidget = panelDef.rows[0].widgets[2];
+    assert(detuneWidget.param == "Detune");
+    assertNear(detuneWidget.currentVal, 1.0f + 0.85f * 34.0f, 0.1f, "Detune widget currentVal mismatch");
+
+    // Row 1 widget 1 is Decay (0.1 .. 6.0 s)
+    const auto& decayWidget = panelDef.rows[1].widgets[1];
+    assert(decayWidget.param == "Decay");
+    assertNear(decayWidget.currentVal, 0.1f + 0.25f * 5.9f, 0.1f, "Decay widget currentVal mismatch");
+
+    // 4. Drag Detune knob in panel
+    panelDef.rows[0].widgets[2].bounds = Rect2D(fp.x + 150.0f, fp.y + 40.0f, 50.0f, 50.0f);
+    panelDef.rows[1].widgets[1].bounds = Rect2D(fp.x + 80.0f, fp.y + 120.0f, 50.0f, 50.0f);
+
+    PointerEvent downDetune{};
+    downDetune.type = PointerType::Mouse;
+    downDetune.action = PointerAction::Down;
+    downDetune.x = fp.x + 160.0f;
+    downDetune.y = fp.y + 50.0f;
+    propPanel.handlePointer(downDetune, data, ctx);
+
+    // Drag up 45px
+    PointerEvent moveDetune{};
+    moveDetune.type = PointerType::Mouse;
+    moveDetune.action = PointerAction::Move;
+    moveDetune.x = downDetune.x;
+    moveDetune.y = downDetune.y - 45.0f;
+    propPanel.handlePointer(moveDetune, data, ctx);
+
+    // Release mouse
+    PointerEvent upDetune{};
+    upDetune.type = PointerType::Mouse;
+    upDetune.action = PointerAction::Up;
+    upDetune.x = moveDetune.x;
+    upDetune.y = moveDetune.y;
+    propPanel.handlePointer(upDetune, data, ctx);
+
+    // Re-sync GUI panel and verify Decay did NOT change to Detune value!
+    propPanel.syncGuiPanelFromTrackData(data);
+    const auto& checkDecayAfterDetune = propPanel.getGuiPanel().rows[1].widgets[1];
+    assertNear(checkDecayAfterDetune.currentVal, 0.1f + 0.25f * 5.9f, 0.1f, "Decay must retain its own value after Detune drag");
+
+    // 5. Drag Decay knob in panel
+    PointerEvent downDecay{};
+    downDecay.type = PointerType::Mouse;
+    downDecay.action = PointerAction::Down;
+    downDecay.x = fp.x + 90.0f;
+    downDecay.y = fp.y + 130.0f;
+    propPanel.handlePointer(downDecay, data, ctx);
+
+    // Drag down 60px
+    PointerEvent moveDecay{};
+    moveDecay.type = PointerType::Mouse;
+    moveDecay.action = PointerAction::Move;
+    moveDecay.x = downDecay.x;
+    moveDecay.y = downDecay.y + 60.0f;
+    propPanel.handlePointer(moveDecay, data, ctx);
+
+    // Release mouse
+    PointerEvent upDecay{};
+    upDecay.type = PointerType::Mouse;
+    upDecay.action = PointerAction::Up;
+    upDecay.x = moveDecay.x;
+    upDecay.y = moveDecay.y;
+    propPanel.handlePointer(upDecay, data, ctx);
+
+    // Re-sync and verify Decay does NOT revert to Detune!
+    propPanel.syncGuiPanelFromTrackData(data);
+    const auto& finalDecay = propPanel.getGuiPanel().rows[1].widgets[1];
+    const auto& finalDetune = propPanel.getGuiPanel().rows[0].widgets[2];
+    assert(std::abs(finalDecay.currentVal - finalDetune.currentVal) > 5.0f && "Decay must NOT snap to Detune!");
+
+    std::cout << "  [PASS] Detune and Decay independence and no cross-talk verified." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits UI Geometry & Widgets Tests ===" << std::endl;
     testRectGeometry();
@@ -560,6 +905,9 @@ int main() {
     testScrollableArea();
     testMultiTouchAndKineticTouch();
     testElement2D();
+    testUnifiedControlsCore();
+    testAstralKnobNormalizationAndFullRange();
+    testDetuneDecayIndependenceAndSync();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }
