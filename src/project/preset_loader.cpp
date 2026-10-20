@@ -206,6 +206,8 @@ public:
                 node.labelAlignment = current_.str; advance();
             } else if (key == "sublabel" || key == "subLabel") {
                 node.sublabel = current_.str; advance();
+            } else if (key == "centerGlyph" || key == "glyph" || key == "icon") {
+                node.centerGlyph = current_.str; advance();
             } else if (key == "showValueBox" || key == "valueBox") {
                 node.showValueBox = current_.bVal; advance();
             } else if (key == "orientation") {
@@ -346,6 +348,9 @@ GuiLayoutNode convertValueToGuiNode(const eatscript::Value& val) {
     else if (val.hasKey("alignLabels")) node.labelAlignment = val.get("alignLabels").asString();
     if (val.hasKey("sublabel")) node.sublabel = val.get("sublabel").asString();
     else if (val.hasKey("subLabel")) node.sublabel = val.get("subLabel").asString();
+    if (val.hasKey("centerGlyph")) node.centerGlyph = val.get("centerGlyph").asString();
+    else if (val.hasKey("glyph")) node.centerGlyph = val.get("glyph").asString();
+    else if (val.hasKey("icon")) node.centerGlyph = val.get("icon").asString();
     if (val.hasKey("showValueBox")) node.showValueBox = val.get("showValueBox").asBoolean();
     else if (val.hasKey("valueBox")) node.showValueBox = val.get("valueBox").asBoolean();
     node.orientation = val.get("orientation").asString();

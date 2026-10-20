@@ -188,6 +188,7 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
         w.param = wNode.paramName;
         w.label = wNode.label.empty() ? wNode.paramName : wNode.label;
         w.sublabel = wNode.sublabel;
+        w.centerGlyph = wNode.centerGlyph;
         w.unit = wNode.unit;
         w.size = (wNode.size > 0.0f) ? wNode.size : 52.0f;
         w.accentColor = panel.accentColor;
@@ -235,6 +236,8 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
             else if (hs.find("magenta") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioMagenta;
             else if (hs.find("dark") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioDark;
             else if (hs.find("bipolar") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioBipolar;
+            else if (hs.find("neumorphic_pink") != std::string::npos || hs.find("lens_pink") != std::string::npos) w.knobStyle = GuiKnobStyle::NeumorphicLensPink;
+            else if (hs.find("neumorphic") != std::string::npos || hs.find("lens") != std::string::npos || hs.find("volcano") != std::string::npos) w.knobStyle = GuiKnobStyle::NeumorphicLens;
             else if (hs.find("vintage") != std::string::npos || hs.find("bakelite") != std::string::npos) w.knobStyle = GuiKnobStyle::BakeliteSkirt;
             else if (hs.find("fluted") != std::string::npos || hs.find("cream") != std::string::npos) w.knobStyle = GuiKnobStyle::CreamFluted;
             else if (hs.find("knurled") != std::string::npos || hs.find("anodized") != std::string::npos) w.knobStyle = GuiKnobStyle::AnodizedKnurled;

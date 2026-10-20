@@ -44,7 +44,9 @@ enum class GuiKnobStyle {
     StudioMagenta,
     StudioCyan,
     StudioDark,
-    StudioBipolar
+    StudioBipolar,
+    NeumorphicLens,
+    NeumorphicLensPink
 };
 
 enum class KnobBodyShape : uint8_t {
@@ -62,7 +64,8 @@ enum class KnobCapStyle : uint8_t {
     Domed = 2,           // Spherical 3D highlight
     IndentedDimple = 3,  // Soft fingertip dish / center dimple (e.g. Joni style)
     InlayDisc = 4,       // Contrasting color or metallic inlay disc
-    DeclinedScoop = 5    // Authentic Roland TB-303 sloped wedge scoop with integrated etched pointer notch
+    DeclinedScoop = 5,   // Authentic Roland TB-303 sloped wedge scoop with integrated etched pointer notch
+    ConcaveDish = 6      // Modern tactile lens / concave dish with inverted lighting and center glyph
 };
 
 enum class SwitchStyle : uint8_t {
@@ -121,6 +124,11 @@ struct KnobShapeDef {
     std::optional<Color> dialTickColor{std::nullopt};
     std::optional<Color> trackColor{std::nullopt};
     bool isLightRotor{false};
+    bool hasVolcanoMound{false};                  // Tactile raised curved base / volcano mound in chassis
+    float moundElevation{7.5f};                   // Elevation height of the volcano mound
+    std::string centerGlyph;                      // Center glyph (text character, symbol, or Nerd Font icon)
+    float centerGlyphSize{0.0f};                  // Font size for center glyph (0 = auto ~ capR * 0.82f)
+    std::optional<Color> centerGlyphColor{std::nullopt}; // Center glyph color override
 };
 
 enum class GuiChassisStyle {
@@ -180,6 +188,9 @@ struct GuiWidgetDef {
     bool showValueBox{false};                     // Skeuomorphic dark pill container box for value readout
     std::string valueDisplay;                     // Explicit formatted string override
     float defaultVal{0.5f};
+    std::string centerGlyph;                      // Center glyph (text character, symbol, or Nerd Font icon)
+    float centerGlyphSize{0.0f};                  // Center glyph font size override (0 = auto ~ capR * 0.82f)
+    std::optional<Color> centerGlyphColor{std::nullopt}; // Center glyph color override
 
     [[nodiscard]] std::string getFormattedValue() const;
 };

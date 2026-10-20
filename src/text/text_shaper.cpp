@@ -111,32 +111,54 @@ bool TextShaper::shapeText(FontManager& fontMgr, FontId fontId, float fontSize,
             if (clusterEnd > clusterStart && clusterEnd <= utf8Text.size()) {
                 std::string_view clusterSlice = utf8Text.substr(clusterStart, clusterEnd - clusterStart);
 
-                hb_buffer_reset(hbFallbackBuffer_);
-                hb_buffer_add_utf8(hbFallbackBuffer_, clusterSlice.data(), static_cast<int>(clusterSlice.size()), 0, static_cast<int>(clusterSlice.size()));
-                hb_buffer_set_direction(hbFallbackBuffer_, HB_DIRECTION_LTR);
-                hb_buffer_set_script(hbFallbackBuffer_, HB_SCRIPT_LATIN);
-                hb_buffer_set_language(hbFallbackBuffer_, hb_language_from_string("en", -1));
-                hb_shape(fallbackHbFont, hbFallbackBuffer_, features, numFeatures);
+                FontId curFbId = fallbackId;
+                hb_font_t* curFbHbFont = fallbackHbFont;
+                bool resolved = false;
 
-                unsigned int fbCount = 0;
-                hb_glyph_info_t* fbInfo = hb_buffer_get_glyph_infos(hbFallbackBuffer_, &fbCount);
-                hb_glyph_position_t* fbPos = hb_buffer_get_glyph_positions(hbFallbackBuffer_, &fbCount);
+                while (curFbId != kInvalidFontId && curFbHbFont) {
+                    FT_Face curFace = fontMgr.getFtFace(curFbId);
+                    if (curFace) {
+                        FT_Set_Pixel_Sizes(curFace, 0, pixelSize);
+                        hb_ft_font_changed(curFbHbFont);
+                    }
 
-                for (unsigned int f = 0; f < fbCount; ++f) {
-                    ShapedGlyph g;
-                    g.glyphIndex = fbInfo[f].codepoint;
-                    g.cluster = clusterStart + fbInfo[f].cluster;
-                    g.xOffset = static_cast<float>(fbPos[f].x_offset) / 64.0f;
-                    g.yOffset = static_cast<float>(fbPos[f].y_offset) / 64.0f;
-                    g.xAdvance = static_cast<float>(fbPos[f].x_advance) / 64.0f;
-                    g.yAdvance = static_cast<float>(fbPos[f].y_advance) / 64.0f;
-                    g.fontId = fallbackId;
+                    hb_buffer_reset(hbFallbackBuffer_);
+                    hb_buffer_add_utf8(hbFallbackBuffer_, clusterSlice.data(), static_cast<int>(clusterSlice.size()), 0, static_cast<int>(clusterSlice.size()));
+                    hb_buffer_set_direction(hbFallbackBuffer_, HB_DIRECTION_LTR);
+                    hb_buffer_set_script(hbFallbackBuffer_, HB_SCRIPT_LATIN);
+                    hb_buffer_set_language(hbFallbackBuffer_, hb_language_from_string("en", -1));
+                    hb_shape(curFbHbFont, hbFallbackBuffer_, features, numFeatures);
 
-                    outRun.totalAdvanceX += g.xAdvance;
-                    outRun.totalAdvanceY += g.yAdvance;
-                    outRun.glyphs.push_back(g);
+                    unsigned int fbCount = 0;
+                    hb_glyph_info_t* fbInfo = hb_buffer_get_glyph_infos(hbFallbackBuffer_, &fbCount);
+                    hb_glyph_position_t* fbPos = hb_buffer_get_glyph_positions(hbFallbackBuffer_, &fbCount);
+
+                    if (fbCount > 0 && fbInfo[0].codepoint != 0) {
+                        for (unsigned int f = 0; f < fbCount; ++f) {
+                            ShapedGlyph g;
+                            g.glyphIndex = fbInfo[f].codepoint;
+                            g.cluster = clusterStart + fbInfo[f].cluster;
+                            g.xOffset = static_cast<float>(fbPos[f].x_offset) / 64.0f;
+                            g.yOffset = static_cast<float>(fbPos[f].y_offset) / 64.0f;
+                            g.xAdvance = static_cast<float>(fbPos[f].x_advance) / 64.0f;
+                            g.yAdvance = static_cast<float>(fbPos[f].y_advance) / 64.0f;
+                            g.fontId = curFbId;
+
+                            outRun.totalAdvanceX += g.xAdvance;
+                            outRun.totalAdvanceY += g.yAdvance;
+                            outRun.glyphs.push_back(g);
+                        }
+                        resolved = true;
+                        break;
+                    }
+
+                    curFbId = fontMgr.getFallbackFont(curFbId);
+                    curFbHbFont = (curFbId != kInvalidFontId) ? fontMgr.getHbFont(curFbId) : nullptr;
                 }
-                continue;
+
+                if (resolved) {
+                    continue;
+                }
             }
         }
 

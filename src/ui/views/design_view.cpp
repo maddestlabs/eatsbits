@@ -1479,7 +1479,11 @@ void DesignView::syncGuiPanelToScript() {
             const auto& wid = r.widgets[w];
             ss << "{\"id\": \"" << wid.id << "\", \"type\": " << static_cast<int>(wid.type)
                << ", \"param\": \"" << wid.param << "\", \"label\": \"" << wid.label
-               << "\", \"style\": " << static_cast<int>(wid.knobStyle) << "}";
+               << "\", \"style\": " << static_cast<int>(wid.knobStyle);
+            if (!wid.centerGlyph.empty()) {
+                ss << ", \"glyph\": \"" << wid.centerGlyph << "\"";
+            }
+            ss << "}";
             if (w + 1 < r.widgets.size()) ss << ", ";
         }
         ss << "],\n";
@@ -1543,6 +1547,9 @@ void DesignView::addGuiWidget(GuiWidgetType type, GuiKnobStyle knobStyle, const 
     std::string uniqueId = "w_" + std::to_string(targetRow) + "_" + std::to_string(guiPanel_.rows[targetRow].widgets.size());
 
     GuiWidgetDef wDef{uniqueId, type, lbl, pName, knobStyle, 56.0f, 0.5f, 0.0f, 1.0f, "", guiPanel_.accentColor};
+    if (knobStyle == GuiKnobStyle::NeumorphicLens || knobStyle == GuiKnobStyle::NeumorphicLensPink) {
+        wDef.centerGlyph = "\xe2\x88\xbf";
+    }
     guiPanel_.rows[targetRow].widgets.push_back(wDef);
 
     selectedDesignerRow_ = targetRow;
@@ -3090,23 +3097,27 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
         drawRect(r, palR.x, palR.y, palR.w, palR.h, 0.10f, 0.11f, 0.14f, 1.0f);
         drawLine(r, palR.x + palR.w, palR.y, palR.x + palR.w, palR.y + palR.h, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
 
-        float py = palR.y + 10.0f;
+        r.pushScissor(palR.x, palR.y, palR.w, palR.h);
+
+        float py = palR.y + 10.0f - paletteScrollY_;
         drawText(r, "WIDGET TOOLBOX", palR.x + 12.0f, py, 10.5f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
         py += 22.0f;
 
         auto addPaletteItem = [&](const std::string& id, const std::string& title, const std::string& cat, GuiWidgetType type, GuiKnobStyle kStyle) {
-            Rect2D itemR(palR.x + 8.0f, py, palR.w - 16.0f, 26.0f);
+            Rect2D itemR(palR.x + 8.0f, py, palR.w - 16.0f, 24.0f);
             paletteItems_.push_back({id, title, cat, type, kStyle, itemR});
 
             drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f, 0.14f, 0.16f, 0.20f, 0.9f);
             drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f, 0.22f, 0.25f, 0.32f, 0.8f, 1.0f);
-            drawText(r, "+ " + title, itemR.x + 10.0f, itemR.y + 8.0f, 9.0f, 0.92f, 0.94f, 0.98f, 1.0f);
+            drawText(r, "+ " + title, itemR.x + 10.0f, itemR.y + 7.0f, 8.5f, 0.92f, 0.94f, 0.98f, 1.0f);
 
-            py += 30.0f;
+            py += 27.0f;
         };
 
-        drawText(r, "HARDWARE CONSOLE (10)", palR.x + 10.0f, py, 8.5f, 1.0f, 0.85f, 0.0f, 1.0f);
+        drawText(r, "HARDWARE CONSOLE (14)", palR.x + 10.0f, py, 8.5f, 1.0f, 0.85f, 0.0f, 1.0f);
         py += 15.0f;
+        addPaletteItem("hw_lens", "Neumorphic Lens (White)", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::NeumorphicLens);
+        addPaletteItem("hw_lens_pink", "Neumorphic Lens (Pink)", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::NeumorphicLensPink);
         addPaletteItem("hw_cream", "Cream Fluted Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::CreamFluted);
         addPaletteItem("hw_davies", "Davies 1900H Fluted", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::DaviesFluted);
         addPaletteItem("hw_rogan", "Rogan Moog Skirted", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::RoganMoog);
@@ -3117,6 +3128,8 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
         addPaletteItem("hw_knurled", "Anodized Knurled Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::AnodizedKnurled);
         addPaletteItem("hw_stepped", "Two-Tone Stepped Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::TwoToneStepped);
         addPaletteItem("hw_halo", "TB-303 Acid Halo", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::Tb303Halo);
+        addPaletteItem("hw_studio_clean", "Studio Clean Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::StudioClean);
+        addPaletteItem("hw_studio_cyan", "Studio Cyan Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::StudioCyan);
 
         drawText(r, "CONTROLS (4)", palR.x + 10.0f, py, 8.5f, 0.0f, 0.95f, 1.0f, 1.0f);
         py += 15.0f;
@@ -3130,6 +3143,11 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
         addPaletteItem("dsp_nixie", "Nixie Tube Display", "DISPLAYS", GuiWidgetType::NixieDisplay, GuiKnobStyle::Standard);
         addPaletteItem("dsp_vu", "LED VU Level Meter", "DISPLAYS", GuiWidgetType::VuMeter, GuiKnobStyle::Standard);
         addPaletteItem("dsp_scope", "Waveform Scope", "DISPLAYS", GuiWidgetType::ScopeScreen, GuiKnobStyle::Standard);
+
+        float totalContentH = (py + paletteScrollY_) - (palR.y + 10.0f);
+        paletteMaxScrollY_ = std::max(0.0f, totalContentH - (palR.h - 20.0f));
+
+        r.popScissor();
     }
 
     // 3. Right Property Inspector Sidebar
@@ -3138,6 +3156,7 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
     inspectorChassisTintBtns_.clear();
     inspectorParamBtns_.clear();
     inspectorKnobStyleBtns_.clear();
+    inspectorGlyphBtns_.clear();
     inspectorSizeBtns_.clear();
 
     if (isInspectorOpen_) {
@@ -3263,26 +3282,106 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                     drawText(r, "DIAL STYLE", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
                     iy += 14.0f;
 
-                    auto addKStyle = [&](const std::string& name, GuiKnobStyle st) {
-                        Rect2D sR(inspR.x + 8.0f, iy, inspR.w - 16.0f, 20.0f);
-                        inspectorKnobStyleBtns_.push_back({st, sR});
-                        bool isSel = (w.knobStyle == st);
-                        drawRoundedRect(r, sR.x, sR.y, sR.w, sR.h, 3.0f, isSel ? 0.25f : 0.14f, isSel ? 0.22f : 0.16f, isSel ? 0.10f : 0.20f, 0.9f);
-                        drawText(r, name, sR.x + 8.0f, sR.y + 5.0f, 8.5f, isSel ? 1.0f : 0.8f, isSel ? 0.85f : 0.8f, isSel ? 0.0f : 0.8f, 1.0f);
-                        iy += 23.0f;
+                    struct KStyleOpt {
+                        std::string name;
+                        GuiKnobStyle st;
+                    };
+                    const std::vector<KStyleOpt> kStyles = {
+                        {"Neumorphic (White)", GuiKnobStyle::NeumorphicLens},
+                        {"Neumorphic (Pink)",  GuiKnobStyle::NeumorphicLensPink},
+                        {"Cream Fluted",       GuiKnobStyle::CreamFluted},
+                        {"Davies 1900H",       GuiKnobStyle::DaviesFluted},
+                        {"Rogan Moog",         GuiKnobStyle::RoganMoog},
+                        {"Chicken-Head",       GuiKnobStyle::ChickenHead},
+                        {"Pastel Dimple",      GuiKnobStyle::PastelDimple},
+                        {"Modern Encoder",     GuiKnobStyle::ModernEncoder},
+                        {"Bakelite Skirt",     GuiKnobStyle::BakeliteSkirt},
+                        {"Anodized Knurl",     GuiKnobStyle::AnodizedKnurled},
+                        {"Two-Tone Stepped",   GuiKnobStyle::TwoToneStepped},
+                        {"TB-303 Acid Halo",   GuiKnobStyle::Tb303Halo},
+                        {"Studio Clean",       GuiKnobStyle::StudioClean},
+                        {"Studio Cyan",        GuiKnobStyle::StudioCyan},
+                        {"Studio Ruby",        GuiKnobStyle::StudioRuby},
+                        {"Studio Magenta",     GuiKnobStyle::StudioMagenta},
+                        {"Standard Dial",      GuiKnobStyle::Standard}
                     };
 
-                    addKStyle("Cream Fluted", GuiKnobStyle::CreamFluted);
-                    addKStyle("Davies 1900H Fluted", GuiKnobStyle::DaviesFluted);
-                    addKStyle("Rogan Moog Skirted", GuiKnobStyle::RoganMoog);
-                    addKStyle("Chicken-Head Pointer", GuiKnobStyle::ChickenHead);
-                    addKStyle("Pastel Dimple Touch", GuiKnobStyle::PastelDimple);
-                    addKStyle("Modern LED Encoder", GuiKnobStyle::ModernEncoder);
-                    addKStyle("Bakelite Skirt", GuiKnobStyle::BakeliteSkirt);
-                    addKStyle("Anodized Knurled", GuiKnobStyle::AnodizedKnurled);
-                    addKStyle("Two-Tone Stepped", GuiKnobStyle::TwoToneStepped);
-                    addKStyle("TB-303 Acid Halo", GuiKnobStyle::Tb303Halo);
-                    addKStyle("Standard Dial", GuiKnobStyle::Standard);
+                    const float colW = (inspR.w - 22.0f) * 0.5f;
+                    const float btnH = 20.0f;
+                    const float gapY = 3.0f;
+                    for (size_t i = 0; i < kStyles.size(); ++i) {
+                        int col = static_cast<int>(i % 2);
+                        int sRow = static_cast<int>(i / 2);
+                        float btnX = inspR.x + 8.0f + col * (colW + 6.0f);
+                        float btnY = iy + sRow * (btnH + gapY);
+                        Rect2D sR(btnX, btnY, colW, btnH);
+                        inspectorKnobStyleBtns_.push_back({kStyles[i].st, sR});
+                        bool isSel = (w.knobStyle == kStyles[i].st);
+                        drawRoundedRect(r, sR.x, sR.y, sR.w, sR.h, 3.0f,
+                                        isSel ? 0.25f : 0.14f, isSel ? 0.22f : 0.16f, isSel ? 0.10f : 0.20f, 0.9f);
+                        if (isSel) {
+                            Color hlCol = (kStyles[i].st == GuiKnobStyle::NeumorphicLensPink) ? Color(1.0f, 0.35f, 0.65f, 0.95f) :
+                                          ((kStyles[i].st == GuiKnobStyle::NeumorphicLens) ? Color(0.96f, 0.98f, 1.0f, 0.95f) :
+                                           Color(1.0f, 0.85f, 0.0f, 0.95f));
+                            drawRoundedRectOutline(r, sR.x, sR.y, sR.w, sR.h, 3.0f, hlCol.r, hlCol.g, hlCol.b, hlCol.a, 1.2f);
+                        }
+                        drawText(r, kStyles[i].name, sR.x + 4.0f, sR.y + 5.0f, 7.5f,
+                                 isSel ? 1.0f : 0.8f, isSel ? 0.85f : 0.8f, isSel ? 0.0f : 0.8f, 1.0f);
+                    }
+                    iy += ((kStyles.size() + 1) / 2) * (btnH + gapY) + 6.0f;
+
+                    // Center Glyph / Icon selector (Available to ALL knobs!)
+                    drawText(r, "CENTER GLYPH / ICON", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+                    iy += 14.0f;
+
+                    struct GlyphChip {
+                        const char* glyph;
+                        const char* label;
+                    };
+                    const GlyphChip glyphs[10] = {
+                        {"none", "NONE"},
+                        {"\xe2\x88\xbf", "\xe2\x88\xbf OSC"},
+                        {"\xf3\xb0\x93\x83", "SPK"},
+                        {"\xf3\xb0\x8e\x86", "NOTE"},
+                        {"\xf3\xb1\x90\x8b", "ZAP"},
+                        {"\xf3\xb0\x9d\x9a", "WAVE"},
+                        {"\xf3\xb0\x8b\x8b", "PHONES"},
+                        {"\xf3\xb0\x92\x93", "GEAR"},
+                        {"~", "~ MOD"},
+                        {"*", "* STAR"}
+                    };
+
+                    const float gColW = (inspR.w - 26.0f) / 5.0f;
+                    const float gBtnH = 20.0f;
+                    bool isNone = (w.centerGlyph.empty() || w.centerGlyph == "none" || w.centerGlyph == "None");
+                    bool isLensDefault = (w.knobStyle == GuiKnobStyle::NeumorphicLens || w.knobStyle == GuiKnobStyle::NeumorphicLensPink);
+
+                    for (int gi = 0; gi < 10; ++gi) {
+                        int c = gi % 5;
+                        int gRow = gi / 5;
+                        float gx = inspR.x + 8.0f + c * (gColW + 2.5f);
+                        float gy = iy + gRow * (gBtnH + 3.0f);
+                        Rect2D gR(gx, gy, gColW, gBtnH);
+                        inspectorGlyphBtns_.push_back({glyphs[gi].glyph, gR});
+
+                        bool isSel = false;
+                        if (std::string(glyphs[gi].glyph) == "none") {
+                            isSel = isNone && !isLensDefault;
+                        } else if (std::string(glyphs[gi].glyph) == "\xe2\x88\xbf") {
+                            isSel = (w.centerGlyph == "\xe2\x88\xbf") || (isNone && isLensDefault);
+                        } else {
+                            isSel = (w.centerGlyph == glyphs[gi].glyph);
+                        }
+
+                        drawRoundedRect(r, gR.x, gR.y, gR.w, gR.h, 3.0f,
+                                        isSel ? 0.28f : 0.14f, isSel ? 0.20f : 0.16f, isSel ? 0.28f : 0.20f, 0.9f);
+                        if (isSel) {
+                            drawRoundedRectOutline(r, gR.x, gR.y, gR.w, gR.h, 3.0f, 1.0f, 0.35f, 0.65f, 0.95f, 1.2f);
+                        }
+                        drawCenteredText(r, glyphs[gi].label, gR.x, gR.y + 4.0f, gR.w, 12.0f, 7.5f,
+                                         isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, 1.0f);
+                    }
+                    iy += 2 * (gBtnH + 3.0f) + 6.0f;
                 }
 
                 // Size chips
@@ -3751,6 +3850,17 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                             if (kBtn.second.contains(ev.x, ev.y)) {
                                 auto& w = guiPanel_.rows[selectedDesignerRow_].widgets[selectedDesignerWidget_];
                                 w.knobStyle = kBtn.first;
+                                if ((w.knobStyle == GuiKnobStyle::NeumorphicLens || w.knobStyle == GuiKnobStyle::NeumorphicLensPink) && w.centerGlyph.empty()) {
+                                    w.centerGlyph = "\xe2\x88\xbf";
+                                }
+                                syncGuiPanelToScript();
+                                return true;
+                            }
+                        }
+                        for (const auto& gBtn : inspectorGlyphBtns_) {
+                            if (gBtn.second.contains(ev.x, ev.y)) {
+                                auto& w = guiPanel_.rows[selectedDesignerRow_].widgets[selectedDesignerWidget_];
+                                w.centerGlyph = gBtn.first;
                                 syncGuiPanelToScript();
                                 return true;
                             }
@@ -4113,6 +4223,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         }
         if (isExplorerOpen_ && explorerBounds_.contains(ev.x, ev.y)) {
             explorerScrollY_ = std::clamp(explorerScrollY_ - ev.scrollY * 24.0f, 0.0f, explorerMaxScrollY_);
+            return true;
+        }
+        if (mode_ == DesignSubMode::GuiDesigner && isPaletteOpen_ && ev.x < bounds_.x + 200.0f) {
+            paletteScrollY_ = std::clamp(paletteScrollY_ - ev.scrollY * 24.0f, 0.0f, paletteMaxScrollY_);
             return true;
         }
         if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {

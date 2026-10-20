@@ -276,6 +276,34 @@ KnobShapeDef getKnobShapeDef(GuiKnobStyle style, const Color& accent) {
             }
             break;
 
+        case GuiKnobStyle::NeumorphicLens:
+        case GuiKnobStyle::NeumorphicLensPink:
+            def.shape = KnobBodyShape::Round;
+            def.flutes = 0;
+            def.hasSkirt = false;
+            def.capStyle = KnobCapStyle::ConcaveDish;
+            def.capRatio = 0.80f;
+            def.bodyColor = Color(0.12f, 0.13f, 0.16f, 1.0f); // Obsidian dark rim
+            def.capColor = Color(0.08f, 0.09f, 0.11f, 1.0f);  // Concave dish center
+            def.indicator = KnobIndicatorType::DotPip;
+            def.indicatorLength = 0.74f;
+            def.indicatorWidth = 2.6f;
+            def.showHaloArc = true;
+            def.trackColor = Color(0.16f, 0.18f, 0.22f, 0.40f);
+            def.sunkenSlotWidth = 0.0f;
+            def.hasVolcanoMound = true;
+            def.moundElevation = 8.5f;
+
+            if (style == GuiKnobStyle::NeumorphicLensPink) {
+                def.indicatorColor = Color(1.0f, 0.35f, 0.65f, 1.0f); // Hot Cyber Pink
+                def.centerGlyphColor = Color(1.0f, 0.35f, 0.65f, 1.0f);
+            } else {
+                def.indicatorColor = Color(0.96f, 0.98f, 1.0f, 1.0f); // Pure White / Silver
+                def.centerGlyphColor = Color(0.96f, 0.98f, 1.0f, 0.92f);
+            }
+            def.centerGlyph = "\xe2\x88\xbf"; // Default "∿" (oscillator sine wave)
+            break;
+
         default: // Standard or CustomShape fallback
             def.shape = KnobBodyShape::Round;
             def.flutes = 0;
@@ -317,7 +345,9 @@ static const KnobShapeDef& getStockKnobShapeDef(GuiKnobStyle style) {
             GuiKnobStyle::StudioMagenta,
             GuiKnobStyle::StudioCyan,
             GuiKnobStyle::StudioDark,
-            GuiKnobStyle::StudioBipolar
+            GuiKnobStyle::StudioBipolar,
+            GuiKnobStyle::NeumorphicLens,
+            GuiKnobStyle::NeumorphicLensPink
         };
         for (auto s : allStyles) {
             size_t idx = static_cast<size_t>(s);
@@ -367,6 +397,37 @@ void drawKnobWidget(BatchRenderer2D& r,
 
     Point lDir = light.getLightDirection(cx, cy);
     float baseRadius = shape.hasSkirt ? (radius * shape.skirtRatio) : radius;
+
+    // -1. Tactile Raised Curved Base ("Volcano" Chassis Mound)
+    if (shape.hasVolcanoMound) {
+        float moundR = baseRadius * 1.34f;
+        float lightAngle = std::atan2(lDir.y, lDir.x);
+
+        // 1. Soft diffuse drop shadow spreading outward from the mound base
+        r.drawCircleDropShadow(cx, cy, moundR * 0.96f, shape.moundElevation, light, isLightChassis ? 0.38f : 0.50f);
+
+        // 2. Continuous 3-stop directional mound gradient
+        Color moundHl  = isLightChassis ? Color(0.94f, 0.95f, 0.98f, 1.0f) : Color(0.26f, 0.28f, 0.32f, 1.0f);
+        Color moundMid = isLightChassis ? Color(0.80f, 0.82f, 0.86f, 1.0f) : Color(0.16f, 0.17f, 0.20f, 1.0f);
+        Color moundSh  = isLightChassis ? Color(0.58f, 0.61f, 0.66f, 1.0f) : Color(0.06f, 0.07f, 0.09f, 1.0f);
+
+        r.drawCircleRadial3StopGradient(cx, cy, moundR,
+                                        moundHl.r, moundHl.g, moundHl.b, 1.0f,
+                                        moundMid.r, moundMid.g, moundMid.b, 1.0f,
+                                        moundSh.r, moundSh.g, moundSh.b, 1.0f,
+                                        lDir.x * moundR * 0.30f, lDir.y * moundR * 0.30f, 0.50f, 36);
+
+        // 3. Subtle outer base seam outline
+        r.drawCircleOutline(cx, cy, moundR, moundSh.r * 0.7f, moundSh.g * 0.7f, moundSh.b * 0.7f, isLightChassis ? 0.40f : 0.25f, 1.0f, 36);
+
+        // 4. Directional highlight arc on the illuminated shoulder
+        r.drawArc(cx, cy, moundR * 0.88f, lightAngle - 1.25f, lightAngle + 1.25f,
+                  1.0f, 1.0f, 1.0f, isLightChassis ? 0.65f : 0.30f, 2.0f, 28);
+
+        // 5. Ambient occlusion shadow ring where mound plunges into the sunken crater well
+        r.drawCircle(cx, cy, baseRadius + 1.8f, 0.02f, 0.03f, 0.04f, 0.75f, 36);
+        r.drawCircleOutline(cx, cy, baseRadius + 1.8f, 0.01f, 0.02f, 0.03f, 0.90f, 1.4f, 36);
+    }
 
     // 0. Recessed Faceplate Sunken Slot / Mounting Gutter (if enabled, <=0 is unrendered)
     if (sunkenSlotWidth > 0.0f) {
@@ -429,10 +490,10 @@ void drawKnobWidget(BatchRenderer2D& r,
     }
 
     // 1. Halo Arc (Progress ring)
-    float haloR = (shape.hasSkirt ? radius * shape.skirtRatio : radius) + (shape.isLightRotor ? 3.0f : 4.5f);
+    float haloR = (shape.hasSkirt ? radius * shape.skirtRatio : radius) + (shape.hasVolcanoMound ? 2.2f : (shape.isLightRotor ? 3.0f : 4.5f));
     if (shape.showHaloArc) {
         Color baseTrackCol = isLightChassis ? Color(0.78f, 0.81f, 0.86f, 0.45f) : shape.trackColor.value_or(Color(0.18f, 0.20f, 0.25f, 0.7f));
-        float arcWidth = shape.isLightRotor ? 3.4f : 2.2f;
+        float arcWidth = (shape.hasVolcanoMound) ? 2.4f : (shape.isLightRotor ? 3.4f : 2.2f);
 
         if (isLightChassis && shape.isLightRotor) {
             r.drawArc(cx, cy, haloR + arcWidth * 0.5f + 0.4f, minAngle, maxAngle, 0.65f, 0.68f, 0.74f, 0.30f, 0.8f);
@@ -458,9 +519,11 @@ void drawKnobWidget(BatchRenderer2D& r,
         }
     }
 
-    // 2. Drop Shadow onto Chassis
+    // 2. Drop Shadow onto Chassis (skip if mound already provides outer elevation)
     float shadowR = shape.hasSkirt ? (radius * shape.skirtRatio) : radius;
-    r.drawCircleDropShadow(cx, cy, shadowR * (shape.isLightRotor ? 1.02f : 1.06f), shape.isLightRotor ? 9.0f : 7.5f, light, shape.isLightRotor ? 0.42f : 0.48f);
+    if (!shape.hasVolcanoMound) {
+        r.drawCircleDropShadow(cx, cy, shadowR * (shape.isLightRotor ? 1.02f : 1.06f), shape.isLightRotor ? 9.0f : 7.5f, light, shape.isLightRotor ? 0.42f : 0.48f);
+    }
 
     // 3. Flared Base Skirt (if enabled)
     if (shape.hasSkirt && shape.shape != KnobBodyShape::ChickenHead) {
@@ -668,6 +731,26 @@ void drawKnobWidget(BatchRenderer2D& r,
                                             capSh.r, capSh.g, capSh.b, 1.0f,
                                             lDir.x * capR * 0.20f, lDir.y * capR * 0.20f, 0.55f, 28);
             r.drawCircleOutline(cx, cy, capR, capSh.r, capSh.g, capSh.b, 0.7f, 1.0f, 28);
+        } else if (shape.capStyle == KnobCapStyle::ConcaveDish) {
+            // Modern Tactile Lens / Concave Dish Cap with Inverted Lighting
+            Color dishHl = capCol.lighten(0.18f); // Specular bounce on far wall
+            Color dishMid = capCol;
+            Color dishSh = capCol.darken(0.35f);  // Shadow on near wall
+
+            // Inverted light offset (-lDir)
+            r.drawCircleRadial3StopGradient(cx, cy, capR,
+                                            dishHl.r, dishHl.g, dishHl.b, 1.0f,
+                                            dishMid.r, dishMid.g, dishMid.b, 1.0f,
+                                            dishSh.r, dishSh.g, dishSh.b, 1.0f,
+                                            -lDir.x * capR * 0.35f, -lDir.y * capR * 0.35f, 0.45f, 32);
+
+            // Deep inner ambient occlusion groove around dish perimeter
+            r.drawCircleOutline(cx, cy, capR, dishSh.r * 0.7f, dishSh.g * 0.7f, dishSh.b * 0.7f, 0.90f, 1.2f, 32);
+
+            // Crisp metallic chamfer reflection on the outer rim
+            float lightAngle = std::atan2(lDir.y, lDir.x);
+            r.drawArc(cx, cy, capR + 0.5f, lightAngle - 1.20f, lightAngle + 1.20f,
+                      0.75f, 0.80f, 0.88f, 0.55f, 1.1f, 24);
         } else {
             // Enhanced 3D Flat / Cylindrical Plateau Cap (Studio / High-End Hardware aesthetic)
             Color plateauHl = shape.isLightRotor ? capCol.lighten(0.08f) : capCol.lighten(0.25f);
@@ -712,12 +795,13 @@ void drawKnobWidget(BatchRenderer2D& r,
                        cx + sinA * endR, cy - cosA * endR,
                        indCol.r, indCol.g, indCol.b, 1.0f, shape.indicatorWidth);
         } else if (shape.indicator == KnobIndicatorType::DotPip) {
-            float pipDist = capR * 0.72f;
-            float pipR = std::clamp(radius * 0.08f, 1.8f, 3.2f);
+            float pipDist = capR * 0.76f;
+            float pipR = std::clamp(radius * 0.075f, 1.8f, 3.2f);
             float px = cx + sinA * pipDist;
             float py = cy - cosA * pipDist;
-            r.drawCircle(px + 0.5f, py + 0.5f, pipR, 0.08f, 0.09f, 0.11f, 0.8f, 12);
+            r.drawCircle(px + 0.5f, py + 0.5f, pipR, 0.04f, 0.05f, 0.06f, 0.85f, 12);
             r.drawCircle(px, py, pipR, indCol.r, indCol.g, indCol.b, 1.0f, 12);
+            r.drawCircle(px - 0.4f, py - 0.4f, pipR * 0.45f, 1.0f, 1.0f, 1.0f, 0.80f, 8);
         } else if (shape.indicator == KnobIndicatorType::PointerNotch) {
             // Precision perimeter indicator notch bridging cap chamfer to outer rotor wall
             float n0 = std::max(capR * 0.84f, radius * 0.68f);
@@ -764,6 +848,42 @@ void drawKnobWidget(BatchRenderer2D& r,
                        cx + dirX * n1, cy + dirY * n1,
                        notchCol.r, notchCol.g, notchCol.b, 1.0f, shape.indicatorWidth);
         }
+    }
+
+    // 6.5. Stationary Center Glyph / Icon (Text character, Symbol, or Nerd Font glyph on any knob)
+    std::string_view glyph = (!w.centerGlyph.empty()) ?
+        ((w.centerGlyph == "none" || w.centerGlyph == "None") ? "" : std::string_view(w.centerGlyph)) :
+        std::string_view(shape.centerGlyph);
+    float effectiveCapR = (shape.shape != KnobBodyShape::ChickenHead && capR > 4.0f) ? capR : (radius * 0.65f);
+    if (!glyph.empty() && effectiveCapR > 4.0f) {
+        float glyphH = (w.centerGlyphSize > 0.0f) ? w.centerGlyphSize : (shape.centerGlyphSize > 0.0f ? shape.centerGlyphSize : (effectiveCapR * 0.82f));
+        float glyphW = glyphH * 2.4f;
+
+        // Dynamic contrast color based on cap luminance
+        Color gCol;
+        if (w.centerGlyphColor.has_value()) {
+            gCol = *w.centerGlyphColor;
+        } else if (shape.centerGlyphColor.has_value()) {
+            gCol = *shape.centerGlyphColor;
+        } else {
+            float capLum = capColor.r * 0.299f + capColor.g * 0.587f + capColor.b * 0.114f;
+            float accLum = w.accentColor.r * 0.299f + w.accentColor.g * 0.587f + w.accentColor.b * 0.114f;
+            if (std::abs(accLum - capLum) >= 0.30f) {
+                gCol = w.accentColor;
+            } else if (capLum > 0.52f) {
+                gCol = Color(0.12f, 0.13f, 0.16f, 0.95f); // Dark icon on light cap (Cream Fluted, Silver, Pastel)
+            } else {
+                gCol = Color(0.96f, 0.98f, 1.0f, 0.95f);  // Crisp white icon on dark cap
+            }
+        }
+
+        if (isActive) {
+            gCol = gCol.lighten(0.20f);
+        } else if (isHovered) {
+            gCol = gCol.lighten(0.10f);
+        }
+        drawCenteredText(r, glyph, cx - glyphW * 0.5f, cy - glyphH * 0.5f, glyphW, glyphH, glyphH,
+                         gCol.r, gCol.g, gCol.b, gCol.a);
     }
 
     // 7. Active Drag Ring Outline

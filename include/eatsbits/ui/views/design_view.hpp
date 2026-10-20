@@ -372,12 +372,15 @@ private:
     Rect2D btnDeleteWidget_{0.0f, 0.0f, 0.0f, 0.0f};
 
     std::vector<PaletteItemDef> paletteItems_;
+    float paletteScrollY_{0.0f};
+    float paletteMaxScrollY_{0.0f};
     std::vector<std::pair<GuiChassisStyle, Rect2D>> inspectorThemeBtns_;
     std::vector<std::pair<Color, Rect2D>> inspectorAccentBtns_;
     std::vector<std::pair<std::optional<Color>, Rect2D>> inspectorChassisTintBtns_;
     Rect2D inspectorWoodCheeksBtn_{0.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::pair<std::string, Rect2D>> inspectorParamBtns_;
     std::vector<std::pair<GuiKnobStyle, Rect2D>> inspectorKnobStyleBtns_;
+    std::vector<std::pair<std::string, Rect2D>> inspectorGlyphBtns_;
     std::vector<std::pair<float, Rect2D>> inspectorSizeBtns_;
     Rect2D inspectorDeleteBtn_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D inspectorDuplicateBtn_{0.0f, 0.0f, 0.0f, 0.0f};

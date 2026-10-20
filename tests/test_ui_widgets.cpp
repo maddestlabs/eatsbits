@@ -922,6 +922,56 @@ void testDetuneDecayIndependenceAndSync() {
     std::cout << "  [PASS] Detune and Decay independence and no cross-talk verified." << std::endl;
 }
 
+void testNeumorphicLensAndCenterGlyph() {
+    std::cout << "[Test] NeumorphicLens volcano mound, concave dish, and center glyph..." << std::endl;
+
+    // 1. Validate NeumorphicLens shape definitions
+    KnobShapeDef lensDef = getKnobShapeDef(GuiKnobStyle::NeumorphicLens);
+    assert(lensDef.shape == KnobBodyShape::Round);
+    assert(lensDef.capStyle == KnobCapStyle::ConcaveDish);
+    assert(lensDef.hasVolcanoMound == true);
+    assert(lensDef.moundElevation > 5.0f);
+    assert(lensDef.indicator == KnobIndicatorType::DotPip);
+    assert(lensDef.indicatorColor.r > 0.9f && lensDef.indicatorColor.g > 0.9f && lensDef.indicatorColor.b > 0.9f);
+
+    KnobShapeDef lensPinkDef = getKnobShapeDef(GuiKnobStyle::NeumorphicLensPink);
+    assert(lensPinkDef.capStyle == KnobCapStyle::ConcaveDish);
+    assert(lensPinkDef.hasVolcanoMound == true);
+    assert(lensPinkDef.indicatorColor.r > 0.9f && lensPinkDef.indicatorColor.b > 0.5f); // Hot pink
+    assert(lensPinkDef.centerGlyphColor.has_value());
+
+    // 2. Validate drawing with center glyphs (Unicode audio symbol & Nerd Font icon)
+    BatchRenderer2D r;
+    r.beginFrame(800.0f, 600.0f);
+    LightSource2D light{};
+
+    GuiWidgetDef w;
+    w.id = "w_scatter";
+    w.knobStyle = GuiKnobStyle::NeumorphicLens;
+    w.centerGlyph = "∿"; // Sine wave symbol
+    w.accentColor = Color(0.96f, 0.98f, 1.0f, 1.0f);
+    w.currentVal = 0.5f;
+
+    size_t v0 = r.getVertexCount();
+    drawKnobWidget(r, 200.0f, 200.0f, 28.0f, 0.5f, w, light, false, false, false);
+    size_t v1 = r.getVertexCount();
+    assert(v1 > v0);
+
+    // 3. Pink variant on silver/light chassis with multi-byte Nerd Font glyph
+    GuiWidgetDef wPink;
+    wPink.id = "w_mod";
+    wPink.knobStyle = GuiKnobStyle::NeumorphicLensPink;
+    wPink.centerGlyph = "\xEF\x87\xBE"; // Waveform chart Nerd Font glyph in UTF-8
+    wPink.accentColor = Color(1.0f, 0.35f, 0.65f, 1.0f);
+    wPink.currentVal = 0.75f;
+
+    drawKnobWidget(r, 300.0f, 200.0f, 28.0f, 0.75f, wPink, light, true, false, true);
+    size_t v2 = r.getVertexCount();
+    assert(v2 > v1);
+
+    std::cout << "  [PASS] NeumorphicLens volcano mound, concave dish, and center glyph validated." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits UI Geometry & Widgets Tests ===" << std::endl;
     testRectGeometry();
@@ -936,6 +986,7 @@ int main() {
     testUnifiedControlsCore();
     testAstralKnobNormalizationAndFullRange();
     testDetuneDecayIndependenceAndSync();
+    testNeumorphicLensAndCenterGlyph();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }

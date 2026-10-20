@@ -99,6 +99,7 @@ struct GuiLayoutNode {
     bool showValue{true};
     std::string labelAlignment{"stacked"}; // "stacked", "inline_right", "inline_left", "bottom_stacked"
     std::string sublabel;                  // Secondary label (e.g. "ANDALL", "12AX7", "FILTER", "7-UNISON")
+    std::string centerGlyph;               // Glyph / icon character centered inside knob rotor
     bool showValueBox{false};              // Pill container box for value readout
 
     // ListBox and Button properties

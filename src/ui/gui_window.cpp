@@ -1331,15 +1331,7 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
 void drawVectorStringCentered(BatchRenderer2D& renderer, std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
 
-    bool hasSpecial = false;
-    for (unsigned char c : str) {
-        if (c >= 0x80) {
-            hasSpecial = true;
-            break;
-        }
-    }
-
-    if (!hasSpecial && g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+    if (g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
         float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
         uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
@@ -1360,6 +1352,24 @@ void drawVectorStringCentered(BatchRenderer2D& renderer, std::string_view str, f
                 float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
                 if (ftAsc > 0.0f) ascender = ftAsc;
             }
+
+            // For single-glyph symbols/icons (e.g. knob center icons), use exact visual bounding box optical centering
+            if (g_activeFontRenderer->shapedRun.glyphs.size() == 1) {
+                const auto& glyphItem = g_activeFontRenderer->shapedRun.glyphs[0];
+                eatsbits::text::FontId fid = (glyphItem.fontId != eatsbits::text::kInvalidFontId) ? glyphItem.fontId : g_activeFontRenderer->fontNormal;
+                const auto* ag = g_activeFontRenderer->glyphAtlas.getOrLoadGlyph(g_activeFontRenderer->fontMgr, fid, glyphItem.glyphIndex, fontSize, cx);
+                if (ag && ag->width > 0 && ag->height > 0) {
+                    float glyphCenterX = (glyphItem.xOffset + ag->bearingX) + static_cast<float>(ag->width) * 0.5f;
+                    float glyphCenterY = -ag->bearingY + static_cast<float>(ag->height) * 0.5f;
+                    float startX = cx - glyphCenterX;
+                    float baselineY = cy - glyphCenterY;
+                    renderShapedGlyphs(renderer, *g_activeFontRenderer,
+                                       g_activeFontRenderer->fontNormal, fontSize, startX, baselineY, col);
+                    return;
+                }
+            }
+
+            // Multi-glyph text: center using total advance and typographic ascender
             float totalW = g_activeFontRenderer->shapedRun.totalAdvanceX;
             float startX = cx - (totalW * 0.5f);
             float baselineY = cy + (ascender * 0.35f);
@@ -1369,8 +1379,16 @@ void drawVectorStringCentered(BatchRenderer2D& renderer, std::string_view str, f
         }
     }
 
+    // Pure vector fallback
     const float charW = 7.5f * scale;
-    float textW = static_cast<float>(str.size()) * charW;
+    size_t numCodepoints = 0;
+    const char* p = str.data();
+    const char* e = p + str.size();
+    while (p < e) {
+        decodeNextUtf8(p, e);
+        numCodepoints++;
+    }
+    float textW = static_cast<float>(numCodepoints) * charW;
     float startX = cx - (textW * 0.5f);
     float startY = cy - (4.0f * scale);
     drawVectorString(renderer, str, startX, startY, scale, r, g, b, a);
@@ -9089,6 +9107,31 @@ void GuiWindow::initFontRenderer() {
     if (fontRenderer_->fontNormal == eatsbits::text::kInvalidFontId) {
         fontRenderer_->fontNormal = fontRenderer_->fontMono;
     }
+
+    // Load Nerd Font Symbols as fallback for iconography
+    const std::vector<std::string> nerdSymbolPaths = {
+        "assets/fonts/SymbolsNerdFont-Regular.ttf",
+        "../assets/fonts/SymbolsNerdFont-Regular.ttf",
+        "../../assets/fonts/SymbolsNerdFont-Regular.ttf",
+        "c:/git/eatsbits/assets/fonts/SymbolsNerdFont-Regular.ttf"
+    };
+    for (const auto& nsPath : nerdSymbolPaths) {
+        if (std::filesystem::exists(nsPath)) {
+            eatsbits::text::FontId nsId = fontRenderer_->fontMgr.loadFontFromFile("nerd_symbols", nsPath);
+            if (nsId != eatsbits::text::kInvalidFontId) {
+                if (fontRenderer_->fontFallback != eatsbits::text::kInvalidFontId) {
+                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontFallback, nsId);
+                } else if (fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId) {
+                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontNormal, nsId);
+                }
+                if (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) {
+                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, nsId);
+                }
+                std::cout << "[GuiWindow] Loaded Nerd Font Symbols fallback from " << nsPath << std::endl;
+                break;
+            }
+        }
+    }
 #endif
 }
 
@@ -9955,15 +9998,19 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                         else if (s == "studio_cyan" || s == "cyan" || s == "astral") kStyle = GuiKnobStyle::StudioCyan;
                         else if (s == "studio_dark" || s == "dark_track") kStyle = GuiKnobStyle::StudioDark;
                         else if (s == "studio_bipolar" || s == "bipolar") kStyle = GuiKnobStyle::StudioBipolar;
+                        else if (s == "neumorphic_pink" || s == "lens_pink") kStyle = GuiKnobStyle::NeumorphicLensPink;
+                        else if (s == "neumorphic_lens" || s == "lens" || s == "volcano" || s == "neumorphic") kStyle = GuiKnobStyle::NeumorphicLens;
 
                         if (g_activeBatchRenderer) {
                             GuiWidgetDef w;
                             w.knobStyle = kStyle;
                             w.label = node.label;
                             w.sublabel = node.sublabel;
+                            w.centerGlyph = node.centerGlyph;
                             w.accentColor = (kStyle == GuiKnobStyle::StudioRuby) ? Color(0.84f, 0.14f, 0.20f) :
                                            ((kStyle == GuiKnobStyle::StudioMagenta) ? Color(0.72f, 0.12f, 0.60f) :
-                                             Color(0.0f, 0.95f, 1.0f));
+                                           ((kStyle == GuiKnobStyle::NeumorphicLensPink) ? Color(1.0f, 0.35f, 0.65f) :
+                                             Color(0.0f, 0.95f, 1.0f)));
                             drawKnobWidget(*g_activeBatchRenderer, drawCx, cy, kRad, normVal, w, light, isActive, isHovered, (bg == "minimal_white"));
                             if (node.labelAlignment == "inline_right") {
                                 float textX = drawCx + kRad + 6.0f;
@@ -10142,15 +10189,19 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                     else if (s == "studio_cyan" || s == "cyan" || s == "astral") kStyle = GuiKnobStyle::StudioCyan;
                     else if (s == "studio_dark" || s == "dark_track") kStyle = GuiKnobStyle::StudioDark;
                     else if (s == "studio_bipolar" || s == "bipolar") kStyle = GuiKnobStyle::StudioBipolar;
+                    else if (s == "neumorphic_pink" || s == "lens_pink") kStyle = GuiKnobStyle::NeumorphicLensPink;
+                    else if (s == "neumorphic_lens" || s == "lens" || s == "volcano" || s == "neumorphic") kStyle = GuiKnobStyle::NeumorphicLens;
 
                     if (g_activeBatchRenderer) {
                         GuiWidgetDef w;
                         w.knobStyle = kStyle;
                         w.label = node.label;
                         w.sublabel = node.sublabel;
+                        w.centerGlyph = node.centerGlyph;
                         w.accentColor = (kStyle == GuiKnobStyle::StudioRuby) ? Color(0.84f, 0.14f, 0.20f) :
                                        ((kStyle == GuiKnobStyle::StudioMagenta) ? Color(0.72f, 0.12f, 0.60f) :
-                                         Color(0.0f, 0.95f, 1.0f));
+                                       ((kStyle == GuiKnobStyle::NeumorphicLensPink) ? Color(1.0f, 0.35f, 0.65f) :
+                                         Color(0.0f, 0.95f, 1.0f)));
                         drawKnobWidget(*g_activeBatchRenderer, drawCx, cy, kRad, normVal, w, light, isActive, isHovered, (bg == "minimal_white"));
                         if (node.labelAlignment == "inline_right") {
                             float textX = drawCx + kRad + 8.0f;
