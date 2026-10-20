@@ -1,5 +1,6 @@
 #include "eatsbits/project/eats_builtin_presets.hpp"
 #include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/project/preset_manager.hpp"
 #include <iostream>
 #include <cassert>
 #include <cmath>
@@ -141,6 +142,105 @@ void testFilesystemPresetDirectoryLoading() {
     std::cout << "  -> Loaded " << loadedPresets.size() << " .eats presets from filesystem successfully!" << std::endl;
 }
 
+void testAcousticBassPhysicalModelPreset() {
+    std::cout << "[Test 7] Testing Acoustic Bass Guitar Physical Model Preset..." << std::endl;
+
+    auto bassOpt = BuiltinPresetRegistry::createPresetById("acoustic_bass");
+    assert(bassOpt.has_value());
+    const auto& bass = *bassOpt;
+
+    assert(bass.metadata.id == "acoustic_bass");
+    assert(bass.metadata.name == "ACOUSTIC BASS GUITAR");
+    assert(bass.metadata.category == "instrument");
+    assert(bass.metadata.engineId == "acoustic_bass");
+
+    // Parameter checks
+    assert(bass.params.count("PluckForce") == 1);
+    assert(bass.params.count("NailClick") == 1);
+    assert(bass.params.count("Sustain") == 1);
+    assert(bass.params.count("Damping") == 1);
+    assert(bass.params.count("AcousticAir") == 1);
+    assert(bass.params.count("Drive") == 1);
+
+    assert(bass.params.at("PluckForce").defaultVal == 1.30f);
+    assert(bass.params.at("NailClick").defaultVal == 0.35f);
+    assert(bass.params.at("Sustain").defaultVal == 0.995f);
+    assert(bass.params.at("Damping").defaultVal == 0.28f);
+    assert(bass.params.at("AcousticAir").defaultVal == 1.5f);
+    assert(bass.params.at("Drive").defaultVal == 1.02f);
+
+    // GUI checks
+    assert(bass.guiRoot.type == GuiNodeType::Panel);
+    assert(bass.guiRoot.title == "ACOUSTIC BASS GUITAR");
+    assert(bass.guiRoot.subtitle == "Bronze-Wound String & Dreadnought Hollow Body");
+    assert(bass.guiRoot.background == "blonde_pine");
+    assert(bass.guiRoot.rackSides == "rosewood");
+    assert(!bass.guiRoot.children.empty());
+
+    // Script & DSP checks
+    assert(bass.rawScript.find("def init():") != std::string::npos);
+    assert(bass.rawScript.find("def gui():") != std::string::npos);
+    assert(bass.rawScript.find("def graph():") != std::string::npos);
+    assert(bass.rawScript.find("def process(") != std::string::npos);
+
+    // Verify accurate modular nodes and absence of generic template
+    assert(bass.rawScript.find("eat.node.pluck") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.waveguide") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.modal_bank") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.mixer") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.eq") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.preamp") != std::string::npos);
+    assert(bass.rawScript.find("eat.node.out") != std::string::npos);
+
+    // Must NOT be the generic fallback subtractive synth
+    assert(bass.rawScript.find("SYNTH OSC") == std::string::npos);
+    assert(bass.rawScript.find("LADDER FILTER") == std::string::npos);
+    assert(bass.rawScript.find("VCA AMPLIFIER") == std::string::npos);
+
+    // Verify filesystem loader also parsed acoustic_bass.eats properly
+    PresetDefinition diskDef;
+    bool loaded = PresetLoader::loadFromFile("presets/instruments/acoustic_bass.eats", diskDef);
+    assert(loaded);
+    assert(diskDef.params.size() >= 6);
+    assert(diskDef.rawScript.find("def graph():") != std::string::npos);
+
+    std::cout << "  -> Acoustic Bass Guitar physical model preset verified with authentic DSP graph!" << std::endl;
+}
+
+void testSingleDxviiEpianoPreset() {
+    std::cout << "[Test 8] Testing DXVII E-Piano Uniqueness & Preset Manager..." << std::endl;
+    PresetManager::instance().initialize();
+    const auto& allPresets = PresetManager::instance().getAllPresets();
+
+    int dxviiCount = 0;
+    for (const auto& p : allPresets) {
+        if (p.name == "DXVII E-Piano") {
+            dxviiCount++;
+            assert(p.id == "dxvii_epiano");
+        }
+    }
+    assert(dxviiCount == 1);
+
+    // Verify findPreset supports both dxvii_epiano and legacy dx7_epiano
+    const auto* pItem = PresetManager::instance().findPreset("dxvii_epiano");
+    assert(pItem != nullptr);
+    assert(pItem->name == "DXVII E-Piano");
+
+    const auto* pLegacy = PresetManager::instance().findPreset("dx7_epiano");
+    assert(pLegacy != nullptr);
+    assert(pLegacy->id == "dxvii_epiano");
+
+    // Verify modern script content without buggy legacy params dict syntax
+    PresetDefinition def;
+    bool ok = PresetManager::instance().loadPresetDefinition("dxvii_epiano", def);
+    assert(ok);
+    assert(def.params.count("Algorithm") == 1);
+    assert(def.rawScript.find("def init():") != std::string::npos);
+    assert(def.rawScript.find("params['Algorithm']") == std::string::npos); // No buggy old script
+
+    std::cout << "  -> Exactly 1 DXVII E-Piano preset verified without duplicates or legacy bugs!" << std::endl;
+}
+
 int main() {
     std::cout << "======================================================" << std::endl;
     std::cout << " Running Eatsbits Subsystem 9: Preset Library Tests" << std::endl;
@@ -152,9 +252,11 @@ int main() {
     testPresetByIdLookup();
     testHardwareGuiLayoutBounds();
     testFilesystemPresetDirectoryLoading();
+    testAcousticBassPhysicalModelPreset();
+    testSingleDxviiEpianoPreset();
 
     std::cout << "======================================================" << std::endl;
-    std::cout << " ALL 6 BUILT-IN PRESET TESTS PASSED (100%)!          " << std::endl;
+    std::cout << " ALL 8 BUILT-IN PRESET TESTS PASSED (100%)!          " << std::endl;
     std::cout << "======================================================" << std::endl;
     return 0;
 }

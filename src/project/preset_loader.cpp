@@ -214,12 +214,27 @@ public:
                 node.align = current_.str; advance();
             } else if (key == "crossAlign") {
                 node.crossAlign = current_.str; advance();
-            } else if (key == "children" || key == "layout") {
+            } else if (key == "children" || key == "layout" || key == "rows") {
                 if (current_.type == TokType::LBracket) {
                     advance(); // eat '['
                     while (current_.type != TokType::RBracket && current_.type != TokType::Eof) {
                         if (current_.type == TokType::LBrace) {
                             node.children.push_back(parseGuiNode());
+                        } else if (current_.type == TokType::LBracket) {
+                            // Nested list of widgets represents a Row
+                            advance(); // eat inner '['
+                            GuiLayoutNode rowNode{};
+                            rowNode.type = GuiNodeType::Row;
+                            while (current_.type != TokType::RBracket && current_.type != TokType::Eof) {
+                                if (current_.type == TokType::LBrace) {
+                                    rowNode.children.push_back(parseGuiNode());
+                                } else {
+                                    advance();
+                                }
+                                if (current_.type == TokType::Comma) advance();
+                            }
+                            if (current_.type == TokType::RBracket) advance();
+                            node.children.push_back(std::move(rowNode));
                         } else {
                             advance();
                         }
@@ -474,7 +489,11 @@ PresetDefinition PresetLoader::parseFromEatscript(const std::string& scriptSourc
         }
     }
 
-    if (def.rawScript.find(" = True") == std::string::npos && def.rawScript.find(" = true") == std::string::npos) {
+    if (def.rawScript.find(" = True") == std::string::npos &&
+        def.rawScript.find(" = true") == std::string::npos &&
+        def.rawScript.find("# @id:") == std::string::npos &&
+        def.rawScript.find("# @engine:") == std::string::npos &&
+        def.rawScript.find("def graph():") == std::string::npos) {
         if (def.metadata.id == "eats_303" || def.metadata.engineId == "tb303") {
             def.rawScript = "Eats303 = True\n\n" + def.rawScript;
         } else if (def.metadata.id == "analog_808_kick" || def.metadata.engineId == "drum_808") {
@@ -871,10 +890,13 @@ PresetDefinition PresetLoader::createYamahaDx7Preset() {
 
     p.params["Algorithm"] = {"Algorithm", 1.0f, 32.0f, 5.0f, 5.0f, 1.0f, "", false};
     p.params["Feedback"] = {"Feedback", 0.0f, 7.0f, 6.0f, 6.0f, 1.0f, "", false};
+    p.params["Patch"] = {"Patch", 0.0f, 31.0f, 0.0f, 0.0f, 1.0f, "", false};
+    p.params["Volume"] = {"Volume", 0.0f, 2.0f, 0.85f, 0.85f, 0.0f, "", true};
+    p.params["ChorusMix"] = {"ChorusMix", 0.0f, 1.0f, 0.35f, 0.35f, 0.0f, "", true};
+    p.params["Drive"] = {"Drive", 0.5f, 3.0f, 1.0f, 1.0f, 0.0f, "", true};
     p.params["Brightness"] = {"Brightness", 0.0f, 2.0f, 1.0f, 1.0f, 0.0f, "", true};
     p.params["TineBell"] = {"TineBell", 0.0f, 2.0f, 0.85f, 0.85f, 0.0f, "", true};
     p.params["BodyWarmth"] = {"BodyWarmth", 0.0f, 2.0f, 1.0f, 1.0f, 0.0f, "", true};
-    p.params["Volume"] = {"Volume", 0.0f, 2.0f, 0.85f, 0.85f, 0.0f, "", true};
 
     p.guiRoot.type = GuiNodeType::Panel;
     p.guiRoot.title = "YAMAHA DX7 — 6-OPERATOR FM SYNTH";
@@ -891,41 +913,73 @@ PresetDefinition PresetLoader::createYamahaDx7Preset() {
     rAlg.align = "space_around";
     rAlg.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "Algorithm", "ALGORITHM", "", 52.0f, "twoToneStepped", false});
     rAlg.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Feedback", "FEEDBACK", "", 52.0f, "chromeFluted", false});
+    rAlg.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Patch", "ROM PATCH", "", 52.0f, "chromeFluted", false});
     rAlg.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Volume", "MASTER VOL", "", 52.0f, "chromeFluted", true});
     gAlg.children.push_back(rAlg);
 
-    // Row 2: Timbre & Harmonic Modulators
+    // Row 2: Preamp & Chorus
     GuiLayoutNode gTim{};
     gTim.type = GuiNodeType::Group;
-    gTim.title = "TIMBRE MACROS & HARMONIC SHAPING";
+    gTim.title = "PREAMP DRIVE & SHIMMER CHORUS";
     GuiLayoutNode rTim{};
     rTim.type = GuiNodeType::Row;
     rTim.align = "space_around";
-    rTim.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Brightness", "BRIGHTNESS", "", 52.0f, "chromeFluted", true});
-    rTim.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "TineBell", "TINE BELL", "", 52.0f, "chromeFluted", true});
-    rTim.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "BodyWarmth", "BODY WARMTH", "", 52.0f, "chromeFluted", true});
+    rTim.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "ChorusMix", "CHORUS", "", 52.0f, "chromeFluted", true});
+    rTim.children.push_back({GuiNodeType::Knob, "", "", "", "", "chrome", "", "", "", "Drive", "DRIVE", "", 52.0f, "chromeFluted", true});
     gTim.children.push_back(rTim);
 
     p.guiRoot.children.push_back(gAlg);
     p.guiRoot.children.push_back(gTim);
 
+    // Identical layout in compact / Track Properties sidebar
+    p.compactGuiRoot = p.guiRoot;
+
     p.rawScript =
-        "# Eatsbeats Instrument Definition\n"
-        "# @id: dx7_epiano\n"
-        "# @name: YAMAHA DX7 E.PIANO 1\n"
+        "# Eatsbits Instrument Definition\n"
+        "# @id: dxvii_epiano\n"
+        "# @name: DXVII E-Piano\n"
         "# @category: instrument\n"
-        "# @engine: dx7\n\n"
-        "DX7EPiano = True\n\n"
+        "# @engine: eats_dx\n"
+        "# @description: Lush 1983 6-operator FM electric piano (\"FullTines\"): Alg 5 triple 2-op stack with velocity dynamics, feedback loop, and stereo shimmer chorus.\n\n"
         "def init():\n"
-        "    params['Algorithm'] = 5.0\n"
-        "    params['Feedback'] = 6.0\n"
-        "    params['Brightness'] = 1.0\n"
-        "    params['TineBell'] = 0.85\n"
-        "    params['BodyWarmth'] = 1.0\n"
-        "    params['Volume'] = 0.85\n\n"
+        "    return {\n"
+        "        \"Algorithm\": eat.param(\"Algorithm\", 1.0, 32.0, 5.0, step=0.0, allow_variance=False),\n"
+        "        \"Feedback\": eat.param(\"Feedback\", 0.0, 7.0, 6.0, step=0.0),\n"
+        "        \"Patch\": eat.param(\"Patch\", 0.0, 31.0, 0.0, step=0.0),\n"
+        "        \"Volume\": eat.param(\"Volume\", 0.0, 2.0, 0.85, step=0.0),\n"
+        "        \"ChorusMix\": eat.param(\"ChorusMix\", 0.0, 1.0, 0.35, step=0.0),\n"
+        "        \"Drive\": eat.param(\"Drive\", 0.5, 3.0, 1.0, step=0.0),\n"
+        "        \"Brightness\": eat.param(\"Brightness\", 0.0, 3.0, 1.0, step=0.0),\n"
+        "        \"TineBell\": eat.param(\"TineBell\", 0.0, 3.0, 0.85, step=0.0),\n"
+        "        \"BodyWarmth\": eat.param(\"BodyWarmth\", 0.0, 3.0, 1.0, step=0.0),\n"
+        "        \"BassBoost\": eat.param(\"BassBoost\", -12.0, 12.0, 1.5, step=0.0),\n"
+        "        \"TrebleSparkle\": eat.param(\"TrebleSparkle\", -12.0, 12.0, 2.5, step=0.0),\n"
+        "    }\n\n"
+        "def gui():\n"
+        "    return {\n"
+        "        \"panel\": {\n"
+        "            \"title\": \"DXVII — ELECTRIC PIANO\",\n"
+        "            \"subtitle\": \"6-Operator FM Tone Generator & E-Piano\",\n"
+        "            \"accent\": \"#00A887\",\n"
+        "            \"background\": \"dx7_faceplate\",\n"
+        "            \"rackSides\": \"none\",\n"
+        "            \"cornerRadius\": 0,\n"
+        "            \"rows\": [\n"
+        "                [\n"
+        "                    {\"id\": \"w_alg\", \"type\": 1, \"param\": \"Algorithm\", \"label\": \"ALGORITHM\", \"style\": 4, \"size\": 52},\n"
+        "                    {\"id\": \"w_fb\", \"type\": 1, \"param\": \"Feedback\", \"label\": \"FEEDBACK\", \"style\": 5, \"size\": 52},\n"
+        "                    {\"id\": \"w_patch\", \"type\": 1, \"param\": \"Patch\", \"label\": \"ROM PATCH\", \"style\": 5, \"size\": 52},\n"
+        "                    {\"id\": \"w_vol\", \"type\": 1, \"param\": \"Volume\", \"label\": \"MASTER VOL\", \"style\": 7, \"size\": 52},\n"
+        "                ],\n"
+        "                [\n"
+        "                    {\"id\": \"w_chorus\", \"type\": 1, \"param\": \"ChorusMix\", \"label\": \"CHORUS\", \"style\": 4, \"size\": 52},\n"
+        "                    {\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"DRIVE\", \"style\": 6, \"size\": 52},\n"
+        "                ],\n"
+        "            ],\n"
+        "        },\n"
+        "    }\n\n"
         "def process(time, freq, note, params):\n"
-        "    # Native 6-Operator Dynamic Phase Modulation Engine\n"
-        "    pass\n";
+        "    return 0.0\n";
 
     return p;
 }
@@ -1379,6 +1433,133 @@ PresetDefinition PresetLoader::createUprightBassPreset() {
     return p;
 }
 
+PresetDefinition PresetLoader::createAcousticBassPreset() {
+    PresetDefinition p{};
+    p.metadata.id = "acoustic_bass";
+    p.metadata.name = "ACOUSTIC BASS GUITAR";
+    p.metadata.category = "instrument";
+    p.metadata.description = "Physical model of an acoustic bronze-wound bass guitar: soft fingertip flesh pluck with nail transient, low-frequency steel core waveguide, dreadnought hollow body modal cavity resonator, and piezo under-saddle preamp with acoustic air sparkle.";
+    p.metadata.engineId = "acoustic_bass";
+
+    p.params["PluckForce"] = {"PluckForce", 0.2f, 3.0f, 1.30f, 1.30f, 0.0f, "", true};
+    p.params["NailClick"] = {"NailClick", 0.0f, 1.5f, 0.35f, 0.35f, 0.0f, "", true};
+    p.params["Sustain"] = {"Sustain", 0.85f, 0.999f, 0.995f, 0.995f, 0.0f, "", true};
+    p.params["Damping"] = {"Damping", 0.05f, 0.80f, 0.28f, 0.28f, 0.0f, "%", true};
+    p.params["AcousticAir"] = {"AcousticAir", -6.0f, 12.0f, 1.5f, 1.5f, 0.0f, "dB", true};
+    p.params["Drive"] = {"Drive", 0.5f, 3.0f, 1.02f, 1.02f, 0.0f, "", true};
+
+    p.guiRoot.type = GuiNodeType::Panel;
+    p.guiRoot.title = "ACOUSTIC BASS GUITAR";
+    p.guiRoot.subtitle = "Bronze-Wound String & Dreadnought Hollow Body";
+    p.guiRoot.accent = "#D4AF37";
+    p.guiRoot.background = "blonde_pine";
+    p.guiRoot.rackSides = "rosewood";
+
+    GuiLayoutNode gPluck{};
+    gPluck.type = GuiNodeType::Group;
+    gPluck.title = "FINGERTIP PLUCK & STRING MECHANICS";
+    GuiLayoutNode rKnobs{};
+    rKnobs.type = GuiNodeType::Row;
+    rKnobs.align = "space_around";
+    rKnobs.children.push_back({GuiNodeType::Knob, "", "", "", "", "amber", "", "", "", "PluckForce", "PLUCK FORCE", "", 52.0f, "vintage", true});
+    rKnobs.children.push_back({GuiNodeType::Knob, "", "", "", "", "amber", "", "", "", "NailClick", "NAIL CLICK", "", 52.0f, "vintage", true});
+    rKnobs.children.push_back({GuiNodeType::Knob, "", "", "", "", "amber", "", "", "", "Damping", "BODY DAMP", "%", 52.0f, "vintage", true});
+    rKnobs.children.push_back({GuiNodeType::Knob, "", "", "", "", "amber", "", "", "", "AcousticAir", "AIR SPARKLE", "dB", 52.0f, "vintage", true});
+    rKnobs.children.push_back({GuiNodeType::Knob, "", "", "", "", "amber", "", "", "", "Drive", "PREAMP", "", 52.0f, "vintage", true});
+    gPluck.children.push_back(rKnobs);
+
+    GuiLayoutNode rSlider{};
+    rSlider.type = GuiNodeType::Row;
+    rSlider.children.push_back({GuiNodeType::Slider, "", "", "", "", "amber", "", "", "", "Sustain", "STRING SUSTAIN & BODY RESONANCE", "", 0.0f, "capsule", true});
+    gPluck.children.push_back(rSlider);
+
+    p.guiRoot.children.push_back(gPluck);
+
+    p.rawScript =
+        "# @id: acoustic_bass\n"
+        "# @name: Acoustic Bass Guitar\n"
+        "# @category: instrument\n"
+        "# @description: Physical model of an acoustic bronze-wound bass guitar: soft fingertip flesh pluck with nail transient, low-frequency steel core waveguide, dreadnought hollow body modal cavity resonator, and piezo under-saddle preamp with acoustic air sparkle.\n\n"
+        "import math\n\n"
+        "def init():\n"
+        "    return {\n"
+        "        \"PluckForce\": eat.param(\"PluckForce\", 0.2, 3.0, 1.3, step=0.0),\n"
+        "        \"NailClick\": eat.param(\"NailClick\", 0.0, 1.5, 0.35, step=0.0),\n"
+        "        \"Sustain\": eat.param(\"Sustain\", 0.85, 0.999, 0.995, step=0.0),\n"
+        "        \"Damping\": eat.param(\"Damping\", 0.05, 0.8, 0.28, step=0.0),\n"
+        "        \"AcousticAir\": eat.param(\"AcousticAir\", -6.0, 12.0, 1.5, step=0.0),\n"
+        "        \"Drive\": eat.param(\"Drive\", 0.5, 3.0, 1.02, step=0.0),\n"
+        "    }\n\n"
+        "def gui():\n"
+        "    return {\n"
+        "        \"panel\": {\n"
+        "            \"title\": \"ACOUSTIC BASS GUITAR\",\n"
+        "            \"subtitle\": \"Bronze-Wound String & Dreadnought Hollow Body\",\n"
+        "            \"accent\": \"#D4AF37\",\n"
+        "            \"background\": \"blonde_pine\",\n"
+        "            \"rackSides\": \"rosewood\",\n"
+        "            \"cornerRadius\": 6,\n"
+        "            \"layout\": [\n"
+        "                {\n"
+        "                    \"type\": \"group\",\n"
+        "                    \"label\": \"FINGERTIP PLUCK & STRING MECHANICS\",\n"
+        "                    \"accent\": \"#D4AF37\",\n"
+        "                    \"children\": [\n"
+        "                        {\n"
+        "                            \"type\": \"row\",\n"
+        "                            \"children\": [\n"
+        "                                {\"type\": \"knob\", \"param\": \"PluckForce\", \"label\": \"PLUCK FORCE\", \"knobStyle\": \"vintage\", \"size\": 52},\n"
+        "                                {\"type\": \"knob\", \"param\": \"NailClick\", \"label\": \"NAIL CLICK\", \"knobStyle\": \"vintage\", \"size\": 52},\n"
+        "                                {\"type\": \"knob\", \"param\": \"Damping\", \"label\": \"BODY DAMP\", \"unit\": \"%\", \"knobStyle\": \"vintage\", \"size\": 52},\n"
+        "                                {\"type\": \"knob\", \"param\": \"AcousticAir\", \"label\": \"AIR SPARKLE\", \"unit\": \"dB\", \"knobStyle\": \"vintage\", \"size\": 52},\n"
+        "                                {\"type\": \"knob\", \"param\": \"Drive\", \"label\": \"PREAMP\", \"knobStyle\": \"vintage\", \"size\": 52},\n"
+        "                            ],\n"
+        "                        },\n"
+        "                        {\n"
+        "                            \"type\": \"row\",\n"
+        "                            \"children\": [\n"
+        "                                {\"type\": \"hslider\", \"param\": \"Sustain\", \"label\": \"STRING SUSTAIN & BODY RESONANCE\", \"style\": \"capsule\"},\n"
+        "                            ],\n"
+        "                        },\n"
+        "                    ],\n"
+        "                },\n"
+        "            ],\n"
+        "        },\n"
+        "    }\n\n"
+        "def graph():\n"
+        "    pluck = eat.node.pluck(type=\"FLESH PLUCK\", force=\"PluckForce\", click=\"NailClick\")\n"
+        "    waveguide = eat.node.waveguide(type=\"BRONZE CORE\", in_sig=pluck, sustain=\"Sustain\", damping=\"Damping\")\n"
+        "    cavity = eat.node.modal_bank(type=\"DREADNOUGHT BODY\", in_sig=waveguide, modes=[1.0, 1.62, 2.45, 3.80])\n"
+        "    mix = eat.node.mixer(inputs=[waveguide, cavity, pluck], weights=[0.75, 0.45, 0.20])\n"
+        "    eq = eat.node.eq(type=\"HIGH SHELF\", in_sig=mix, freq=3800.0, gain=\"AcousticAir\")\n"
+        "    preamp = eat.node.preamp(type=\"PIEZO PREAMP\", in_sig=eq, drive=\"Drive\")\n"
+        "    out = eat.node.out(type=\"MASTER OUT\", in_sig=preamp, volume=0.85)\n"
+        "    return out\n\n"
+        "def process(time, freq, note, params):\n"
+        "    pluck_force = params.get(\"PluckForce\", 1.30)\n"
+        "    nail_click = params.get(\"NailClick\", 0.35)\n"
+        "    sustain = params.get(\"Sustain\", 0.995)\n"
+        "    damping = params.get(\"Damping\", 0.28)\n"
+        "    air = params.get(\"AcousticAir\", 1.5)\n"
+        "    drive = params.get(\"Drive\", 1.02)\n"
+        "    t = time\n"
+        "    decay = math.exp(-t * (2.2 * (1.0 - sustain * 0.98) + damping * 1.5))\n"
+        "    flesh = math.exp(-t * 60.0) * pluck_force * 0.45\n"
+        "    nail = 0.0\n"
+        "    if t < 0.02:\n"
+        "        nail = math.sin(t * 4200.0) * math.exp(-t * 300.0) * nail_click * 0.25\n"
+        "    f0 = freq\n"
+        "    fund = math.sin(2.0 * math.pi * f0 * t)\n"
+        "    body1 = 0.35 * math.sin(2.0 * math.pi * f0 * 1.62 * t) * math.exp(-t * 1.8)\n"
+        "    body2 = 0.20 * math.sin(2.0 * math.pi * f0 * 2.45 * t) * math.exp(-t * 2.6)\n"
+        "    body3 = 0.12 * math.sin(2.0 * math.pi * f0 * 3.80 * t) * math.exp(-t * 3.8)\n"
+        "    air_gain = 1.0 + (air / 12.0) * 0.35\n"
+        "    raw = ((fund + body1 + body2 + body3) * decay + flesh + nail) * air_gain\n"
+        "    return math.tanh(raw * drive) * 0.90\n";
+
+    return p;
+}
+
 PresetDefinition PresetLoader::createSpanishGuitarPreset() {
     PresetDefinition p{};
     p.metadata.id = "spanish_guitar";
@@ -1447,64 +1628,93 @@ PresetDefinition PresetLoader::createSpanishGuitarPreset() {
 PresetDefinition PresetLoader::createSteelAcousticGuitarPreset() {
     PresetDefinition p{};
     p.metadata.id = "acoustic_steel_guitar";
-    p.metadata.name = "STEEL STRING ACOUSTIC GUITAR";
+    p.metadata.name = "Steel-String Acoustic Guitar";
     p.metadata.category = "instrument";
-    p.metadata.description = "Physical modeling of a steel-string acoustic guitar: phosphor bronze string waveguide, flatpick vs fingerpick attack, and dreadnought body resonance.";
+    p.metadata.description = "Physical modeling of a steel-string acoustic guitar: phosphor bronze string waveguide, flatpick vs fingerpick attack, and morphable body geometry (0.0 Parlor/000 <-> 0.5 Dreadnought <-> 1.0 Jumbo).";
     p.metadata.engineId = "acoustic_steel_guitar";
 
-    p.params["PickBite"] = {"PickBite", 0.0f, 3.0f, 1.0f, 1.0f, 0.0f, "", true};
-    p.params["StrumSpread"] = {"StrumSpread", 1.0f, 40.0f, 8.0f, 8.0f, 0.0f, "ms", true};
-    p.params["Sustain"] = {"Sustain", 0.85f, 0.999f, 0.995f, 0.995f, 0.0f, "", true};
-    p.params["BodyDamp"] = {"BodyDamp", 0.01f, 0.95f, 0.20f, 0.20f, 0.0f, "", true};
-    p.params["AirSparkle"] = {"AirSparkle", -6.0f, 12.0f, 2.0f, 2.0f, 0.0f, "dB", true};
+    p.params["PickStyle"] = {"PickStyle", 0.0f, 1.0f, 0.3f, 0.3f, 0.0f, "", false};
+    p.params["WoundScrape"] = {"WoundScrape", 0.0f, 1.0f, 0.4f, 0.4f, 0.0f, "", false};
+    p.params["StrumSpread"] = {"StrumSpread", 1.0f, 25.0f, 5.0f, 5.0f, 0.0f, "ms", false};
+    p.params["Sustain"] = {"Sustain", 0.85f, 0.9995f, 0.996f, 0.996f, 0.0f, "", false};
+    p.params["Damping"] = {"Damping", 0.05f, 0.75f, 0.22f, 0.22f, 0.0f, "%", false};
+    p.params["BodyProfile"] = {"BodyProfile", 0.0f, 1.0f, 0.5f, 0.5f, 0.0f, "", false};
+    p.params["BodyWood"] = {"BodyWood", 0.0f, 1.5f, 0.5f, 0.5f, 0.0f, "", false};
+    p.params["BronzeSparkle"] = {"BronzeSparkle", -6.0f, 8.0f, 2.0f, 2.0f, 0.0f, "dB", false};
+
+    // Aliases for backward compatibility
+    p.params["PickBite"] = {"PickBite", 0.0f, 1.0f, 0.3f, 0.3f, 0.0f, "", false};
+    p.params["BodyDamp"] = {"BodyDamp", 0.05f, 0.75f, 0.22f, 0.22f, 0.0f, "%", false};
+    p.params["AirSparkle"] = {"AirSparkle", -6.0f, 8.0f, 2.0f, 2.0f, 0.0f, "dB", false};
 
     p.guiRoot.type = GuiNodeType::Panel;
-    p.guiRoot.title = "STEEL STRING ACOUSTIC GUITAR";
-    p.guiRoot.subtitle = "Phosphor Bronze Waveguide & Dreadnought Cavity";
-    p.guiRoot.accent = "#CD7F32";
-    p.guiRoot.background = "spruce_top";
+    p.guiRoot.title = "STEEL-STRING ACOUSTIC";
+    p.guiRoot.subtitle = "Morphable Body Geometry (Parlor <-> Dreadnought <-> Jumbo)";
+    p.guiRoot.accent = "#D97706";
+    p.guiRoot.background = "blonde_pine";
     p.guiRoot.rackSides = "rosewood";
 
-    GuiLayoutNode gPick{};
-    gPick.type = GuiNodeType::Group;
-    gPick.title = "PLECTRUM ATTACK";
-    GuiLayoutNode rPick{};
-    rPick.type = GuiNodeType::Row;
-    rPick.align = "space_around";
-    rPick.children.push_back({GuiNodeType::Knob, "", "", "", "", "bronze", "", "", "", "PickBite", "PICK BITE", "", 52.0f, "vintage", true});
-    rPick.children.push_back({GuiNodeType::Knob, "", "", "", "", "bronze", "", "", "", "StrumSpread", "STRUM SPREAD", "ms", 52.0f, "vintage", true});
-    gPick.children.push_back(rPick);
+    GuiLayoutNode r1{};
+    r1.type = GuiNodeType::Row;
+    r1.align = "space_around";
+    r1.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "BodyProfile", "BODY SHAPE", "", 52.0f, "vintage", true});
+    r1.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "PickStyle", "PICK / FINGER", "", 52.0f, "vintage", true});
+    r1.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "StrumSpread", "STRUM MS", "ms", 52.0f, "vintage", true});
+    r1.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "Sustain", "SUSTAIN", "", 52.0f, "vintage", true});
+    r1.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "Damping", "STRING LOSS", "%", 52.0f, "vintage", true});
 
-    GuiLayoutNode gReso{};
-    gReso.type = GuiNodeType::Group;
-    gReso.title = "DREADNOUGHT BODY RESONANCE";
-    GuiLayoutNode rReso{};
-    rReso.type = GuiNodeType::Row;
-    rReso.align = "space_around";
-    rReso.children.push_back({GuiNodeType::Knob, "", "", "", "", "bronze", "", "", "", "Sustain", "SUSTAIN", "", 52.0f, "vintage", true});
-    rReso.children.push_back({GuiNodeType::Knob, "", "", "", "", "bronze", "", "", "", "BodyDamp", "DAMPING", "", 52.0f, "vintage", true});
-    rReso.children.push_back({GuiNodeType::Knob, "", "", "", "", "bronze", "", "", "", "AirSparkle", "AIR SPARKLE", "dB", 52.0f, "vintage", true});
-    gReso.children.push_back(rReso);
+    GuiLayoutNode r2{};
+    r2.type = GuiNodeType::Row;
+    r2.align = "center";
+    r2.children.push_back({GuiNodeType::Slider, "", "", "", "", "capsule", "", "", "", "BodyProfile", "BODY PROFILE (0.0 PARLOR/000 <-> 0.5 DREADNOUGHT <-> 1.0 JUMBO)", "", 52.0f, "capsule", true});
 
-    p.guiRoot.children.push_back(gPick);
-    p.guiRoot.children.push_back(gReso);
+    GuiLayoutNode r3{};
+    r3.type = GuiNodeType::Row;
+    r3.align = "space_around";
+    r3.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "BronzeSparkle", "BRONZE AIR", "dB", 52.0f, "vintage", true});
+    r3.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "BodyWood", "SOUNDBOARD GAIN", "", 52.0f, "vintage", true});
+    r3.children.push_back({GuiNodeType::Knob, "", "", "", "", "vintage", "", "", "", "WoundScrape", "WOUND SCRAPE", "", 52.0f, "vintage", true});
 
-    p.rawScript =
-        "# Eatsbeats Instrument Definition\n"
-        "# @id: acoustic_steel_guitar\n"
-        "# @name: STEEL STRING ACOUSTIC GUITAR\n"
-        "# @category: instrument\n"
-        "# @engine: acoustic_steel_guitar\n\n"
-        "SteelAcousticGuitar = True\n\n"
-        "def init():\n"
-        "    params['PickBite'] = 1.0\n"
-        "    params['StrumSpread'] = 8.0\n"
-        "    params['Sustain'] = 0.995\n"
-        "    params['BodyDamp'] = 0.20\n"
-        "    params['AirSparkle'] = 2.0\n\n"
-        "def process(time, freq, note, params):\n"
-        "    # Native Phosphor Bronze Waveguide & Dreadnought Model\n"
-        "    pass\n";
+    p.guiRoot.children.push_back(r1);
+    p.guiRoot.children.push_back(r2);
+    p.guiRoot.children.push_back(r3);
+    p.compactGuiRoot = p.guiRoot;
+
+    // Load authentic .eats file if accessible, or fallback to full script
+    std::ifstream eatsFile("presets/instruments/acoustic_steel_guitar.eats");
+    if (eatsFile.is_open()) {
+        std::stringstream ss;
+        ss << eatsFile.rdbuf();
+        p.rawScript = ss.str();
+    } else {
+        std::ifstream eatsFileAlt("../presets/instruments/acoustic_steel_guitar.eats");
+        if (eatsFileAlt.is_open()) {
+            std::stringstream ss;
+            ss << eatsFileAlt.rdbuf();
+            p.rawScript = ss.str();
+        }
+    }
+    if (p.rawScript.empty()) {
+        p.rawScript =
+            "# @id: acoustic_steel_guitar\n"
+            "# @name: Steel-String Acoustic Guitar\n"
+            "# @category: instrument\n"
+            "# @description: Physical modeling of a steel-string acoustic guitar: phosphor bronze string waveguide, flatpick vs fingerpick attack, and morphable body geometry (0.0 Parlor/000 <-> 0.5 Dreadnought <-> 1.0 Jumbo).\n\n"
+            "SteelAcousticGuitar = True\n\n"
+            "def init():\n"
+            "    return {\n"
+            "        \"PickStyle\": eat.param(\"PickStyle\", 0.0, 1.0, 0.3, step=0.0),\n"
+            "        \"WoundScrape\": eat.param(\"WoundScrape\", 0.0, 1.0, 0.4, step=0.0),\n"
+            "        \"StrumSpread\": eat.param(\"StrumSpread\", 1.0, 25.0, 5.0, step=0.0),\n"
+            "        \"Sustain\": eat.param(\"Sustain\", 0.85, 0.9995, 0.996, step=0.0),\n"
+            "        \"Damping\": eat.param(\"Damping\", 0.05, 0.75, 0.22, step=0.0),\n"
+            "        \"BodyProfile\": eat.param(\"BodyProfile\", 0.0, 1.0, 0.5, step=0.0),\n"
+            "        \"BodyWood\": eat.param(\"BodyWood\", 0.0, 1.5, 0.5, step=0.0),\n"
+            "        \"BronzeSparkle\": eat.param(\"BronzeSparkle\", -6.0, 8.0, 2.0, step=0.0),\n"
+            "    }\n\n"
+            "def process(time, freq, note, params):\n"
+            "    return 0.0\n";
+    }
 
     return p;
 }
@@ -1623,6 +1833,7 @@ std::vector<PresetDefinition> PresetLoader::getBuiltinPresets() {
         createStereoDelayPreset(),
         createConcertGrandPianoPreset(),
         createUprightBassPreset(),
+        createAcousticBassPreset(),
         createSpanishGuitarPreset(),
         createSteelAcousticGuitarPreset(),
         createAstralShimmerPadPreset()

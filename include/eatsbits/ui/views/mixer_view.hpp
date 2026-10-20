@@ -220,6 +220,7 @@ public:
     std::function<void(uint32_t channelIdx, theory::ChordFollowMode mode)> onTrackChordFollowChanged;
     std::function<void(uint32_t channelIdx)> onBakeChords;
     std::function<void(uint32_t channelIdx, uint8_t note, float velocity)> onAuditionNote;
+    std::function<void(uint32_t channelIdx)> onOpenDesign;
 
     // Structured Fader Geometry & Hit-Testing
     struct FaderGeometry {

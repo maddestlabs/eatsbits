@@ -42,7 +42,7 @@ void ProjectBrowserDrawer::initData() {
     scripts_ = {
         {"eats_303", "Acid Odyssey 303", "SYNTH", "Authentic Roland TB-303 Diode Ladder", "Roland / Acid"},
         {"poly_saw", "PolyBLEP Super-Saw", "SYNTH", "16-Voice Anti-Aliased PolyBLEP Oscillators", "Poly / Analog"},
-        {"fm_dx7", "DX7 6-Op FM Synth", "SYNTH", "Yamaha DX7 32-Algorithm Dual Bus FM", "Yamaha / Digital"},
+        {"fm_dxvii", "DXVII 6-Op FM Synth", "SYNTH", "DXVII 32-Algorithm Dual Bus FM & SysEx Cartridges", "Digital / FM"},
         {"chip_snes", "SNES Chrono Synth", "SYNTH", "SPC700 16-Bit S-DSP with 8-Tap FIR Echo", "Nintendo / Retro"},
         {"chip_ym2612", "Genesis Thunder FM", "SYNTH", "OPN2 4-Operator Logarithmic Feedback", "Sega / Chiptune"},
         {"piano_grand", "Concert Grand Piano", "SYNTH", "Bank-Bensa Commuted Waveguide Resonator", "Physical / Keys"},

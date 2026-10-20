@@ -23,16 +23,8 @@ MixerView::MixerView() {
     masterChannel_.mute = false;
 
     channels_ = {
-        {"303 Acid", "SYNTH", 0.0f, 0.90f, 1.0f, 0.80f, -0.10f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
-         true, 30.0f, 2.5f, 850.0f, 3.0f, 1.4f, -1.0f, "TB-303", 0.65f, 0.80f, 0.45f, 0.90f, "CUTOFF", "RESON", "ENV", "ACCENT", {}, {}},
-        {"808 Drums", "DRUMS", 1.0f, 0.55f, 0.10f, 0.85f, 0.0f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
-         true, 25.0f, 3.0f, 1200.0f, -1.5f, 1.0f, 1.5f, "TR-808", 0.75f, 0.60f, 0.50f, 0.85f, "TONE", "SNAPPY", "DECAY", "TUNING", {}, {}},
-        {"909 Groove", "DRUMS", 1.0f, 0.16f, 0.43f, 0.78f, 0.10f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
-         true, 20.0f, 1.0f, 2500.0f, 0.5f, 1.2f, 2.0f, "TR-909", 0.80f, 0.70f, 0.40f, 0.95f, "TUNE", "ATTACK", "DECAY", "SNAPPY", {}, {}},
-        {"DX7 Rhodes", "SYNTH", 0.62f, 0.31f, 0.87f, 0.75f, 0.20f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
-         true, 40.0f, -2.0f, 1500.0f, 2.0f, 1.1f, 0.0f, "DX7 FM", 0.50f, 0.65f, 0.70f, 0.60f, "ALGO", "FEEDBACK", "BRIGHT", "DETUNE", {}, {}},
-        {"Concert Grand", "PHYSICAL", 0.88f, 0.66f, 0.43f, 0.70f, -0.15f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
-         true, 20.0f, 0.0f, 1000.0f, 0.0f, 1.0f, 0.0f, "GRAND PIANO", 0.55f, 0.75f, 0.45f, 0.80f, "TONE", "SNAPPY", "DECAY", "VAR", {}, {}}
+        {"DXVII E-Piano", "SYNTH", 0.62f, 0.31f, 0.87f, 0.75f, 0.0f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
+         true, 40.0f, -2.0f, 1500.0f, 2.0f, 1.1f, 0.0f, "DXVII FM", 0.50f, 0.65f, 0.70f, 0.60f, "ALGO", "FEEDBACK", "BRIGHT", "CHORUS", {}, {}}
     };
 
     // Default standalone properties drawer is closed
@@ -232,6 +224,9 @@ MixerView::MixerView() {
     };
     propertiesDrawer_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
+    };
+    propertiesDrawer_.onOpenDesign = [this](uint32_t trackIdx) {
+        if (onOpenDesign) onOpenDesign(trackIdx);
     };
     propertiesDrawer_.onAddClip = [this](uint32_t trackIdx) {
         if (onAddClip) onAddClip(trackIdx);

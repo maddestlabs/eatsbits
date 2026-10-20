@@ -24,9 +24,15 @@ def init():
     std::string sidScript = "SIDSynth = True\n# Commodore 64 SID";
     assert(DependencyScanner::detectTarget(sidScript) == NativeDispatchTarget::SID);
 
-    // DX7
+    // DX7 (Legacy boolean fallback & modern Eatscript directives)
     std::string dxScript = "DX7EPiano = True\ndef init(): pass";
     assert(DependencyScanner::detectTarget(dxScript) == NativeDispatchTarget::DX7);
+
+    std::string dxModernEngine = "# @engine: eats_dx\ndef init(): pass";
+    assert(DependencyScanner::detectTarget(dxModernEngine) == NativeDispatchTarget::DX7);
+
+    std::string dxModernId = "# @id: dxvii_synth\ndef init(): pass";
+    assert(DependencyScanner::detectTarget(dxModernId) == NativeDispatchTarget::DX7);
 
     // SNES
     std::string snesScript = "snesDsp = True\ndef init(): pass";

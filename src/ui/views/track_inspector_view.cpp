@@ -1,5 +1,8 @@
 #include "eatsbits/ui/views/track_inspector_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/project/preset_manager.hpp"
+#include "eatsbits/project/eats_builtin_presets.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -150,6 +153,9 @@ TrackInspectorView::TrackInspectorView() {
     panel_.onOpenPluginGui = [this](uint32_t trackIdx) {
         if (onOpenPluginGui) onOpenPluginGui(trackIdx);
     };
+    panel_.onOpenDesign = [this](uint32_t trackIdx) {
+        if (onOpenDesign) onOpenDesign(trackIdx);
+    };
     panel_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
     };
@@ -185,6 +191,8 @@ TrackInspectorView::TrackInspectorView() {
                 trk.r = entry.r;
                 trk.g = entry.g;
                 trk.b = entry.b;
+                trk.eatscriptCode.clear();
+                trk.customGuiPanel.reset();
                 syncKnobsForTrack(trk);
                 updateDrawerData();
                 if (onInstrumentChanged) onInstrumentChanged(trackIndex, trk.instrumentEngine, entry.name);
@@ -228,124 +236,69 @@ TrackInspectorView::TrackInspectorView() {
 void TrackInspectorView::initDefaultTracks() {
     tracks_.clear();
 
-    // 1. 303 Acid Bass
+    // 1. DXVII E-Piano (Single default track)
     InspectorTrackChannel t1;
-    t1.name = "303 Acid Bass";
-    t1.type = "SYNTH";
-    t1.r = 1.0f; t1.g = 0.55f; t1.b = 0.0f;
-    t1.volume = 0.85f;
-    t1.pan = -0.10f;
+    t1.name = "DXVII E-Piano";
+    t1.type = "KEYS";
+    t1.r = 0.62f; t1.g = 0.31f; t1.b = 0.87f;
+    t1.volume = 0.75f;
+    t1.pan = 0.0f;
     t1.mute = false;
     t1.solo = false;
     t1.freeze = false;
-    t1.instrument = "Eats-303 Acid Bassline";
-    t1.instrumentEngine = "tb303";
-    t1.chordFollowMode = ChordFollowMode::Off;
-    t1.knobs = {
-        {"waveform", "WAVEFORM", 0.0f, "Saw"},
-        {"pitch", "PITCH", 0.50f, "0 st"},
-        {"cutoff", "CUTOFF", 0.65f, "1.8 kHz"},
-        {"resonance", "RESONANCE", 0.80f, "80%"},
-        {"envMod", "ENV MOD", 0.60f, "+2.4 oct"},
-        {"decay", "DECAY", 0.45f, "240 ms"},
-        {"accent", "ACCENT", 0.85f, "85%"},
-        {"octave", "OCTAVE", 0.50f, "0"},
-        {"subOsc", "SUB OSC", 0.0f, "Off"},
-        {"subVol", "SUB VOL", 0.35f, "35%"},
-        {"glideCurve", "GLIDE CURVE", 0.40f, "40%"},
-        {"drive", "DRIVE", 0.25f, "25%"}
-    };
-    t1.midiFx.arpEnabled = true;
-    t1.midiFx.arpPattern = 2; // UpDown
-    t1.midiFx.scaleSnapEnabled = true;
-    t1.midiFx.humanizeEnabled = true;
-    t1.audioFx.delayEnabled = true;
-    t1.audioFx.delayTime = 0.375f;
-    t1.audioFx.convolverEnabled = true;
-    t1.midiFxList.push_back({"Arpeggiator Pro", "arp", true});
-    t1.midiFxList.push_back({"Scale Snap", "scale", true});
-    t1.audioFxList.push_back({"Tape Echo Delay", "delay", 0.45f, 0.30f, true});
-    t1.audioFxList.push_back({"Stone Cathedral Reverb", "convolver", 0.60f, 0.35f, true});
+    t1.instrument = "DXVII E-Piano";
+    t1.instrumentEngine = "dxvii_epiano";
+    t1.chordFollowMode = ChordFollowMode::Chord;
+
+    if (auto p = eatsbits::project::BuiltinPresetRegistry::createPresetById("dxvii_epiano")) {
+        t1.eatscriptCode = p->rawScript;
+        t1.customGuiPanel = createGuiPanelFromPresetDefinition(*p);
+        auto kList = extractKnobsFromPresetDefinition(*p);
+        t1.knobs.clear();
+        for (const auto& k : kList) {
+            t1.knobs.push_back({k.name, k.label, k.value, k.display});
+        }
+    } else {
+        t1.knobs = {
+            {"algo", "ALGO", 0.15f, "Algo 5"},
+            {"feedback", "FEEDBACK", 0.85f, "Lvl 6"},
+            {"volume", "VOL", 0.85f, "85%"},
+            {"chorus", "CHORUS", 0.35f, "35%"},
+            {"drive", "DRIVE", 0.33f, "1.0x"},
+            {"brightness", "BRIGHT", 0.33f, "1.0"}
+        };
+    }
+    t1.audioFxList.push_back({"Chorus / Flanger", "chorus", 0.50f, 0.75f, true});
     tracks_.push_back(t1);
-
-    // 2. TR-808 Kit
-    InspectorTrackChannel t2;
-    t2.name = "TR-808 Kit";
-    t2.type = "DRUMS";
-    t2.r = 0.13f; t2.g = 0.96f; t2.b = 0.91f;
-    t2.volume = 0.90f;
-    t2.pan = 0.0f;
-    t2.instrument = "Analog 808 Rhythm";
-    t2.instrumentEngine = "tr808";
-    t2.knobs = {
-        {"tone", "TONE", 0.70f, "70%"},
-        {"snappy", "SNAPPY", 0.80f, "80%"},
-        {"decay", "DECAY", 0.60f, "600 ms"},
-        {"tuning", "TUNING", 0.50f, "55 Hz"},
-        {"drive", "DRIVE", 0.35f, "15%"},
-        {"punch", "PUNCH", 0.75f, "+3 dB"}
-    };
-    tracks_.push_back(t2);
-
-    // 3. TR-909 Drive
-    InspectorTrackChannel t3;
-    t3.name = "TR-909 Drive";
-    t3.type = "DRUMS";
-    t3.r = 1.0f; t3.g = 0.20f; t3.b = 0.20f;
-    t3.volume = 0.88f;
-    t3.pan = 0.05f;
-    t3.instrument = "TR-909 Rhythm Composer";
-    t3.instrumentEngine = "tr909";
-    t3.knobs = {
-        {"attack", "ATTACK", 0.30f, "12 ms"},
-        {"punch", "PUNCH", 0.85f, "+4 dB"},
-        {"tune", "TUNE", 0.55f, "62 Hz"},
-        {"crack", "CRACK", 0.60f, "60%"},
-        {"decay", "DECAY", 0.50f, "450 ms"},
-        {"snap", "SNAP", 0.75f, "75%"}
-    };
-    tracks_.push_back(t3);
-
-    // 4. DX7 Rhodes
-    InspectorTrackChannel t4;
-    t4.name = "DX7 Rhodes";
-    t4.type = "KEYS";
-    t4.r = 0.74f; t4.g = 0.0f; t4.b = 1.0f;
-    t4.volume = 0.75f;
-    t4.pan = 0.15f;
-    t4.instrument = "Yamaha DX7 FM";
-    t4.instrumentEngine = "dx7";
-    t4.knobs = {
-        {"algo", "ALGO", 0.35f, "Algo 5"},
-        {"feedback", "FEEDBACK", 0.65f, "Lvl 6"},
-        {"attack", "ATTACK", 0.20f, "8 ms"},
-        {"decay", "DECAY", 0.75f, "1.4 s"},
-        {"bright", "BRIGHT", 0.60f, "60%"},
-        {"detune", "DETUNE", 0.40f, "+12 ct"}
-    };
-    tracks_.push_back(t4);
-
-    // 5. Concert Grand
-    InspectorTrackChannel t5;
-    t5.name = "Concert Grand";
-    t5.type = "PIANO";
-    t5.r = 0.20f; t5.g = 0.60f; t5.b = 1.0f;
-    t5.volume = 0.80f;
-    t5.pan = -0.05f;
-    t5.instrument = "Physical Modeling Piano";
-    t5.instrumentEngine = "piano";
-    t5.knobs = {
-        {"stiffness", "STIFF", 0.50f, "50%"},
-        {"hammer", "HAMMER", 0.65f, "Hard"},
-        {"decay", "DECAY", 0.70f, "2.2 s"},
-        {"damping", "DAMP", 0.30f, "30%"},
-        {"pedal", "PEDAL", 0.0f, "Off"},
-        {"reverb", "REVERB", 0.40f, "40%"}
-    };
-    tracks_.push_back(t5);
 }
 
 void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
+    if (!trk.eatscriptCode.empty()) {
+        try {
+            auto def = eatsbits::project::PresetLoader::parseFromEatscript(trk.eatscriptCode);
+            if (!def.params.empty()) {
+                auto kList = extractKnobsFromPresetDefinition(def);
+                trk.knobs.clear();
+                for (const auto& k : kList) {
+                    trk.knobs.push_back({k.name, k.label, k.value, k.display});
+                }
+                trk.customGuiPanel = createGuiPanelFromPresetDefinition(def);
+                return;
+            }
+        } catch (...) {}
+    }
+
+    if (auto p = eatsbits::project::BuiltinPresetRegistry::createPresetById(trk.instrumentEngine)) {
+        trk.eatscriptCode = p->rawScript;
+        trk.customGuiPanel = createGuiPanelFromPresetDefinition(*p);
+        auto kList = extractKnobsFromPresetDefinition(*p);
+        trk.knobs.clear();
+        for (const auto& k : kList) {
+            trk.knobs.push_back({k.name, k.label, k.value, k.display});
+        }
+        return;
+    }
+
     if (trk.instrumentEngine.rfind("clap:", 0) == 0 || trk.instrumentEngine == "CLAP" || trk.instrumentEngine == "clap") {
         trk.knobs = {
             {"cutoff", "CUTOFF", 0.50f, "1.2 kHz"},
@@ -449,6 +402,33 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
             {"Release", "RELEASE", (2.5f - 0.1f) / 7.9f, "2.50 s"}
         };
     } else {
+        project::PresetDefinition def{};
+        bool loadedDef = false;
+        if (!trk.instrumentEngine.empty() && project::PresetManager::instance().loadPresetDefinition(trk.instrumentEngine, def)) {
+            loadedDef = true;
+        } else if (!trk.instrument.empty() && project::PresetManager::instance().loadPresetDefinition(trk.instrument, def)) {
+            loadedDef = true;
+        } else {
+            auto opt = project::BuiltinPresetRegistry::createPresetById(trk.instrumentEngine);
+            if (!opt) opt = project::BuiltinPresetRegistry::createPresetById(trk.instrument);
+            if (opt) {
+                def = *opt;
+                loadedDef = true;
+            }
+        }
+        if (loadedDef) {
+            auto kList = extractKnobsFromPresetDefinition(def);
+            trk.knobs.clear();
+            for (const auto& k : kList) {
+                trk.knobs.push_back({k.name, k.label, k.value, k.display});
+            }
+            trk.customGuiPanel = createGuiPanelFromPresetDefinition(def);
+            if (trk.eatscriptCode.empty()) {
+                trk.eatscriptCode = def.rawScript;
+            }
+            return;
+        }
+
         trk.knobs = {
             {"param1", "PARAM 1", 0.50f, "50%"},
             {"param2", "PARAM 2", 0.60f, "60%"},
@@ -491,6 +471,8 @@ TrackPropertiesDrawerData TrackInspectorView::buildDrawerData() const {
         d.audioFxData = trk.audioFx;
         d.midiFx = trk.midiFxList;
         d.audioFx = trk.audioFxList;
+        d.customGuiPanel = trk.customGuiPanel;
+        d.eatscriptCode = trk.eatscriptCode;
         d.presetTitle = trk.instrument.empty() ? trk.name : trk.instrument;
         d.presetSubtitle = trk.name + " • " + (trk.instrument.empty() ? "Track" : trk.instrument);
     } else {
@@ -556,6 +538,8 @@ void TrackInspectorView::updateDrawerData() {
         if (drawerData_.audioFx.size() != trk.audioFxList.size()) {
             drawerData_.audioFx = trk.audioFxList;
         }
+        drawerData_.customGuiPanel = trk.customGuiPanel;
+        drawerData_.eatscriptCode = trk.eatscriptCode;
         std::string_view desiredTitle = trk.instrument.empty() ? std::string_view(trk.name) : std::string_view(trk.instrument);
         if (drawerData_.presetTitle != desiredTitle) {
             drawerData_.presetTitle = desiredTitle;
@@ -605,6 +589,12 @@ void TrackInspectorView::syncBackFromDrawerData(const TrackPropertiesDrawerData&
         trk.audioFx = d.audioFxData;
         trk.midiFxList = d.midiFx;
         trk.audioFxList = d.audioFx;
+        if (d.customGuiPanel.has_value()) {
+            trk.customGuiPanel = d.customGuiPanel;
+        }
+        if (!d.eatscriptCode.empty()) {
+            trk.eatscriptCode = d.eatscriptCode;
+        }
     }
 }
 
@@ -723,6 +713,12 @@ void TrackInspectorView::syncFromWindow(
         if (!src.instrumentEngine.empty() && trk.instrumentEngine != src.instrumentEngine) {
             trk.instrumentEngine = src.instrumentEngine;
             syncKnobsForTrack(trk);
+        }
+        if (src.customGuiPanel.has_value()) {
+            trk.customGuiPanel = src.customGuiPanel;
+        }
+        if (!src.eatscriptCode.empty()) {
+            trk.eatscriptCode = src.eatscriptCode;
         }
     }
 }

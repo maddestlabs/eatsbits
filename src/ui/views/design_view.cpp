@@ -3,6 +3,7 @@
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/project/eats_builtin_presets.hpp"
 #include "eatsbits/ui/clay/clay_context.hpp"
 #include "clay.h"
 #include <algorithm>
@@ -10,8 +11,35 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <fstream>
+#include <unordered_set>
 
 namespace eatsbits::ui {
+
+namespace {
+inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+                      [](char ca, char cb) {
+                          return std::tolower(static_cast<unsigned char>(ca)) ==
+                                 std::tolower(static_cast<unsigned char>(cb));
+                      });
+}
+
+inline void syncPanelWidgetsWithKnobs(GuiPanelDef& panel, const std::vector<TrackPropertiesKnob>& knobs) {
+    for (auto& row : panel.rows) {
+        for (auto& w : row.widgets) {
+            for (const auto& k : knobs) {
+                if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                    stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                    w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
+                    if (!k.display.empty()) w.valueDisplay = k.display;
+                    break;
+                }
+            }
+        }
+    }
+}
+} // namespace
 
 DesignView::~DesignView() = default;
 
@@ -212,6 +240,54 @@ std::string DesignView::getDefaultScriptForTarget(const ScriptTarget& target) co
             "    return out\n\n"
             "def process(time, freq, note, params):\n"
             "    return clavinet_d6_voice(time, freq, note, params)\n";
+    }
+
+    if (key.find("dx") != std::string::npos || key.find("fm") != std::string::npos ||
+        id.find("dx") != std::string::npos || key.find("rhodes") != std::string::npos ||
+        key.find("epiano") != std::string::npos) {
+        return
+            "# --- DXVII 6-Operator FM Synthesizer (Eatscript) ---\n"
+            "# @id: dxvii_epiano\n"
+            "# @name: DXVII E-Piano\n"
+            "# @category: instrument\n"
+            "# @engine: eats_dx\n\n"
+            "def init():\n"
+            "    eat.param(\"Algorithm\", min=1.0, max=32.0, default=5.0)\n"
+            "    eat.param(\"Feedback\", min=0.0, max=7.0, default=6.0)\n"
+            "    eat.param(\"Patch\", min=0.0, max=31.0, default=0.0)\n"
+            "    eat.param(\"Volume\", min=0.0, max=2.0, default=0.85)\n"
+            "    eat.param(\"ChorusMix\", min=0.0, max=1.0, default=0.35)\n"
+            "    eat.param(\"Drive\", min=0.5, max=3.0, default=1.0)\n"
+            "    # Extended Macro Parameters for CLAP Plugin Export\n"
+            "    eat.param(\"Brightness\", min=0.0, max=3.0, default=1.0)\n"
+            "    eat.param(\"TineBell\", min=0.0, max=3.0, default=0.85)\n"
+            "    eat.param(\"BodyWarmth\", min=0.0, max=3.0, default=1.0)\n\n"
+            "def gui():\n"
+            "    return {\n"
+            "        \"panel\": {\n"
+            "            \"title\": \"DXVII — ELECTRIC PIANO\",\n"
+            "            \"subtitle\": \"6-Operator FM Tone Generator & E-Piano\",\n"
+            "            \"background\": \"dx7_faceplate\",\n"
+            "            \"accent\": \"#00A887\",\n"
+            "            \"rows\": [\n"
+            "                [{\"id\": \"w_alg\", \"type\": 1, \"param\": \"Algorithm\", \"label\": \"ALGORITHM\", \"style\": 4},\n"
+            "                 {\"id\": \"w_fb\", \"type\": 1, \"param\": \"Feedback\", \"label\": \"FEEDBACK\", \"style\": 5},\n"
+            "                 {\"id\": \"w_patch\", \"type\": 1, \"param\": \"Patch\", \"label\": \"ROM PATCH\", \"style\": 5},\n"
+            "                 {\"id\": \"w_vol\", \"type\": 1, \"param\": \"Volume\", \"label\": \"MASTER VOL\", \"style\": 7}],\n"
+            "                [{\"id\": \"w_chorus\", \"type\": 1, \"param\": \"ChorusMix\", \"label\": \"CHORUS\", \"style\": 4},\n"
+            "                 {\"id\": \"w_drive\", \"type\": 1, \"param\": \"Drive\", \"label\": \"DRIVE\", \"style\": 6}]\n"
+            "            ]\n"
+            "        }\n"
+            "    }\n\n"
+            "def graph():\n"
+            "    dx = eat.node.fm(type=\"DXVII 6-OP CORE\", algorithm=5.0, feedback=6.0, voices=8)\n"
+            "    chorus = eat.node.chorus(type=\"STEREO CHORUS\", mix=0.35)\n"
+            "    out = eat.node.out(type=\"MASTER OUT\", volume=0.85)\n"
+            "    dx >> chorus\n"
+            "    chorus >> out\n"
+            "    return out\n\n"
+            "def process(time, freq, note, params):\n"
+            "    return 0.0\n";
     }
 
     if (key.find("303") != std::string::npos || id == "eats_303") {
@@ -523,6 +599,55 @@ std::string DesignView::getDefaultScriptForTarget(const ScriptTarget& target) co
             "    return out\n";
     }
 
+    // Check if target corresponds to a known physical modeling or built-in preset
+    std::vector<std::string> candidates;
+    if (target.trackIndex >= 0 && target.trackIndex < static_cast<int>(cachedTracks_.size())) {
+        const auto& trk = cachedTracks_[target.trackIndex];
+        if (!trk.instrumentEngine.empty()) candidates.push_back(trk.instrumentEngine);
+        if (!trk.instrument.empty()) candidates.push_back(trk.instrument);
+    }
+    candidates.push_back(target.id);
+
+    if (!target.subtitle.empty()) {
+        std::string subEngine = target.subtitle;
+        size_t dspPos = subEngine.find(" DSP");
+        if (dspPos != std::string::npos) subEngine = subEngine.substr(0, dspPos);
+        size_t engPos = subEngine.find(" Engine");
+        if (engPos != std::string::npos) subEngine = subEngine.substr(0, engPos);
+        while (!subEngine.empty() && (subEngine.back() == ' ' || subEngine.back() == '\t')) subEngine.pop_back();
+        while (!subEngine.empty() && (subEngine.front() == ' ' || subEngine.front() == '\t')) subEngine.erase(subEngine.begin());
+        if (!subEngine.empty()) candidates.push_back(subEngine);
+    }
+
+    for (const auto& cand : candidates) {
+        std::string cLower = cand;
+        for (char& c : cLower) {
+            if (c == ' ' || c == '-') c = '_';
+            else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+
+        // Check file on disk
+        const std::string diskPaths[] = {
+            "presets/instruments/" + cLower + ".eats",
+            "../presets/instruments/" + cLower + ".eats"
+        };
+        for (const auto& p : diskPaths) {
+            std::ifstream file(p);
+            if (file.is_open()) {
+                std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                if (!content.empty() && content.find("def init") != std::string::npos) {
+                    return content;
+                }
+            }
+        }
+
+        // Check BuiltinPresetRegistry
+        auto builtinOpt = project::BuiltinPresetRegistry::createPresetById(cLower);
+        if (builtinOpt.has_value() && !builtinOpt->rawScript.empty()) {
+            return builtinOpt->rawScript;
+        }
+    }
+
     return
         "# --- Procedural Synthesizer Engine (Eatscript) ---\n"
         "import math\n\n"
@@ -704,6 +829,36 @@ void DesignView::initModularRackFromScript(const std::string& code) {
                         modDef.knobs = {{"ROOT", 0.0f, 0.0f, 11.0f, ""}, {"SCALE", 0.0f, 0.0f, 9.0f, ""}, {"SNAP", 1.0f, 0.0f, 1.0f, "%"}};
                         modDef.inputs = {"CV IN"};
                         modDef.outputs = {"QUANT CV", "TRIGGER"};
+                    } else if (nodeType.find("PLUCK") != std::string::npos || nodeType.find("IMPULSE") != std::string::npos || nodeType.find("HAMMER") != std::string::npos || nodeType.find("EXCITER") != std::string::npos) {
+                        modDef.r = 0.28f; modDef.g = 0.22f; modDef.b = 0.16f;
+                        modDef.knobs = {{"FORCE", 1.30f, 0.1f, 3.0f, ""}, {"CLICK", 0.35f, 0.0f, 1.5f, ""}, {"HARDNESS", 1.4f, 0.1f, 3.0f, ""}};
+                        modDef.inputs = {"GATE", "VEL IN"};
+                        modDef.outputs = {"EXCITE OUT", "TRIG OUT"};
+                    } else if (nodeType.find("WAVEGUIDE") != std::string::npos || nodeType.find("STRING") != std::string::npos || nodeType.find("COMB") != std::string::npos) {
+                        modDef.r = 0.16f; modDef.g = 0.24f; modDef.b = 0.26f;
+                        modDef.knobs = {{"SUSTAIN", 0.995f, 0.8f, 0.999f, "%"}, {"DAMPING", 0.28f, 0.01f, 0.95f, "%"}, {"TENSION", 0.99f, 0.5f, 1.0f, ""}, {"DISPERSION", 0.22f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"IN SIG", "PITCH CV"};
+                        modDef.outputs = {"STRING OUT", "REFLECT"};
+                    } else if (nodeType.find("MODAL") != std::string::npos || nodeType.find("RESONATOR") != std::string::npos || nodeType.find("CAVITY") != std::string::npos || nodeType.find("BODY") != std::string::npos) {
+                        modDef.r = 0.26f; modDef.g = 0.19f; modDef.b = 0.15f;
+                        modDef.knobs = {{"BODY GAIN", 0.75f, 0.0f, 2.0f, ""}, {"WARMTH", 0.65f, 0.0f, 1.0f, "%"}, {"AIR CAVITY", 1.5f, -6.0f, 12.0f, "dB"}, {"DAMP", 0.25f, 0.0f, 1.0f, "%"}};
+                        modDef.inputs = {"IN SIG", "MIC IN"};
+                        modDef.outputs = {"BODY OUT", "ROOM OUT"};
+                    } else if (nodeType.find("PREAMP") != std::string::npos || nodeType.find("PICKUP") != std::string::npos || nodeType.find("PIEZO") != std::string::npos) {
+                        modDef.r = 0.25f; modDef.g = 0.16f; modDef.b = 0.18f;
+                        modDef.knobs = {{"DRIVE", 1.02f, 0.5f, 4.0f, "x"}, {"TONE", 1.0f, 0.0f, 2.0f, ""}, {"LEVEL", 0.85f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"AUDIO IN", "CV IN"};
+                        modDef.outputs = {"OUT", "SAT OUT"};
+                    } else if (nodeType.find("MIXER") != std::string::npos || nodeType.find("MIX") != std::string::npos) {
+                        modDef.r = 0.21f; modDef.g = 0.21f; modDef.b = 0.23f;
+                        modDef.knobs = {{"CH 1", 0.75f, 0.0f, 1.0f, ""}, {"CH 2", 0.45f, 0.0f, 1.0f, ""}, {"CH 3", 0.20f, 0.0f, 1.0f, ""}, {"MASTER", 0.85f, 0.0f, 1.0f, ""}};
+                        modDef.inputs = {"IN 1", "IN 2"};
+                        modDef.outputs = {"MIX OUT", "AUX OUT"};
+                    } else if (nodeType.find("EQ") != std::string::npos || nodeType.find("SHELF") != std::string::npos) {
+                        modDef.r = 0.23f; modDef.g = 0.18f; modDef.b = 0.25f;
+                        modDef.knobs = {{"FREQ", 3800.0f, 100.0f, 16000.0f, "Hz"}, {"GAIN", 1.5f, -12.0f, 12.0f, "dB"}, {"Q", 0.707f, 0.1f, 5.0f, ""}};
+                        modDef.inputs = {"IN", "FREQ CV"};
+                        modDef.outputs = {"OUT", "EQ OUT"};
                     } else {
                         modDef.r = 0.20f; modDef.g = 0.22f; modDef.b = 0.25f;
                         modDef.knobs = {{"PARAM 1", 0.50f, 0.0f, 1.0f, ""}, {"PARAM 2", 0.50f, 0.0f, 1.0f, ""}};
@@ -976,7 +1131,8 @@ void DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& track
         const auto& trk = cachedTracks_[t];
         std::string engName = trk.instrument.empty() ? (trk.instrumentEngine.empty() ? "Synth DSP" : trk.instrumentEngine) : trk.instrument;
         std::string sub = trk.instrumentEngine.empty() ? "Procedural Synthesizer" : (trk.instrumentEngine + " DSP Engine");
-        std::string id = "track_" + std::to_string(t) + "_dsp";
+        std::string trackKey = trk.id.empty() ? ("trk_" + std::to_string(t)) : trk.id;
+        std::string id = "dsp_" + trackKey;
         Color trkCol{trk.r, trk.g, trk.b};
         allTargets_.push_back({id, trk.name + " (" + engName + ")", sub, ScriptTargetType::TrackDsp,
                                "SYNTH DSP", Color{0.0f, 0.95f, 1.0f}, trkCol, static_cast<int>(t), -1, -1});
@@ -985,10 +1141,11 @@ void DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& track
     // 2. Audio FX Inserts
     for (size_t t = 0; t < cachedTracks_.size(); ++t) {
         const auto& trk = cachedTracks_[t];
+        std::string trackKey = trk.id.empty() ? ("trk_" + std::to_string(t)) : trk.id;
         Color trkCol{trk.r, trk.g, trk.b};
         for (size_t f = 0; f < trk.audioFx.size(); ++f) {
             const auto& afx = trk.audioFx[f];
-            std::string id = "track_" + std::to_string(t) + "_afx_" + std::to_string(f);
+            std::string id = "afx_" + trackKey + "_" + std::to_string(f);
             std::string sub = afx.type.empty() ? "Audio FX Insert" : (afx.type + " Insert");
             allTargets_.push_back({id, afx.name + " (" + trk.name + ")", sub, ScriptTargetType::AudioFx,
                                    "AUDIO FX", Color{1.0f, 0.16f, 0.55f}, trkCol, static_cast<int>(t), -1, static_cast<int>(f)});
@@ -998,13 +1155,34 @@ void DesignView::syncWithProject(const std::vector<ArrangerTimelineTrack>& track
     // 3. Track MIDI FX Processors
     for (size_t t = 0; t < cachedTracks_.size(); ++t) {
         const auto& trk = cachedTracks_[t];
+        std::string trackKey = trk.id.empty() ? ("trk_" + std::to_string(t)) : trk.id;
         Color trkCol{trk.r, trk.g, trk.b};
         for (size_t m = 0; m < trk.midiFx.size(); ++m) {
             const auto& mfx = trk.midiFx[m];
-            std::string id = "track_" + std::to_string(t) + "_mfx_" + std::to_string(m);
+            std::string id = "mfx_" + trackKey + "_" + std::to_string(m);
             std::string sub = mfx.type.empty() ? "MIDI FX Processor" : (mfx.type + " Processor");
             allTargets_.push_back({id, mfx.name + " (" + trk.name + ")", sub, ScriptTargetType::MidiFx,
                                    "MIDI FX", Color{1.0f, 0.85f, 0.0f}, trkCol, static_cast<int>(t), -1, static_cast<int>(m)});
+        }
+    }
+
+    // Prune obsolete cached scripts and parameters whose targets no longer exist
+    std::unordered_set<std::string> validTargetIds;
+    for (const auto& tgt : allTargets_) {
+        validTargetIds.insert(tgt.id);
+    }
+    for (auto it = targetCodeMap_.begin(); it != targetCodeMap_.end(); ) {
+        if (validTargetIds.find(it->first) == validTargetIds.end()) {
+            it = targetCodeMap_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = targetParamsMap_.begin(); it != targetParamsMap_.end(); ) {
+        if (validTargetIds.find(it->first) == validTargetIds.end()) {
+            it = targetParamsMap_.erase(it);
+        } else {
+            ++it;
         }
     }
 
@@ -1041,6 +1219,32 @@ void DesignView::initDefaultGuiPanel() {
     guiPanel_.rows.clear();
 
     if (activeT.type == ScriptTargetType::MidiFx) {
+        if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.midiFx.size())) {
+                if (trk.midiFx[activeT.fxIndex].customGuiPanel.has_value()) {
+                    guiPanel_ = *trk.midiFx[activeT.fxIndex].customGuiPanel;
+                    syncPanelWidgetsWithKnobs(guiPanel_, trk.midiFx[activeT.fxIndex].knobs);
+                    return;
+                }
+            }
+        }
+        if (!currentScriptCode_.empty() && (currentScriptCode_.find("def gui") != std::string::npos || currentScriptCode_.find("eat.param") != std::string::npos)) {
+            try {
+                auto parsedPreset = project::PresetLoader::parseFromEatscript(currentScriptCode_);
+                if (!parsedPreset.params.empty() || !parsedPreset.guiRoot.children.empty() || !parsedPreset.guiRoot.title.empty()) {
+                    guiPanel_ = createGuiPanelFromPresetDefinition(parsedPreset);
+                    if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+                        const auto& trk = cachedTracks_[activeT.trackIndex];
+                        if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.midiFx.size())) {
+                            syncPanelWidgetsWithKnobs(guiPanel_, trk.midiFx[activeT.fxIndex].knobs);
+                        }
+                    }
+                    return;
+                }
+            } catch (...) {}
+        }
+
         guiPanel_.title = activeT.title;
         guiPanel_.subtitle = activeT.subtitle;
         guiPanel_.chassisStyle = GuiChassisStyle::DarkChassis;
@@ -1077,6 +1281,32 @@ void DesignView::initDefaultGuiPanel() {
         }
         guiPanel_.rows.push_back(r1);
     } else if (activeT.type == ScriptTargetType::AudioFx) {
+        if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.audioFx.size())) {
+                if (trk.audioFx[activeT.fxIndex].customGuiPanel.has_value()) {
+                    guiPanel_ = *trk.audioFx[activeT.fxIndex].customGuiPanel;
+                    syncPanelWidgetsWithKnobs(guiPanel_, trk.audioFx[activeT.fxIndex].knobs);
+                    return;
+                }
+            }
+        }
+        if (!currentScriptCode_.empty() && (currentScriptCode_.find("def gui") != std::string::npos || currentScriptCode_.find("eat.param") != std::string::npos)) {
+            try {
+                auto parsedPreset = project::PresetLoader::parseFromEatscript(currentScriptCode_);
+                if (!parsedPreset.params.empty() || !parsedPreset.guiRoot.children.empty() || !parsedPreset.guiRoot.title.empty()) {
+                    guiPanel_ = createGuiPanelFromPresetDefinition(parsedPreset);
+                    if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+                        const auto& trk = cachedTracks_[activeT.trackIndex];
+                        if (activeT.fxIndex >= 0 && activeT.fxIndex < static_cast<int>(trk.audioFx.size())) {
+                            syncPanelWidgetsWithKnobs(guiPanel_, trk.audioFx[activeT.fxIndex].knobs);
+                        }
+                    }
+                    return;
+                }
+            } catch (...) {}
+        }
+
         guiPanel_.title = activeT.title;
         guiPanel_.subtitle = activeT.subtitle;
         guiPanel_.accentColor = Color(0.15f, 0.85f, 0.95f, 1.0f);
@@ -1134,6 +1364,34 @@ void DesignView::initDefaultGuiPanel() {
         }
         guiPanel_.rows.push_back(r1);
     } else if (activeT.id != "eats_kick") {
+        if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            const auto& trk = cachedTracks_[activeT.trackIndex];
+            if (trk.customGuiPanel.has_value()) {
+                guiPanel_ = *trk.customGuiPanel;
+                syncPanelWidgetsWithKnobs(guiPanel_, trk.knobs);
+                return;
+            }
+        }
+        if (!currentScriptCode_.empty() && (currentScriptCode_.find("def gui") != std::string::npos || currentScriptCode_.find("eat.param") != std::string::npos)) {
+            try {
+                auto parsedPreset = project::PresetLoader::parseFromEatscript(currentScriptCode_);
+                if (!parsedPreset.params.empty() || !parsedPreset.guiRoot.children.empty() || !parsedPreset.guiRoot.title.empty()) {
+                    guiPanel_ = createGuiPanelFromPresetDefinition(parsedPreset);
+                    if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+                        syncPanelWidgetsWithKnobs(guiPanel_, cachedTracks_[activeT.trackIndex].knobs);
+                    }
+                    return;
+                }
+            } catch (...) {}
+        }
+        if (auto builtin = project::BuiltinPresetRegistry::createPresetById(activeT.id)) {
+            guiPanel_ = createGuiPanelFromPresetDefinition(*builtin);
+            if (activeT.trackIndex >= 0 && activeT.trackIndex < static_cast<int>(cachedTracks_.size())) {
+                syncPanelWidgetsWithKnobs(guiPanel_, cachedTracks_[activeT.trackIndex].knobs);
+            }
+            return;
+        }
+
         TrackPropertiesDrawerData data;
         data.instrument = activeT.title;
         data.instrumentEngine = activeT.id;
@@ -1358,7 +1616,25 @@ void DesignView::updateActiveTargetCodeAndParams() {
         return;
     }
 
+    // Check if track itself has an authoritative eatscriptCode
+    if (t.type == ScriptTargetType::TrackDsp && t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
+        const auto& trk = cachedTracks_[t.trackIndex];
+        if (!trk.eatscriptCode.empty()) {
+            currentScriptCode_ = trk.eatscriptCode;
+            targetCodeMap_[t.id] = currentScriptCode_;
+            setScriptCode(currentScriptCode_);
+            initDefaultGuiPanel();
+            initModularRackFromScript(currentScriptCode_);
+            return;
+        }
+    }
+
     currentScriptCode_ = getDefaultScriptForTarget(t);
+    if (t.type == ScriptTargetType::TrackDsp && t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
+        if (cachedTracks_[t.trackIndex].eatscriptCode.empty()) {
+            cachedTracks_[t.trackIndex].eatscriptCode = currentScriptCode_;
+        }
+    }
 
     if (t.id == "eats_kick") {
         currentParams_ = {
@@ -1419,17 +1695,25 @@ void DesignView::updateActiveTargetCodeAndParams() {
             {"Overdrive", 1.0f, 4.0f, 1.2f, 1.2f, "x"}
         };
     } else if (t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
-        const auto& trk = cachedTracks_[t.trackIndex];
-        std::string k1 = trk.knob1Name.empty() ? "Tone" : trk.knob1Name;
-        std::string k2 = trk.knob2Name.empty() ? "Snappy" : trk.knob2Name;
-        std::string k3 = trk.knob3Name.empty() ? "Decay" : trk.knob3Name;
-        std::string k4 = trk.knob4Name.empty() ? "Var" : trk.knob4Name;
-        currentParams_ = {
-            {k1, 0.0f, 1.0f, trk.knob1, trk.knob1, ""},
-            {k2, 0.0f, 1.0f, trk.knob2, trk.knob2, ""},
-            {k3, 0.0f, 1.0f, trk.knob3, trk.knob3, ""},
-            {k4, 0.0f, 1.0f, trk.knob4, trk.knob4, ""}
-        };
+        auto parsedPreset = project::PresetLoader::parseFromEatscript(currentScriptCode_);
+        if (!parsedPreset.params.empty()) {
+            currentParams_.clear();
+            for (const auto& [pName, p] : parsedPreset.params) {
+                currentParams_.push_back({p.name, p.minVal, p.maxVal, p.defaultVal, p.currentVal, p.unit});
+            }
+        } else {
+            const auto& trk = cachedTracks_[t.trackIndex];
+            std::string k1 = trk.knob1Name.empty() ? "Tone" : trk.knob1Name;
+            std::string k2 = trk.knob2Name.empty() ? "Snappy" : trk.knob2Name;
+            std::string k3 = trk.knob3Name.empty() ? "Decay" : trk.knob3Name;
+            std::string k4 = trk.knob4Name.empty() ? "Var" : trk.knob4Name;
+            currentParams_ = {
+                {k1, 0.0f, 1.0f, trk.knob1, trk.knob1, ""},
+                {k2, 0.0f, 1.0f, trk.knob2, trk.knob2, ""},
+                {k3, 0.0f, 1.0f, trk.knob3, trk.knob3, ""},
+                {k4, 0.0f, 1.0f, trk.knob4, trk.knob4, ""}
+            };
+        }
     } else if (t.type == ScriptTargetType::AudioFx) {
         if (engKey.find("crush") != std::string::npos || engKey.find("8-bit") != std::string::npos || engKey.find("bitcrusher") != std::string::npos) {
             currentParams_ = {
@@ -1462,12 +1746,20 @@ void DesignView::updateActiveTargetCodeAndParams() {
             };
         }
     } else {
-        currentParams_ = {
-            {"Cutoff", 50.0f, 15000.0f, 2500.0f, 2500.0f, "Hz"},
-            {"Resonance", 0.1f, 0.95f, 0.50f, 0.50f, ""},
-            {"Attack", 0.001f, 1.0f, 0.05f, 0.05f, "s"},
-            {"Decay", 0.05f, 3.0f, 0.40f, 0.40f, "s"}
-        };
+        auto parsedPreset = project::PresetLoader::parseFromEatscript(currentScriptCode_);
+        if (!parsedPreset.params.empty()) {
+            currentParams_.clear();
+            for (const auto& [pName, p] : parsedPreset.params) {
+                currentParams_.push_back({p.name, p.minVal, p.maxVal, p.defaultVal, p.currentVal, p.unit});
+            }
+        } else {
+            currentParams_ = {
+                {"Cutoff", 50.0f, 15000.0f, 2500.0f, 2500.0f, "Hz"},
+                {"Resonance", 0.1f, 0.95f, 0.50f, 0.50f, ""},
+                {"Attack", 0.001f, 1.0f, 0.05f, 0.05f, "s"},
+                {"Decay", 0.05f, 3.0f, 0.40f, 0.40f, "s"}
+            };
+        }
     }
 
     targetCodeMap_[t.id] = currentScriptCode_;
@@ -1481,7 +1773,11 @@ void DesignView::updateActiveTargetCodeAndParams() {
 void DesignView::setScriptCode(const std::string& code) {
     currentScriptCode_ = code;
     if (activeTargetIndex_ >= 0 && activeTargetIndex_ < static_cast<int>(allTargets_.size())) {
-        targetCodeMap_[allTargets_[activeTargetIndex_].id] = code;
+        const auto& t = allTargets_[activeTargetIndex_];
+        targetCodeMap_[t.id] = code;
+        if (t.type == ScriptTargetType::TrackDsp && t.trackIndex >= 0 && t.trackIndex < static_cast<int>(cachedTracks_.size())) {
+            cachedTracks_[t.trackIndex].eatscriptCode = code;
+        }
     }
     codeLines_.clear();
     std::stringstream ss(code);

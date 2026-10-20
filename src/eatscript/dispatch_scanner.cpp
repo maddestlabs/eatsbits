@@ -455,7 +455,7 @@ NativeDispatchTarget DependencyScanner::detectTarget(const std::string& scriptSo
                 if (directive == "engine" || directive == "id") {
                     if (val == "tb303" || val == "eats_303") return NativeDispatchTarget::TB303;
                     if (val == "sid" || val == "c64_sid_synth") return NativeDispatchTarget::SID;
-                    if (val == "dx7" || val == "dx7_epiano") return NativeDispatchTarget::DX7;
+                    if (val == "dx7" || val == "dx7_epiano" || val == "eats_dx" || val == "dxvii" || val == "dxvii_epiano" || val == "dxvii_synth") return NativeDispatchTarget::DX7;
                     if (val == "snes" || val == "snes_dsp") return NativeDispatchTarget::SNES;
                     if (val == "ym2612" || val == "genesis_ym2612") return NativeDispatchTarget::YM2612;
                     if (val == "drum_808" || val == "analog_808_kick") return NativeDispatchTarget::DrumKit808;

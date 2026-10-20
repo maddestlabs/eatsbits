@@ -6,6 +6,7 @@
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/icon_registry.hpp"
 #include "eatsbits/ui/gui_window.hpp"
+#include "eatsbits/ui/floating_window_manager.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include <algorithm>
 #include <cctype>
@@ -15,6 +16,7 @@
 #include "eatsbits/presenter/track_properties_presenter.hpp"
 #include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
 #include <atomic>
+#include <unordered_set>
 
 namespace {
 inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
@@ -142,6 +144,268 @@ TrackPropertiesPanel::TrackPropertiesPanel() {
     colorPickerDialog_.onColorSelected = [this](const Color& col, size_t trkIdx) {
         if (onColorChanged) onColorChanged(static_cast<uint32_t>(trkIdx), col.r, col.g, col.b);
     };
+}
+
+GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDefinition& def) {
+    GuiPanelDef panel;
+    panel.title = def.guiRoot.title.empty() ? (def.metadata.name.empty() ? def.metadata.id : def.metadata.name) : def.guiRoot.title;
+    panel.subtitle = def.guiRoot.subtitle.empty() ? def.metadata.description : def.guiRoot.subtitle;
+    panel.woodCheeks = (def.guiRoot.rackSides != "none" && !def.guiRoot.rackSides.empty());
+    panel.cornerRadius = 8.0f;
+
+    std::string bg = def.guiRoot.background;
+    for (char& c : bg) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (bg == "minimal_white" || bg == "white") panel.chassisStyle = GuiChassisStyle::MinimalWhite;
+    else if (bg == "silver") panel.chassisStyle = GuiChassisStyle::Silver;
+    else if (bg == "walnut" || bg == "wood" || bg == "blonde_pine" || bg == "pine" || bg == "spruce_top") panel.chassisStyle = GuiChassisStyle::Walnut;
+    else if (bg == "rosewood") panel.chassisStyle = GuiChassisStyle::Rosewood;
+    else if (bg == "snes" || bg == "snes_faceplate") panel.chassisStyle = GuiChassisStyle::Snes;
+    else if (bg == "grunge") panel.chassisStyle = GuiChassisStyle::Grunge;
+    else if (bg == "pcb" || bg == "pcb_green") panel.chassisStyle = GuiChassisStyle::PcbGreen;
+    else if (bg == "brushed_steel") panel.chassisStyle = GuiChassisStyle::BrushedSteel;
+    else if (bg == "brushed_aluminum") panel.chassisStyle = GuiChassisStyle::BrushedAluminum;
+    else panel.chassisStyle = GuiChassisStyle::DarkChassis;
+
+    if (!def.guiRoot.accent.empty() && def.guiRoot.accent[0] == '#' && def.guiRoot.accent.size() >= 7) {
+        try {
+            unsigned int hexVal = std::stoul(def.guiRoot.accent.substr(1, 6), nullptr, 16);
+            panel.accentColor = Color(
+                static_cast<float>((hexVal >> 16) & 0xFF) / 255.0f,
+                static_cast<float>((hexVal >> 8) & 0xFF) / 255.0f,
+                static_cast<float>(hexVal & 0xFF) / 255.0f,
+                1.0f
+            );
+        } catch (...) {
+            panel.accentColor = Color(0.0f, 0.95f, 1.0f, 1.0f);
+        }
+    } else {
+        panel.accentColor = Color(0.0f, 0.95f, 1.0f, 1.0f);
+    }
+
+    auto convertWidgetNode = [&](const eatsbits::project::GuiLayoutNode& wNode) -> GuiWidgetDef {
+        GuiWidgetDef w;
+        w.id = "w_" + (wNode.paramName.empty() ? wNode.label : wNode.paramName);
+        w.param = wNode.paramName;
+        w.label = wNode.label.empty() ? wNode.paramName : wNode.label;
+        w.sublabel = wNode.sublabel;
+        w.unit = wNode.unit;
+        w.size = (wNode.size > 0.0f) ? wNode.size : 52.0f;
+        w.accentColor = panel.accentColor;
+        w.showValueBox = wNode.showValueBox;
+        w.action = wNode.action;
+
+        if (wNode.labelAlignment == "inline_right") {
+            w.labelAlignment = KnobLayoutMode::InlineRight;
+        } else if (wNode.labelAlignment == "inline_left") {
+            w.labelAlignment = KnobLayoutMode::InlineLeft;
+        } else if (wNode.labelAlignment == "bottom_stacked") {
+            w.labelAlignment = KnobLayoutMode::BottomStacked;
+        } else {
+            w.labelAlignment = KnobLayoutMode::StackedVertical;
+        }
+
+        if (wNode.type == eatsbits::project::GuiNodeType::Slider) {
+            w.type = GuiWidgetType::Slider;
+        } else if (wNode.type == eatsbits::project::GuiNodeType::Switch) {
+            w.type = GuiWidgetType::ToggleSwitch;
+            std::string swStyle = wNode.hardwareStyle;
+            for (char& c : swStyle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (swStyle.find("slide") != std::string::npos) w.switchStyle = SwitchStyle::RectangularSlide;
+            else w.switchStyle = SwitchStyle::VintageBatLever;
+        } else if (wNode.type == eatsbits::project::GuiNodeType::Nixie) {
+            w.type = GuiWidgetType::NixieDisplay;
+        } else if (wNode.type == eatsbits::project::GuiNodeType::ListBox) {
+            w.type = GuiWidgetType::ListBox;
+            w.options = wNode.options;
+        } else if (wNode.type == eatsbits::project::GuiNodeType::Button) {
+            w.type = GuiWidgetType::ActionButton;
+        } else if (wNode.type == eatsbits::project::GuiNodeType::Divider) {
+            w.type = GuiWidgetType::Divider;
+        } else {
+            w.type = GuiWidgetType::Knob;
+            std::string hs = wNode.hardwareStyle.empty() ? wNode.defaultKnobStyle : wNode.hardwareStyle;
+            for (char& c : hs) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (hs == "tb303_selector_silver") w.knobStyle = GuiKnobStyle::Tb303SelectorSilver;
+            else if (hs == "tb303_selector_black") w.knobStyle = GuiKnobStyle::Tb303SelectorBlack;
+            else if (hs.find("tb303_selector") != std::string::npos || hs.find("selector") != std::string::npos) w.knobStyle = GuiKnobStyle::Tb303SelectorSilver;
+            else if (hs.find("tb303_potentiometer") != std::string::npos || hs.find("potentiometer") != std::string::npos) w.knobStyle = GuiKnobStyle::Tb303Potentiometer;
+            else if (hs.find("chicken") != std::string::npos) w.knobStyle = GuiKnobStyle::ChickenHead;
+            else if (hs.find("cyan") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioCyan;
+            else if (hs.find("ruby") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioRuby;
+            else if (hs.find("magenta") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioMagenta;
+            else if (hs.find("dark") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioDark;
+            else if (hs.find("bipolar") != std::string::npos) w.knobStyle = GuiKnobStyle::StudioBipolar;
+            else if (hs.find("vintage") != std::string::npos || hs.find("bakelite") != std::string::npos) w.knobStyle = GuiKnobStyle::BakeliteSkirt;
+            else if (hs.find("fluted") != std::string::npos || hs.find("cream") != std::string::npos) w.knobStyle = GuiKnobStyle::CreamFluted;
+            else if (hs.find("knurled") != std::string::npos || hs.find("anodized") != std::string::npos) w.knobStyle = GuiKnobStyle::AnodizedKnurled;
+            else if (hs.find("stepped") != std::string::npos || hs.find("twotone") != std::string::npos) w.knobStyle = GuiKnobStyle::TwoToneStepped;
+            else if (hs.find("tb303") != std::string::npos || hs.find("303") != std::string::npos) w.knobStyle = GuiKnobStyle::Tb303Halo;
+            else if (hs.find("encoder") != std::string::npos || hs.find("modern") != std::string::npos) w.knobStyle = GuiKnobStyle::ModernEncoder;
+            else if (hs.find("rogan") != std::string::npos || hs.find("moog") != std::string::npos) w.knobStyle = GuiKnobStyle::RoganMoog;
+            else if (hs.find("davies") != std::string::npos) w.knobStyle = GuiKnobStyle::DaviesFluted;
+            else w.knobStyle = GuiKnobStyle::StudioClean;
+        }
+
+        const auto* p = def.findParam(wNode.paramName);
+        if (p) {
+            w.currentVal = p->currentVal;
+            w.defaultVal = p->defaultVal;
+            w.minVal = p->minVal;
+            w.maxVal = p->maxVal;
+            w.valueDisplay = p->getFormatted();
+            if (w.unit.empty()) w.unit = p->unit;
+        } else {
+            w.currentVal = 0.5f;
+            w.defaultVal = 0.5f;
+            w.minVal = 0.0f;
+            w.maxVal = 1.0f;
+        }
+        return w;
+    };
+
+    auto addRowOrGroup = [&](auto& self, const eatsbits::project::GuiLayoutNode& node) -> void {
+        if (node.type == eatsbits::project::GuiNodeType::Row) {
+            GuiRowDef row;
+            for (const auto& wNode : node.children) {
+                row.widgets.push_back(convertWidgetNode(wNode));
+            }
+            if (!row.widgets.empty()) {
+                panel.rows.push_back(row);
+            }
+        } else if (node.type == eatsbits::project::GuiNodeType::Group) {
+            bool hasChildRows = false;
+            for (const auto& ch : node.children) {
+                if (ch.type == eatsbits::project::GuiNodeType::Row) {
+                    hasChildRows = true;
+                    self(self, ch);
+                }
+            }
+            if (!hasChildRows && !node.children.empty()) {
+                GuiRowDef row;
+                for (const auto& wNode : node.children) {
+                    row.widgets.push_back(convertWidgetNode(wNode));
+                }
+                if (!row.widgets.empty()) {
+                    panel.rows.push_back(row);
+                }
+            }
+        } else {
+            if (panel.rows.empty() || panel.rows.back().widgets.size() >= 6) {
+                panel.rows.push_back(GuiRowDef{});
+            }
+            panel.rows.back().widgets.push_back(convertWidgetNode(node));
+        }
+    };
+
+    for (const auto& childNode : def.guiRoot.children) {
+        addRowOrGroup(addRowOrGroup, childNode);
+    }
+
+    if (panel.rows.empty() && !def.params.empty()) {
+        std::vector<std::string> paramNames;
+        paramNames.reserve(def.params.size());
+        for (const auto& [name, _] : def.params) {
+            paramNames.push_back(name);
+        }
+        std::sort(paramNames.begin(), paramNames.end());
+        size_t expectedRows = (paramNames.size() + 5) / 6;
+        for (size_t r = 0; r < expectedRows; ++r) {
+            GuiRowDef row;
+            size_t startIdx = r * 6;
+            size_t endIdx = std::min(paramNames.size(), startIdx + 6);
+            for (size_t i = startIdx; i < endIdx; ++i) {
+                const auto* p = def.findParam(paramNames[i]);
+                if (!p) continue;
+                GuiWidgetDef w;
+                w.id = "w_" + p->name;
+                w.param = p->name;
+                w.label = p->name;
+                w.type = GuiWidgetType::Knob;
+                w.knobStyle = GuiKnobStyle::StudioClean;
+                w.size = 52.0f;
+                w.minVal = p->minVal;
+                w.maxVal = p->maxVal;
+                w.currentVal = p->currentVal;
+                w.unit = p->unit;
+                w.valueDisplay = p->getFormatted();
+                w.accentColor = panel.accentColor;
+                row.widgets.push_back(w);
+            }
+            if (!row.widgets.empty()) {
+                panel.rows.push_back(row);
+            }
+        }
+    }
+
+    return panel;
+}
+
+std::vector<TrackPropertiesKnob> extractKnobsFromPresetDefinition(const eatsbits::project::PresetDefinition& def) {
+    std::vector<TrackPropertiesKnob> result;
+    std::unordered_set<std::string> seen;
+    auto collectFromNode = [&](auto& self, const eatsbits::project::GuiLayoutNode& node) -> void {
+        if (!node.paramName.empty() && seen.find(node.paramName) == seen.end()) {
+            seen.insert(node.paramName);
+            TrackPropertiesKnob k;
+            k.name = node.paramName;
+            k.label = node.label.empty() ? node.paramName : node.label;
+            k.unit = node.unit;
+            const auto* p = def.findParam(node.paramName);
+            if (p) {
+                k.value = p->getNormalized();
+                k.display = p->getFormatted();
+                if (k.unit.empty()) k.unit = p->unit;
+            } else {
+                k.value = 0.5f;
+                k.display = "50%";
+            }
+            result.push_back(k);
+        }
+        for (const auto& ch : node.children) {
+            self(self, ch);
+        }
+    };
+    collectFromNode(collectFromNode, def.guiRoot);
+
+    std::vector<std::string> remaining;
+    for (const auto& [name, _] : def.params) {
+        if (seen.find(name) == seen.end()) {
+            remaining.push_back(name);
+        }
+    }
+    std::sort(remaining.begin(), remaining.end());
+    for (const auto& name : remaining) {
+        const auto* p = def.findParam(name);
+        if (!p) continue;
+        TrackPropertiesKnob k;
+        k.name = p->name;
+        k.label = p->name;
+        k.value = p->getNormalized();
+        k.display = p->getFormatted();
+        k.unit = p->unit;
+        result.push_back(k);
+    }
+    return result;
+}
+
+void TrackMidiFxItem::populateFromPresetDefinition(const eatsbits::project::PresetDefinition& def) {
+    if (!def.metadata.id.empty()) id = def.metadata.id;
+    if (!def.metadata.name.empty()) name = def.metadata.name;
+    if (!def.metadata.engineId.empty()) type = def.metadata.engineId;
+    if (!def.guiRoot.background.empty()) background = def.guiRoot.background;
+
+    if (!def.guiRoot.accent.empty() && def.guiRoot.accent[0] == '#' && def.guiRoot.accent.size() >= 7) {
+        try {
+            unsigned int hexVal = std::stoul(def.guiRoot.accent.substr(1, 6), nullptr, 16);
+            accentR = static_cast<float>((hexVal >> 16) & 0xFF) / 255.0f;
+            accentG = static_cast<float>((hexVal >> 8) & 0xFF) / 255.0f;
+            accentB = static_cast<float>(hexVal & 0xFF) / 255.0f;
+        } catch (...) {}
+    }
+
+    knobs = extractKnobsFromPresetDefinition(def);
+    customGuiPanel = createGuiPanelFromPresetDefinition(def);
+    eatscriptCode = def.rawScript;
 }
 
 void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
@@ -275,6 +539,13 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
         containsCaseInsensitive(data.presetTitle, "astral") ||
         containsCaseInsensitive(data.instrument, "shimmer") ||
         containsCaseInsensitive(data.presetTitle, "shimmer")
+    );
+
+    bool isSteelGuitar = !isClav && !is303 && !isSfxr && !isSnes && !isAstral && (
+        stringEqualsIgnoreCase(eng, "acoustic_steel_guitar") ||
+        stringEqualsIgnoreCase(eng, "steel_acoustic_guitar") ||
+        containsCaseInsensitive(data.instrument, "steel") ||
+        containsCaseInsensitive(data.presetTitle, "steel")
     );
 
     if (isClav) {
@@ -728,6 +999,100 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
         guiPanel.woodCheeks = false;
     } else if (eng == "convolver") {
         guiPanel.chassisStyle = GuiChassisStyle::BrushedSteel;
+    } else if (isSteelGuitar) {
+        guiPanel.chassisStyle = GuiChassisStyle::Walnut;
+        guiPanel.woodCheeks = true;
+        guiPanel.cornerRadius = 8.0f;
+        guiPanel.accentColor = Color(0.85f, 0.47f, 0.02f, 1.0f); // #D97706
+        guiPanel.title = "STEEL-STRING ACOUSTIC";
+        guiPanel.subtitle = "Morphable Body Geometry (Parlor <-> Dreadnought <-> Jumbo)";
+
+        bool needsRebuild = titleChanged || subtitleChanged ||
+                            (guiPanel.rows.size() != 3 ||
+                             guiPanel.rows[0].widgets.size() != 5 ||
+                             guiPanel.rows[1].widgets.size() != 1 ||
+                             guiPanel.rows[2].widgets.size() != 3);
+
+        if (needsRebuild) {
+            guiPanel.rows.clear();
+
+            // Row 1: 5 knobs (BodyProfile, PickStyle, StrumSpread, Sustain, Damping)
+            GuiRowDef r1;
+            auto addVintageKnob = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
+                GuiWidgetDef k;
+                k.id = id;
+                k.type = GuiWidgetType::Knob;
+                k.label = label;
+                k.param = param;
+                k.knobStyle = GuiKnobStyle::BakeliteSkirt;
+                k.size = 52.0f;
+                k.minVal = minV;
+                k.maxVal = maxV;
+                k.unit = unit;
+                k.currentVal = getWidgetVal(param, "", defVal, minV, maxV);
+                k.accentColor = guiPanel.accentColor;
+                r1.widgets.push_back(k);
+            };
+            addVintageKnob("w_body_shape", "BODY SHAPE", "BodyProfile", 0.5f, 0.0f, 1.0f, "");
+            addVintageKnob("w_pick_finger", "PICK / FINGER", "PickStyle", 0.3f, 0.0f, 1.0f, "");
+            addVintageKnob("w_strum_ms", "STRUM MS", "StrumSpread", 5.0f, 1.0f, 25.0f, "ms");
+            addVintageKnob("w_sustain", "SUSTAIN", "Sustain", 0.996f, 0.85f, 0.9995f, "");
+            addVintageKnob("w_damping", "STRING LOSS", "Damping", 0.22f, 0.05f, 0.75f, "%");
+            guiPanel.rows.push_back(r1);
+
+            // Row 2: Capsule Slider (BodyProfile)
+            GuiRowDef r2;
+            GuiWidgetDef sl;
+            sl.id = "w_body_profile";
+            sl.type = GuiWidgetType::Slider;
+            sl.label = "BODY PROFILE (0.0 PARLOR/000 <-> 0.5 DREADNOUGHT <-> 1.0 JUMBO)";
+            sl.param = "BodyProfile";
+            sl.minVal = 0.0f;
+            sl.maxVal = 1.0f;
+            sl.currentVal = getWidgetVal("BodyProfile", "", 0.5f, 0.0f, 1.0f);
+            sl.accentColor = guiPanel.accentColor;
+            r2.widgets.push_back(sl);
+            guiPanel.rows.push_back(r2);
+
+            // Row 3: 3 knobs (BronzeSparkle, BodyWood, WoundScrape)
+            GuiRowDef r3;
+            auto addVintageKnob3 = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
+                GuiWidgetDef k;
+                k.id = id;
+                k.type = GuiWidgetType::Knob;
+                k.label = label;
+                k.param = param;
+                k.knobStyle = GuiKnobStyle::BakeliteSkirt;
+                k.size = 52.0f;
+                k.minVal = minV;
+                k.maxVal = maxV;
+                k.unit = unit;
+                k.currentVal = getWidgetVal(param, "", defVal, minV, maxV);
+                k.accentColor = guiPanel.accentColor;
+                r3.widgets.push_back(k);
+            };
+            addVintageKnob3("w_bronze_air", "BRONZE AIR", "BronzeSparkle", 2.0f, -6.0f, 8.0f, "dB");
+            addVintageKnob3("w_body_wood", "SOUNDBOARD GAIN", "BodyWood", 0.5f, 0.0f, 1.5f, "");
+            addVintageKnob3("w_wound_scrape", "WOUND SCRAPE", "WoundScrape", 0.4f, 0.0f, 1.0f, "");
+            guiPanel.rows.push_back(r3);
+        } else {
+            auto updateVal = [&](size_t r, size_t w, const std::string& param, float defVal, float minV, float maxV) {
+                if (r < guiPanel.rows.size() && w < guiPanel.rows[r].widgets.size()) {
+                    if (draggingRow == static_cast<int>(r) && draggingWidget == static_cast<int>(w)) return;
+                    guiPanel.rows[r].widgets[w].currentVal = getWidgetVal(param, "", defVal, minV, maxV);
+                }
+            };
+            updateVal(0, 0, "BodyProfile", 0.5f, 0.0f, 1.0f);
+            updateVal(0, 1, "PickStyle", 0.3f, 0.0f, 1.0f);
+            updateVal(0, 2, "StrumSpread", 5.0f, 1.0f, 25.0f);
+            updateVal(0, 3, "Sustain", 0.996f, 0.85f, 0.9995f);
+            updateVal(0, 4, "Damping", 0.22f, 0.05f, 0.75f);
+            updateVal(1, 0, "BodyProfile", 0.5f, 0.0f, 1.0f);
+            updateVal(2, 0, "BronzeSparkle", 2.0f, -6.0f, 8.0f);
+            updateVal(2, 1, "BodyWood", 0.5f, 0.0f, 1.5f);
+            updateVal(2, 2, "WoundScrape", 0.4f, 0.0f, 1.0f);
+        }
+        return;
     } else {
         guiPanel.chassisStyle = GuiChassisStyle::DarkChassis;
     }
@@ -798,7 +1163,7 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
             for (size_t wIdx = 0; wIdx < row.widgets.size(); ++wIdx, ++kIdx) {
                 if (kIdx >= data.knobs.size()) break;
                 if (draggingRow == static_cast<int>(rIdx) && draggingWidget == static_cast<int>(wIdx)) continue;
-                row.widgets[wIdx].currentVal = data.knobs[kIdx].value;
+                row.widgets[wIdx].currentVal = (row.widgets[wIdx].maxVal > row.widgets[wIdx].minVal) ? (row.widgets[wIdx].minVal + std::clamp(data.knobs[kIdx].value, 0.0f, 1.0f) * (row.widgets[wIdx].maxVal - row.widgets[wIdx].minVal)) : data.knobs[kIdx].value;
                 if (row.widgets[wIdx].label != data.knobs[kIdx].label) {
                     row.widgets[wIdx].label = data.knobs[kIdx].label;
                 }
@@ -822,7 +1187,42 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
                 for (const auto& k : data.knobs) {
                     if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                         stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
-                        w.currentVal = k.value;
+                        w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
+                        if (!k.display.empty()) w.valueDisplay = k.display;
+                        break;
+                    }
+                }
+            }
+        }
+        return;
+    }
+    if (!data.eatscriptCode.empty()) {
+        auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(data.eatscriptCode);
+        if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+            guiPanel_ = createGuiPanelFromPresetDefinition(parsed);
+            for (auto& row : guiPanel_.rows) {
+                for (auto& w : row.widgets) {
+                    for (const auto& k : data.knobs) {
+                        if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                            stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                            w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
+                            if (!k.display.empty()) w.valueDisplay = k.display;
+                            break;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+    }
+    if (auto builtin = eatsbits::project::BuiltinPresetRegistry::createPresetById(data.instrumentEngine)) {
+        guiPanel_ = createGuiPanelFromPresetDefinition(*builtin);
+        for (auto& row : guiPanel_.rows) {
+            for (auto& w : row.widgets) {
+                for (const auto& k : data.knobs) {
+                    if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                        stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                        w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
                         if (!k.display.empty()) w.valueDisplay = k.display;
                         break;
                     }
@@ -1359,8 +1759,9 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     drawText(r, "PRESETS", presetBtnX + 19.0f, presetBtnY + 6.0f, 8.5f, theme.textSecondary);
 
     // Detached / Floating Window button (spawns or focuses native OS floating window)
-    Color detachCol(0.20f, 0.85f, 0.95f, 1.0f);
-    drawRoundedRect(r, detachBtnX, detachBtnY, detachBtnW, detachBtnH, 4.0f, 0.12f, 0.15f, 0.20f, 0.95f);
+    bool isDetached = data.isDetached || FloatingWindowManager::instance().isDetached(data.trackIndex);
+    Color detachCol = isDetached ? Color(0.95f, 0.70f, 0.20f, 1.0f) : Color(0.20f, 0.85f, 0.95f, 1.0f);
+    drawRoundedRect(r, detachBtnX, detachBtnY, detachBtnW, detachBtnH, 4.0f, isDetached ? 0.22f : 0.12f, isDetached ? 0.18f : 0.15f, isDetached ? 0.12f : 0.20f, 0.95f);
     drawRoundedRectOutline(r, detachBtnX, detachBtnY, detachBtnW, detachBtnH, 4.0f, detachCol.r, detachCol.g, detachCol.b, 0.85f, 1.2f);
     drawRoundedRectOutline(r, detachBtnX + 7.0f, detachBtnY + 8.0f, 10.0f, 8.0f, 1.0f, detachCol.r, detachCol.g, detachCol.b, 0.9f, 1.2f);
     drawRect(r, detachBtnX + 12.0f, detachBtnY + 5.0f, 6.0f, 6.0f, 0.12f, 0.15f, 0.20f, 1.0f);
@@ -1404,15 +1805,66 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     }
 
     if (data.instrumentExpanded) {
-        // 2. Unified Hardware Faceplate with authentic wood cheeks, 3D radial gradients, and matching controls
         float guiX = cx + 8.0f;
         float guiY = cy + 34.0f;
         float guiW = cw - 16.0f;
         float guiH = faceH - 34.0f - 38.0f;
 
-        syncGuiPanelFromTrackData(data);
-        Rect2D fpRect(guiX, guiY, guiW, guiH);
-        drawGuiFaceplate(r, guiPanel_, fpRect, theme, data.scopeBuffer, data.scopeBufferCount, draggingRow_, draggingWidget_, focusedWidgetId_);
+        if (isDetached) {
+            // High-aesthetic DAW Proxy Card for Detached Floating Window
+            Rect2D proxyRect(guiX, guiY, guiW, guiH);
+            drawRoundedRect(r, proxyRect.x, proxyRect.y, proxyRect.w, proxyRect.h, 6.0f, 0.09f, 0.11f, 0.15f, 0.98f);
+            drawRoundedRectOutline(r, proxyRect.x, proxyRect.y, proxyRect.w, proxyRect.h, 6.0f,
+                                   theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.50f, 1.2f);
+
+            // Glowing cyan status indicator dot
+            float stDotX = proxyRect.x + 18.0f;
+            float stDotY = proxyRect.y + 24.0f;
+            drawCircle(r, stDotX, stDotY, 7.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.25f);
+            drawCircle(r, stDotX, stDotY, 4.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+
+            // Uppercase Badge: POP-OUT WINDOW ACTIVE
+            drawText(r, "POP-OUT WINDOW ACTIVE", stDotX + 12.0f, stDotY - 6.0f, 10.5f,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+
+            // Subtitle explanation
+            std::string subTxt = "Device controls are detached in an external desktop window.";
+            drawText(r, subTxt, proxyRect.x + 18.0f, stDotY + 16.0f, 9.0f,
+                     theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 0.85f);
+
+            // Action Buttons: [ ⛶ FOCUS WINDOW ] and [ ⤓ RE-ATTACH / DOCK ]
+            float btnH = 30.0f;
+            float btnY = proxyRect.y + proxyRect.h - btnH - 18.0f;
+            float btnSpacing = 10.0f;
+            float totalBtnW = proxyRect.w - 36.0f;
+            float btnW = std::clamp((totalBtnW - btnSpacing) * 0.5f, 100.0f, 160.0f);
+
+            float b1X = proxyRect.x + 18.0f;
+            float b2X = b1X + btnW + btnSpacing;
+            focusDetachedBtnBounds_ = Rect2D(b1X, btnY, btnW, btnH);
+            reattachDetachedBtnBounds_ = Rect2D(b2X, btnY, btnW, btnH);
+
+            // Button 1: FOCUS WINDOW
+            drawRoundedRect(r, b1X, btnY, btnW, btnH, 4.0f, 0.12f, 0.18f, 0.26f, 0.95f);
+            drawRoundedRectOutline(r, b1X, btnY, btnW, btnH, 4.0f,
+                                   theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.80f, 1.2f);
+            drawFullscreenIcon(r, b1X + 8.0f, btnY + 9.0f, 12.0f, theme.primaryAccent, 1.4f);
+            drawText(r, "FOCUS WINDOW", b1X + 24.0f, btnY + 9.5f, 9.0f, theme.primaryAccent);
+
+            // Button 2: RE-ATTACH / DOCK
+            Color dockCol(0.85f, 0.88f, 0.94f, 1.0f);
+            drawRoundedRect(r, b2X, btnY, btnW, btnH, 4.0f, 0.15f, 0.16f, 0.20f, 0.95f);
+            drawRoundedRectOutline(r, b2X, btnY, btnW, btnH, 4.0f, 0.35f, 0.38f, 0.48f, 0.75f, 1.0f);
+            drawChevronDown(r, b2X + 12.0f, btnY + 15.0f, 8.0f, dockCol, 1.8f);
+            drawText(r, "RE-ATTACH / DOCK", b2X + 24.0f, btnY + 9.5f, 8.5f, dockCol);
+        } else {
+            focusDetachedBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+            reattachDetachedBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+
+            syncGuiPanelFromTrackData(data);
+            Rect2D fpRect(guiX, guiY, guiW, guiH);
+            drawGuiFaceplate(r, guiPanel_, fpRect, theme, data.scopeBuffer, data.scopeBufferCount, draggingRow_, draggingWidget_, focusedWidgetId_);
+        }
 
         // 3. Below the GUI, right-aligned 'Change Instrument' option
         float chgBtnW = 145.0f;
@@ -1619,44 +2071,71 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
             float fpW = itemW - 20.0f;
             float fpH = 108.0f;
 
-            drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, 0.13f, 0.15f, 0.19f, 1.0f);
-            drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
+            if (!fx.customGuiPanel.has_value() && !fx.eatscriptCode.empty()) {
+                try {
+                    auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(fx.eatscriptCode);
+                    if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+                        fx.customGuiPanel = createGuiPanelFromPresetDefinition(parsed);
+                    }
+                } catch (...) {}
+            }
 
-            // Knobs inside faceplate
-            size_t knobCount = std::min(fx.knobs.size(), size_t{4});
-            if (knobCount > 0) {
-                float colW = fpW / static_cast<float>(knobCount);
-                for (size_t ki = 0; ki < knobCount; ++ki) {
-                    const auto& knob = fx.knobs[ki];
-                    float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
-                    float kcy = fpY + 36.0f;
-                    float kRad = 15.0f;
+            if (fx.customGuiPanel.has_value()) {
+                for (auto& row : fx.customGuiPanel->rows) {
+                    for (auto& w : row.widgets) {
+                        for (const auto& k : fx.knobs) {
+                            if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                                stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                                w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
+                                if (!k.display.empty()) w.valueDisplay = k.display;
+                                break;
+                            }
+                        }
+                    }
+                }
+                fx.customGuiPanel->hideHeader = true;
+                Rect2D fpRect(fpX, fpY, fpW, fpH);
+                drawGuiFaceplate(r, *fx.customGuiPanel, fpRect, theme, nullptr, 0, -1, -1);
+            } else {
+                drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, 0.13f, 0.15f, 0.19f, 1.0f);
+                drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
 
-                    drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
-                    drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
-                                                  Color(0.85f, 0.88f, 0.92f, 1.0f),
-                                                  Color(0.40f, 0.44f, 0.50f, 1.0f),
-                                                  Color(0.18f, 0.20f, 0.24f, 1.0f),
-                                                  -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
-                    drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
+                // Knobs inside faceplate
+                size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+                if (knobCount > 0) {
+                    float colW = fpW / static_cast<float>(knobCount);
+                    for (size_t ki = 0; ki < knobCount; ++ki) {
+                        const auto& knob = fx.knobs[ki];
+                        float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
+                        float kcy = fpY + 36.0f;
+                        float kRad = 15.0f;
 
-                    constexpr float minA = -2.35619449f;
-                    constexpr float maxA = 2.35619449f;
-                    float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
-                    drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
-                             accent.r, accent.g, accent.b, 1.0f, 1.8f);
+                        drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
+                        drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                      Color(0.85f, 0.88f, 0.92f, 1.0f),
+                                                      Color(0.40f, 0.44f, 0.50f, 1.0f),
+                                                      Color(0.18f, 0.20f, 0.24f, 1.0f),
+                                                      -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                        drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
 
-                    float lblY = fpY + 58.0f;
-                    drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
-                                     0.70f, 0.75f, 0.85f, 1.0f);
+                        constexpr float minA = -2.35619449f;
+                        constexpr float maxA = 2.35619449f;
+                        float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
+                        drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
+                                 accent.r, accent.g, accent.b, 1.0f, 1.8f);
 
-                    float pillW = 42.0f;
-                    float pillH = 15.0f;
-                    float pillX = kcx - (pillW * 0.5f);
-                    float pillY = fpY + 76.0f;
-                    drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
-                    drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
-                    drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                        float lblY = fpY + 58.0f;
+                        drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
+                                         0.70f, 0.75f, 0.85f, 1.0f);
+
+                        float pillW = 42.0f;
+                        float pillH = 15.0f;
+                        float pillX = kcx - (pillW * 0.5f);
+                        float pillY = fpY + 76.0f;
+                        drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
+                        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
+                        drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                    }
                 }
             }
         }
@@ -1794,73 +2273,100 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
             float fpW = itemW - 20.0f;
             float fpH = 108.0f;
 
-            bool isSnes = (fx.background == "snes");
-            bool isGrunge = (fx.background == "grunge");
-            bool isSilver = (fx.background == "silver");
-
-            float bgR = isSnes ? 0.85f : (isGrunge ? 0.19f : (isSilver ? 0.78f : 0.13f));
-            float bgG = isSnes ? 0.84f : (isGrunge ? 0.16f : (isSilver ? 0.80f : 0.15f));
-            float bgB = isSnes ? 0.81f : (isGrunge ? 0.14f : (isSilver ? 0.82f : 0.18f));
-
-            drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, bgR, bgG, bgB, 1.0f);
-            drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
-
-            // Knobs inside faceplate
-            size_t knobCount = std::min(fx.knobs.size(), size_t{4});
-            if (knobCount > 0) {
-                float colW = fpW / static_cast<float>(knobCount);
-                for (size_t ki = 0; ki < knobCount; ++ki) {
-                    const auto& knob = fx.knobs[ki];
-                    float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
-                    float kcy = fpY + 36.0f;
-                    float kRad = 15.0f;
-
-                    drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
-
-                    if (isSnes) {
-                        drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
-                                                      Color(0.98f, 0.97f, 0.95f, 1.0f),
-                                                      Color(0.85f, 0.83f, 0.79f, 1.0f),
-                                                      Color(0.55f, 0.53f, 0.49f, 1.0f),
-                                                      -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
-                        drawCircleOutline(r, kcx, kcy, kRad, 0.45f, 0.43f, 0.40f, 0.9f, 1.0f);
-                    } else {
-                        drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
-                                                      Color(0.85f, 0.88f, 0.92f, 1.0f),
-                                                      Color(0.40f, 0.44f, 0.50f, 1.0f),
-                                                      Color(0.18f, 0.20f, 0.24f, 1.0f),
-                                                      -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
-                        drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
+            if (!fx.customGuiPanel.has_value() && !fx.eatscriptCode.empty()) {
+                try {
+                    auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(fx.eatscriptCode);
+                    if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+                        fx.customGuiPanel = createGuiPanelFromPresetDefinition(parsed);
                     }
+                } catch (...) {}
+            }
 
-                    constexpr float minA = -2.35619449f;
-                    constexpr float maxA = 2.35619449f;
-                    float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
-                    float needleR = isSnes ? 0.38f : accent.r;
-                    float needleG = isSnes ? 0.28f : accent.g;
-                    float needleB = isSnes ? 0.65f : accent.b;
-                    drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
-                             needleR, needleG, needleB, 1.0f, 1.8f);
+            if (fx.customGuiPanel.has_value()) {
+                for (auto& row : fx.customGuiPanel->rows) {
+                    for (auto& w : row.widgets) {
+                        for (const auto& k : fx.knobs) {
+                            if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
+                                stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
+                                w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
+                                if (!k.display.empty()) w.valueDisplay = k.display;
+                                break;
+                            }
+                        }
+                    }
+                }
+                fx.customGuiPanel->hideHeader = true;
+                Rect2D fpRect(fpX, fpY, fpW, fpH);
+                drawGuiFaceplate(r, *fx.customGuiPanel, fpRect, theme, nullptr, 0, -1, -1);
+            } else {
+                bool isSnes = (fx.background == "snes");
+                bool isGrunge = (fx.background == "grunge");
+                bool isSilver = (fx.background == "silver");
 
-                    float lblY = fpY + 58.0f;
-                    float lblR = isSnes ? 0.42f : 0.70f;
-                    float lblG = isSnes ? 0.35f : 0.75f;
-                    float lblB = isSnes ? 0.75f : 0.85f;
-                    drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
-                                     lblR, lblG, lblB, 1.0f);
+                float bgR = isSnes ? 0.85f : (isGrunge ? 0.19f : (isSilver ? 0.78f : 0.13f));
+                float bgG = isSnes ? 0.84f : (isGrunge ? 0.16f : (isSilver ? 0.80f : 0.15f));
+                float bgB = isSnes ? 0.81f : (isGrunge ? 0.14f : (isSilver ? 0.82f : 0.18f));
 
-                    float pillW = 42.0f;
-                    float pillH = 15.0f;
-                    float pillX = kcx - (pillW * 0.5f);
-                    float pillY = fpY + 76.0f;
-                    if (isSnes) {
-                        drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.22f, 0.24f, 0.28f, 0.25f);
-                        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.35f, 0.38f, 0.44f, 0.35f, 1.0f);
-                        drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.30f, 0.32f, 0.38f, 1.0f);
-                    } else {
-                        drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
-                        drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
-                        drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                drawRoundedRect(r, fpX, fpY, fpW, fpH, 6.0f, bgR, bgG, bgB, 1.0f);
+                drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, 6.0f, 0.08f, 0.09f, 0.12f, 0.90f, 1.2f);
+
+                // Knobs inside faceplate
+                size_t knobCount = std::min(fx.knobs.size(), size_t{4});
+                if (knobCount > 0) {
+                    float colW = fpW / static_cast<float>(knobCount);
+                    for (size_t ki = 0; ki < knobCount; ++ki) {
+                        const auto& knob = fx.knobs[ki];
+                        float kcx = fpX + (static_cast<float>(ki) + 0.5f) * colW;
+                        float kcy = fpY + 36.0f;
+                        float kRad = 15.0f;
+
+                        drawCircle(r, kcx, kcy + 2.0f, kRad + 1.0f, 0.05f, 0.06f, 0.08f, 0.45f);
+
+                        if (isSnes) {
+                            drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                          Color(0.98f, 0.97f, 0.95f, 1.0f),
+                                                          Color(0.85f, 0.83f, 0.79f, 1.0f),
+                                                          Color(0.55f, 0.53f, 0.49f, 1.0f),
+                                                          -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                            drawCircleOutline(r, kcx, kcy, kRad, 0.45f, 0.43f, 0.40f, 0.9f, 1.0f);
+                        } else {
+                            drawCircleRadial3StopGradient(r, kcx, kcy, kRad,
+                                                          Color(0.85f, 0.88f, 0.92f, 1.0f),
+                                                          Color(0.40f, 0.44f, 0.50f, 1.0f),
+                                                          Color(0.18f, 0.20f, 0.24f, 1.0f),
+                                                          -0.25f * kRad, -0.30f * kRad, 0.50f, 24);
+                            drawCircleOutline(r, kcx, kcy, kRad, 0.30f, 0.34f, 0.40f, 0.9f, 1.0f);
+                        }
+
+                        constexpr float minA = -2.35619449f;
+                        constexpr float maxA = 2.35619449f;
+                        float curA = minA + std::clamp(knob.value, 0.0f, 1.0f) * (maxA - minA);
+                        float needleR = isSnes ? 0.38f : accent.r;
+                        float needleG = isSnes ? 0.28f : accent.g;
+                        float needleB = isSnes ? 0.65f : accent.b;
+                        drawLine(r, kcx, kcy, kcx + std::sin(curA) * (kRad - 2.0f), kcy - std::cos(curA) * (kRad - 2.0f),
+                                 needleR, needleG, needleB, 1.0f, 1.8f);
+
+                        float lblY = fpY + 58.0f;
+                        float lblR = isSnes ? 0.42f : 0.70f;
+                        float lblG = isSnes ? 0.35f : 0.75f;
+                        float lblB = isSnes ? 0.75f : 0.85f;
+                        drawCenteredText(r, knob.label, kcx - colW * 0.5f, lblY, colW, 14.0f, 8.5f,
+                                         lblR, lblG, lblB, 1.0f);
+
+                        float pillW = 42.0f;
+                        float pillH = 15.0f;
+                        float pillX = kcx - (pillW * 0.5f);
+                        float pillY = fpY + 76.0f;
+                        if (isSnes) {
+                            drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.22f, 0.24f, 0.28f, 0.25f);
+                            drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.35f, 0.38f, 0.44f, 0.35f, 1.0f);
+                            drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.30f, 0.32f, 0.38f, 1.0f);
+                        } else {
+                            drawRoundedRect(r, pillX, pillY, pillW, pillH, 3.0f, 0.08f, 0.09f, 0.12f, 0.85f);
+                            drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 3.0f, 0.25f, 0.28f, 0.35f, 0.70f, 1.0f);
+                            drawCenteredText(r, knob.display, pillX, pillY + 1.0f, pillW, pillH, 7.5f, 0.80f, 0.84f, 0.90f, 1.0f);
+                        }
                     }
                 }
             }
@@ -2248,6 +2754,10 @@ std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackProp
             return "Properties Drawer Pull Tab";
         case TrackPropertiesHitArea::CloseButton:
             return "Close Properties (Esc)";
+        case TrackPropertiesHitArea::FocusDetachedWindow:
+            return "Bring Floating Window to Front (Focus)";
+        case TrackPropertiesHitArea::ReattachDetachedWindow:
+            return "Re-Attach / Dock Floating Window back to Track";
         case TrackPropertiesHitArea::TabTrack:
             return "Track Properties & Device Chain";
         case TrackPropertiesHitArea::TabClip:
@@ -2498,6 +3008,21 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 return res;
             }
 
+            bool isDetached = data.isDetached || FloatingWindowManager::instance().isDetached(data.trackIndex);
+            if (isDetached) {
+                if (focusDetachedBtnBounds_.contains(mx, my)) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::FocusDetachedWindow;
+                    return res;
+                }
+                if (reattachDetachedBtnBounds_.contains(mx, my)) {
+                    res.hit = true;
+                    res.area = TrackPropertiesHitArea::ReattachDetachedWindow;
+                    return res;
+                }
+                return res;
+            }
+
             // Knobs - first test guiPanel_ widget bounds if populated
             for (size_t rIdx = 0; rIdx < guiPanel_.rows.size(); ++rIdx) {
                 const auto& row = guiPanel_.rows[rIdx];
@@ -2659,11 +3184,41 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                     return res;
                 }
 
-                // Inset Knobs
+                // Inset Knobs / Faceplate
                 float fpX = itemX + 10.0f;
                 float fpY = itemY + 60.0f;
                 float fpW = itemW - 20.0f;
-                if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
+                float fpH = 108.0f;
+                if (fx.customGuiPanel.has_value() && !fx.customGuiPanel->rows.empty()) {
+                    if (mx >= fpX && mx <= fpX + fpW && my >= fpY && my <= fpY + fpH) {
+                        size_t rowCount = fx.customGuiPanel->rows.size();
+                        float rowH = fpH / static_cast<float>(rowCount);
+                        int rIdx = std::clamp(static_cast<int>((my - fpY) / rowH), 0, static_cast<int>(rowCount - 1));
+                        const auto& row = fx.customGuiPanel->rows[rIdx];
+                        if (!row.widgets.empty()) {
+                            float colW = fpW / static_cast<float>(row.widgets.size());
+                            int wIdx = std::clamp(static_cast<int>((mx - fpX) / colW), 0, static_cast<int>(row.widgets.size() - 1));
+                            const auto& w = row.widgets[wIdx];
+                            int matchedKIdx = -1;
+                            for (size_t ki = 0; ki < fx.knobs.size(); ++ki) {
+                                if (stringEqualsIgnoreCase(w.id, fx.knobs[ki].name) ||
+                                    stringEqualsIgnoreCase(w.label, fx.knobs[ki].name) ||
+                                    stringEqualsIgnoreCase(w.label, fx.knobs[ki].label) ||
+                                    stringEqualsIgnoreCase(w.param, fx.knobs[ki].name)) {
+                                    matchedKIdx = static_cast<int>(ki);
+                                    break;
+                                }
+                            }
+                            if (matchedKIdx >= 0) {
+                                res.hit = true;
+                                res.area = TrackPropertiesHitArea::MidiFxKnob;
+                                res.index = static_cast<int>(mi * 10 + matchedKIdx);
+                                res.normVal = fx.knobs[matchedKIdx].value;
+                                return res;
+                            }
+                        }
+                    }
+                } else if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
                     size_t knobCount = std::min(fx.knobs.size(), size_t{4});
                     if (knobCount > 0) {
                         float colW = fpW / static_cast<float>(knobCount);
@@ -2760,11 +3315,41 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                     return res;
                 }
 
-                // Inset Knobs
+                // Inset Knobs / Faceplate
                 float fpX = itemX + 10.0f;
                 float fpY = itemY + 60.0f;
                 float fpW = itemW - 20.0f;
-                if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
+                float fpH = 108.0f;
+                if (fx.customGuiPanel.has_value() && !fx.customGuiPanel->rows.empty()) {
+                    if (mx >= fpX && mx <= fpX + fpW && my >= fpY && my <= fpY + fpH) {
+                        size_t rowCount = fx.customGuiPanel->rows.size();
+                        float rowH = fpH / static_cast<float>(rowCount);
+                        int rIdx = std::clamp(static_cast<int>((my - fpY) / rowH), 0, static_cast<int>(rowCount - 1));
+                        const auto& row = fx.customGuiPanel->rows[rIdx];
+                        if (!row.widgets.empty()) {
+                            float colW = fpW / static_cast<float>(row.widgets.size());
+                            int wIdx = std::clamp(static_cast<int>((mx - fpX) / colW), 0, static_cast<int>(row.widgets.size() - 1));
+                            const auto& w = row.widgets[wIdx];
+                            int matchedKIdx = -1;
+                            for (size_t ki = 0; ki < fx.knobs.size(); ++ki) {
+                                if (stringEqualsIgnoreCase(w.id, fx.knobs[ki].name) ||
+                                    stringEqualsIgnoreCase(w.label, fx.knobs[ki].name) ||
+                                    stringEqualsIgnoreCase(w.label, fx.knobs[ki].label) ||
+                                    stringEqualsIgnoreCase(w.param, fx.knobs[ki].name)) {
+                                    matchedKIdx = static_cast<int>(ki);
+                                    break;
+                                }
+                            }
+                            if (matchedKIdx >= 0) {
+                                res.hit = true;
+                                res.area = TrackPropertiesHitArea::AudioFxKnob;
+                                res.index = static_cast<int>(fi * 10 + matchedKIdx);
+                                res.normVal = fx.knobs[matchedKIdx].value;
+                                return res;
+                            }
+                        }
+                    }
+                } else if (mx >= fpX && mx <= fpX + fpW && my >= fpY + 10.0f && my <= fpY + 98.0f) {
                     size_t knobCount = std::min(fx.knobs.size(), size_t{4});
                     if (knobCount > 0) {
                         float colW = fpW / static_cast<float>(knobCount);
@@ -2937,8 +3522,11 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
     }
 
     if (hit.area == TrackPropertiesHitArea::DesignButton) {
-        if (onOpenDesign) onOpenDesign(data.trackIndex);
-        if (ctx.onNavigateTab) ctx.onNavigateTab(WorkspaceView::Design);
+        if (onOpenDesign) {
+            onOpenDesign(data.trackIndex);
+        } else if (ctx.onNavigateTab) {
+            ctx.onNavigateTab(WorkspaceView::Design);
+        }
         return true;
     }
 
@@ -2964,6 +3552,25 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
         } else if (onOpenPluginGui) {
             onOpenPluginGui(data.trackIndex);
         }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::FocusDetachedWindow) {
+        if (onFocusDetachedWindow) {
+            onFocusDetachedWindow(data.trackIndex);
+        } else {
+            FloatingWindowManager::instance().focusDetachedInstrument(data.trackIndex);
+        }
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::ReattachDetachedWindow) {
+        if (onReattachDetachedWindow) {
+            onReattachDetachedWindow(data.trackIndex);
+        } else {
+            FloatingWindowManager::instance().closeDetachedInstrument(data.trackIndex);
+        }
+        data.isDetached = false;
         return true;
     }
 

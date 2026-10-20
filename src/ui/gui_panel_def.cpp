@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <array>
 
 namespace eatsbits::ui {
 
@@ -250,12 +251,12 @@ KnobShapeDef getKnobShapeDef(GuiKnobStyle style, const Color& accent) {
             def.capRatio = 0.82f;
             def.bodyColor = Color(0.88f, 0.90f, 0.93f, 1.0f);
             def.capColor = Color(0.95f, 0.96f, 0.98f, 1.0f);
-            def.indicator = KnobIndicatorType::LineGroove;
-            def.indicatorLength = 0.88f;
-            def.indicatorWidth = 2.0f;
+            def.indicator = KnobIndicatorType::PointerNotch;
+            def.indicatorLength = 1.0f;
+            def.indicatorWidth = 2.2f;
             def.showHaloArc = true;
             def.trackColor = Color(0.12f, 0.13f, 0.16f, 0.95f);
-            def.sunkenSlotWidth = 1.4f;
+            def.sunkenSlotWidth = 0.0f;
             def.isLightRotor = true;
 
             if (style == GuiKnobStyle::StudioRuby) {
@@ -291,20 +292,67 @@ KnobShapeDef getKnobShapeDef(GuiKnobStyle style, const Color& accent) {
     return def;
 }
 
+static const KnobShapeDef& getStockKnobShapeDef(GuiKnobStyle style) {
+    static const auto stockShapes = []() {
+        std::array<KnobShapeDef, 32> arr;
+        constexpr GuiKnobStyle allStyles[] = {
+            GuiKnobStyle::CreamFluted,
+            GuiKnobStyle::BakeliteSkirt,
+            GuiKnobStyle::AnodizedKnurled,
+            GuiKnobStyle::TwoToneStepped,
+            GuiKnobStyle::Tb303Halo,
+            GuiKnobStyle::Standard,
+            GuiKnobStyle::Tb303Potentiometer,
+            GuiKnobStyle::Tb303SelectorSilver,
+            GuiKnobStyle::Tb303SelectorBlack,
+            GuiKnobStyle::MiniPotCream,
+            GuiKnobStyle::DaviesFluted,
+            GuiKnobStyle::RoganMoog,
+            GuiKnobStyle::ChickenHead,
+            GuiKnobStyle::PastelDimple,
+            GuiKnobStyle::ModernEncoder,
+            GuiKnobStyle::CustomShape,
+            GuiKnobStyle::StudioClean,
+            GuiKnobStyle::StudioRuby,
+            GuiKnobStyle::StudioMagenta,
+            GuiKnobStyle::StudioCyan,
+            GuiKnobStyle::StudioDark,
+            GuiKnobStyle::StudioBipolar
+        };
+        for (auto s : allStyles) {
+            size_t idx = static_cast<size_t>(s);
+            if (idx < arr.size()) {
+                arr[idx] = getKnobShapeDef(s);
+            }
+        }
+        return arr;
+    }();
+    size_t idx = static_cast<size_t>(style);
+    if (idx < stockShapes.size()) {
+        return stockShapes[idx];
+    }
+    return stockShapes[static_cast<size_t>(GuiKnobStyle::Standard)];
+}
+
 void drawKnobWidget(BatchRenderer2D& r,
                     float cx, float cy, float radius, float normVal,
                     const GuiWidgetDef& w,
                     const LightSource2D& light,
                     bool isActive, bool isHovered, bool isLightChassis,
                     const ThemeTokens* theme) {
-    KnobShapeDef shape = w.customShape.value_or(getKnobShapeDef(w.knobStyle, w.accentColor));
-    if (w.sunkenSlotWidth > 0.0f) {
-        shape.sunkenSlotWidth = w.sunkenSlotWidth;
-    }
-    if (!w.dialLabels.empty()) {
-        shape.dialLabels = w.dialLabels;
-    } else if (shape.dialLabels.empty() && !w.options.empty()) {
-        shape.dialLabels = w.options;
+    const KnobShapeDef& shape = w.customShape.has_value() ? *w.customShape : getStockKnobShapeDef(w.knobStyle);
+    float sunkenSlotWidth = (w.sunkenSlotWidth > 0.0f) ? w.sunkenSlotWidth : shape.sunkenSlotWidth;
+
+    Color bodyColor = shape.bodyColor;
+    Color capColor = shape.capColor;
+    Color indicatorColor = shape.indicatorColor;
+    if (w.knobStyle == GuiKnobStyle::AnodizedKnurled) {
+        bodyColor = Color(w.accentColor.r * 0.75f, w.accentColor.g * 0.75f, w.accentColor.b * 0.75f, 1.0f);
+        capColor = Color(w.accentColor.r * 1.15f, w.accentColor.g * 1.15f, w.accentColor.b * 1.15f, 1.0f);
+    } else if (w.knobStyle == GuiKnobStyle::TwoToneStepped ||
+               w.knobStyle == GuiKnobStyle::StudioBipolar ||
+               w.knobStyle == GuiKnobStyle::Standard) {
+        indicatorColor = w.accentColor;
     }
 
     if (theme && theme->controlMode == ControlAestheticMode::ForceMinimal) {
@@ -321,15 +369,15 @@ void drawKnobWidget(BatchRenderer2D& r,
     float baseRadius = shape.hasSkirt ? (radius * shape.skirtRatio) : radius;
 
     // 0. Recessed Faceplate Sunken Slot / Mounting Gutter (if enabled, <=0 is unrendered)
-    if (shape.sunkenSlotWidth > 0.0f) {
-        float trenchR = baseRadius + shape.sunkenSlotWidth;
+    if (sunkenSlotWidth > 0.0f) {
+        float trenchR = baseRadius + sunkenSlotWidth;
         r.drawCircle(cx, cy, trenchR, shape.sunkenSlotColor.r, shape.sunkenSlotColor.g, shape.sunkenSlotColor.b, 1.0f, 36);
         r.drawCircleOutline(cx, cy, trenchR, 0.03f, 0.04f, 0.05f, 0.95f, 1.2f, 36);
         r.drawArc(cx, cy, trenchR, 0.785f, 2.356f, 1.0f, 1.0f, 1.0f, 0.20f, 1.0f, 24);
     }
 
     // Configurable graduation dial ticks and perimeter string labels
-    const auto& labels = shape.dialLabels;
+    const auto& labels = !w.dialLabels.empty() ? w.dialLabels : (!shape.dialLabels.empty() ? shape.dialLabels : w.options);
     size_t labelCount = labels.size();
     int divs = (shape.dialTicks > 0) ? shape.dialTicks : (labelCount > 1 ? static_cast<int>(labelCount - 1) : 0);
 
@@ -381,27 +429,46 @@ void drawKnobWidget(BatchRenderer2D& r,
     }
 
     // 1. Halo Arc (Progress ring)
-    float haloR = (shape.hasSkirt ? radius * shape.skirtRatio : radius) + 4.5f;
+    float haloR = (shape.hasSkirt ? radius * shape.skirtRatio : radius) + (shape.isLightRotor ? 3.0f : 4.5f);
     if (shape.showHaloArc) {
-        Color baseTrackCol = shape.trackColor.value_or(Color(0.18f, 0.20f, 0.25f, 0.7f));
-        r.drawArc(cx, cy, haloR, minAngle, maxAngle, baseTrackCol.r, baseTrackCol.g, baseTrackCol.b, baseTrackCol.a, 2.2f);
-        if (normVal > 0.005f) {
-            Color arcCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? shape.indicatorColor.lighten(0.18f) : shape.indicatorColor);
-            r.drawArc(cx, cy, haloR, minAngle, currentAngle, arcCol.r, arcCol.g, arcCol.b, 1.0f, isActive ? 2.8f : 2.2f);
+        Color baseTrackCol = isLightChassis ? Color(0.78f, 0.81f, 0.86f, 0.45f) : shape.trackColor.value_or(Color(0.18f, 0.20f, 0.25f, 0.7f));
+        float arcWidth = shape.isLightRotor ? 3.4f : 2.2f;
+
+        if (isLightChassis && shape.isLightRotor) {
+            r.drawArc(cx, cy, haloR + arcWidth * 0.5f + 0.4f, minAngle, maxAngle, 0.65f, 0.68f, 0.74f, 0.30f, 0.8f);
+            r.drawArc(cx, cy, haloR - arcWidth * 0.5f - 0.4f, minAngle, maxAngle, 0.55f, 0.58f, 0.64f, 0.25f, 0.8f);
+        }
+
+        r.drawArc(cx, cy, haloR, minAngle, maxAngle, baseTrackCol.r, baseTrackCol.g, baseTrackCol.b, baseTrackCol.a, arcWidth);
+
+        bool isBipolar = (w.knobStyle == GuiKnobStyle::StudioBipolar) || (shape.hasCenterDetent && w.minVal < 0.0f);
+        if (isBipolar) {
+            float centerAngle = (minAngle + maxAngle) * 0.5f;
+            float startA = std::min(centerAngle, currentAngle);
+            float endA = std::max(centerAngle, currentAngle);
+            if (std::abs(currentAngle - centerAngle) > 0.01f) {
+                Color arcCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? indicatorColor.lighten(0.18f) : indicatorColor);
+                r.drawArc(cx, cy, haloR, startA, endA, arcCol.r, arcCol.g, arcCol.b, 1.0f, isActive ? 3.8f : arcWidth);
+            }
+        } else {
+            if (normVal > 0.005f) {
+                Color arcCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? indicatorColor.lighten(0.18f) : indicatorColor);
+                r.drawArc(cx, cy, haloR, minAngle, currentAngle, arcCol.r, arcCol.g, arcCol.b, 1.0f, isActive ? 3.8f : arcWidth);
+            }
         }
     }
 
     // 2. Drop Shadow onto Chassis
     float shadowR = shape.hasSkirt ? (radius * shape.skirtRatio) : radius;
-    r.drawCircleDropShadow(cx, cy, shadowR * 1.06f, 7.5f, light, 0.48f);
+    r.drawCircleDropShadow(cx, cy, shadowR * (shape.isLightRotor ? 1.02f : 1.06f), shape.isLightRotor ? 9.0f : 7.5f, light, shape.isLightRotor ? 0.42f : 0.48f);
 
     // 3. Flared Base Skirt (if enabled)
     if (shape.hasSkirt && shape.shape != KnobBodyShape::ChickenHead) {
         float sR = radius * shape.skirtRatio;
         r.drawCircleRadial3StopGradient(cx, cy, sR,
-                                        shape.bodyColor.r * 1.25f, shape.bodyColor.g * 1.25f, shape.bodyColor.b * 1.25f, 1.0f,
-                                        shape.bodyColor.r * 0.85f, shape.bodyColor.g * 0.85f, shape.bodyColor.b * 0.85f, 1.0f,
-                                        shape.bodyColor.r * 0.45f, shape.bodyColor.g * 0.45f, shape.bodyColor.b * 0.45f, 1.0f,
+                                        bodyColor.r * 1.25f, bodyColor.g * 1.25f, bodyColor.b * 1.25f, 1.0f,
+                                        bodyColor.r * 0.85f, bodyColor.g * 0.85f, bodyColor.b * 0.85f, 1.0f,
+                                        bodyColor.r * 0.45f, bodyColor.g * 0.45f, bodyColor.b * 0.45f, 1.0f,
                                         lDir.x * sR * 0.25f, lDir.y * sR * 0.25f, 0.50f, 32);
         r.drawCircleOutline(cx, cy, sR, isLightChassis ? 0.35f : 0.08f, isLightChassis ? 0.35f : 0.09f, isLightChassis ? 0.40f : 0.12f, 0.9f, 1.0f, 32);
 
@@ -424,10 +491,10 @@ void drawKnobWidget(BatchRenderer2D& r,
 
     // 4. Rotor Body
     if (shape.shape == KnobBodyShape::ChickenHead) {
-        Color baseCol = shape.bodyColor;
+        Color baseCol = bodyColor;
         Color hlCol = baseCol.lighten(0.35f);
         Color shCol = baseCol.darken(0.35f);
-        Color ptrCol = isActive ? Color(1.0f, 0.90f, 0.15f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : shape.indicatorColor);
+        Color ptrCol = isActive ? Color(1.0f, 0.90f, 0.15f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : indicatorColor);
         r.drawChickenHeadContour(cx, cy, radius, currentAngle, light,
                                  baseCol.r, baseCol.g, baseCol.b,
                                  hlCol.r, hlCol.g, hlCol.b,
@@ -435,7 +502,7 @@ void drawKnobWidget(BatchRenderer2D& r,
                                  ptrCol.r, ptrCol.g, ptrCol.b);
     } else if (shape.shape == KnobBodyShape::FlutedScalloped || shape.shape == KnobBodyShape::RibbedKnurled) {
         float rInner = radius * shape.capRatio;
-        Color baseCol = shape.bodyColor;
+        Color baseCol = bodyColor;
         Color hlCol = baseCol.lighten(0.40f);
         Color shCol = baseCol.darken(0.45f);
         r.drawFlutedRing(cx, cy, rInner, radius, shape.flutes, shape.fluteDepth, currentAngle, light,
@@ -444,24 +511,27 @@ void drawKnobWidget(BatchRenderer2D& r,
                          shCol.r, shCol.g, shCol.b);
         r.drawCircleOutline(cx, cy, radius, shCol.r, shCol.g, shCol.b, 0.7f, 1.0f, 32);
     } else {
-        Color baseCol = shape.bodyColor;
+        Color baseCol = bodyColor;
         Color hlCol = shape.isLightRotor ? baseCol.lighten(0.12f) : baseCol.lighten(0.30f);
-        Color shCol = shape.isLightRotor ? baseCol.darken(0.18f) : baseCol.darken(0.35f);
+        Color shCol = shape.isLightRotor ? baseCol.darken(0.20f) : baseCol.darken(0.35f);
         r.drawCircleRadial3StopGradient(cx, cy, radius,
                                         hlCol.r, hlCol.g, hlCol.b, 1.0f,
                                         baseCol.r, baseCol.g, baseCol.b, 1.0f,
                                         shCol.r, shCol.g, shCol.b, 1.0f,
                                         lDir.x * radius * 0.25f, lDir.y * radius * 0.25f, 0.50f, 32);
-        r.drawCircleOutline(cx, cy, radius, shCol.r, shCol.g, shCol.b, shape.isLightRotor ? 0.90f : 0.8f, 1.0f, 32);
+        r.drawCircleOutline(cx, cy, radius, shCol.r * 0.8f, shCol.g * 0.8f, shCol.b * 0.8f, shape.isLightRotor ? 0.90f : 0.8f, 1.0f, 32);
         if (shape.isLightRotor) {
-            r.drawCircleOutline(cx, cy, radius - 1.0f, 1.0f, 1.0f, 1.0f, 0.45f, 0.8f, 32);
+            float lightAngle = std::atan2(lDir.y, lDir.x);
+            float shadowAngle = lightAngle + 3.14159265f;
+            r.drawArc(cx, cy, radius - 0.5f, lightAngle - 1.25f, lightAngle + 1.25f, 1.0f, 1.0f, 1.0f, 0.70f, 1.2f, 24);
+            r.drawArc(cx, cy, radius, shadowAngle - 1.15f, shadowAngle + 1.15f, shCol.r * 0.6f, shCol.g * 0.6f, shCol.b * 0.6f, 0.85f, 1.3f, 24);
         }
     }
 
     // 5. Center Rotor Cap (if not chicken head)
     float capR = radius * shape.capRatio;
     if (shape.shape != KnobBodyShape::ChickenHead && capR > 4.0f) {
-        Color capCol = shape.capColor;
+        Color capCol = capColor;
         Color capHl = capCol.lighten(0.28f);
         Color capSh = capCol.darken(0.32f);
 
@@ -479,49 +549,101 @@ void drawKnobWidget(BatchRenderer2D& r,
             // A chord ridge step cut into the cap disc perpendicular to currentAngle at chordDist = -capR * 0.12f
             float sinA = std::sin(currentAngle);
             float cosA = std::cos(currentAngle);
+            float dirX = sinA;
+            float dirY = -cosA;
             float perpX = -cosA;
             float perpY = -sinA;
 
             float chordDistRatio = -0.12f;
             float chordDist = capR * chordDistRatio;
-            float chordCx = cx + sinA * chordDist;
-            float chordCy = cy - cosA * chordDist;
+            float chordCx = cx + dirX * chordDist;
+            float chordCy = cy + dirY * chordDist;
             float chordHalfW = capR * std::sqrt(std::max(0.0f, 1.0f - chordDistRatio * chordDistRatio));
 
-            Color scoopLight = capCol.lighten(0.38f);
-            Color scoopMid = capCol.lighten(0.12f);
-            Color scoopDark = capCol.darken(0.24f);
+            // Contextual 2.5D lighting:
+            // The ramp slopes downwards from the chord towards the outer rim along (dirX, dirY).
+            // When (dirX, dirY) points towards the light source, the ramp is tilted into incoming light.
+            // When pointing away, the ramp falls into deep shadow (as seen on authentic TB-303 hardware).
+            float dotRamp = dirX * lDir.x + dirY * lDir.y;
+
+            Color scoopCrest, scoopMid, scoopRim;
+            if (dotRamp < 0.0f) {
+                // Tilted away from light (shadowed ramp, e.g. Volume knob at 4:30):
+                // Pronounced ambient occlusion shadow at the chord cliff step deepening into shadowed satin metal
+                float shAmt = std::clamp(-dotRamp, 0.0f, 1.0f);
+                scoopCrest = capCol.darken(0.38f + shAmt * 0.32f); // Deep shadow near cliff
+                scoopMid   = capCol.darken(0.24f + shAmt * 0.22f);
+                scoopRim   = capCol.darken(0.16f + shAmt * 0.14f);
+            } else {
+                // Tilted towards light (illuminated ramp):
+                // Bright satin aluminum highlight and specular reflection
+                float hlAmt = std::clamp(dotRamp, 0.0f, 1.0f);
+                scoopCrest = capCol.lighten(0.22f + hlAmt * 0.24f);
+                scoopMid   = capCol.lighten(0.12f + hlAmt * 0.18f);
+                scoopRim   = capCol.darken(0.10f * (1.0f - hlAmt));
+            }
 
             // Continuous, smooth Gouraud gradient mesh filling the exact circular segment
             r.drawDeclinedScoopGradient(cx, cy, capR, currentAngle, chordDistRatio,
-                                        scoopLight.r, scoopLight.g, scoopLight.b, 1.0f,
+                                        scoopCrest.r, scoopCrest.g, scoopCrest.b, 1.0f,
                                         scoopMid.r, scoopMid.g, scoopMid.b, 1.0f,
-                                        scoopDark.r, scoopDark.g, scoopDark.b, 1.0f,
+                                        scoopRim.r, scoopRim.g, scoopRim.b, 1.0f,
                                         0.45f, 24);
 
-            // Crisp specular crest ridge line along the chord step
+            // Chord Crest Transition Line (Cliff Face):
             float leftChordX = chordCx + perpX * chordHalfW * 0.96f;
             float leftChordY = chordCy + perpY * chordHalfW * 0.96f;
             float rightChordX = chordCx - perpX * chordHalfW * 0.96f;
             float rightChordY = chordCy - perpY * chordHalfW * 0.96f;
-            r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY, 1.0f, 1.0f, 1.0f, 0.90f, 1.3f);
-            // Drop shadow underneath the chord crest line
-            r.drawLine(leftChordX + sinA * 1.0f, leftChordY - cosA * 1.0f,
-                       rightChordX + sinA * 1.0f, rightChordY - cosA * 1.0f,
-                       0.08f, 0.08f, 0.10f, 0.60f, 1.2f);
+
+            if (dotRamp < -0.05f) {
+                // Light is behind the plateau: cliff face is in shadow and casts a dark drop shadow onto the scoop floor
+                float shadowIntensity = std::clamp(-dotRamp, 0.0f, 1.0f);
+                // Plateau edge silhouette line
+                r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY,
+                           capSh.r * 0.45f, capSh.g * 0.45f, capSh.b * 0.45f, 0.90f, 1.2f);
+                // Soft cast shadow line forward onto ramp floor
+                r.drawLine(leftChordX + dirX * 1.3f, leftChordY + dirY * 1.3f,
+                           rightChordX + dirX * 1.3f, rightChordY + dirY * 1.3f,
+                           0.05f, 0.05f, 0.08f, 0.75f * shadowIntensity, 1.8f);
+            } else {
+                // Light directly strikes cliff edge: crisp specular gleam
+                float hlIntensity = std::clamp(dotRamp, 0.0f, 1.0f);
+                r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY,
+                           1.0f, 1.0f, 1.0f, 0.65f + 0.35f * hlIntensity, 1.5f);
+                // Secondary plateau reflection
+                r.drawLine(leftChordX - dirX * 0.8f, leftChordY - dirY * 0.8f,
+                           rightChordX - dirX * 0.8f, rightChordY - dirY * 0.8f,
+                           capHl.r, capHl.g, capHl.b, 0.40f * hlIntensity, 1.0f);
+            }
 
             // 3. Etched dark pointer notch line centered down the scoop slope
-            float notchStart = chordDist + (capR * 0.20f);
+            float notchStart = chordDist + (capR * 0.18f);
             float notchEnd = capR * 0.96f;
-            // Shadow under notch for etched physical depth
-            r.drawLine(cx + sinA * notchStart + 0.6f, cy - cosA * notchStart + 0.6f,
-                       cx + sinA * notchEnd + 0.6f, cy - cosA * notchEnd + 0.6f,
-                       1.0f, 1.0f, 1.0f, 0.40f, 2.2f);
+
+            // Transverse lighting on the notch groove walls
+            float dotPerp = perpX * lDir.x + perpY * lDir.y;
+            float notchHlX = (dotPerp >= 0.0f ? perpX : -perpX) * 0.75f;
+            float notchHlY = (dotPerp >= 0.0f ? perpY : -perpY) * 0.75f;
+            float notchShX = -notchHlX;
+            float notchShY = -notchHlY;
+
+            // Physical bevel: Shadow side of etched groove
+            r.drawLine(cx + dirX * notchStart + notchShX, cy + dirY * notchStart + notchShY,
+                       cx + dirX * notchEnd + notchShX, cy + dirY * notchEnd + notchShY,
+                       0.05f, 0.05f, 0.07f, 0.65f, 1.8f);
+
+            // Physical bevel: Highlight side of etched groove
+            r.drawLine(cx + dirX * notchStart + notchHlX, cy + dirY * notchStart + notchHlY,
+                       cx + dirX * notchEnd + notchHlX, cy + dirY * notchEnd + notchHlY,
+                       1.0f, 1.0f, 1.0f, 0.45f, 1.8f);
+
             // Core etched dark notch line
-            Color notchCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : Color(0.12f, 0.13f, 0.16f));
-            r.drawLine(cx + sinA * notchStart, cy - cosA * notchStart,
-                       cx + sinA * notchEnd, cy - cosA * notchEnd,
+            Color notchCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : Color(0.08f, 0.09f, 0.12f));
+            r.drawLine(cx + dirX * notchStart, cy + dirY * notchStart,
+                       cx + dirX * notchEnd, cy + dirY * notchEnd,
                        notchCol.r, notchCol.g, notchCol.b, 1.0f, 2.0f);
+
             // Outer rim chamfer
             r.drawCircleOutline(cx, cy, capR, 1.0f, 1.0f, 1.0f, 0.35f, 1.0f, 32);
         } else if (shape.capStyle == KnobCapStyle::LatheMetallic) {
@@ -547,8 +669,29 @@ void drawKnobWidget(BatchRenderer2D& r,
                                             lDir.x * capR * 0.20f, lDir.y * capR * 0.20f, 0.55f, 28);
             r.drawCircleOutline(cx, cy, capR, capSh.r, capSh.g, capSh.b, 0.7f, 1.0f, 28);
         } else {
-            r.drawCircle(cx, cy, capR, capCol.r, capCol.g, capCol.b, 1.0f, 28);
-            r.drawCircleOutline(cx, cy, capR, capSh.r, capSh.g, capSh.b, 0.8f, 1.0f, 28);
+            // Enhanced 3D Flat / Cylindrical Plateau Cap (Studio / High-End Hardware aesthetic)
+            Color plateauHl = shape.isLightRotor ? capCol.lighten(0.08f) : capCol.lighten(0.25f);
+            Color plateauMid = capCol;
+            Color plateauSh = shape.isLightRotor ? capCol.darken(0.18f) : capCol.darken(0.30f);
+
+            // 1. Directional radial gradient reacting smoothly to light source
+            r.drawCircleRadial3StopGradient(cx, cy, capR,
+                                            plateauHl.r, plateauHl.g, plateauHl.b, 1.0f,
+                                            plateauMid.r, plateauMid.g, plateauMid.b, 1.0f,
+                                            plateauSh.r, plateauSh.g, plateauSh.b, 1.0f,
+                                            lDir.x * capR * 0.32f, lDir.y * capR * 0.32f, 0.48f, 32);
+
+            // 2. Beveled plateau rim outline / groove step
+            r.drawCircleOutline(cx, cy, capR, plateauSh.r * 0.85f, plateauSh.g * 0.85f, plateauSh.b * 0.85f, 0.75f, 1.0f, 32);
+
+            // 3. Directional specular gleam on illuminated rim of plateau
+            float lightAngle = std::atan2(lDir.y, lDir.x);
+            r.drawArc(cx, cy, capR - 0.5f, lightAngle - 1.25f, lightAngle + 1.25f, 1.0f, 1.0f, 1.0f, 0.65f, 1.2f, 24);
+
+            // 4. Subtle inner reflection ring for light rotors (satin aluminum sheen)
+            if (shape.isLightRotor) {
+                r.drawCircleOutline(cx, cy, capR * 0.94f, 1.0f, 1.0f, 1.0f, 0.28f, 0.8f, 28);
+            }
         }
     }
 
@@ -557,7 +700,7 @@ void drawKnobWidget(BatchRenderer2D& r,
         float sinA = std::sin(currentAngle);
         float cosA = std::cos(currentAngle);
 
-        Color indCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : shape.indicatorColor);
+        Color indCol = isActive ? Color(1.0f, 0.88f, 0.12f) : (isHovered ? Color(0.30f, 0.95f, 1.0f) : indicatorColor);
 
         if (shape.indicator == KnobIndicatorType::LineGroove) {
             float startR = capR * 0.22f;
@@ -576,10 +719,50 @@ void drawKnobWidget(BatchRenderer2D& r,
             r.drawCircle(px + 0.5f, py + 0.5f, pipR, 0.08f, 0.09f, 0.11f, 0.8f, 12);
             r.drawCircle(px, py, pipR, indCol.r, indCol.g, indCol.b, 1.0f, 12);
         } else if (shape.indicator == KnobIndicatorType::PointerNotch) {
-            float n0 = radius * 0.85f;
-            float n1 = radius * 1.15f;
-            r.drawLine(cx + sinA * n0, cy - cosA * n0, cx + sinA * n1, cy - cosA * n1,
-                       indCol.r, indCol.g, indCol.b, 1.0f, shape.indicatorWidth + 1.0f);
+            // Precision perimeter indicator notch bridging cap chamfer to outer rotor wall
+            float n0 = std::max(capR * 0.84f, radius * 0.68f);
+            float n1 = radius * 1.02f;
+
+            float dirX = sinA;
+            float dirY = -cosA;
+            float perpX = -cosA;
+            float perpY = -sinA;
+
+            // Transverse lighting calculation across the notch groove walls
+            float dotPerp = perpX * lDir.x + perpY * lDir.y;
+            float bevelOffset = 0.70f;
+            float notchHlX = (dotPerp >= 0.0f ? perpX : -perpX) * bevelOffset;
+            float notchHlY = (dotPerp >= 0.0f ? perpY : -perpY) * bevelOffset;
+            float notchShX = -notchHlX;
+            float notchShY = -notchHlY;
+
+            // Physical bevel: Shadow flank of notch
+            r.drawLine(cx + dirX * n0 + notchShX, cy + dirY * n0 + notchShY,
+                       cx + dirX * n1 + notchShX, cy + dirY * n1 + notchShY,
+                       0.08f, 0.09f, 0.12f, 0.65f, shape.indicatorWidth);
+
+            // Physical bevel: Specular highlight flank of notch
+            r.drawLine(cx + dirX * n0 + notchHlX, cy + dirY * n0 + notchHlY,
+                       cx + dirX * n1 + notchHlX, cy + dirY * n1 + notchHlY,
+                       1.0f, 1.0f, 1.0f, 0.55f, shape.indicatorWidth);
+
+            // Core precision pointer notch
+            // For light rotors, default to crisp metallic white/silver (as in reference hardware),
+            // lighting up brightly with accent color during hover or active drag
+            Color notchCol;
+            if (isActive) {
+                notchCol = Color(1.0f, 0.88f, 0.12f, 1.0f);
+            } else if (isHovered) {
+                notchCol = shape.isLightRotor ? indCol.lighten(0.15f) : Color(0.30f, 0.95f, 1.0f, 1.0f);
+            } else if (shape.isLightRotor) {
+                notchCol = Color(0.98f, 0.99f, 1.0f, 1.0f);
+            } else {
+                notchCol = indCol;
+            }
+
+            r.drawLine(cx + dirX * n0, cy + dirY * n0,
+                       cx + dirX * n1, cy + dirY * n1,
+                       notchCol.r, notchCol.g, notchCol.b, 1.0f, shape.indicatorWidth);
         }
     }
 
@@ -603,11 +786,11 @@ void GuiPanelDef::layoutControls(const Rect2D& rect) {
     float bottomPadding = 8.0f;
     float rowStartY = fpY + topPadding;
 
-    bool isCompactSidebar = (fpW < 380.0f);
-    auto macroWidgets = getMacroWidgets();
+    bool isCompactSidebar = (fpW < 380.0f) && isClapPlugin;
 
     if (layoutMode == GuiLayoutMode::AbsoluteCanvas && !widgets.empty()) {
         if (isCompactSidebar) {
+            auto macroWidgets = getMacroWidgets();
             std::vector<GuiWidgetDef*> activeMacros;
             if (!macroWidgets.empty()) {
                 activeMacros = macroWidgets;
@@ -1504,12 +1687,11 @@ void drawGuiFaceplate(BatchRenderer2D& r,
         }
     };
 
-    bool isCompactSidebar = (fpW < 380.0f);
-    auto macroWidgets = panel.getMacroWidgets();
-
+    bool isCompactSidebar = (fpW < 380.0f) && panel.isClapPlugin;
     if (panel.layoutMode == GuiLayoutMode::AbsoluteCanvas && !panel.widgets.empty()) {
         if (isCompactSidebar) {
             // Render Compact Macro Strip for sidebar context
+            auto macroWidgets = panel.getMacroWidgets();
             std::vector<GuiWidgetDef*> activeMacros;
             if (!macroWidgets.empty()) {
                 activeMacros = macroWidgets;
@@ -1554,11 +1736,11 @@ void drawGuiFaceplate(BatchRenderer2D& r,
     }
 
     if (isLightChassis) {
-        std::string badgeText = (panel.title.find("ASTRAL") != std::string::npos ||
-                                 panel.title.find("Astral") != std::string::npos ||
-                                 panel.subtitle.find("Ambient") != std::string::npos)
-                                ? "ASTRAL // VER 2.0"
-                                : "SMAOLAB // VER 2.0";
+        std::string_view badgeText = (panel.title.find("ASTRAL") != std::string::npos ||
+                                      panel.title.find("Astral") != std::string::npos ||
+                                      panel.subtitle.find("Ambient") != std::string::npos)
+                                     ? "ASTRAL // VER 2.0"
+                                     : "SMAOLAB // VER 2.0";
         drawText(r, badgeText, fpX + 16.0f, fpY + fpH - 14.0f, 8.5f, 0.85f, 0.20f, 0.25f, 0.85f);
     }
 }

@@ -2,6 +2,10 @@
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/icon_registry.hpp"
 #include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
+#include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/project/eats_builtin_presets.hpp"
+#include "eatsbits/ui/floating_window_manager.hpp"
+
 
 #include <iostream>
 #include <iomanip>
@@ -92,6 +96,15 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         }
         fx.ensureDefaultKnobs();
 
+        if (!fx.customGuiPanel.has_value() && !fx.eatscriptCode.empty()) {
+            try {
+                auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(fx.eatscriptCode);
+                if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+                    fx.customGuiPanel = createGuiPanelFromPresetDefinition(parsed);
+                }
+            } catch (...) {}
+        }
+
         if (fx.customGuiPanel.has_value()) {
             guiPanel_ = *fx.customGuiPanel;
             trackData_.knobs = fx.knobs;
@@ -100,7 +113,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
                     for (const auto& k : fx.knobs) {
                         if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                             stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
-                            w.currentVal = k.value;
+                            w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
                             if (!k.display.empty()) w.valueDisplay = k.display;
                             break;
                         }
@@ -170,6 +183,15 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         }
         fx.ensureDefaultKnobs();
 
+        if (!fx.customGuiPanel.has_value() && !fx.eatscriptCode.empty()) {
+            try {
+                auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(fx.eatscriptCode);
+                if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+                    fx.customGuiPanel = createGuiPanelFromPresetDefinition(parsed);
+                }
+            } catch (...) {}
+        }
+
         if (fx.customGuiPanel.has_value()) {
             guiPanel_ = *fx.customGuiPanel;
             trackData_.knobs = fx.knobs;
@@ -178,7 +200,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
                     for (const auto& k : fx.knobs) {
                         if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                             stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
-                            w.currentVal = k.value;
+                            w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
                             if (!k.display.empty()) w.valueDisplay = k.display;
                             break;
                         }
@@ -219,6 +241,21 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         return;
     }
 
+    if (!trackData_.customGuiPanel.has_value() && !trackData_.eatscriptCode.empty()) {
+        try {
+            auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(trackData_.eatscriptCode);
+            if (!parsed.params.empty() || !parsed.guiRoot.children.empty() || !parsed.guiRoot.title.empty()) {
+                trackData_.customGuiPanel = createGuiPanelFromPresetDefinition(parsed);
+            }
+        } catch (...) {}
+    }
+
+    if (!trackData_.customGuiPanel.has_value()) {
+        if (auto builtin = eatsbits::project::BuiltinPresetRegistry::createPresetById(trackData_.instrumentEngine)) {
+            trackData_.customGuiPanel = createGuiPanelFromPresetDefinition(*builtin);
+        }
+    }
+
     if (trackData_.customGuiPanel.has_value()) {
         guiPanel_ = *trackData_.customGuiPanel;
         for (auto& row : guiPanel_.rows) {
@@ -226,7 +263,7 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
                 for (const auto& k : trackData_.knobs) {
                     if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                         stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
-                        w.currentVal = k.value;
+                        w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
                         if (!k.display.empty()) w.valueDisplay = k.display;
                         break;
                     }
@@ -564,6 +601,49 @@ void FullscreenDeviceModal::renderInstrumentFaceplate(BatchRenderer2D& r, const 
         drawRoundedRectOutline(r, bodyBounds_.x, bodyBounds_.y, bodyBounds_.w, bodyBounds_.h, 4.0f, 0.20f, 0.24f, 0.30f, 0.6f, 1.5f);
         return;
     }
+
+    if (FloatingWindowManager::instance().isDetached(target_.trackIndex)) {
+        float cx = bodyBounds_.x + (bodyBounds_.w * 0.5f);
+        float cy = bodyBounds_.y + (bodyBounds_.h * 0.5f);
+        float cardW = std::min(bodyBounds_.w - 40.0f, 540.0f);
+        float cardH = 200.0f;
+        float cardX = cx - (cardW * 0.5f);
+        float cardY = cy - (cardH * 0.5f);
+
+        drawRoundedRect(r, cardX, cardY, cardW, cardH, 8.0f, 0.09f, 0.11f, 0.15f, 0.98f);
+        drawRoundedRectOutline(r, cardX, cardY, cardW, cardH, 8.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.5f, 1.5f);
+
+        float dotX = cardX + 24.0f;
+        float dotY = cardY + 28.0f;
+        drawCircle(r, dotX, dotY, 7.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.25f);
+        drawCircle(r, dotX, dotY, 4.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+        drawText(r, "POP-OUT WINDOW ACTIVE", dotX + 14.0f, dotY - 6.0f, 11.5f, theme.primaryAccent);
+        drawText(r, "Device controls are currently detached in an external desktop window.",
+                 cardX + 24.0f, dotY + 16.0f, 9.5f, theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 0.85f);
+
+        float bH = 34.0f;
+        float bY = cardY + cardH - bH - 24.0f;
+        float bW = (cardW - 48.0f - 16.0f) * 0.5f;
+        float b1X = cardX + 24.0f;
+        float b2X = b1X + bW + 16.0f;
+        focusDetachedBtnBounds_ = Rect2D(b1X, bY, bW, bH);
+        reattachDetachedBtnBounds_ = Rect2D(b2X, bY, bW, bH);
+
+        drawRoundedRect(r, b1X, bY, bW, bH, 5.0f, 0.12f, 0.18f, 0.26f, 0.95f);
+        drawRoundedRectOutline(r, b1X, bY, bW, bH, 5.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.80f, 1.2f);
+        drawFullscreenIcon(r, b1X + 14.0f, bY + 11.0f, 12.0f, theme.primaryAccent, 1.4f);
+        drawText(r, "FOCUS WINDOW", b1X + 34.0f, bY + 10.5f, 9.5f, theme.primaryAccent);
+
+        Color dockCol(0.85f, 0.88f, 0.94f, 1.0f);
+        drawRoundedRect(r, b2X, bY, bW, bH, 5.0f, 0.15f, 0.16f, 0.20f, 0.95f);
+        drawRoundedRectOutline(r, b2X, bY, bW, bH, 5.0f, 0.35f, 0.38f, 0.48f, 0.75f, 1.0f);
+        drawChevronDown(r, b2X + 18.0f, bY + 17.0f, 8.0f, dockCol, 1.8f);
+        drawText(r, "RE-ATTACH / DOCK", b2X + 32.0f, bY + 10.5f, 9.5f, dockCol);
+        return;
+    }
+
+    focusDetachedBtnBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
+    reattachDetachedBtnBounds_ = Rect2D{0.0f, 0.0f, 0.0f, 0.0f};
 
     // 1. Unified GUI Faceplate with authentic skeuomorphic hardware styling,
     // wood cheeks, 3D multi-stop radial gradient knobs, sliders, nixies, etc.
@@ -1005,10 +1085,25 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
 
         // Detach floating window button (desktop popout)
         if (detachBtnBounds_.contains(mx, my)) {
+            if (FloatingWindowManager::instance().isDetached(target_.trackIndex)) {
+                FloatingWindowManager::instance().focusDetachedInstrument(target_.trackIndex);
+                return true;
+            }
             if (onOpenDetachedWindow) {
                 onOpenDetachedWindow(target_.trackIndex);
             }
             close();
+            return true;
+        }
+
+        // Focus or Re-attach detached window buttons
+        if (focusDetachedBtnBounds_.w > 0.0f && focusDetachedBtnBounds_.contains(mx, my)) {
+            FloatingWindowManager::instance().focusDetachedInstrument(target_.trackIndex);
+            return true;
+        }
+        if (reattachDetachedBtnBounds_.w > 0.0f && reattachDetachedBtnBounds_.contains(mx, my)) {
+            FloatingWindowManager::instance().closeDetachedInstrument(target_.trackIndex);
+            syncGuiPanelFromTrackData();
             return true;
         }
 

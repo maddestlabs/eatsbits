@@ -179,6 +179,7 @@ struct GuiWidgetDef {
     std::string sublabel;                         // Secondary label (e.g. "ANDALL", "12AX7", "FILTER", "7-UNISON")
     bool showValueBox{false};                     // Skeuomorphic dark pill container box for value readout
     std::string valueDisplay;                     // Explicit formatted string override
+    float defaultVal{0.5f};
 
     [[nodiscard]] std::string getFormattedValue() const;
 };
@@ -198,6 +199,7 @@ struct GuiPanelDef {
     float chassisRotation{0.0f};
     bool woodCheeks{true};
     bool hideHeader{false};
+    bool isClapPlugin{false};
     float cornerRadius{8.0f};
     GuiLayoutMode layoutMode{GuiLayoutMode::AutoRowFlow};
     float designWidth{800.0f};

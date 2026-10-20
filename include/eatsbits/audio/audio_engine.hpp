@@ -101,6 +101,7 @@ public:
     void setupDefaultPolyGraph();
     void setupDefaultAcidBeatGraph();
     void setupDefaultRhodesGrandGraph();
+    void setupDefaultEpianoGraph();
 
     // Track Audio FX Inserts
     struct TrackAudioFxItem {

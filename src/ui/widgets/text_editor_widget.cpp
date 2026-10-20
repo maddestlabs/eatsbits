@@ -1125,6 +1125,7 @@ bool TextEditorWidget::embedAssetFromFile(const std::string& filePath, bool inse
     else if (ext == ".bmp") mimeType = "image/bmp";
     else if (ext == ".webp") mimeType = "image/webp";
     else if (ext == ".wav") mimeType = "audio/wav";
+    else if (ext == ".syx") mimeType = "application/x-syx";
 
     std::string stem = p.stem().string();
     std::string varName;
@@ -1135,7 +1136,9 @@ bool TextEditorWidget::embedAssetFromFile(const std::string& filePath, bool inse
             varName.push_back('_');
         }
     }
-    if (varName.empty() || std::isdigit(static_cast<unsigned char>(varName[0]))) {
+    if (ext == ".syx") {
+        varName = "CARTRIDGE_" + varName;
+    } else if (varName.empty() || std::isdigit(static_cast<unsigned char>(varName[0]))) {
         varName = "ASSET_" + varName;
     }
 

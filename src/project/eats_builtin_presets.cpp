@@ -31,6 +31,7 @@ static const std::vector<PresetInfo> s_catalog = {
 
     // Bass
     {"upright_bass", "Acoustic Upright Bass", PresetCategory::Instrument, PhysicalModelFamily::BassInstruments, "Pizzicato acoustic upright jazz bass with woody body thump and fingerboard clicks.", "Eatsbits DSP", "preset:inst_bass"},
+    {"acoustic_bass", "Acoustic Bass Guitar", PresetCategory::Instrument, PhysicalModelFamily::BassInstruments, "Bronze-wound acoustic bass guitar with fingertip flesh excitation and dreadnought hollow body resonance.", "Eatsbits DSP", "preset:inst_bass"},
     {"fretless_bass", "Fretless Bass", PresetCategory::Instrument, PhysicalModelFamily::BassInstruments, "Singing electric fretless bass with iconic 'mwah' midrange formant bloom.", "Eatsbits DSP", "preset:inst_bass"},
 
     // Wind & Organ
@@ -50,7 +51,8 @@ static const std::vector<PresetInfo> s_catalog = {
     // Electronic Synths
     {"eats_303", "Eats-303 Acid Bassline", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Authentic Roland TB-303 diode ladder filter emulation with accent and slide.", "Eatsbits DSP", "preset:inst_303"},
     {"c64_sid_synth", "C64 MOS 6581 SID Synth", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Commodore 64 chiptune synthesizer with wave combining, ring mod, and analog multi-mode filter.", "Eatsbits DSP", "preset:inst_synth"},
-    {"dx7_epiano", "Yamaha DX7 FM E-Piano", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "6-Operator classic 1983 frequency modulation electric piano.", "Eatsbits DSP", "preset:inst_epiano"},
+    {"dxvii_epiano", "DXVII E-Piano", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "6-Operator classic 1983 frequency modulation electric piano.", "Eatsbits DSP", "preset:inst_epiano"},
+    {"dxvii_synth", "DXVII Synthesizer", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Authentic 6-operator FM synthesizer with 32 routing algorithms and SysEx cartridges.", "Eatsbits DSP", "preset:inst_synth"},
     {"snes_console_synth", "SNES Synth", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Authentic 16-bit polyphonic S-DSP console synthesizer with selectable waveforms, ADSR envelope, vibrato, and hardware echo DSP.", "Eatsbits DSP", "preset:inst_snes"},
     {"eats_sfxr", "SNES Sfxr", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "16-Bit retro arcade and console sound effect synthesizer with procedural presets, random seeds, and SNES echo DSP.", "Eatsbits DSP", "preset:inst_snes"},
     {"ym2612_synth", "Sega Genesis YM2612 FM", PresetCategory::Instrument, PhysicalModelFamily::ElectronicSynth, "Sega Genesis 4-Operator OPN2 FM synthesis with 8 routing algorithms.", "Eatsbits DSP", "preset:inst_genesis"},
@@ -86,6 +88,7 @@ std::vector<PresetDefinition> BuiltinPresetRegistry::getPhysicalModelingPresets(
         createDoubleBass(),
         createStringEnsemble(),
         PresetLoader::createUprightBassPreset(),
+        PresetLoader::createAcousticBassPreset(),
         createFretlessBass(),
         createPipeOrgan(),
         createGlockenspiel(),
@@ -106,7 +109,7 @@ std::optional<PresetDefinition> BuiltinPresetRegistry::createPresetById(const st
     if (id == "clavinet_d6") return createClavinetD6();
 
     if (id == "spanish_guitar") return PresetLoader::createSpanishGuitarPreset();
-    if (id == "steel_acoustic_guitar") return PresetLoader::createSteelAcousticGuitarPreset();
+    if (id == "steel_acoustic_guitar" || id == "acoustic_steel_guitar") return PresetLoader::createSteelAcousticGuitarPreset();
     if (id == "twelve_string_guitar") return createTwelveStringGuitar();
     if (id == "renaissance_lute") return createRenaissanceLute();
     if (id == "bluegrass_banjo") return createBluegrassBanjo();
@@ -121,6 +124,7 @@ std::optional<PresetDefinition> BuiltinPresetRegistry::createPresetById(const st
     if (id == "string_ensemble") return createStringEnsemble();
 
     if (id == "upright_bass") return PresetLoader::createUprightBassPreset();
+    if (id == "acoustic_bass") return PresetLoader::createAcousticBassPreset();
     if (id == "fretless_bass") return createFretlessBass();
 
     if (id == "pipe_organ") return createPipeOrgan();
@@ -136,7 +140,7 @@ std::optional<PresetDefinition> BuiltinPresetRegistry::createPresetById(const st
 
     if (id == "eats_303") return PresetLoader::createEats303Preset();
     if (id == "c64_sid_synth") return PresetLoader::createC64SidPreset();
-    if (id == "dx7_epiano") return PresetLoader::createYamahaDx7Preset();
+    if (id == "dx7_epiano" || id == "dxvii_epiano") return PresetLoader::createYamahaDx7Preset();
     if (id == "snes_console_synth") return PresetLoader::createSnesPreset();
     if (id == "eats_sfxr") return PresetLoader::createSnesSfxrPreset();
     if (id == "ym2612_synth") return PresetLoader::createYm2612Preset();

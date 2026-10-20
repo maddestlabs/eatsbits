@@ -2539,15 +2539,15 @@ void BatchRenderer2D::drawDeclinedScoopGradient(float cx, float cy, float capRad
         float uMid1 = uCh1 + clampedMid * (uArc1 - uCh1);
         float vMid1 = vCh1 + clampedMid * (vArc1 - vCh1);
 
-        // Convert local (u, v) points to world coordinates
-        Vertex2D c0{cx + uCh0 * dirX + vCh0 * perpX, cy + uCh0 * dirY + vCh0 * perpY, 0.0f, 0.0f, colCrest, 0, {0, 0}};
-        Vertex2D c1{cx + uCh1 * dirX + vCh1 * perpX, cy + uCh1 * dirY + vCh1 * perpY, 0.0f, 0.0f, colCrest, 0, {0, 0}};
+        // Convert local (u, v) points to world coordinates (mode 5: zero internal seam bleed)
+        Vertex2D c0{cx + uCh0 * dirX + vCh0 * perpX, cy + uCh0 * dirY + vCh0 * perpY, 0.0f, 0.0f, colCrest, 5, {0, 0}};
+        Vertex2D c1{cx + uCh1 * dirX + vCh1 * perpX, cy + uCh1 * dirY + vCh1 * perpY, 0.0f, 0.0f, colCrest, 5, {0, 0}};
 
-        Vertex2D m0{cx + uMid0 * dirX + vMid0 * perpX, cy + uMid0 * dirY + vMid0 * perpY, 0.0f, 0.0f, colMid, 0, {0, 0}};
-        Vertex2D m1{cx + uMid1 * dirX + vMid1 * perpX, cy + uMid1 * dirY + vMid1 * perpY, 0.0f, 0.0f, colMid, 0, {0, 0}};
+        Vertex2D m0{cx + uMid0 * dirX + vMid0 * perpX, cy + uMid0 * dirY + vMid0 * perpY, 0.0f, 0.0f, colMid, 5, {0, 0}};
+        Vertex2D m1{cx + uMid1 * dirX + vMid1 * perpX, cy + uMid1 * dirY + vMid1 * perpY, 0.0f, 0.0f, colMid, 5, {0, 0}};
 
-        Vertex2D a0{cx + uArc0 * dirX + vArc0 * perpX, cy + uArc0 * dirY + vArc0 * perpY, 0.0f, 0.0f, colRim, 0, {0, 0}};
-        Vertex2D a1{cx + uArc1 * dirX + vArc1 * perpX, cy + uArc1 * dirY + vArc1 * perpY, 0.0f, 0.0f, colRim, 0, {0, 0}};
+        Vertex2D a0{cx + uArc0 * dirX + vArc0 * perpX, cy + uArc0 * dirY + vArc0 * perpY, 0.0f, 0.0f, colRim, 5, {0, 0}};
+        Vertex2D a1{cx + uArc1 * dirX + vArc1 * perpX, cy + uArc1 * dirY + vArc1 * perpY, 0.0f, 0.0f, colRim, 5, {0, 0}};
 
         applyTransform(c0.x, c0.y);
         applyTransform(c1.x, c1.y);

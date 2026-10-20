@@ -131,6 +131,8 @@ private:
     Rect2D detachBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D openPluginGuiBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D focusDetachedBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D reattachDetachedBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     float mouseX_{0.0f};
     float mouseY_{0.0f};

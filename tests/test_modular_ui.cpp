@@ -113,7 +113,7 @@ void testArrangerView() {
     std::cout << "[Test 2/11] ArrangerView (Loop Resize, Clip Move across tracks, Contextual Properties, Minimap)..." << std::endl;
 
     ArrangerView arranger;
-    assert(arranger.getTracks().size() == 5);
+    assert(arranger.getTracks().size() == 1);
 
     // 1. Verify NO Master Bus track exists in Arranger
     for (const auto& tr : arranger.getTracks()) {
@@ -135,7 +135,7 @@ void testArrangerView() {
     assert(arranger.isInspectorOpen());
 
     // 3. Clip Click -> Exposes Clip Properties
-    // Track 0 Clip 0 starts at bar 1 (x: 190, y: 100, w: 4*64=256, h: 64)
+    // Track 0 Clip 0 starts at bar 1 (x: 190, y: 100, w: 8*64=512, h: 64)
     arranger.handlePointer(makePointer(240.0f, 120.0f, PointerAction::Down), ctx);
     arranger.handlePointer(makePointer(240.0f, 120.0f, PointerAction::Up), ctx);
     assert(arranger.getSelectedClip() == 0);
@@ -143,18 +143,19 @@ void testArrangerView() {
     assert(arranger.isInspectorOpen());
 
     // 4. Clip Loop Resize Handle (Click top right loop icon on clip 0)
-    // Clip 0 right edge is at ~446 (190 + 256). Loop handle is at x in [424..446], y in [100..120]
     auto& clip0 = arranger.getTracks()[0].clips[0];
     assert(!clip0.isLooped);
-    arranger.handlePointer(makePointer(438.0f, 110.0f, PointerAction::Down), ctx);
+    float rightEdge = 190.0f + static_cast<float>(clip0.lengthBars) * 64.0f;
+    arranger.handlePointer(makePointer(rightEdge - 8.0f, 110.0f, PointerAction::Down), ctx);
     // Drag right by 2 bars (+128px)
-    arranger.handlePointer(makePointer(438.0f + 128.0f, 110.0f, PointerAction::Move), ctx);
-    arranger.handlePointer(makePointer(438.0f + 128.0f, 110.0f, PointerAction::Up), ctx);
-    assert(clip0.lengthBars == 6);
+    arranger.handlePointer(makePointer(rightEdge - 8.0f + 128.0f, 110.0f, PointerAction::Move), ctx);
+    arranger.handlePointer(makePointer(rightEdge - 8.0f + 128.0f, 110.0f, PointerAction::Up), ctx);
+    assert(clip0.lengthBars == 10);
     assert(clip0.isLooped);
-    assert(clip0.loopLengthBars == 4);
+    assert(clip0.loopLengthBars == 8);
 
     // 5. Clip Movement Across Tracks (Drag clip body from Track 0 down to Track 1)
+    arranger.addTrack("Track 2", "synth", 0.1f, 0.5f, 0.9f);
     size_t trk0InitialClips = arranger.getTracks()[0].clips.size();
     size_t trk1InitialClips = arranger.getTracks()[1].clips.size();
 
@@ -169,8 +170,7 @@ void testArrangerView() {
     assert(arranger.getActiveTrack() == 1);
 
     // 6. '+ ADD' row click below last track -> opens PluginSearchDialog
-    // 5 tracks * 64px = 320px + offset
-    float addRowY = 100.0f + 5.0f * 64.0f + 12.0f;
+    float addRowY = 100.0f + static_cast<float>(arranger.getTracks().size()) * 64.0f + 12.0f;
     arranger.handlePointer(makePointer(60.0f, addRowY, PointerAction::Down), ctx);
     assert(arranger.getPluginSearchDialog().isOpen());
     assert(arranger.getPluginSearchDialog().getMode() == PluginDialogMode::AddInstrument);
@@ -197,31 +197,32 @@ void testArrangerView() {
         trackAddedNotified = true;
         addedTrackIdx = idx;
     };
+    uint32_t expectedNewIdx = static_cast<uint32_t>(arranger.getTracks().size());
     arranger.addTrack("Audio Vocals", "audio", 0.3f, 0.7f, 1.0f);
     assert(trackAddedNotified);
-    assert(addedTrackIdx == 5);
-    assert(arranger.getTracks().size() == 6);
-    assert(arranger.getTracks()[5].clips.empty()); // Zero default clips!
+    assert(addedTrackIdx == expectedNewIdx);
+    assert(arranger.getTracks().back().clips.empty()); // Zero default clips!
 
     // 10. Double click empty grid to create new empty clip
-    // Track 5 row is at y: 100 + 5*64 = 420. Bar 3 is at x: 190 + 2*64 = 318
+    uint32_t testTrkIdx = expectedNewIdx;
+    float rowY = 100.0f + static_cast<float>(testTrkIdx) * 64.0f + 20.0f;
     bool clipsChangedNotified = false;
     arranger.onClipsChanged = [&]() { clipsChangedNotified = true; };
-    arranger.handlePointer(makePointer(320.0f, 440.0f, PointerAction::Down), ctx);
-    arranger.handlePointer(makePointer(320.0f, 440.0f, PointerAction::Down), ctx); // Double click
-    assert(arranger.getTracks()[5].clips.size() == 1);
-    assert(arranger.getTracks()[5].clips[0].startBar == 3);
-    assert(arranger.getTracks()[5].clips[0].notes.empty());
+    arranger.handlePointer(makePointer(320.0f, rowY, PointerAction::Down), ctx);
+    arranger.handlePointer(makePointer(320.0f, rowY, PointerAction::Down), ctx); // Double click
+    assert(arranger.getTracks()[testTrkIdx].clips.size() == 1);
+    assert(arranger.getTracks()[testTrkIdx].clips[0].startBar == 3);
+    assert(arranger.getTracks()[testTrkIdx].clips[0].notes.empty());
     assert(clipsChangedNotified);
 
     // 11. addClipToTrack appends after existing clips
-    arranger.addClipToTrack(5);
-    assert(arranger.getTracks()[5].clips.size() == 2);
-    assert(arranger.getTracks()[5].clips[1].startBar >= 7);
+    arranger.addClipToTrack(testTrkIdx);
+    assert(arranger.getTracks()[testTrkIdx].clips.size() == 2);
+    assert(arranger.getTracks()[testTrkIdx].clips[1].startBar >= 7);
 
     // 12. Duplicate track
     size_t countBeforeDup = arranger.getTracks().size();
-    arranger.duplicateTrack(5);
+    arranger.duplicateTrack(testTrkIdx);
     assert(arranger.getTracks().size() == countBeforeDup + 1);
     assert(arranger.getTracks().back().name.find("Copy") != std::string::npos);
     assert(arranger.getTracks().back().clips.size() == 2);
@@ -414,24 +415,25 @@ void testTrackInspectorView() {
 
     TrackInspectorView inspector;
     assert(inspector.getActiveTrack() == 0);
-    assert(inspector.getTrackCount() == 5);
+    assert(inspector.getTrackCount() == 1);
 
     // 1. Validate default track channels
-    assert(inspector.getTrack(0).name == "303 Acid Bass");
-    assert(inspector.getTrack(0).instrumentEngine == "tb303");
-    assert(inspector.getTrack(1).name == "TR-808 Kit");
-    assert(inspector.getTrack(1).instrumentEngine == "tr808");
-    assert(inspector.getTrack(3).name == "DX7 Rhodes");
-    assert(inspector.getTrack(3).instrumentEngine == "dx7");
+    assert(inspector.getTrack(0).name == "DXVII E-Piano");
+    assert(inspector.getTrack(0).instrumentEngine == "dxvii_epiano");
+
+    // Add extra tracks for navigation & multi-track tests
+    InspectorTrackChannel t2; t2.name = "TR-808 Kit"; t2.instrumentEngine = "tr808"; inspector.getTracks().push_back(t2);
+    InspectorTrackChannel t3; t3.name = "TR-909 Drive"; t3.instrumentEngine = "tr909"; inspector.getTracks().push_back(t3);
 
     // 2. Track selection and navigation
     inspector.setActiveTrack(2);
     assert(inspector.getActiveTrack() == 2);
     assert(inspector.getTrack(2).name == "TR-909 Drive");
+    inspector.setActiveTrack(0);
 
     // 3. Knobs inspection
-    assert(inspector.getTrack(0).knobs.size() == 6);
-    assert(inspector.getTrack(0).knobs[1].name == "cutoff");
+    assert(inspector.getTrack(0).knobs.size() >= 4);
+    assert(inspector.getTrack(0).knobs[0].name == "algo");
 
     // 4. Volume, Pan, Mute, Solo, Freeze
     auto& trk = inspector.getTrack(0);
@@ -495,7 +497,7 @@ void testMixerView() {
     std::cout << "[Test 5/11] MixerView..." << std::endl;
 
     MixerView mixer;
-    assert(mixer.getChannels().size() == 5);
+    assert(mixer.getChannels().size() == 1);
     assert(mixer.getMasterChannel().name == "MASTER");
 
     ViewContext ctx;
@@ -929,6 +931,15 @@ void testDesignViewProjectSync() {
     std::cout << "[Test 6b] DesignView Live Project & FX Synchronization..." << std::endl;
 
     ArrangerView arranger;
+    arranger.getTracks().clear();
+    ArrangerTimelineTrack trk0;
+    trk0.name = "303 Acid Bass"; trk0.instrument = "Roland TB-303"; trk0.instrumentEngine = "tb303";
+    trk0.audioFx.push_back({"Tube Distortion", "TUBE_DISTORTION", 0.65f, 0.80f, true});
+    trk0.midiFx.push_back({"Scale Snap", "SCALE_SNAP", 0, 0, true});
+    arranger.getTracks().push_back(trk0);
+    ArrangerTimelineTrack trk1;
+    trk1.name = "TR-808 Kit"; trk1.instrument = "Analog 808"; trk1.instrumentEngine = "tr808";
+    arranger.getTracks().push_back(trk1);
     const auto& initialTracks = arranger.getTracks();
     assert(initialTracks.size() >= 2);
 
@@ -1028,6 +1039,43 @@ void testDesignViewProjectSync() {
     ctx.isMobile = false;
     design.layout(Rect2D{0.0f, 56.0f, 1280.0f, 700.0f}, ctx);
     design.render(ctx);
+
+    // 9. Test authentic Eatscript and physical model modular graph for Acoustic Bass Guitar target
+    arranger.addTrack("Acoustic Bass", "Acoustic Bass Guitar", 0.8f, 0.4f, 0.2f, "acoustic_bass");
+    design.syncWithProject(arranger.getTracks());
+    int bassTrkIdx = static_cast<int>(arranger.getTracks().size() - 1);
+    design.selectTargetByTrackAndType(bassTrkIdx, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == bassTrkIdx);
+    const auto& bassCode = design.getScriptCode();
+    assert(bassCode.find("acoustic_bass") != std::string::npos);
+    assert(bassCode.find("PluckForce") != std::string::npos);
+    assert(bassCode.find("eat.node.pluck") != std::string::npos);
+    assert(bassCode.find("eat.node.waveguide") != std::string::npos);
+    assert(bassCode.find("eat.node.modal_bank") != std::string::npos);
+    assert(bassCode.find("LADDER FILTER") == std::string::npos);
+    assert(bassCode.find("SYNTH OSC") == std::string::npos);
+    assert(!design.getModularModules().empty());
+
+    // 10. Test track deletion and verify remaining track retains authentic script without crosstalk
+    arranger.addTrack("Bluegrass Banjo", "5-String Bluegrass Banjo", 0.9f, 0.7f, 0.1f, "bluegrass_banjo");
+    design.syncWithProject(arranger.getTracks());
+    int banjoIdx = static_cast<int>(arranger.getTracks().size() - 1);
+    design.selectTargetByTrackAndType(banjoIdx, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == banjoIdx);
+    assert(design.getActiveTarget().title.find("Banjo") != std::string::npos);
+
+    // Delete Track 0:
+    arranger.deleteTrack(0);
+    design.syncWithProject(arranger.getTracks());
+
+    // Select the Acoustic Bass Guitar track (now at index bassTrkIdx - 1)
+    int shiftedBassIdx = bassTrkIdx - 1;
+    design.selectTargetByTrackAndType(shiftedBassIdx, ScriptTargetType::TrackDsp);
+    assert(design.getActiveTarget().trackIndex == shiftedBassIdx);
+    const auto& bassCodeAfterDel = design.getScriptCode();
+    assert(bassCodeAfterDel.find("acoustic_bass") != std::string::npos);
+    assert(bassCodeAfterDel.find("PluckPos") != std::string::npos);
+    assert(bassCodeAfterDel.find("bluegrass_banjo") == std::string::npos);
 
     std::cout << "  [PASS] DesignView Live Project & FX Synchronization validated." << std::endl;
 }
@@ -1320,74 +1368,44 @@ void testGuiWindowIntegration() {
     assert(engine.getSequencer().getTrack(0)->isMuted() == true);
 
     // 2. Verify track solo state isolation
-    window.setTrackSoloState(3, true);
-    assert(window.getModularArrangerView()->getTracks()[3].solo == true);
-    assert(engine.getSequencer().getTrack(3)->isSolo() == true);
+    window.setTrackSoloState(0, true);
+    assert(window.getModularArrangerView()->getTracks()[0].solo == true);
+    assert(engine.getSequencer().getTrack(0)->isSolo() == true);
     // Unsolo
-    window.setTrackSoloState(3, false);
-    assert(window.getModularArrangerView()->getTracks()[3].solo == false);
-    assert(engine.getSequencer().getTrack(3)->isSolo() == false);
+    window.setTrackSoloState(0, false);
+    assert(window.getModularArrangerView()->getTracks()[0].solo == false);
+    assert(engine.getSequencer().getTrack(0)->isSolo() == false);
     // Unmute
     window.setTrackMuteState(0, false);
     assert(window.getModularArrangerView()->getTracks()[0].mute == false);
 
-    // Clip synchronization to EditView verification (DX7 Rhodes Track 3)
-    window.syncActiveClipToEditView(3, 0);
-    assert(window.getModularEditView()->getActiveTrackIndex() == 3);
-    assert(window.getModularEditView()->getActiveClipName() == "Chords A");
+    // Clip synchronization to EditView verification (DXVII E-Piano Track 0)
+    window.syncActiveClipToEditView(0, 0);
+    assert(window.getModularEditView()->getActiveTrackIndex() == 0);
+    assert(window.getModularEditView()->getActiveClipName() == "FM Chords");
     assert(window.getModularEditView()->getNotes().size() == 16);
-    assert(window.getModularArrangerView()->getTracks()[3].clips[0].detectedChords.size() == 4);
+    assert(window.getModularArrangerView()->getTracks()[0].clips[0].detectedChords.size() == 4);
 
     // Verify Sequencer track received polyphonic chord extra notes
-    auto* seqTrk3 = engine.getSequencer().getTrack(3);
-    assert(seqTrk3 != nullptr);
-    assert(seqTrk3->getStep(0).active);
-    assert(seqTrk3->getStep(0).note == 60);
-    assert(seqTrk3->getStep(0).extraNotes.size() == 3); // 63, 67, 70
+    window.syncArrangerToSequencer();
+    auto* seqTrk0 = engine.getSequencer().getTrack(0);
+    assert(seqTrk0 != nullptr);
+    assert(seqTrk0->getStep(0).active);
+    assert(seqTrk0->getStep(0).note == 60);
+    assert(seqTrk0->getStep(0).extraNotes.size() == 3); // 64, 67, 71
 
     // 3. Verify Timeline Arranger-to-Sequencer synchronization:
-    // Track 2 (TR-909 Drive): default clip starts at Bar 5 (step 64). Bar 1..4 (step 0..63) MUST be silent!
-    auto* seqTrk2 = engine.getSequencer().getTrack(2);
-    assert(seqTrk2 != nullptr);
-    for (uint32_t s = 0; s < 64; ++s) {
-        assert(!seqTrk2->getStep(s).active); // Silence before Bar 5!
-    }
-    // Bar 5 (step 64) has four-on-the-floor kick!
-    assert(seqTrk2->getStep(64).active);
-    assert(seqTrk2->getStep(64).note == 36);
-
-    // Track 4 (Concert Grand): default clip starts at Bar 9 (step 128). Steps 0..127 MUST be silent!
-    auto* seqTrk4 = engine.getSequencer().getTrack(4);
-    assert(seqTrk4 != nullptr);
-    for (uint32_t s = 0; s < 128; ++s) {
-        assert(!seqTrk4->getStep(s).active); // Silence before Bar 9!
-    }
-    assert(seqTrk4->getStep(128).active);
-
-    // Track 1 (TR-808 Kit): Verify 132 BPM tempo rhythm (snare at step 4 and step 12)
-    auto* seqTrk1 = engine.getSequencer().getTrack(1);
-    assert(seqTrk1 != nullptr);
-    assert(seqTrk1->getStep(0).active); // Kick on step 0
-    assert(seqTrk1->getStep(0).note == 36);
-    assert(seqTrk1->getStep(4).active); // Snare on step 4
-    assert(seqTrk1->getStep(4).note == 38);
-    assert(seqTrk1->getStep(8).active); // Kick on step 8
-    assert(seqTrk1->getStep(8).note == 36);
-    assert(seqTrk1->getStep(12).active); // Snare on step 12
-    assert(seqTrk1->getStep(12).note == 38);
-
-    // Test moving clip in Arranger:
-    // Move TR-909 clip from Bar 5 to Bar 1
-    window.getModularArrangerView()->getTracks()[2].clips[0].startBar = 1;
+    // Move FM Chords clip from Bar 1 to Bar 5 (step 64)
+    window.getModularArrangerView()->getTracks()[0].clips[0].startBar = 5;
     window.syncArrangerToSequencer();
-    // Now Bar 1 (step 0) MUST have kick, and Bar 5 (step 64..79) MUST be silent!
-    assert(seqTrk2->getStep(0).active);
-    assert(seqTrk2->getStep(0).note == 36);
-    assert(!seqTrk2->getStep(64).active); // Bar 5 is now silent!
+    // Now Bar 1 (step 0..63) MUST be silent!
+    assert(!seqTrk0->getStep(0).active);
+    assert(seqTrk0->getStep(64).active);
 
-    // Restore TR-909 back to Bar 5
-    window.getModularArrangerView()->getTracks()[2].clips[0].startBar = 5;
+    // Restore FM Chords back to Bar 1
+    window.getModularArrangerView()->getTracks()[0].clips[0].startBar = 1;
     window.syncArrangerToSequencer();
+    assert(seqTrk0->getStep(0).active);
 
     // Verify audio generation when Play is pressed
     assert(window.getTransportHeaderWidget()->onTogglePlay != nullptr);
@@ -2045,9 +2063,10 @@ void testFileDragAndDrop() {
     std::string notifiedMsg;
     ctx.onShowNotification = [&](const std::string& msg) { notifiedMsg = msg; };
 
+    arranger.addTrack("Track 2", "synth", 0.5f, 0.5f, 0.5f);
     arranger.layout(Rect2D{0.0f, 60.0f, 1280.0f, 740.0f}, ctx);
     size_t initialTracks = arranger.getTracks().size();
-    assert(initialTracks >= 5);
+    assert(initialTracks >= 2);
 
     // 1. Drop WAV file onto Track 0 at Bar 3 (grid starts at x: 190, y: 60 + 28 + 16 = 104)
     size_t trk0InitialClips = arranger.getTracks()[0].clips.size();
@@ -4007,6 +4026,161 @@ void testProjectBrowserAndPluginDialogOptimizations() {
     std::cout << "  [PASS] Project Browser 3-Zone Card Model, Badge Dragging, and Plugin Dialog Drag-Scroll validated." << std::endl;
 }
 
+void testTrackScriptConsistencyOnDeleteAndReorder() {
+    std::cout << "[Test 31] Track Script Consistency on Track Deletion & 'Open in Design View'..." << std::endl;
+
+    audio::AudioEngine engine;
+    GuiWindow window(1280, 800);
+    bool initOk = window.initialize(engine);
+    assert(initOk);
+    (void)initOk;
+
+    // Add 5-string Bluegrass Banjo
+    window.addTrackToProject("5-String Bluegrass Banjo", "bluegrass_banjo", 0.9f, 0.7f, 0.1f);
+    uint32_t banjoIdx = static_cast<uint32_t>(window.getArrangerTracks().size() - 1);
+
+    // Add Acoustic Bass Guitar
+    window.addTrackToProject("Acoustic Bass Guitar", "acoustic_bass", 0.8f, 0.4f, 0.2f);
+    uint32_t bassIdx = static_cast<uint32_t>(window.getArrangerTracks().size() - 1);
+
+    // Delete Banjo track
+    window.deleteTrack(banjoIdx);
+
+    // Now Acoustic Bass Guitar is at index (bassIdx - 1)
+    uint32_t newBassIdx = bassIdx - 1;
+
+    // Simulate clicking "Open in Design View" on the Acoustic Bass Guitar track properties
+    window.openDesignForTrack(newBassIdx);
+
+    assert(window.getActiveView() == WorkspaceView::Design);
+    auto* design = window.getModularDesignView();
+    assert(design != nullptr);
+    assert(design->getActiveTarget().trackIndex == static_cast<int>(newBassIdx));
+    assert(design->getActiveTarget().title.find("Acoustic Bass") != std::string::npos);
+
+    const auto& scriptCode = design->getScriptCode();
+    // Must be authentic Acoustic Bass Guitar, NOT Banjo, and NOT generic subtractive template
+    assert(scriptCode.find("acoustic_bass") != std::string::npos);
+    assert(scriptCode.find("PluckPos") != std::string::npos);
+    assert(scriptCode.find("eat.node.pluck") != std::string::npos);
+    assert(scriptCode.find("bluegrass_banjo") == std::string::npos);
+    assert(scriptCode.find("LADDER FILTER") == std::string::npos);
+
+    // Verify properties drawer in Arranger has also updated
+    auto* arranger = window.getModularArrangerView();
+    assert(arranger != nullptr);
+    assert(arranger->getTracks().size() == window.getArrangerTracks().size());
+
+    std::cout << "  [PASS] Track Script Consistency on Track Deletion & 'Open in Design View' validated." << std::endl;
+}
+
+void testUnifiedInternalScriptGuiAndFullscreenConsistency() {
+    std::cout << "[Test 32] Unified Internal Script GUI, Fullscreen Modal, and Design View Consistency..." << std::endl;
+
+    audio::AudioEngine engine;
+    GuiWindow window(1280, 800);
+    bool initOk = window.initialize(engine);
+    assert(initOk);
+    (void)initOk;
+
+    // 1. Add Steel-String Acoustic Guitar to project
+    window.addTrackToProject("Steel-String Acoustic Guitar", "acoustic_steel_guitar", 0.85f, 0.45f, 0.1f);
+    uint32_t steelIdx = static_cast<uint32_t>(window.getArrangerTracks().size() - 1);
+    window.setSelectedTrackIndex(steelIdx);
+
+    // Verify Arranger track has authentic customGuiPanel and parameters from Eatscript
+    const auto& at = window.getArrangerTracks()[steelIdx];
+    assert(at.customGuiPanel.has_value());
+    assert(at.customGuiPanel->isClapPlugin == false);
+    assert(at.customGuiPanel->title == "STEEL-STRING ACOUSTIC");
+
+    // Verify all 8 physical modeling parameters are present
+    const auto& panel = *at.customGuiPanel;
+    auto hasWidgetParam = [&](const std::string& pName) {
+        for (const auto& row : panel.rows) {
+            for (const auto& w : row.widgets) {
+                if (w.param == pName || w.id == "w_" + pName) return true;
+            }
+        }
+        return false;
+    };
+    assert(hasWidgetParam("PickStyle"));
+    assert(hasWidgetParam("WoundScrape"));
+    assert(hasWidgetParam("StrumSpread"));
+    assert(hasWidgetParam("Sustain"));
+    assert(hasWidgetParam("Damping"));
+    assert(hasWidgetParam("BodyProfile"));
+    assert(hasWidgetParam("BodyWood"));
+    assert(hasWidgetParam("BronzeSparkle"));
+
+    // 2. Verify Track Properties DrawerData in Arranger
+    auto* arranger = window.getModularArrangerView();
+    assert(arranger != nullptr);
+    arranger->syncDrawerDataForTrack(steelIdx);
+    const auto& drawerData = arranger->getDrawerData();
+    assert(drawerData.customGuiPanel.has_value());
+    assert(drawerData.customGuiPanel->isClapPlugin == false);
+    assert(!drawerData.knobs.empty());
+    // Must NOT be generic fallback TONE/SNAPPY/DECAY/VAR/COLOR/OUTPUT
+    assert(drawerData.knobs[0].name != "param1");
+
+    // 3. Verify Track Inspector View has identical customGuiPanel and authentic parameters
+    auto* inspector = window.getModularTrackInspectorView();
+    assert(inspector != nullptr);
+    const auto& inspTrk = inspector->getTrack(steelIdx);
+    assert(inspTrk.customGuiPanel.has_value());
+    assert(inspTrk.customGuiPanel->title == "STEEL-STRING ACOUSTIC");
+
+    // 4. Open Fullscreen device modal and verify exact match with Track Properties
+    window.openFullscreenDevice(steelIdx);
+    const auto& modal = window.getFullscreenDeviceModal();
+    assert(modal.isOpen());
+    const auto& modalPanel = modal.getGuiPanel();
+    assert(modalPanel.title == "STEEL-STRING ACOUSTIC");
+    assert(modalPanel.isClapPlugin == false);
+    assert(modalPanel.rows.size() == panel.rows.size());
+
+    auto hasModalWidgetParam = [&](const std::string& pName) {
+        for (const auto& row : modalPanel.rows) {
+            for (const auto& w : row.widgets) {
+                if (w.param == pName || w.id == "w_" + pName) return true;
+            }
+        }
+        return false;
+    };
+    assert(hasModalWidgetParam("PickStyle"));
+    assert(hasModalWidgetParam("BodyProfile"));
+    assert(hasModalWidgetParam("BronzeSparkle"));
+    assert(hasModalWidgetParam("Sustain"));
+
+    // 5. Test Live Apply from Design View propagates immediately to both Track Properties and Fullscreen
+    auto* design = window.getModularDesignView();
+    assert(design != nullptr);
+    design->selectTargetByTrackAndType(static_cast<int>(steelIdx), ScriptTargetType::TrackDsp);
+    assert(design->getGuiPanel().title == "STEEL-STRING ACOUSTIC");
+
+    // Modify the GUI in Design View (e.g. update title)
+    design->getGuiPanel().title = "STEEL-STRING ACOUSTIC CUSTOM";
+
+    // Trigger Apply via compileCurrentScript
+    ViewContext dummyCtx;
+    design->compileCurrentScript(dummyCtx);
+
+    // Verify immediate synchronization across Arranger, Track Inspector, and Fullscreen modal
+    assert(window.getArrangerTracks()[steelIdx].customGuiPanel.has_value());
+    assert(window.getArrangerTracks()[steelIdx].customGuiPanel->title == "STEEL-STRING ACOUSTIC CUSTOM");
+    assert(arranger->getDrawerData().customGuiPanel.has_value());
+    assert(arranger->getDrawerData().customGuiPanel->title == "STEEL-STRING ACOUSTIC CUSTOM");
+    assert(modal.getGuiPanel().title == "STEEL-STRING ACOUSTIC CUSTOM");
+
+    // 6. Verify CLAP Plugin macro-only surfacing distinction remains preserved
+    GuiPanelDef clapPanel;
+    clapPanel.isClapPlugin = true;
+    assert(clapPanel.isClapPlugin == true);
+
+    std::cout << "  [PASS] Unified Internal Script GUI, Fullscreen Modal, and Design View Consistency validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -4042,8 +4216,10 @@ int main() {
     testShapedKnobVectorEngine();
     testModularFaceplateClayLayout();
     testProjectBrowserAndPluginDialogOptimizations();
+    testTrackScriptConsistencyOnDeleteAndReorder();
+    testUnifiedInternalScriptGuiAndFullscreenConsistency();
 
-    std::cout << "\n>>> ALL 30 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 32 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

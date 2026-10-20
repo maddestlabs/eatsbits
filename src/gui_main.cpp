@@ -75,9 +75,9 @@ int main(int /*argc*/, char** /*argv*/) {
         std::cerr << "[Audio] Warning: Failed to open hardware audio output. Running in headless audio mode." << std::endl;
     }
 
-    std::cout << "[Modular] Configuring DX7 Rhodes + Concert Grand base song..." << std::endl;
-    engine.setupDefaultRhodesGrandGraph();
-    std::cout << "[Modular] DX7 Rhodes + Concert Grand graph configured." << std::endl;
+    std::cout << "[Modular] Configuring DXVII E-Piano base song..." << std::endl;
+    engine.setupDefaultEpianoGraph();
+    std::cout << "[Modular] DXVII E-Piano graph configured." << std::endl;
 
     auto& seq = engine.getSequencer();
     seq.setBpm(116.0);
@@ -99,16 +99,14 @@ int main(int /*argc*/, char** /*argv*/) {
     // Locate node IDs
     const auto& nodes = engine.getGraph().getNodes();
     audio::NodeId dx7Id = 0;
-    audio::NodeId grandId = 0;
     for (const auto& [id, n] : nodes) {
         if (!n) continue;
         if (n->getName() == "Dx7Rhodes") dx7Id = id;
-        else if (n->getName() == "ConcertGrand") grandId = id;
     }
 
-    // Track 1: DX7 Rhodes (128 steps / 8 bars, polyphonic comping chords synced to chord track)
+    // Track 1: DXVII E-Piano (128 steps / 8 bars, polyphonic comping chords synced to chord track)
     if (dx7Id != 0) {
-        size_t t0 = seq.addTrack("DX7 Rhodes", dx7Id, 128);
+        size_t t0 = seq.addTrack("DXVII E-Piano", dx7Id, 128);
         auto* tr0 = seq.getTrack(t0);
         tr0->setChordFollowMode(theory::ChordFollowMode::Chord);
 
@@ -200,49 +198,6 @@ int main(int /*argc*/, char** /*argv*/) {
         sequencer::StepData h23{};
         h23.active = true; h23.note = 60; h23.extraNotes = {64, 67, 71}; h23.velocity = 0.80f; h23.gateLength = 3.5f;
         tr0->setStep(124, h23);
-    }
-
-    // Track 2: Concert Grand (128 steps / 8 bars, expressive arpeggios and piano accompaniment)
-    if (grandId != 0) {
-        size_t t1 = seq.addTrack("Concert Grand", grandId, 128);
-        auto* tr1 = seq.getTrack(t1);
-        tr1->setChordFollowMode(theory::ChordFollowMode::Chord);
-
-        // Broken chord arpeggiated accompaniment pattern across 8 bars
-        const struct { uint32_t s; uint8_t n; float v; float g; } grandSteps[] = {
-            // Bar 1
-            {0, 36, 0.85f, 1.9f}, {2, 60, 0.70f, 1.8f}, {4, 64, 0.75f, 1.8f}, {6, 67, 0.78f, 1.8f},
-            {8, 72, 0.80f, 1.8f}, {10, 67, 0.72f, 1.8f}, {12, 64, 0.74f, 1.8f}, {14, 60, 0.70f, 1.8f},
-            // Bar 2
-            {16, 36, 0.82f, 1.9f}, {18, 64, 0.72f, 1.8f}, {20, 67, 0.76f, 1.8f}, {22, 71, 0.82f, 1.8f},
-            {24, 76, 0.85f, 1.8f}, {26, 72, 0.75f, 1.8f}, {28, 67, 0.72f, 1.8f}, {30, 64, 0.68f, 1.8f},
-            // Bar 3
-            {32, 36, 0.88f, 1.9f}, {34, 60, 0.70f, 1.8f}, {36, 64, 0.75f, 1.8f}, {38, 67, 0.78f, 1.8f},
-            {40, 72, 0.82f, 1.8f}, {42, 67, 0.74f, 1.8f}, {44, 64, 0.72f, 1.8f}, {46, 60, 0.70f, 1.8f},
-            // Bar 4
-            {48, 36, 0.84f, 1.9f}, {50, 64, 0.72f, 1.8f}, {52, 67, 0.76f, 1.8f}, {54, 71, 0.80f, 1.8f},
-            {56, 76, 0.86f, 1.8f}, {58, 72, 0.75f, 1.8f}, {60, 67, 0.74f, 1.8f}, {62, 64, 0.70f, 1.8f},
-            // Bar 5
-            {64, 36, 0.88f, 1.9f}, {66, 60, 0.72f, 1.8f}, {68, 64, 0.76f, 1.8f}, {70, 67, 0.80f, 1.8f},
-            {72, 72, 0.85f, 1.8f}, {74, 67, 0.75f, 1.8f}, {76, 64, 0.72f, 1.8f}, {78, 60, 0.70f, 1.8f},
-            // Bar 6
-            {80, 36, 0.85f, 1.9f}, {82, 64, 0.74f, 1.8f}, {84, 67, 0.78f, 1.8f}, {86, 71, 0.82f, 1.8f},
-            {88, 76, 0.88f, 1.8f}, {90, 72, 0.76f, 1.8f}, {92, 67, 0.74f, 1.8f}, {94, 64, 0.70f, 1.8f},
-            // Bar 7
-            {96, 36, 0.90f, 1.9f}, {98, 60, 0.72f, 1.8f}, {100, 64, 0.76f, 1.8f}, {102, 67, 0.80f, 1.8f},
-            {104, 72, 0.86f, 1.8f}, {106, 67, 0.75f, 1.8f}, {108, 64, 0.72f, 1.8f}, {110, 60, 0.70f, 1.8f},
-            // Bar 8
-            {112, 36, 0.86f, 1.9f}, {114, 64, 0.74f, 1.8f}, {116, 67, 0.78f, 1.8f}, {118, 71, 0.84f, 1.8f},
-            {120, 76, 0.90f, 1.8f}, {122, 72, 0.78f, 1.8f}, {124, 67, 0.75f, 1.8f}, {126, 64, 0.72f, 1.8f}
-        };
-        for (const auto& gs : grandSteps) {
-            sequencer::StepData st{};
-            st.active = true;
-            st.note = gs.n;
-            st.velocity = gs.v;
-            st.gateLength = gs.g;
-            tr1->setStep(gs.s, st);
-        }
     }
 
     // Audio sequencer starts in stopped state; user initiates playback via Play transport button or Spacebar

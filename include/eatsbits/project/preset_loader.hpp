@@ -157,6 +157,7 @@ public:
     static PresetDefinition createStereoDelayPreset();
     static PresetDefinition createConcertGrandPianoPreset();
     static PresetDefinition createUprightBassPreset();
+    static PresetDefinition createAcousticBassPreset();
     static PresetDefinition createSpanishGuitarPreset();
     static PresetDefinition createSteelAcousticGuitarPreset();
     static PresetDefinition createAstralShimmerPadPreset();

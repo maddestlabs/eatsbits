@@ -332,6 +332,42 @@ void AudioEngine::setupDefaultRhodesGrandGraph() {
     engineMode_ = SynthEngineMode::ModularGraph;
 }
 
+void AudioEngine::setupDefaultEpianoGraph() {
+    graph_.clear();
+    invalidateTrackStripCache();
+
+    // Track 1 (Index 0): DXVII E-Piano (6-Operator FM Synthesizer)
+    auto dx7 = std::make_shared<Dx7Node>("Dx7Rhodes");
+    auto dx7Strip = std::make_shared<GainNode>("Track1_Gain");
+    dx7Strip->setVolume(0.85f);
+
+    // Master Output
+    auto masterGain = std::make_shared<GainNode>("MasterOut");
+    masterGain->setVolume(0.85f);
+
+    NodeId dx7Id = graph_.addNode(dx7);
+    NodeId dx7StripId = graph_.addNode(dx7Strip);
+    NodeId masterId = graph_.addNode(masterGain);
+
+    // Route Track 1 (Dx7): Dx7Rhodes -> Track1_Gain -> MasterOut
+    graph_.connect(dx7Id, 0, dx7StripId, 0);
+    graph_.connect(dx7StripId, 0, masterId, 0);
+
+    // Register Source Nodes & Strip Caches
+    trackSourceNodeCache_[0] = dx7Id;
+    trackFxNodeIds_[0] = {};
+    trackFxConfigs_[0] = {};
+
+    for (const auto& [t, srcId] : trackSourceNodeCache_) {
+        if (t < sequencer_.getNumTracks() && sequencer_.getTrack(t)) {
+            sequencer_.getTrack(t)->setTargetNodeId(srcId);
+        }
+    }
+
+    graph_.setOutputNode(masterId, 0);
+    engineMode_ = SynthEngineMode::ModularGraph;
+}
+
 bool AudioEngine::start() {
     if (!isInitialized_ || !impl_->deviceInitialized) return false;
     if (isRunning_) return true;

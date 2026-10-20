@@ -14,6 +14,7 @@
 namespace eatsbits::ui {
 
 struct InspectorTrackChannel {
+    std::string id{""};
     std::string name{"303 Acid Bass"};
     std::string type{"SYNTH"};
     float r{1.0f}, g{0.55f}, b{0.0f};
@@ -24,6 +25,7 @@ struct InspectorTrackChannel {
     bool freeze{false};
     std::string instrument{"Roland TB-303"};
     std::string instrumentEngine{"tb303"}; // "tb303", "tr808", "tr909", "dx7", "snes", "c64", "convolver", "piano"
+    std::string eatscriptCode{""};
     ChordFollowMode chordFollowMode{ChordFollowMode::Off};
     std::vector<InspectorKnobDef> knobs;
     TrackMidiFxData midiFx;
@@ -129,6 +131,7 @@ public:
     std::function<void(uint32_t trackIdx, bool freeze)> onFreezeToggled;
     std::function<void(uint32_t trackIdx, float r, float g, float b)> onColorChanged;
     std::function<void(uint32_t trackIdx)> onOpenCodeEditor;
+    std::function<void(uint32_t trackIndex)> onOpenDesign;
     std::function<void(uint32_t trackIdx)> onChangeInstrument;
     std::function<void(uint32_t trackIdx, const std::string& instrumentId, const std::string& instrumentName)> onInstrumentChanged;
     std::function<void()> onPrevPreset;

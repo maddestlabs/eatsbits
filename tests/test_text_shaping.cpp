@@ -245,33 +245,30 @@ static void testGlyphAtlas() {
     atlas.clearDirty();
     TEST_ASSERT(!atlas.isDirty());
 
-    // 2. Fetch same glyph with same subpixel bin -> must be cache hit!
-    const AtlasGlyph* g0_cached = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.05f); // 0.05 rounds to bin 0
-    TEST_ASSERT(g0_cached == g0);
+    // 2. Fetch same glyph again with different fractional positions -> must be cache hits!
+    const AtlasGlyph* g0_cached1 = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.25f);
+    TEST_ASSERT(g0_cached1 == g0);
     TEST_ASSERT(atlas.getCacheHits() == 1);
     TEST_ASSERT(atlas.getCacheMisses() == 1);
     TEST_ASSERT(!atlas.isDirty()); // Cache hit should not dirty atlas texture
 
-    // 3. Fetch with subpixel bin 1 (0.25f) -> cache miss, distinct rasterization
-    const AtlasGlyph* g1 = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.25f);
-    TEST_ASSERT(g1 != nullptr);
+    const AtlasGlyph* g0_cached2 = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.75f);
+    TEST_ASSERT(g0_cached2 == g0);
+    TEST_ASSERT(atlas.getCacheHits() == 2);
+    TEST_ASSERT(atlas.getCacheMisses() == 1);
+
+    // Rasterize character 'B' -> should allocate a second glyph slot cleanly
+    uint32_t glyphB = FT_Get_Char_Index(face, 'B');
+    TEST_ASSERT(glyphB > 0);
+    const AtlasGlyph* gb = atlas.getOrLoadGlyph(mgr, fontId, glyphB, 20.0f, 0.0f);
+    TEST_ASSERT(gb != nullptr);
     TEST_ASSERT(atlas.getCacheMisses() == 2);
     TEST_ASSERT(atlas.isDirty());
-    TEST_ASSERT(g1->atlasX != g0->atlasX || g1->atlasY != g0->atlasY);
+    TEST_ASSERT(gb->atlasX != g0->atlasX || gb->atlasY != g0->atlasY);
 
-    // 4. Fetch with subpixel bin 2 (0.50f)
-    const AtlasGlyph* g2 = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.50f);
-    TEST_ASSERT(g2 != nullptr);
-    TEST_ASSERT(atlas.getCacheMisses() == 3);
-
-    // 5. Fetch with subpixel bin 3 (0.75f)
-    const AtlasGlyph* g3 = atlas.getOrLoadGlyph(mgr, fontId, glyphA, 20.0f, 0.75f);
-    TEST_ASSERT(g3 != nullptr);
-    TEST_ASSERT(atlas.getCacheMisses() == 4);
-
-    TEST_ASSERT(atlas.getCachedGlyphCount() == 4);
+    TEST_ASSERT(atlas.getCachedGlyphCount() == 2);
     std::cout << "  GlyphAtlas cached " << atlas.getCachedGlyphCount()
-              << " subpixel variations with hits=" << atlas.getCacheHits()
+              << " unique glyphs with hits=" << atlas.getCacheHits()
               << ", misses=" << atlas.getCacheMisses() << "." << std::endl;
 }
 

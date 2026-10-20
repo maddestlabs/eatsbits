@@ -428,6 +428,13 @@ const PresetItem* PresetManager::findPreset(const std::string& id) const {
     if (it != idToIndex_.end()) {
         return &presets_[it->second];
     }
+    // Backward compatibility alias for legacy dx7_epiano ID
+    if (id == "dx7_epiano") {
+        auto itDx = idToIndex_.find("dxvii_epiano");
+        if (itDx != idToIndex_.end()) {
+            return &presets_[itDx->second];
+        }
+    }
     return nullptr;
 }
 

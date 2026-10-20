@@ -69,12 +69,12 @@ void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
             trackColor_ = Color(1.0f, 0.16f, 0.43f); // Pink/Red
             break;
         case 3:
-            activeTrackName_ = "DX7 Rhodes";
+            activeTrackName_ = "DXVII E-Piano";
             trackColor_ = Color(0.62f, 0.31f, 0.87f); // Purple
             break;
         case 4:
-            activeTrackName_ = "Concert Grand";
-            trackColor_ = Color(0.88f, 0.66f, 0.43f); // Warm Gold
+            activeTrackName_ = "Acoustic Bass";
+            trackColor_ = Color(0.83f, 0.69f, 0.22f); // Gold / Amber
             break;
         default:
             activeTrackName_ = "Track " + std::to_string(idx + 1);
@@ -910,6 +910,41 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
                                  std::max(0.0f, contentBounds_.w - 20.0f),
                                  std::max(60.0f, contentBounds_.h - 74.0f));
     scriptEditor_.layout(scriptEditorBounds_, ctx);
+
+    // Sub-view Switcher & Ghost/Bake Tool Buttons in Top Header Bar
+    float btnH = 26.0f;
+    float btnY = headerBounds_.y + (headerBounds_.h - btnH) * 0.5f;
+
+    float rightMargin = (headerBounds_.w >= 1200.0f) ? 22.0f : 10.0f;
+    float btnW = (headerBounds_.w >= 1200.0f) ? 98.0f : ((headerBounds_.w < 900.0f || ctx.isMobile) ? 58.0f : 80.0f);
+    float btnGap = (headerBounds_.w >= 1200.0f) ? 12.0f : 6.0f;
+
+    float curRightX = headerBounds_.x + headerBounds_.w - rightMargin;
+
+    curRightX -= btnW;
+    btnScript_ = Rect2D(curRightX, btnY, btnW, btnH);
+
+    curRightX -= (btnGap + btnW);
+    btnScore_ = Rect2D(curRightX, btnY, btnW, btnH);
+
+    curRightX -= (btnGap + btnW);
+    btnTracker_ = Rect2D(curRightX, btnY, btnW, btnH);
+
+    curRightX -= (btnGap + btnW);
+    btnPianoRoll_ = Rect2D(curRightX, btnY, btnW, btnH);
+
+    float toolRightX = btnPianoRoll_.x - 16.0f;
+    float ghostSliderW = 46.0f;
+    toolRightX -= ghostSliderW;
+    ghostSliderBounds_ = Rect2D(toolRightX, btnY, ghostSliderW, btnH);
+
+    float ghostToggleW = 50.0f;
+    toolRightX -= (ghostToggleW + 4.0f);
+    ghostToggleBtn_ = Rect2D(toolRightX, btnY, ghostToggleW, btnH);
+
+    float bakeW = 74.0f;
+    toolRightX -= (bakeW + 8.0f);
+    btnBake_ = Rect2D(toolRightX, btnY, bakeW, btnH);
 }
 
 void EditView::render(const ViewContext& ctx) {
@@ -1008,11 +1043,11 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
             drawRoundedRect(r, b.x, b.y, b.w, b.h, 4.0f, accent * 0.35f, 0.95f);
             drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 4.0f, accent, 1.0f, 1.5f);
             drawLine(r, b.x + 3.0f, b.y + b.h - 2.0f, b.x + b.w - 3.0f, b.y + b.h - 2.0f, accent, 1.0f, 2.0f);
-            drawText(r, label, b.x + 8.0f, b.y + 7.0f, 10.0f, accent);
+            drawCenteredText(r, label, b, 10.0f, accent);
         } else {
             drawRoundedRect(r, b.x, b.y, b.w, b.h, 4.0f, theme.controlBackground, 0.85f);
             drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 4.0f, theme.borderSubtle, 0.5f, 1.0f);
-            drawText(r, label, b.x + 8.0f, b.y + 7.0f, 10.0f, theme.textMuted, 0.85f);
+            drawCenteredText(r, label, b, 10.0f, theme.textMuted);
         }
     };
 
@@ -1020,7 +1055,9 @@ void EditView::renderSubNavHeader(const ViewContext& ctx) {
     drawSubBtn(btnTracker_, ctx.isMobile ? "TRACK" : "TRACKER", subView_ == EditSubViewMode::Tracker, theme.secondaryAccent);
     drawSubBtn(btnScore_, ctx.isMobile ? "SCORE" : "SCORE", subView_ == EditSubViewMode::Score, theme.secondaryAccent);
     drawSubBtn(btnScript_, ctx.isMobile ? "SCRIPT" : "SCRIPT", subView_ == EditSubViewMode::Script, theme.primaryAccent);
-}void EditView::renderPianoRoll(const ViewContext& ctx) {
+}
+
+void EditView::renderPianoRoll(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 

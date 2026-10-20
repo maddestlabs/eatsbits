@@ -4,6 +4,8 @@
 # @description: Physical model of an acoustic bronze-wound bass guitar: soft fingertip flesh pluck with nail transient, low-frequency steel core waveguide, dreadnought hollow body modal cavity resonator, and piezo under-saddle preamp with acoustic air sparkle.
 
 # --- Parameter Definitions ---
+import math
+
 def init():
     return {
         "PluckForce": eat.param("PluckForce", 0.2, 3.0, 1.3, step=0.0),
@@ -89,6 +91,44 @@ def gui():
         },
     }
 
+# --- Modular DSP Synthesis Graph ---
+def graph():
+    pluck = eat.node.pluck(type="FLESH PLUCK", force="PluckForce", click="NailClick")
+    waveguide = eat.node.waveguide(type="BRONZE CORE", in_sig=pluck, sustain="Sustain", damping="Damping")
+    cavity = eat.node.modal_bank(type="DREADNOUGHT BODY", in_sig=waveguide, modes=[1.0, 1.62, 2.45, 3.80])
+    mix = eat.node.mixer(inputs=[waveguide, cavity, pluck], weights=[0.75, 0.45, 0.20])
+    eq = eat.node.eq(type="HIGH SHELF", in_sig=mix, freq=3800.0, gain="AcousticAir")
+    preamp = eat.node.preamp(type="PIEZO PREAMP", in_sig=eq, drive="Drive")
+    out = eat.node.out(type="MASTER OUT", in_sig=preamp, volume=0.85)
+    return out
+
 # --- Synthesizer Voice DSP Process Hook ---
 def process(time, freq, note, params):
-    return 0.0
+    pluck_force = params.get("PluckForce", 1.30)
+    nail_click = params.get("NailClick", 0.35)
+    sustain = params.get("Sustain", 0.995)
+    damping = params.get("Damping", 0.28)
+    air = params.get("AcousticAir", 1.5)
+    drive = params.get("Drive", 1.02)
+
+    t = time
+    decay = math.exp(-t * (2.2 * (1.0 - sustain * 0.98) + damping * 1.5))
+
+    # Tactile flesh pluck & nail click transient
+    flesh = math.exp(-t * 60.0) * pluck_force * 0.45
+    nail = 0.0
+    if t < 0.02:
+        nail = math.sin(t * 4200.0) * math.exp(-t * 300.0) * nail_click * 0.25
+
+    # Bronze-wound string fundamental and modal body cavity resonance
+    f0 = freq
+    fund = math.sin(2.0 * math.pi * f0 * t)
+    body1 = 0.35 * math.sin(2.0 * math.pi * f0 * 1.62 * t) * math.exp(-t * 1.8)
+    body2 = 0.20 * math.sin(2.0 * math.pi * f0 * 2.45 * t) * math.exp(-t * 2.6)
+    body3 = 0.12 * math.sin(2.0 * math.pi * f0 * 3.80 * t) * math.exp(-t * 3.8)
+
+    # High-shelf air sparkle boost & piezo preamp saturation
+    air_gain = 1.0 + (air / 12.0) * 0.35
+    raw = ((fund + body1 + body2 + body3) * decay + flesh + nail) * air_gain
+    return math.tanh(raw * drive) * 0.90
+

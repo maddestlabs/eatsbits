@@ -13,13 +13,11 @@ struct GlyphKey {
     FontId fontId{kInvalidFontId};
     uint32_t glyphIndex{0};
     uint16_t pixelSize{0};
-    uint8_t subpixelBin{0}; // 0..3 (quarter-pixel offsets: 0.0, 0.25, 0.5, 0.75)
 
     bool operator==(const GlyphKey& o) const noexcept {
         return fontId == o.fontId &&
                glyphIndex == o.glyphIndex &&
-               pixelSize == o.pixelSize &&
-               subpixelBin == o.subpixelBin;
+               pixelSize == o.pixelSize;
     }
 };
 
@@ -29,7 +27,6 @@ struct GlyphKeyHash {
         h = (h ^ static_cast<size_t>(k.fontId)) * 0x01000193;
         h = (h ^ static_cast<size_t>(k.glyphIndex)) * 0x01000193;
         h = (h ^ static_cast<size_t>(k.pixelSize)) * 0x01000193;
-        h = (h ^ static_cast<size_t>(k.subpixelBin)) * 0x01000193;
         return h;
     }
 };

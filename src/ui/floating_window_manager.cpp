@@ -198,15 +198,31 @@ void FloatingWindowManager::closeDetachedInstrument(uint32_t trackIndex) {
     auto it = windows_.find(trackIndex);
     if (it == windows_.end()) return;
 
+    if (onWindowClosed) {
+        onWindowClosed(trackIndex);
+    }
 #if !defined(__EMSCRIPTEN__)
     if (it->second.window) {
         glfwDestroyWindow(it->second.window);
     }
 #endif
     windows_.erase(it);
-    if (onWindowClosed) {
-        onWindowClosed(trackIndex);
+}
+
+const GuiPanelDef* FloatingWindowManager::getPanelDef(uint32_t trackIndex) const noexcept {
+    auto it = windows_.find(trackIndex);
+    if (it != windows_.end()) {
+        return &it->second.panelDef;
     }
+    return nullptr;
+}
+
+GuiPanelDef* FloatingWindowManager::getMutablePanelDef(uint32_t trackIndex) noexcept {
+    auto it = windows_.find(trackIndex);
+    if (it != windows_.end()) {
+        return &it->second.panelDef;
+    }
+    return nullptr;
 }
 
 void FloatingWindowManager::focusDetachedInstrument(uint32_t trackIndex) {
@@ -261,7 +277,7 @@ void FloatingWindowManager::closeAll() {
     windows_.clear();
 }
 
-void FloatingWindowManager::renderAllWindows(const ThemeTokens& theme) {
+void FloatingWindowManager::renderAllWindows(const ThemeTokens& theme, const float* scopeBuffer, size_t scopeBufferCount) {
 #if !defined(__EMSCRIPTEN__)
     if (windows_.empty()) return;
     currentTheme_ = theme;
@@ -276,13 +292,19 @@ void FloatingWindowManager::renderAllWindows(const ThemeTokens& theme) {
         info.renderer->resize(static_cast<uint32_t>(curW), static_cast<uint32_t>(curH));
         info.renderer->beginFrame(static_cast<float>(curW), static_cast<float>(curH));
         Rect2D panelRect{0.0f, 0.0f, static_cast<float>(curW), static_cast<float>(curH)};
-        drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, theme, nullptr, 0, info.draggingRow, info.draggingWidget);
+        // Localized stable lighting per detached OS window (isolated from main window CRT swaying spotlight / rumble)
+        ThemeTokens localTheme = theme;
+        localTheme.globalLight = LightSource2D(static_cast<float>(curW) * 0.5f, -180.0f, 500.0f, theme.globalLight.intensity);
+
+        drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, localTheme, scopeBuffer, scopeBufferCount, info.draggingRow, info.draggingWidget);
         info.renderer->endFrame();
         BatchRenderer2D::setActiveBatchRenderer(nullptr);
         info.isDirty = false;
     }
 #else
     (void)theme;
+    (void)scopeBuffer;
+    (void)scopeBufferCount;
 #endif
 }
 
@@ -299,7 +321,12 @@ void FloatingWindowManager::renderWindow(GLFWwindow* w) {
             info.renderer->resize(static_cast<uint32_t>(curW), static_cast<uint32_t>(curH));
             info.renderer->beginFrame(static_cast<float>(curW), static_cast<float>(curH));
             Rect2D panelRect{0.0f, 0.0f, static_cast<float>(curW), static_cast<float>(curH)};
-            drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, currentTheme_, nullptr, 0, info.draggingRow, info.draggingWidget);
+
+            // Localized stable lighting per detached OS window (isolated from main window CRT swaying spotlight / rumble)
+            ThemeTokens localTheme = currentTheme_;
+            localTheme.globalLight = LightSource2D(static_cast<float>(curW) * 0.5f, -180.0f, 500.0f, currentTheme_.globalLight.intensity);
+
+            drawGuiFaceplate(*info.renderer, info.panelDef, panelRect, localTheme, nullptr, 0, info.draggingRow, info.draggingWidget);
             info.renderer->endFrame();
             BatchRenderer2D::setActiveBatchRenderer(nullptr);
             info.isDirty = false;
@@ -312,6 +339,43 @@ void FloatingWindowManager::renderWindow(GLFWwindow* w) {
 }
 
 void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int button, int action, float mx, float my) {
+    if (button == 1 /* GLFW_MOUSE_BUTTON_RIGHT */ && action == 1 /* GLFW_PRESS */) {
+        auto resetWidget = [&](GuiWidgetDef& w) {
+            w.currentVal = w.defaultVal;
+            w.valueDisplay = w.getFormattedValue();
+            float normVal = (w.maxVal > w.minVal) ? (w.currentVal - w.minVal) / (w.maxVal - w.minVal) : w.currentVal;
+            if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
+            info.isDirty = true;
+        };
+
+        if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
+            for (auto& w : info.panelDef.widgets) {
+                if (w.type == GuiWidgetType::Divider) continue;
+                float cx = w.bounds.x + (w.bounds.w * 0.5f);
+                float cy = w.bounds.y + (w.bounds.h * 0.44f);
+                float dist = std::hypot(mx - cx, my - cy);
+                if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
+                    resetWidget(w);
+                    return;
+                }
+            }
+        } else {
+            for (auto& row : info.panelDef.rows) {
+                for (auto& w : row.widgets) {
+                    if (w.type == GuiWidgetType::Divider) continue;
+                    float cx = w.bounds.x + (w.bounds.w * 0.5f);
+                    float cy = w.bounds.y + (w.bounds.h * 0.44f);
+                    float dist = std::hypot(mx - cx, my - cy);
+                    if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
+                        resetWidget(w);
+                        return;
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     if (button != 0 /* GLFW_MOUSE_BUTTON_LEFT */) return;
 
     if (action == 1 /* GLFW_PRESS */) {
@@ -325,7 +389,8 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                 if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
                     if (w.type == GuiWidgetType::ToggleSwitch) {
                         w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
-                        if (onParamChanged) onParamChanged(info.trackIndex, w.param, w.currentVal);
+                        float normVal = (w.maxVal > w.minVal) ? (w.currentVal - w.minVal) / (w.maxVal - w.minVal) : w.currentVal;
+                        if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
                         info.isDirty = true;
                         return;
                     }
@@ -333,7 +398,11 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                     info.draggingRow = 0;
                     info.draggingWidget = static_cast<int>(i);
                     info.dragStartY = my;
-                    info.dragStartVal = w.currentVal;
+                    if (w.maxVal > w.minVal) {
+                        info.dragStartVal = std::clamp((w.currentVal - w.minVal) / (w.maxVal - w.minVal), 0.0f, 1.0f);
+                    } else {
+                        info.dragStartVal = std::clamp(w.currentVal, 0.0f, 1.0f);
+                    }
                     info.isDirty = true;
                     return;
                 }
@@ -351,7 +420,8 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                     if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
                         if (w.type == GuiWidgetType::ToggleSwitch) {
                             w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
-                            if (onParamChanged) onParamChanged(info.trackIndex, w.param, w.currentVal);
+                            float normVal = (w.maxVal > w.minVal) ? (w.currentVal - w.minVal) / (w.maxVal - w.minVal) : w.currentVal;
+                            if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
                             info.isDirty = true;
                             return;
                         }
@@ -359,7 +429,11 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                         info.draggingRow = static_cast<int>(rIdx);
                         info.draggingWidget = static_cast<int>(wIdx);
                         info.dragStartY = my;
-                        info.dragStartVal = w.currentVal;
+                        if (w.maxVal > w.minVal) {
+                            info.dragStartVal = std::clamp((w.currentVal - w.minVal) / (w.maxVal - w.minVal), 0.0f, 1.0f);
+                        } else {
+                            info.dragStartVal = std::clamp(w.currentVal, 0.0f, 1.0f);
+                        }
                         info.isDirty = true;
                         return;
                     }
@@ -377,24 +451,46 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
 void FloatingWindowManager::handleMouseMove(DetachedWindowInfo& info, float mx, float my) {
     if (!info.isDragging) return;
     (void)mx;
+
+    float divisor = 150.0f;
+#if !defined(__EMSCRIPTEN__)
+    if (info.window) {
+        if (glfwGetKey(info.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(info.window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+            divisor = 750.0f; // 5x precision fine-tuning mode
+        }
+    }
+#endif
+
     float deltaY = info.dragStartY - my;
-    float newVal = std::clamp(info.dragStartVal + (deltaY / 150.0f), 0.0f, 1.0f);
+    float normVal = std::clamp(info.dragStartVal + (deltaY / divisor), 0.0f, 1.0f);
+
+    auto updateWidget = [&](GuiWidgetDef& w) {
+        if (w.step > 0.0f && w.maxVal > w.minVal) {
+            float scaled = w.minVal + normVal * (w.maxVal - w.minVal);
+            scaled = w.minVal + std::round((scaled - w.minVal) / w.step) * w.step;
+            scaled = std::clamp(scaled, w.minVal, w.maxVal);
+            normVal = (scaled - w.minVal) / (w.maxVal - w.minVal);
+            w.currentVal = scaled;
+        } else if (w.maxVal > w.minVal) {
+            w.currentVal = w.minVal + normVal * (w.maxVal - w.minVal);
+        } else {
+            w.currentVal = normVal;
+        }
+        w.valueDisplay = w.getFormattedValue();
+        if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
+        info.isDirty = true;
+    };
 
     if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
         if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < info.panelDef.widgets.size()) {
-            auto& w = info.panelDef.widgets[info.draggingWidget];
-            w.currentVal = newVal;
-            if (onParamChanged) onParamChanged(info.trackIndex, w.param, newVal);
-            info.isDirty = true;
+            updateWidget(info.panelDef.widgets[info.draggingWidget]);
         }
     } else {
         if (info.draggingRow >= 0 && static_cast<size_t>(info.draggingRow) < info.panelDef.rows.size()) {
             auto& row = info.panelDef.rows[info.draggingRow];
             if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < row.widgets.size()) {
-                auto& w = row.widgets[info.draggingWidget];
-                w.currentVal = newVal;
-                if (onParamChanged) onParamChanged(info.trackIndex, w.param, newVal);
-                info.isDirty = true;
+                updateWidget(row.widgets[info.draggingWidget]);
             }
         }
     }

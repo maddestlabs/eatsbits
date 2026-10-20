@@ -51,6 +51,7 @@ struct TrackMidiFxItem {
     float accentR{1.0f}, accentG{0.75f}, accentB{0.2f};
     std::vector<TrackPropertiesKnob> knobs;
     std::optional<GuiPanelDef> customGuiPanel;
+    std::string eatscriptCode{""};
 
     TrackMidiFxItem() = default;
     TrackMidiFxItem(std::string n, std::string t, bool en = true)
@@ -102,6 +103,8 @@ struct TrackMidiFxItem {
             };
         }
     }
+
+    void populateFromPresetDefinition(const eatsbits::project::PresetDefinition& def);
 };
 
 struct TrackAudioFxItem {
@@ -116,6 +119,7 @@ struct TrackAudioFxItem {
     float accentR{0.13f}, accentG{0.75f}, accentB{1.0f};
     std::vector<TrackPropertiesKnob> knobs;
     std::optional<GuiPanelDef> customGuiPanel;
+    std::string eatscriptCode{""};
 
     TrackAudioFxItem() = default;
     TrackAudioFxItem(std::string n, std::string t, float d = 0.5f, float m = 0.8f, bool en = true)
@@ -271,6 +275,7 @@ struct TrackAudioFxItem {
         } else {
             ensureDefaultKnobs();
         }
+        eatscriptCode = def.rawScript;
     }
 };
 
@@ -348,8 +353,10 @@ struct TrackPropertiesDrawerData {
     float eqHighGain{0.0f};    // -18..+18 dB
 
     // Dynamic Instrument Parameters
+    std::string trackId{""};
     std::string instrument{""};
     std::string instrumentEngine{""}; // "tb303", "tr808", "tr909", "dx7", "piano", "snes", "c64", "convolver", "synth"
+    std::string eatscriptCode{""};
     std::vector<TrackPropertiesKnob> knobs;
     size_t activePresetIdx{0};
     size_t totalPresets{1};
@@ -417,6 +424,7 @@ struct TrackPropertiesDrawerData {
     bool isClapPlugin{false};
     bool hasNativeGui{false};
     bool isGuiOpen{false};
+    bool isDetached{false};
 
     void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
         for (auto& k : knobs) {
@@ -438,6 +446,22 @@ struct TrackPropertiesDrawerData {
             hasNativeGui = true;
         }
         if (!knobs.empty()) return;
+        if (!eatscriptCode.empty()) {
+            auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(eatscriptCode);
+            if (!parsed.params.empty()) {
+                knobs.clear();
+                for (const auto& [name, param] : parsed.params) {
+                    TrackPropertiesKnob k;
+                    k.name = name;
+                    k.label = param.name.empty() ? name : param.name;
+                    k.value = param.getNormalized();
+                    k.display = param.getFormatted();
+                    k.unit = param.unit;
+                    knobs.push_back(k);
+                }
+                return;
+            }
+        }
         if (isClapPlugin || instrumentEngine.rfind("clap:", 0) == 0 || instrumentEngine == "CLAP" || instrument.find(".clap") != std::string::npos) {
             knobs = {
                 {"cutoff", "CUTOFF", 0.65f, "65%"},
@@ -556,6 +580,19 @@ struct TrackPropertiesDrawerData {
                 {"Sustain", "SUSTAIN", 0.85f, "85%"},
                 {"Release", "RELEASE", (2.5f - 0.1f) / 7.9f, "2.50 s"}
             };
+        } else if (instrumentEngine == "acoustic_steel_guitar" || instrumentEngine == "steel_acoustic_guitar" ||
+                   instrument.find("steel") != std::string::npos || instrument.find("Steel") != std::string::npos ||
+                   presetTitle.find("Steel") != std::string::npos || presetTitle.find("steel") != std::string::npos) {
+            knobs = {
+                {"BodyProfile", "BODY SHAPE", 0.5f, "0.5"},
+                {"PickStyle", "PICK / FINGER", 0.3f, "0.3"},
+                {"StrumSpread", "STRUM MS", 5.0f / 25.0f, "5.0 ms", "ms"},
+                {"Sustain", "SUSTAIN", (0.996f - 0.85f) / (0.9995f - 0.85f), "99.6%"},
+                {"Damping", "STRING LOSS", (0.22f - 0.05f) / (0.75f - 0.05f), "22.0%", "%"},
+                {"BronzeSparkle", "BRONZE AIR", (2.0f - -6.0f) / (8.0f - -6.0f), "2.0 dB", "dB"},
+                {"BodyWood", "SOUNDBOARD GAIN", 0.5f / 1.5f, "0.5"},
+                {"WoundScrape", "WOUND SCRAPE", 0.4f, "0.4"}
+            };
         } else {
             knobs = {
                 {"param1", knob1Name.empty() ? "PARAM 1" : knob1Name, knob1, std::to_string(static_cast<int>(std::round(knob1 * 100.0f))) + "%"},
@@ -568,6 +605,16 @@ struct TrackPropertiesDrawerData {
         }
     }
 };
+
+/**
+ * Creates an authentic GuiPanelDef directly from a PresetDefinition parsed from Eatscript.
+ */
+GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDefinition& def);
+
+/**
+ * Extracts normalized TrackPropertiesKnob items directly from a PresetDefinition.
+ */
+std::vector<TrackPropertiesKnob> extractKnobsFromPresetDefinition(const eatsbits::project::PresetDefinition& def);
 
 /**
  * Canonical Instrument GUI Panel Builder
@@ -659,6 +706,8 @@ enum class TrackPropertiesHitArea {
     AddClipButton,
     DuplicateTrackButton,
     DeleteTrackButton,
+    FocusDetachedWindow,
+    ReattachDetachedWindow,
     ScrollbarThumb,
     ScrollbarTrack
 };
@@ -752,6 +801,8 @@ public:
     std::function<void(uint32_t trackIndex)> onOpenCodeEditor;
     std::function<void(uint32_t trackIndex)> onOpenFullscreenDevice;
     std::function<void(uint32_t trackIndex)> onOpenDetachedWindow;
+    std::function<void(uint32_t trackIndex)> onFocusDetachedWindow;
+    std::function<void(uint32_t trackIndex)> onReattachDetachedWindow;
     std::function<void(uint32_t trackIndex)> onOpenPluginGui;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenAudioFx;
     std::function<void(uint32_t trackIndex, size_t fxIndex)> onOpenFullscreenMidiFx;
@@ -854,6 +905,8 @@ private:
     Rect2D trackActionsBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D headerMuteBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D headerSoloBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D focusDetachedBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D reattachDetachedBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     // Active drag interaction state
     float dragStartY_{0.0f};

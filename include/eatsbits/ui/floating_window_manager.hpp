@@ -81,8 +81,14 @@ public:
     /// Closes all active detached windows.
     void closeAll();
 
-    /// Renders all active non-native floating windows.
-    void renderAllWindows(const ThemeTokens& theme);
+    /// Renders all active non-native floating windows with real-time audio visualization.
+    void renderAllWindows(const ThemeTokens& theme, const float* scopeBuffer = nullptr, size_t scopeBufferCount = 0);
+
+    /// Returns pointer to active panel def if detached, or nullptr.
+    [[nodiscard]] const GuiPanelDef* getPanelDef(uint32_t trackIndex) const noexcept;
+
+    /// Returns mutable pointer to active panel def if detached, or nullptr.
+    [[nodiscard]] GuiPanelDef* getMutablePanelDef(uint32_t trackIndex) noexcept;
 
     /// Renders a specific detached window (e.g. on OS refresh callback).
     void renderWindow(GLFWwindow* w);

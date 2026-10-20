@@ -1,6 +1,9 @@
 #include "eatsbits/ui/views/arranger_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
+#include "eatsbits/project/preset_loader.hpp"
+#include "eatsbits/project/preset_manager.hpp"
+#include "eatsbits/project/eats_builtin_presets.hpp"
 #include "eatsbits/ui/clay/clay_context.hpp"
 #include "clay.h"
 #include <algorithm>
@@ -25,133 +28,35 @@ ArrangerView::ArrangerView() {
     clayContext_ = std::make_unique<clay::ClayContext>();
     clayContext_->initialize(1280.0f, 720.0f);
 
-    // 1. 303 Acid Bass
+    // 1. DXVII E-Piano (Single default track)
     ArrangerTimelineTrack t1;
-    t1.name = "303 Acid Bass";
-    t1.instrument = "Roland TB-303";
-    t1.instrumentEngine = "tb303";
-    t1.iconRef = "preset:inst_synth";
-    t1.r = 1.0f; t1.g = 0.55f; t1.b = 0.0f;
-    t1.knob1 = 0.65f; t1.knob1Name = "CUTOFF";
-    t1.knob2 = 0.85f; t1.knob2Name = "RESONANCE";
-    t1.knob3 = 0.45f; t1.knob3Name = "DECAY";
-    t1.knob4 = 0.80f; t1.knob4Name = "ACCENT";
+    t1.id = "trk_1";
+    t1.name = "DXVII E-Piano";
+    t1.instrument = "DXVII E-Piano";
+    t1.instrumentEngine = "dxvii_epiano";
+    t1.iconRef = "preset:inst_epiano";
+    t1.r = 0.62f; t1.g = 0.31f; t1.b = 0.87f;
+    t1.knob1 = 0.15f; t1.knob1Name = "ALGO";
+    t1.knob2 = 0.85f; t1.knob2Name = "FEEDBACK";
+    t1.knob3 = 0.35f; t1.knob3Name = "CHORUS";
+    t1.knob4 = 0.85f; t1.knob4Name = "VOLUME";
+    t1.chordFollowMode = theory::ChordFollowMode::Chord;
 
-    ArrangerTimelineClip c1{"c1", "Acid Pattern A", 0, 1, 4, 1.0f, 0.55f, 0.0f, false, false, true, 1, 0, 1.0f, false};
+    ArrangerTimelineClip c1{"c1", "FM Chords", 0, 1, 8, 0.62f, 0.31f, 0.87f, false, false, false, 8, 0, 1.0f, false};
     c1.notes = {
-        {36, 0.0f, 0.2f, 0.95f}, {36, 0.5f, 0.2f, 0.70f}, {48, 0.75f, 0.2f, 1.00f},
-        {39, 1.0f, 0.2f, 0.80f}, {41, 1.5f, 0.2f, 0.90f}, {43, 2.0f, 0.2f, 0.85f},
-        {36, 2.5f, 0.2f, 0.92f}, {46, 3.0f, 0.2f, 0.95f}, {48, 3.5f, 0.2f, 1.00f}
+        // Bar 1-2: C Major (C4, E4, G4, B4)
+        {60, 0.0f, 7.5f, 0.75f}, {64, 0.0f, 7.5f, 0.70f}, {67, 0.0f, 7.5f, 0.80f}, {71, 0.0f, 7.5f, 0.75f},
+        // Bar 3-4: G Major (G3, B3, D4, G4)
+        {55, 8.0f, 7.5f, 0.75f}, {59, 8.0f, 7.5f, 0.70f}, {62, 8.0f, 7.5f, 0.80f}, {67, 8.0f, 7.5f, 0.85f},
+        // Bar 5-6: A Minor (A3, C4, E4, G4)
+        {57, 16.0f, 7.5f, 0.70f}, {60, 16.0f, 7.5f, 0.65f}, {64, 16.0f, 7.5f, 0.75f}, {67, 16.0f, 7.5f, 0.80f},
+        // Bar 7-8: F Major (F3, A3, C4, E4)
+        {53, 24.0f, 7.5f, 0.80f}, {57, 24.0f, 7.5f, 0.75f}, {60, 24.0f, 7.5f, 0.85f}, {64, 24.0f, 7.5f, 0.90f}
     };
     t1.clips.push_back(c1);
+    t1.audioFx.push_back({"Chorus / Flanger", "CHORUS_FLANGER", 0.50f, 0.75f, true});
 
-    ArrangerTimelineClip c2{"c2", "Acid Pattern B", 0, 5, 4, 1.0f, 0.55f, 0.0f, false, false, true, 1, 0, 1.0f, false};
-    c2.notes = {
-        {36, 0.0f, 0.2f, 0.85f}, {48, 0.25f, 0.2f, 1.00f}, {36, 0.5f, 0.2f, 0.65f},
-        {41, 1.0f, 0.2f, 0.90f}, {44, 1.5f, 0.2f, 0.85f}, {46, 2.0f, 0.3f, 0.95f},
-        {48, 2.75f, 0.2f, 1.00f}, {39, 3.0f, 0.2f, 0.75f}, {41, 3.5f, 0.2f, 0.85f}
-    };
-    t1.clips.push_back(c2);
-
-    t1.midiFx.push_back({"Scale Snap", "SCALE_SNAP", 0, 0, true});
-    t1.audioFx.push_back({"Tube Distortion", "TUBE_DISTORTION", 0.65f, 0.80f, true});
-
-    // 2. TR-808 Rhythm Kit
-    ArrangerTimelineTrack t2;
-    t2.name = "TR-808 Kit";
-    t2.instrument = "Analog 808";
-    t2.instrumentEngine = "tr808";
-    t2.iconRef = "preset:drum_machine";
-    t2.r = 0.13f; t2.g = 0.96f; t2.b = 0.91f;
-    t2.knob1 = 0.70f; t2.knob1Name = "TONE";
-    t2.knob2 = 0.80f; t2.knob2Name = "SNAPPY";
-    t2.knob3 = 0.60f; t2.knob3Name = "DECAY";
-    t2.knob4 = 0.50f; t2.knob4Name = "TUNING";
-
-    ArrangerTimelineClip c3{"c3", "808 Beat 01", 1, 1, 8, 0.13f, 0.96f, 0.91f, false, false, true, 1, 0, 1.0f, false};
-    c3.notes = {
-        {36, 0.0f, 0.2f, 1.00f}, {42, 0.0f, 0.1f, 0.75f}, {42, 0.25f, 0.1f, 0.45f},
-        {42, 0.5f, 0.1f, 0.70f}, {42, 0.75f, 0.1f, 0.40f}, {38, 1.0f, 0.2f, 0.95f},
-        {42, 1.0f, 0.1f, 0.80f}, {42, 1.25f, 0.1f, 0.50f}, {42, 1.5f, 0.1f, 0.70f},
-        {36, 1.75f, 0.2f, 0.85f}, {36, 2.0f, 0.2f, 1.00f}, {42, 2.0f, 0.1f, 0.85f},
-        {42, 2.25f, 0.1f, 0.45f}, {36, 2.5f, 0.2f, 0.75f}, {42, 2.5f, 0.1f, 0.70f},
-        {38, 3.0f, 0.2f, 1.00f}, {42, 3.0f, 0.1f, 0.80f}, {42, 3.5f, 0.1f, 0.75f},
-        {46, 3.75f, 0.2f, 0.65f}
-    };
-    t2.clips.push_back(c3);
-    t2.audioFx.push_back({"Studio Dynamics", "DYNAMICS_COMP", 0.70f, 0.90f, true});
-
-    // 3. TR-909 Groove Kit
-    ArrangerTimelineTrack t3;
-    t3.name = "TR-909 Drive";
-    t3.instrument = "Analog 909";
-    t3.instrumentEngine = "tr909";
-    t3.iconRef = "preset:drum_kick";
-    t3.r = 1.0f; t3.g = 0.16f; t3.b = 0.43f;
-    t3.knob1 = 0.85f; t3.knob1Name = "ATTACK";
-    t3.knob2 = 0.65f; t3.knob2Name = "PUNCH";
-    t3.knob3 = 0.50f; t3.knob3Name = "TUNE";
-    t3.knob4 = 0.60f; t3.knob4Name = "CRACK";
-
-    ArrangerTimelineClip c4{"c4", "909 Groove", 2, 5, 4, 1.0f, 0.16f, 0.43f, false, false, true, 1, 0, 1.0f, false};
-    c4.notes = {
-        {36, 0.0f, 0.2f, 1.00f}, {42, 0.125f, 0.1f, 0.70f}, {36, 0.5f, 0.2f, 0.90f},
-        {42, 0.625f, 0.1f, 0.65f}, {38, 1.0f, 0.2f, 0.95f}, {36, 1.0f, 0.2f, 1.00f},
-        {46, 1.25f, 0.2f, 0.75f}, {36, 1.5f, 0.2f, 0.85f}, {36, 2.0f, 0.2f, 1.00f},
-        {42, 2.125f, 0.1f, 0.70f}, {36, 2.5f, 0.2f, 0.90f}, {38, 3.0f, 0.2f, 1.00f},
-        {46, 3.25f, 0.2f, 0.80f}, {36, 3.5f, 0.2f, 0.90f}, {42, 3.75f, 0.1f, 0.60f}
-    };
-    t3.clips.push_back(c4);
-
-    // 4. DX7 Rhodes
-    ArrangerTimelineTrack t4;
-    t4.name = "DX7 Rhodes";
-    t4.instrument = "Yamaha DX7 6-Op FM";
-    t4.instrumentEngine = "dx7";
-    t4.iconRef = "preset:inst_piano";
-    t4.r = 0.62f; t4.g = 0.31f; t4.b = 0.87f;
-    t4.knob1 = 0.50f; t4.knob1Name = "BRIGHT";
-    t4.knob2 = 0.60f; t4.knob2Name = "VEL_SENS";
-    t4.knob3 = 0.70f; t4.knob3Name = "CHORUS";
-    t4.knob4 = 0.40f; t4.knob4Name = "FEEDBACK";
-
-    ArrangerTimelineClip c5{"c5", "Chords A", 3, 1, 8, 0.62f, 0.31f, 0.87f, false, false, false, 8, 0, 1.0f, false};
-    c5.notes = {
-        {60, 0.0f, 7.5f, 0.70f}, {63, 0.0f, 7.5f, 0.65f}, {67, 0.0f, 7.5f, 0.80f}, {70, 0.0f, 7.5f, 0.75f},
-        {58, 8.0f, 7.5f, 0.75f}, {62, 8.0f, 7.5f, 0.70f}, {65, 8.0f, 7.5f, 0.80f}, {69, 8.0f, 7.5f, 0.85f},
-        {56, 16.0f, 7.5f, 0.70f}, {60, 16.0f, 7.5f, 0.65f}, {63, 16.0f, 7.5f, 0.75f}, {67, 16.0f, 7.5f, 0.80f},
-        {58, 24.0f, 7.5f, 0.80f}, {62, 24.0f, 7.5f, 0.75f}, {65, 24.0f, 7.5f, 0.85f}, {68, 24.0f, 7.5f, 0.90f}
-    };
-    t4.clips.push_back(c5);
-    t4.midiFx.push_back({"Arpeggiator Pro", "ARP_PRO", 0, 0, true});
-    t4.audioFx.push_back({"Chorus / Flanger", "CHORUS_FLANGER", 0.50f, 0.75f, true});
-
-    // Drum tracks must not follow project chords
-    t2.chordFollowMode = theory::ChordFollowMode::Off;
-
-    // 5. Concert Grand Piano (Waveguide Physical Modeling)
-    ArrangerTimelineTrack t5;
-    t5.name = "Concert Grand";
-    t5.instrument = "Waveguide Grand Piano";
-    t5.instrumentEngine = "piano";
-    t5.iconRef = "preset:inst_piano";
-    t5.r = 0.88f; t5.g = 0.66f; t5.b = 0.43f;
-    t5.knob1 = 0.55f; t5.knob1Name = "HARDNESS";
-    t5.knob2 = 0.60f; t5.knob2Name = "COUPLING";
-    t5.knob3 = 0.80f; t5.knob3Name = "DECAY";
-    t5.knob4 = 0.30f; t5.knob4Name = "PEDAL";
-
-    ArrangerTimelineClip c6{"c6", "Piano Solo", 4, 9, 8, 0.88f, 0.66f, 0.43f, false, false, false, 8, 0, 1.0f, false};
-    c6.notes = {
-        {60, 0.0f, 2.0f, 0.85f}, {64, 2.0f, 2.0f, 0.75f}, {67, 4.0f, 3.5f, 0.90f},
-        {65, 8.0f, 1.5f, 0.70f}, {64, 10.0f, 1.5f, 0.65f}, {62, 12.0f, 3.5f, 0.80f},
-        {67, 16.0f, 2.0f, 0.95f}, {71, 18.0f, 2.0f, 0.85f}, {72, 20.0f, 3.5f, 1.00f},
-        {71, 24.0f, 1.5f, 0.75f}, {69, 26.0f, 1.5f, 0.70f}, {67, 28.0f, 3.5f, 0.85f}
-    };
-    t5.clips.push_back(c6);
-    t5.audioFx.push_back({"Partitioned Convolver", "CONVOLVER_REVERB", 0.40f, 0.50f, true});
-
-    tracks_ = {t1, t2, t3, t4, t5};
+    tracks_ = {t1};
     refreshAllClipChords();
 
     // Connect Reusable PluginSearchDialog callbacks
@@ -458,6 +363,9 @@ ArrangerView::ArrangerView() {
     propertiesDrawer_.onOpenFullscreenAudioFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenAudioFx) onOpenFullscreenAudioFx(trackIdx, fxIdx);
     };
+    propertiesDrawer_.onOpenDesign = [this](uint32_t idx) {
+        if (onOpenDesign) onOpenDesign(idx);
+    };
     propertiesDrawer_.onOpenFullscreenMidiFx = [this](uint32_t trackIdx, size_t fxIdx) {
         if (onOpenFullscreenMidiFx) onOpenFullscreenMidiFx(trackIdx, fxIdx);
     };
@@ -585,12 +493,51 @@ void ArrangerView::syncDrawerDataForTrack(uint32_t trackIdx) {
     if (trackIdx >= tracks_.size()) return;
     auto& track = tracks_[trackIdx];
     const std::string& expectedEngine = track.instrumentEngine.empty() ? "synth" : track.instrumentEngine;
+
+    if (!track.customGuiPanel.has_value()) {
+        if (!track.eatscriptCode.empty()) {
+            try {
+                auto def = eatsbits::project::PresetLoader::parseFromEatscript(track.eatscriptCode);
+                track.customGuiPanel = createGuiPanelFromPresetDefinition(def);
+                if (track.knobs.empty()) {
+                    track.knobs = extractKnobsFromPresetDefinition(def);
+                }
+            } catch (...) {}
+        } else {
+            eatsbits::project::PresetDefinition def{};
+            bool loaded = false;
+            if (!expectedEngine.empty() && eatsbits::project::PresetManager::instance().loadPresetDefinition(expectedEngine, def)) {
+                loaded = true;
+            } else if (!track.instrument.empty() && eatsbits::project::PresetManager::instance().loadPresetDefinition(track.instrument, def)) {
+                loaded = true;
+            } else {
+                auto opt = eatsbits::project::BuiltinPresetRegistry::createPresetById(expectedEngine);
+                if (!opt) opt = eatsbits::project::BuiltinPresetRegistry::createPresetById(track.instrument);
+                if (opt) {
+                    def = *opt;
+                    loaded = true;
+                }
+            }
+            if (loaded) {
+                track.customGuiPanel = createGuiPanelFromPresetDefinition(def);
+                if (track.knobs.empty()) {
+                    track.knobs = extractKnobsFromPresetDefinition(def);
+                }
+                if (track.eatscriptCode.empty()) {
+                    track.eatscriptCode = def.rawScript;
+                }
+            }
+        }
+    }
+
     if (trackIdx == activeTrackIndex_) {
+        drawerData_.trackId = track.id;
         drawerData_.trackIndex = trackIdx;
         drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
         drawerData_.trackName = track.name;
         drawerData_.instrument = track.instrument;
         drawerData_.instrumentEngine = expectedEngine;
+        drawerData_.eatscriptCode = track.eatscriptCode;
         drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
         drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
         drawerData_.iconRef = track.iconRef;
@@ -620,7 +567,9 @@ void ArrangerView::setSelectedClip(int idx) noexcept {
 }
 
 void ArrangerView::addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine) {
+    static std::atomic<uint64_t> s_arrangerTrackSeq{100};
     ArrangerTimelineTrack t;
+    t.id = "trk_" + std::to_string(++s_arrangerTrackSeq);
     t.name = name;
     t.instrument = instrument;
     t.instrumentEngine = instrumentEngine.empty() ? "synth" : instrumentEngine;
@@ -628,11 +577,33 @@ void ArrangerView::addTrack(const std::string& name, const std::string& instrume
     t.r = r; t.g = g; t.b = b;
     // Clean track ready for audio or MIDI clips - no default clip inserted
     t.clips.clear();
+
+    eatsbits::project::PresetDefinition def{};
+    bool loadedDef = false;
+    if (!t.instrumentEngine.empty() && eatsbits::project::PresetManager::instance().loadPresetDefinition(t.instrumentEngine, def)) {
+        loadedDef = true;
+    } else if (!t.instrument.empty() && eatsbits::project::PresetManager::instance().loadPresetDefinition(t.instrument, def)) {
+        loadedDef = true;
+    } else {
+        auto opt = eatsbits::project::BuiltinPresetRegistry::createPresetById(t.instrumentEngine);
+        if (!opt) opt = eatsbits::project::BuiltinPresetRegistry::createPresetById(t.instrument);
+        if (opt) {
+            def = *opt;
+            loadedDef = true;
+        }
+    }
+    if (loadedDef) {
+        t.customGuiPanel = createGuiPanelFromPresetDefinition(def);
+        t.knobs = extractKnobsFromPresetDefinition(def);
+        t.eatscriptCode = def.rawScript;
+    }
+
     tracks_.push_back(t);
     activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
     selectedClipIndex_ = -1;
     inspectorTab_ = ArrangerInspectorTab::Track;
     inspectorOpen_ = true;
+    syncDrawerDataForTrack(activeTrackIndex_);
     if (onTrackAdded) {
         onTrackAdded(activeTrackIndex_);
     }
@@ -719,7 +690,7 @@ void ArrangerView::deleteClip(uint32_t trackIdx, int clipIdx) {
     if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 }
 
-void ArrangerView::deleteTrack(uint32_t trackIdx) {
+void ArrangerView::deleteTrack(uint32_t trackIdx, bool notify) {
     if (tracks_.size() <= 1 || trackIdx >= tracks_.size()) return;
     tracks_.erase(tracks_.begin() + trackIdx);
     if (activeTrackIndex_ >= tracks_.size()) {
@@ -740,14 +711,17 @@ void ArrangerView::deleteTrack(uint32_t trackIdx) {
     for (const auto& trk : tracks_) {
         drawerData_.allTrackNames.push_back(trk.name);
     }
-    if (onTrackDeleted) onTrackDeleted(trackIdx);
+    syncDrawerDataForTrack(activeTrackIndex_);
+    if (notify && onTrackDeleted) onTrackDeleted(trackIdx);
     if (onClipsChanged) onClipsChanged();
     if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 }
 
 void ArrangerView::duplicateTrack(uint32_t trackIdx) {
     if (trackIdx >= tracks_.size()) return;
+    static std::atomic<uint64_t> s_dupTrackSeq{500};
     ArrangerTimelineTrack dup = tracks_[trackIdx];
+    dup.id = "trk_" + std::to_string(++s_dupTrackSeq);
     dup.name += " (Copy)";
     uint32_t newTrackIdx = static_cast<uint32_t>(tracks_.size());
     for (size_t i = 0; i < dup.clips.size(); ++i) {
@@ -2672,8 +2646,9 @@ bool ArrangerView::handleFileDrop(const std::vector<std::string>& filePaths, flo
         bool isAudio = (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac" || ext == ".aif" || ext == ".aiff");
         bool isMidi = (ext == ".mid" || ext == ".midi");
         bool isSf2 = (ext == ".sf2");
+        bool isSyx = (ext == ".syx");
 
-        if (!isAudio && !isMidi && !isSf2) {
+        if (!isAudio && !isMidi && !isSf2 && !isSyx) {
             continue;
         }
 
@@ -2786,6 +2761,29 @@ bool ArrangerView::handleFileDrop(const std::vector<std::string>& filePaths, flo
             }
             if (ctx.onShowNotification) {
                 ctx.onShowNotification("Imported MIDI " + filename + " at Bar " + std::to_string(targetBar));
+            }
+            handledAny = true;
+        } else if (isSyx) {
+            if (targetTrackIdx >= 0) {
+                auto& track = tracks_[targetTrackIdx];
+                track.instrument = "DXVII FM Synthesizer";
+                track.instrumentEngine = "dxvii_synth";
+                track.iconRef = "preset:inst_synth";
+                activeTrackIndex_ = static_cast<uint32_t>(targetTrackIdx);
+            } else {
+                ArrangerTimelineTrack newTrack;
+                newTrack.name = stemName;
+                newTrack.instrument = "DXVII FM Synthesizer";
+                newTrack.instrumentEngine = "dxvii_synth";
+                newTrack.iconRef = "preset:inst_synth";
+                newTrack.r = 0.0f;
+                newTrack.g = 0.90f;
+                newTrack.b = 1.0f;
+                tracks_.push_back(newTrack);
+                activeTrackIndex_ = static_cast<uint32_t>(tracks_.size() - 1);
+            }
+            if (ctx.onShowNotification) {
+                ctx.onShowNotification("Loaded SysEx Cartridge " + filename + " into DXVII");
             }
             handledAny = true;
         }

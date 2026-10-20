@@ -864,12 +864,12 @@ void testEatsFormatChordTrackAndRhodesGrandSong() {
     bool diskOk = project::ProjectFile::loadFromFile(
         "project.eats", diskGraph, diskSeq, diskTitle, diskBpm, diskSwing);
     assert(diskOk);
-    assert(diskSeq.getNumTracks() == 2);
+    assert(diskSeq.getNumTracks() == 1);
     assert(diskSeq.getChordTrack().size() == 8);
+    assert(diskSeq.getTrack(0)->getName() == "DXVII E-Piano");
     assert(diskSeq.getTrack(0)->getChordFollowMode() == ChordFollowMode::Chord);
-    assert(diskSeq.getTrack(1)->getChordFollowMode() == ChordFollowMode::Chord);
 
-    std::cout << "  -> Passed (EatsProjectSerializer .eats chord track and Rhodes + Grand default song)." << std::endl;
+    std::cout << "  -> Passed (EatsProjectSerializer .eats chord track and DXVII E-Piano default song)." << std::endl;
 }
 
 // -------------------------------------------------------------------------
@@ -880,6 +880,7 @@ void testPerTrackChordFollowIsolation() {
 
     // 1. ArrangerView isolation
     ArrangerView arranger;
+    arranger.addTrack("Track 2", "synth", 0.83f, 0.69f, 0.22f);
     assert(arranger.getTracks().size() >= 2);
 
     // Initial default: track 0 and 1
@@ -908,6 +909,8 @@ void testPerTrackChordFollowIsolation() {
 
     // 2. MixerView isolation
     MixerView mixer;
+    mixer.getChannels().push_back({"Track 2", "SYNTH", 0.83f, 0.69f, 0.22f, 0.75f, 0.0f, false, false, false, false, false, 0, 0.0f, 0.0f, 0.0f, 0.0f,
+         true, 40.0f, -2.0f, 1500.0f, 2.0f, 1.1f, 0.0f, "SYNTH", 0.5f, 0.5f, 0.5f, 0.5f, "K1", "K2", "K3", "K4", {}, {}});
     assert(mixer.getChannels().size() >= 2);
     mixer.getChannels()[0].chordFollowMode = ChordFollowMode::Chord;
     mixer.getChannels()[1].chordFollowMode = ChordFollowMode::ColorLead;
@@ -918,6 +921,7 @@ void testPerTrackChordFollowIsolation() {
 
     // 3. TrackInspectorView isolation
     TrackInspectorView inspector;
+    InspectorTrackChannel t2; t2.name = "Track 2"; inspector.getTracks().push_back(t2);
     assert(inspector.getTracks().size() >= 2);
     inspector.getTracks()[0].chordFollowMode = ChordFollowMode::Chord;
     inspector.getTracks()[1].chordFollowMode = ChordFollowMode::Bass;

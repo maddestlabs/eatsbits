@@ -150,18 +150,13 @@ bool GlyphAtlas::allocateSlot(int glyphW, int glyphH, int& outX, int& outY) {
 }
 
 const AtlasGlyph* GlyphAtlas::getOrLoadGlyph(FontManager& fontMgr, FontId fontId, uint32_t glyphIndex,
-                                             float fontSize, float subpixelX) {
+                                             float fontSize, float /*subpixelX*/) {
     if (fontId == kInvalidFontId || fontSize <= 0.0f) {
         return nullptr;
     }
 
-    // Determine subpixel quarter-bin (0..3)
-    float fract = subpixelX - std::floor(subpixelX);
-    if (fract < 0.0f) fract += 1.0f;
-    uint8_t bin = static_cast<uint8_t>(std::clamp(static_cast<int>(std::floor(fract * 4.0f + 0.5f)) % 4, 0, 3));
-
     const uint16_t pSize = static_cast<uint16_t>(std::clamp(static_cast<int>(std::round(fontSize)), 1, 512));
-    const GlyphKey key{fontId, glyphIndex, pSize, bin};
+    const GlyphKey key{fontId, glyphIndex, pSize};
 
     auto it = glyphCache_.find(key);
     if (it != glyphCache_.end()) {
@@ -182,11 +177,11 @@ const AtlasGlyph* GlyphAtlas::getOrLoadGlyph(FontManager& fontMgr, FontId fontId
         return nullptr;
     }
 
-    // Apply subpixel fractional shift
-    FT_Vector delta{static_cast<FT_Pos>(bin * 16), 0};
-    FT_Set_Transform(face, nullptr, &delta);
+    // Ensure face transform is clean identity
+    FT_Set_Transform(face, nullptr, nullptr);
 
-    err = FT_Load_Glyph(face, glyphIndex, FT_LOAD_DEFAULT | FT_LOAD_RENDER);
+    // Render with light hinting to match HarfBuzz fractional positioning
+    err = FT_Load_Glyph(face, glyphIndex, FT_LOAD_TARGET_LIGHT | FT_LOAD_RENDER);
     if (err != 0) {
         return nullptr;
     }

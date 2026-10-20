@@ -325,6 +325,34 @@ void testContextualLightingAndTb303() {
                                        0.45f, 24);
     assert(renderer.getVertexCount() > initialVerts);
 
+    // Full widget rendering test for Tb303Potentiometer with dynamic lighting across angles
+    GuiWidgetDef tb303Widget;
+    tb303Widget.knobStyle = GuiKnobStyle::Tb303Potentiometer;
+    tb303Widget.currentVal = 0.85f; // Similar to reference image (~4:30 pointing down-right)
+    size_t vertsBeforeKnob = renderer.getVertexCount();
+    drawKnobWidget(renderer, 200.0f, 200.0f, 24.0f, 0.85f, tb303Widget, light);
+    assert(renderer.getVertexCount() > vertsBeforeKnob);
+
+    // Test opposite angle (pointing up-left towards overhead light)
+    tb303Widget.currentVal = 0.15f;
+    size_t vertsBeforeOpposite = renderer.getVertexCount();
+    drawKnobWidget(renderer, 200.0f, 200.0f, 24.0f, 0.15f, tb303Widget, light);
+    assert(renderer.getVertexCount() > vertsBeforeOpposite);
+
+    // Test popout / detached window localized lighting isolation:
+    // When main window has a swaying CRT light offset (e.g. x=950), popout window must center its own light (e.g. x=200 for 400px window)
+    LightSource2D swayingCrtLight(950.0f, -80.0f, 480.0f, 0.90f);
+    float popoutW = 400.0f;
+    ThemeTokens popoutTheme;
+    popoutTheme.globalLight = LightSource2D(popoutW * 0.5f, -180.0f, 500.0f, swayingCrtLight.intensity);
+    assertNear(popoutTheme.globalLight.x, 200.0f, 0.01f, "Popout window light must be centered at curW * 0.5");
+    assertNear(popoutTheme.globalLight.y, -180.0f, 0.01f, "Popout window light Y must remain at stable elevation");
+    assert(popoutTheme.globalLight.x != swayingCrtLight.x);
+
+    size_t vertsBeforePopout = renderer.getVertexCount();
+    drawKnobWidget(renderer, 200.0f, 150.0f, 22.0f, 0.5f, tb303Widget, popoutTheme.globalLight);
+    assert(renderer.getVertexCount() > vertsBeforePopout);
+
     std::cout << "  [PASS] Contextual LightSource2D, scoop gradient, and TB-303 tests passed." << std::endl;
 }
 

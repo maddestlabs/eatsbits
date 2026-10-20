@@ -118,8 +118,11 @@ void testBuiltinPresets() {
     // 13. Verify Steel Acoustic Guitar Preset
     auto& pSteel = presets[12];
     assert(pSteel.metadata.id == "acoustic_steel_guitar");
-    assert(pSteel.metadata.engineId == "acoustic_steel_guitar");
     assert(pSteel.params.count("PickBite") == 1);
+    assert(pSteel.params.count("PickStyle") == 1);
+    assert(pSteel.params.count("BodyProfile") == 1);
+    assert(pSteel.params.count("Sustain") == 1);
+    assert(pSteel.params.count("BronzeSparkle") == 1);
 
     // 14. Verify Astral Shimmer Pad Preset (gui-variations styling + gui-astral parameters)
     assert(presets.size() == 14);

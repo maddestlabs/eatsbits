@@ -543,12 +543,14 @@ struct DawnBridge::Impl {
     WGPUBindGroup bindGroup{nullptr};
     WGPUTextureFormat surfaceFormat{WGPUTextureFormat_BGRA8Unorm};
     bool gpuReady{false};
+    bool deviceLost{false};
+    void* savedWindowHandle{nullptr};
 
     uint64_t lastShaderModTime{0};
     uint32_t shaderCheckCounter{0};
 
     void checkAndReloadShader() {
-        if (!device || !gpuReady) return;
+        if (!device || !gpuReady || deviceLost) return;
         shaderCheckCounter++;
         if (shaderCheckCounter % 30 != 0) return; // poll filesystem every ~0.5 sec
 
@@ -673,7 +675,9 @@ struct DawnBridge::Impl {
         }
         if (device) {
 #if !defined(__EMSCRIPTEN__)
-            wgpuDeviceDestroy(device);
+            if (!deviceLost) {
+                wgpuDeviceDestroy(device);
+            }
             wgpuDeviceRelease(device);
 #endif
             device = nullptr;
@@ -822,6 +826,7 @@ struct DawnBridge::Impl {
 
     bool initGpu(void* windowHandle, uint32_t width, uint32_t height) {
         if (!windowHandle || width == 0 || height == 0) return false;
+        savedWindowHandle = windowHandle;
 
 #if defined(_WIN32)
         if (IsWindow(reinterpret_cast<HWND>(windowHandle))) {
@@ -876,6 +881,31 @@ struct DawnBridge::Impl {
         }
 
         WGPUDeviceDescriptor dDesc{};
+        dDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowSpontaneous;
+        dDesc.deviceLostCallbackInfo.callback = [](WGPUDevice const*, WGPUDeviceLostReason reason, WGPUStringView message, void* u1, void*) {
+            auto* impl = static_cast<DawnBridge::Impl*>(u1);
+            if (impl) {
+                impl->deviceLost = true;
+                impl->gpuReady = false;
+            }
+            std::string_view msg(message.data ? message.data : "unknown",
+                                 (message.length == WGPU_STRLEN || !message.data) ? (message.data ? strlen(message.data) : 7) : message.length);
+            std::cerr << "[DawnBridge] WebGPU Device Lost (reason=" << static_cast<int>(reason) << "): " << msg << std::endl;
+        };
+        dDesc.deviceLostCallbackInfo.userdata1 = this;
+
+        dDesc.uncapturedErrorCallbackInfo.callback = [](WGPUDevice const*, WGPUErrorType type, WGPUStringView message, void* u1, void*) {
+            auto* impl = static_cast<DawnBridge::Impl*>(u1);
+            std::string_view msg(message.data ? message.data : "none",
+                                 (message.length == WGPU_STRLEN || !message.data) ? (message.data ? strlen(message.data) : 4) : message.length);
+            std::cerr << "[DawnBridge] WebGPU Uncaptured Error (type=" << static_cast<int>(type) << "): " << msg << std::endl;
+            if (impl && msg.find("lost") != std::string_view::npos) {
+                impl->deviceLost = true;
+                impl->gpuReady = false;
+            }
+        };
+        dDesc.uncapturedErrorCallbackInfo.userdata1 = this;
+
         WGPURequestDeviceCallbackInfo dCb{};
         dCb.mode = WGPUCallbackMode_AllowProcessEvents;
         dCb.callback = [](WGPURequestDeviceStatus status, WGPUDevice dev, WGPUStringView, void* u, void*) {
@@ -1027,7 +1057,7 @@ struct DawnBridge::Impl {
     }
 
     void resizeGpu(uint32_t width, uint32_t height) {
-        if (!gpuReady || width == 0 || height == 0) return;
+        if (!gpuReady || deviceLost || width == 0 || height == 0) return;
         if (width == currentWidth && height == currentHeight) return;
 
         currentWidth = width;
@@ -1130,11 +1160,34 @@ void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidt
     if (!nativeActive_ || dawWidth == 0 || dawHeight == 0) return;
 #endif
 
+    if (!pImpl_) return;
+
+    if (pImpl_->deviceLost) {
+#if !defined(__EMSCRIPTEN__)
+        if (pImpl_->savedWindowHandle && dawWidth > 0 && dawHeight > 0) {
+            std::cout << "[DawnBridge] Attempting to recover lost WebGPU device..." << std::endl;
+            pImpl_->cleanupGpu();
+            pImpl_->deviceLost = false;
+            if (!pImpl_->initGpu(pImpl_->savedWindowHandle, dawWidth, dawHeight)) {
+                pImpl_->deviceLost = true;
+                return;
+            }
+            std::cout << "[DawnBridge] Successfully recovered WebGPU device after device loss!" << std::endl;
+        } else {
+            return;
+        }
+#else
+        return;
+#endif
+    }
+
+    if (!pImpl_->gpuReady) return;
+
     framesRendered_++;
 
-    if (pImpl_ && pImpl_->gpuReady) {
-        pImpl_->checkAndReloadShader();
-        pImpl_->resizeGpu(dawWidth, dawHeight);
+    pImpl_->checkAndReloadShader();
+    pImpl_->resizeGpu(dawWidth, dawHeight);
+    if (!pImpl_->gpuReady || pImpl_->deviceLost) return;
 
 #if !defined(__EMSCRIPTEN__)
         // 1. Direct hardware texture upload
@@ -1236,10 +1289,26 @@ void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidt
         wgpuSurfaceGetCurrentTexture(pImpl_->surface, &surfTex);
         if (surfTex.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
             surfTex.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+            if (surfTex.status == WGPUSurfaceGetCurrentTextureStatus_Lost) {
+                std::cerr << "[DawnBridge] Surface texture status: Lost. Marking device lost for recovery.\n";
+                pImpl_->deviceLost = true;
+                pImpl_->gpuReady = false;
+            } else if (surfTex.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
+                pImpl_->resizeGpu(dawWidth, dawHeight);
+            }
+            if (surfTex.texture) {
+                wgpuTextureRelease(surfTex.texture);
+            }
             return;
         }
 
         WGPUTextureView targetView = wgpuTextureCreateView(surfTex.texture, nullptr);
+        if (!targetView) {
+            if (surfTex.texture) {
+                wgpuTextureRelease(surfTex.texture);
+            }
+            return;
+        }
 
         // 4. Encode full-screen post-processing triangle pass
         WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(pImpl_->device, nullptr);
@@ -1275,7 +1344,6 @@ void DawnBridge::renderCrtScene(const uint32_t* dawPixelBuffer, uint32_t dawWidt
         wgpuTextureViewRelease(targetView);
         wgpuTextureRelease(surfTex.texture);
     }
-}
 
 void DawnBridge::beginFrame(float /*width*/, float /*height*/, float /*pixelRatio*/) {
 }

@@ -33,8 +33,9 @@
 #include "widgets/project_browser_drawer.hpp"
 #include "widgets/transport_header.hpp"
 #include "widgets/bottom_nav_bar.hpp"
-// Terminal console drawer temporarily removed from GUI (disabled for now)
+namespace eatsbits::ui {
 class TerminalConsoleDrawer;
+}
 #include "widgets/value_edit_dialog.hpp"
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
@@ -893,6 +894,8 @@ public:
     void runMacro(size_t macroIndex);
     bool saveProjectToFile(const std::string& filePath = "project.eats");
     bool loadProjectFromFile(const std::string& filePath = "project.eats");
+    [[nodiscard]] const std::string& getProjectFilePath() const noexcept { return projectFilePath_; }
+    void setProjectFilePath(const std::string& path) noexcept { projectFilePath_ = path; }
     bool bounceMasterToWav(const std::string& filePath = "master_output.wav");
     [[nodiscard]] const std::string& getLastStatusMessage() const noexcept { return lastStatusMessage_; }
     [[nodiscard]] const std::string& getStatusToastText() const noexcept { return statusToastText_; }
@@ -921,6 +924,7 @@ public:
     void addMidiFxToTrackIndex(uint32_t trackIdx, const std::string& fxId, const std::string& fxNameHint = "", const std::string& engineTagHint = "");
     void deleteTrack(uint32_t trackIdx);
     void duplicateTrack(uint32_t trackIdx);
+    void openDesignForTrack(uint32_t trackIdx);
     void addClipToTrack(uint32_t trackIdx);
     void duplicateClip(uint32_t trackIdx, int clipIdx);
     void deleteClip(uint32_t trackIdx, int clipIdx);
@@ -1361,6 +1365,7 @@ private:
     float frameDt_{0.016f};
     uint64_t frameIndex_{0};
     presenter::TelemetryPresenter telemetryPresenter_;
+    ThemeTokens activeFrameTheme_{};
 
     // Modular Views & Ubiquitous Widgets (Option B)
     std::unique_ptr<ArrangerView> modularArrangerView_;
@@ -1382,6 +1387,8 @@ private:
     DeviceTarget lastFocusedDevice_{DeviceTargetType::Instrument, 0, -1, ""};
     KineticScroller kineticScroller_;
     GestureRecognizer gestureRecognizer_;
+    bool isDeletingTrack_{false};
+    bool isDuplicatingTrack_{false};
 };
 
 } // namespace eatsbits::ui

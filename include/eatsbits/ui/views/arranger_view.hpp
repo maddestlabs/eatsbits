@@ -54,9 +54,11 @@ struct ArrangerTimelineClip {
 };
 
 struct ArrangerTimelineTrack {
+    std::string id{""};
     std::string name;
     std::string instrument;
     std::string instrumentEngine{"tb303"};
+    std::string eatscriptCode{""};
     std::string iconRef{"preset:inst_synth"};
     float r{1.0f}, g{0.55f}, b{0.0f};
     float volume{0.8f};
@@ -173,7 +175,7 @@ public:
     void createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars = 4);
     void duplicateClip(uint32_t trackIdx, int clipIdx);
     void deleteClip(uint32_t trackIdx, int clipIdx);
-    void deleteTrack(uint32_t trackIdx);
+    void deleteTrack(uint32_t trackIdx, bool notify = true);
     void duplicateTrack(uint32_t trackIdx);
     void addMidiFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
     void addAudioFxToTrack(uint32_t trackIdx, const std::string& name, const std::string& type);
@@ -263,6 +265,7 @@ public:
     std::function<void(uint32_t trackIdx)> onAddClip;
     std::function<void(uint32_t trackIdx, int clipIdx)> onDuplicateClip;
     std::function<void(uint32_t trackIdx, int clipIdx)> onDeleteClip;
+    std::function<void(uint32_t trackIndex)> onOpenDesign;
 
 private:
     void renderGrid(const ViewContext& ctx);
