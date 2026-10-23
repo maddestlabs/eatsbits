@@ -5,6 +5,7 @@
 #include "../gui_panel_def.hpp"
 #include "../widgets/text_editor_widget.hpp"
 #include "../widgets/plugin_search_dialog.hpp"
+#include "../widgets/color_picker_dialog.hpp"
 #include "../widgets/sliding_dock.hpp"
 #include "eatsbits/presenter/zoom_pan_presenter.hpp"
 #include <string>
@@ -374,9 +375,17 @@ private:
     std::vector<PaletteItemDef> paletteItems_;
     float paletteScrollY_{0.0f};
     float paletteMaxScrollY_{0.0f};
-    std::vector<std::pair<GuiChassisStyle, Rect2D>> inspectorThemeBtns_;
-    std::vector<std::pair<Color, Rect2D>> inspectorAccentBtns_;
+    float inspectorScrollY_{0.0f};
+    float inspectorMaxScrollY_{0.0f};
+    std::vector<std::pair<std::optional<VectorPatternType>, Rect2D>> inspectorPatternBtns_;
+    std::vector<std::pair<GuiGradientType, Rect2D>> inspectorGradientBtns_;
+    Rect2D dirtNoiseSliderBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D bgOpacitySliderBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    bool isDraggingDirtNoiseSlider_{false};
+    bool isDraggingBgOpacitySlider_{false};
     std::vector<std::pair<std::optional<Color>, Rect2D>> inspectorChassisTintBtns_;
+    Rect2D btnCustomColorPicker_{0.0f, 0.0f, 0.0f, 0.0f};
+    ColorPickerDialog colorPickerDialog_;
     Rect2D inspectorWoodCheeksBtn_{0.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::pair<std::string, Rect2D>> inspectorParamBtns_;
     std::vector<std::pair<GuiKnobStyle, Rect2D>> inspectorKnobStyleBtns_;

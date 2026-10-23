@@ -18,6 +18,12 @@ void drawCenteredText(BatchRenderer2D& r, std::string_view str, const Rect2D& bo
     drawVectorStringCentered(r, str, cx, cy, scale, col.r, col.g, col.b, alpha * col.a);
 }
 
+void drawTextLeftAlignedY(BatchRenderer2D& r, std::string_view str, float x, float cy, float size,
+                          float red, float green, float blue, float alpha) {
+    float scale = std::max(0.6f, size / 13.0f);
+    drawVectorStringLeftAlignedY(r, str, x, cy, scale, red, green, blue, alpha);
+}
+
 void drawRotatedText(BatchRenderer2D& r, std::string_view str, float cx, float cy,
                      float angleDegrees, float size, const Color& col, float alpha) {
     float scale = std::max(0.6f, size / 13.0f);
@@ -121,6 +127,10 @@ float getMonoCharAdvance(float size) {
     float scale = std::max(0.6f, size / 13.0f);
     float fontSize = std::max(11.0f, scale * 15.5f);
     return fontSize * 0.588f;
+}
+
+void drawDebugText(BatchRenderer2D& r, float x, float y, float size, std::string_view text, const Color& col) {
+    drawMonoText(r, text, x, y, size, col.r, col.g, col.b, col.a);
 }
 
 void drawScrewCloseButton(BatchRenderer2D& r, float cx, float cy, float radius, bool hovered, const Color& highlightColor) {

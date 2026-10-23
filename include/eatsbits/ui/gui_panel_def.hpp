@@ -73,6 +73,13 @@ enum class SwitchStyle : uint8_t {
     RectangularSlide = 1 // Authentic hardware rectangular slide switch with corrugated thumb
 };
 
+enum class GuiGradientType : uint8_t {
+    VerticalLinear = 0,   // Standard top-to-bottom shading
+    RadialVignette = 1,   // Optical center highlight fading outward to edge vignette
+    DiagonalLinear = 2,   // Angled 45-degree studio lighting
+    Solid = 3             // Flat uniform matte color
+};
+
 enum class SwitchOrientation : uint8_t {
     Vertical = 0,
     Horizontal = 1
@@ -126,7 +133,7 @@ struct KnobShapeDef {
     bool isLightRotor{false};
     bool hasVolcanoMound{false};                  // Tactile raised curved base / volcano mound in chassis
     float moundElevation{7.5f};                   // Elevation height of the volcano mound
-    std::string centerGlyph;                      // Center glyph (text character, symbol, or Nerd Font icon)
+    std::string centerGlyph;                      // Center glyph (text character, symbol, or native icon ID)
     float centerGlyphSize{0.0f};                  // Font size for center glyph (0 = auto ~ capR * 0.82f)
     std::optional<Color> centerGlyphColor{std::nullopt}; // Center glyph color override
 };
@@ -188,11 +195,31 @@ struct GuiWidgetDef {
     bool showValueBox{false};                     // Skeuomorphic dark pill container box for value readout
     std::string valueDisplay;                     // Explicit formatted string override
     float defaultVal{0.5f};
-    std::string centerGlyph;                      // Center glyph (text character, symbol, or Nerd Font icon)
+    std::string centerGlyph;                      // Center glyph (text character, symbol, or native icon ID)
     float centerGlyphSize{0.0f};                  // Center glyph font size override (0 = auto ~ capR * 0.82f)
     std::optional<Color> centerGlyphColor{std::nullopt}; // Center glyph color override
 
     [[nodiscard]] std::string getFormattedValue() const;
+};
+
+struct FaceplateBackgroundCache {
+    std::vector<Vertex2D> cachedVertices;  // Pre-tessellated vector geometry (for GPU renderers)
+    std::vector<uint32_t> cachedPixels;    // Software rasterized RGBA bitmap (for software CPU blitting & CLAP export)
+    uint32_t cacheW{0};
+    uint32_t cacheH{0};
+    float cachedX{0.0f};
+    float cachedY{0.0f};
+    uint64_t stateHash{0};
+    bool isValid{false};
+
+    void invalidate() noexcept {
+        isValid = false;
+        stateHash = 0;
+        cachedVertices.clear();
+        cachedPixels.clear();
+        cacheW = 0;
+        cacheH = 0;
+    }
 };
 
 struct GuiRowDef {
@@ -212,12 +239,110 @@ struct GuiPanelDef {
     bool hideHeader{false};
     bool isClapPlugin{false};
     float cornerRadius{8.0f};
+    std::optional<VectorPatternType> patternOverride{std::nullopt};
+    float patternIntensity{0.14f};
+    float patternScale{6.0f};
+    GuiGradientType gradientType{GuiGradientType::VerticalLinear};
+    float dirtNoiseLevel{0.0f};      // 0.0 (pristine) to 1.0 (heavy dust & patina)
+    float backgroundOpacity{1.0f};   // 0.0 (transparent) to 1.0 (dominant / solid)
     GuiLayoutMode layoutMode{GuiLayoutMode::AutoRowFlow};
     float designWidth{800.0f};
     float designHeight{480.0f};
     std::vector<GuiWidgetDef> widgets; // For AbsoluteCanvas layout
     std::vector<GuiRowDef> rows;       // For AutoRowFlow layout
     Rect2D bounds{0.0f, 0.0f, 0.0f, 0.0f};
+    mutable FaceplateBackgroundCache backgroundCache{};
+
+    [[nodiscard]] uint64_t computeBackgroundHash(float w, float h, const ThemeTokens& theme) const noexcept;
+
+    [[nodiscard]] VectorPatternType getEffectivePattern() const noexcept {
+        if (patternOverride.has_value()) {
+            return *patternOverride;
+        }
+        switch (chassisStyle) {
+            case GuiChassisStyle::Snes:
+            case GuiChassisStyle::MinimalWhite:
+            case GuiChassisStyle::DarkChassis:
+                return VectorPatternType::None;
+            case GuiChassisStyle::BrushedAluminum:
+            case GuiChassisStyle::Silver:
+            case GuiChassisStyle::BrushedSteel:
+                return VectorPatternType::BrushedSteel;
+            case GuiChassisStyle::Walnut:
+            case GuiChassisStyle::Rosewood:
+                return VectorPatternType::WoodGrain;
+            case GuiChassisStyle::Carbon:
+                return VectorPatternType::DiagonalMesh;
+            case GuiChassisStyle::PcbGreen:
+                return VectorPatternType::CircuitTraces;
+            case GuiChassisStyle::CrinklePaint:
+                return VectorPatternType::VintagePatina;
+            case GuiChassisStyle::Bakelite:
+                return VectorPatternType::DotGrid;
+            case GuiChassisStyle::MattePowderCoat:
+                return VectorPatternType::HorizontalSlats;
+            case GuiChassisStyle::Grunge:
+                return VectorPatternType::VintagePatina;
+            default:
+                return VectorPatternType::None;
+        }
+    }
+
+    [[nodiscard]] float getEffectivePatternIntensity() const noexcept {
+        if (patternOverride.has_value()) {
+            return patternIntensity;
+        }
+        switch (chassisStyle) {
+            case GuiChassisStyle::BrushedAluminum:
+            case GuiChassisStyle::Silver:
+            case GuiChassisStyle::BrushedSteel:
+                return 0.14f;
+            case GuiChassisStyle::Walnut:
+            case GuiChassisStyle::Rosewood:
+                return 0.13f;
+            case GuiChassisStyle::Carbon:
+                return 0.16f;
+            case GuiChassisStyle::PcbGreen:
+                return 0.18f;
+            case GuiChassisStyle::CrinklePaint:
+                return 0.11f;
+            case GuiChassisStyle::Bakelite:
+                return 0.10f;
+            case GuiChassisStyle::MattePowderCoat:
+            case GuiChassisStyle::MinimalWhite:
+                return 0.08f;
+            case GuiChassisStyle::Grunge:
+                return 0.20f;
+            default:
+                return patternIntensity;
+        }
+    }
+
+    [[nodiscard]] float getEffectivePatternScale() const noexcept {
+        if (patternOverride.has_value()) {
+            return patternScale;
+        }
+        switch (chassisStyle) {
+            case GuiChassisStyle::Walnut:
+            case GuiChassisStyle::Rosewood:
+                return 8.0f;
+            case GuiChassisStyle::BrushedAluminum:
+            case GuiChassisStyle::Silver:
+            case GuiChassisStyle::BrushedSteel:
+                return 4.0f;
+            case GuiChassisStyle::Carbon:
+                return 7.0f;
+            case GuiChassisStyle::PcbGreen:
+                return 24.0f;
+            case GuiChassisStyle::MattePowderCoat:
+            case GuiChassisStyle::MinimalWhite:
+                return 8.0f;
+            case GuiChassisStyle::Grunge:
+                return 10.0f;
+            default:
+                return patternScale;
+        }
+    }
 
     void layoutControls(const Rect2D& rect);
 

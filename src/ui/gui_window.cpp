@@ -19,6 +19,7 @@
 #include "eatsbits/audio/graph/nodes/clavinet_node.hpp"
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/audio/graph/nodes/snes_node.hpp"
+#include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
 #include "eatsbits/audio/graph/nodes/sid_node.hpp"
 #include "eatsbits/audio/graph/nodes/dx7_node.hpp"
 #include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
@@ -27,6 +28,8 @@
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/glyph/ebf_font.hpp"
+#include "eatsbits/ui/glyph/ebf_converter.hpp"
 #include "eatsbits/ui/floating_window_manager.hpp"
 #include <iostream>
 #include <cmath>
@@ -175,6 +178,7 @@ using GLuint = unsigned int;
 #include "eatsbits/text/text_shaper.hpp"
 #include "eatsbits/text/glyph_atlas.hpp"
 #include "eatsbits/text/embedded_fonts.hpp"
+#include "eatsbits/ui/glyph/glyph_packs.hpp"
 
 namespace eatsbits::ui {
 
@@ -311,6 +315,27 @@ struct FontRendererState {
 
 static FontRendererState* g_activeFontRenderer = nullptr;
 static BatchRenderer2D* g_activeBatchRenderer = nullptr;
+static eatsbits::ui::glyph::EbfFont g_ebfOswald;
+static eatsbits::ui::glyph::EbfFont g_ebfShareTech;
+static bool g_useEbfTypography = true;
+
+void GuiWindow::setEbfTypographyEnabled(bool enabled) noexcept {
+    g_useEbfTypography = enabled;
+}
+
+bool GuiWindow::isEbfTypographyEnabled() noexcept {
+    return g_useEbfTypography;
+}
+
+inline const eatsbits::ui::glyph::EbfFont* getEffectiveOswaldFont() {
+    if (g_ebfOswald.isValid()) return &g_ebfOswald;
+    return &eatsbits::ui::glyph::EbfFont::getEmbeddedOswaldCondensed();
+}
+
+inline const eatsbits::ui::glyph::EbfFont* getEffectiveShareTechFont() {
+    if (g_ebfShareTech.isValid()) return &g_ebfShareTech;
+    return &eatsbits::ui::glyph::EbfFont::getEmbeddedShareTechMono();
+}
 
 inline BatchRenderer2D* getEffectiveBatchRenderer() noexcept {
     if (g_activeBatchRenderer) return g_activeBatchRenderer;
@@ -550,6 +575,40 @@ void drawCatenaryBezier(Point2D p0, Point2D cp0, Point2D cp1, Point2D p1, float 
     }
 }
 
+void drawPath(const Point2D* points, size_t count, float lineWidth, float r, float g, float b, float a = 1.0f, bool closed = false) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawPath(points, count, lineWidth, r, g, b, a, closed);
+    }
+}
+
+void drawPathGradient(const Point2D* points, size_t count, float lineWidth,
+                      float r0, float g0, float b0, float a0,
+                      float r1, float g1, float b1, float a1,
+                      bool closed = false, bool parametric = false) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawPathGradient(points, count, lineWidth, r0, g0, b0, a0, r1, g1, b1, a1, closed, parametric);
+    }
+}
+
+void drawPathBezier(const Point2D* controlPoints, size_t count, float lineWidth,
+                    float r, float g, float b, float a = 1.0f, int segmentsPerCurve = 16) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawPathBezier(controlPoints, count, lineWidth, r, g, b, a, segmentsPerCurve);
+    }
+}
+
+void drawPatternedRectGradient(float x, float y, float w, float h,
+                               float r0, float g0, float b0,
+                               float r1, float g1, float b1, float a,
+                               VectorPatternType pattern,
+                               float patternIntensity = 0.08f,
+                               float patternScale = 8.0f,
+                               float cornerRadius = 0.0f) {
+    if (g_activeBatchRenderer) {
+        g_activeBatchRenderer->drawPatternedRectGradient(x, y, w, h, r0, g0, b0, r1, g1, b1, a, pattern, patternIntensity, patternScale, cornerRadius);
+    }
+}
+
 void drawCircleDropShadow(float cx, float cy, float radius, float elevation, const LightSource2D& light, float opacity = 0.45f) {
     if (g_activeBatchRenderer) {
         g_activeBatchRenderer->drawCircleDropShadow(cx, cy, radius, elevation, light, opacity);
@@ -713,15 +772,17 @@ void drawSvgLayers(std::span<const SvgLayerDef> layers, float x, float y, float 
 
 namespace {
 
-inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme) {
+inline void drawChassisPlate(float x, float y, float w, float h, bool isTopPanel, const ThemeTokens& theme,
+                             VectorPatternType pattern = VectorPatternType::HorizontalSlats) {
     if (!g_activeBatchRenderer || w <= 0.0f || h <= 0.0f) return;
 
     Color gradTop = isTopPanel ? theme.panelHeaderGradientTop : theme.panelHeaderGradientTop.darken(0.04f);
     Color gradBot = isTopPanel ? theme.panelHeaderGradientBottom : theme.panelHeaderGradientBottom.darken(0.08f);
 
-    g_activeBatchRenderer->drawRectGradient(x, y, w, h,
-                                           gradTop.r, gradTop.g, gradTop.b,
-                                           gradBot.r, gradBot.g, gradBot.b, 1.0f);
+    g_activeBatchRenderer->drawPatternedRectGradient(x, y, w, h,
+                                                    gradTop.r, gradTop.g, gradTop.b,
+                                                    gradBot.r, gradBot.g, gradBot.b, 1.0f,
+                                                    pattern, 0.035f, 6.0f);
 
     // Subtle 1px specular bevel highlight along outer edge & crisp border separator
     if (isTopPanel) {
@@ -1062,7 +1123,12 @@ void drawVectorGlyph(BatchRenderer2D& renderer, uint32_t c, float x, float y, fl
         return;
     }
 
-    // Unicode Musical Notes & Box-Drawing Characters
+    // Check modular glyph packs first (Terminal, Editor, DspMath, Score)
+    if (glyph::GlyphRegistry::instance().render(renderer, c, x, y, scale, r, g, b, a)) {
+        return;
+    }
+
+    // Fallback Unicode Musical Notes & Box-Drawing Characters
     switch (c) {
         case 0x2669: // ♩ Quarter note
             drawCircle(x + 2.0f * scale, y + 6.5f * scale, 1.8f * scale, r, g, b, a, 10);
@@ -1234,6 +1300,47 @@ void drawVectorString(BatchRenderer2D& renderer, std::string_view str, float x, 
         }
     }
 
+    const auto* oswald = getEffectiveOswaldFont();
+    if (g_useEbfTypography && oswald && oswald->isValid()) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        if (!hasSpecial) {
+            oswald->drawText(renderer, x, y, fontSize, str, r, g, b, a);
+            return;
+        } else {
+            const char* ptr = str.data();
+            const char* end = ptr + str.size();
+            float curX = x;
+            const float charW = 7.5f * scale;
+            float ascender = oswald->getAscender(fontSize);
+            float baselineY = y + ascender;
+            float u = (oswald->getHeader().unitsPerEm > 0) ? static_cast<float>(oswald->getHeader().unitsPerEm) : 1000.0f;
+            float fontScale = fontSize / u;
+
+            while (ptr < end) {
+                uint32_t cp = decodeNextUtf8(ptr, end);
+                if (cp == ' ') {
+                    const auto* spRec = oswald->findGlyph(' ');
+                    curX += spRec ? (static_cast<float>(spRec->advanceX) * fontScale) : charW;
+                    continue;
+                }
+                if (isSpecialSymbol(cp)) {
+                    drawVectorGlyph(renderer, cp, curX, y, scale, r, g, b, a);
+                    curX += charW;
+                } else {
+                    const auto* rec = oswald->findGlyph(cp);
+                    if (rec) {
+                        oswald->renderGlyph(renderer, cp, curX, baselineY, fontSize, r, g, b, a);
+                        curX += static_cast<float>(rec->advanceX) * fontScale;
+                    } else {
+                        drawVectorGlyph(renderer, cp, curX, y, scale, r, g, b, a);
+                        curX += charW;
+                    }
+                }
+            }
+            return;
+        }
+    }
+
     if (g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
         float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
@@ -1331,6 +1438,37 @@ void drawVectorString(std::string_view str, float x, float y, float scale, float
 void drawVectorStringCentered(BatchRenderer2D& renderer, std::string_view str, float cx, float cy, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
 
+    const auto* oswald = getEffectiveOswaldFont();
+    if (g_useEbfTypography && oswald && oswald->isValid()) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        float ascender = oswald->getAscender(fontSize);
+
+        // Single-glyph optical centering
+        const char* p = str.data();
+        const char* e = p + str.size();
+        uint32_t firstCp = decodeNextUtf8(p, e);
+        if (p == e && !isSpecialSymbol(firstCp)) {
+            const auto* rec = oswald->findGlyph(firstCp);
+            if (rec && rec->width > 0 && rec->height > 0) {
+                float u = (oswald->getHeader().unitsPerEm > 0) ? static_cast<float>(oswald->getHeader().unitsPerEm) : 1000.0f;
+                float gScale = fontSize / u;
+                float glyphCenterX = (static_cast<float>(rec->bearingX) + static_cast<float>(rec->width) * 0.5f) * gScale;
+                float glyphCenterY = (-static_cast<float>(rec->bearingY) + static_cast<float>(rec->height) * 0.5f) * gScale;
+                float startX = cx - glyphCenterX;
+                float baselineY = cy - glyphCenterY;
+                oswald->renderGlyph(renderer, firstCp, startX, baselineY, fontSize, r, g, b, a);
+                return;
+            }
+        }
+
+        float totalW = oswald->measureText(str, fontSize);
+        float startX = cx - (totalW * 0.5f);
+        float baselineY = cy + (ascender * 0.35f);
+        float startY = baselineY - ascender;
+        drawVectorString(renderer, str, startX, startY, scale, r, g, b, a);
+        return;
+    }
+
     if (g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
         float fontSize = std::max(10.0f, scale * 15.5f);
         uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
@@ -1401,10 +1539,125 @@ void drawVectorStringCentered(std::string_view str, float cx, float cy, float sc
     }
 }
 
+void drawVectorStringLeftAlignedY(BatchRenderer2D& renderer, std::string_view str, float x, float cy, float scale, float r, float g, float b, float a) {
+    if (str.empty()) return;
+
+    const auto* oswald = getEffectiveOswaldFont();
+    if (g_useEbfTypography && oswald && oswald->isValid()) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        float ascender = oswald->getAscender(fontSize);
+        float baselineY = cy + (ascender * 0.35f);
+        float startY = baselineY - ascender;
+        drawVectorString(renderer, str, x, startY, scale, r, g, b, a);
+        return;
+    }
+
+    bool hasSpecial = false;
+    for (unsigned char c : str) {
+        if (c >= 0x80) {
+            hasSpecial = true;
+            break;
+        }
+    }
+
+    if (g_activeFontRenderer && g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        uint8_t cr = static_cast<uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
+        uint8_t cg = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
+        uint8_t cb = static_cast<uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
+        uint8_t ca = static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f);
+        uint32_t col = static_cast<uint32_t>(cr) |
+                      (static_cast<uint32_t>(cg) << 8) |
+                      (static_cast<uint32_t>(cb) << 16) |
+                      (static_cast<uint32_t>(ca) << 24);
+
+        FT_Face face = g_activeFontRenderer->fontMgr.getFtFace(g_activeFontRenderer->fontNormal);
+        float ascender = fontSize * 0.82f;
+        if (face && face->size) {
+            float ftAsc = static_cast<float>(face->size->metrics.ascender) / 64.0f;
+            if (ftAsc > 0.0f) ascender = ftAsc;
+        }
+        float baselineY = cy + (ascender * 0.35f);
+
+        if (!hasSpecial) {
+            if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                           g_activeFontRenderer->fontNormal,
+                                                           fontSize, str,
+                                                           g_activeFontRenderer->shapedRun)) {
+                renderShapedGlyphs(renderer, *g_activeFontRenderer,
+                                   g_activeFontRenderer->fontNormal, fontSize, x, baselineY, col);
+                return;
+            }
+        } else {
+            const char* ptr = str.data();
+            const char* end = ptr + str.size();
+            float curX = x;
+            const float charW = 7.5f * scale;
+
+            while (ptr < end) {
+                const char* prevPtr = ptr;
+                uint32_t cp = decodeNextUtf8(ptr, end);
+                if (cp == ' ') {
+                    curX += charW;
+                    continue;
+                }
+                if (isSpecialSymbol(cp)) {
+                    drawVectorGlyph(renderer, cp, curX, cy - (4.0f * scale), scale, r, g, b, a);
+                    curX += charW;
+                } else {
+                    std::string_view chunk(prevPtr, static_cast<size_t>(ptr - prevPtr));
+                    if (g_activeFontRenderer->textShaper.shapeText(g_activeFontRenderer->fontMgr,
+                                                                   g_activeFontRenderer->fontNormal,
+                                                                   fontSize, chunk,
+                                                                   g_activeFontRenderer->shapedRun)) {
+                        renderShapedGlyphs(renderer, *g_activeFontRenderer,
+                                           g_activeFontRenderer->fontNormal, fontSize, curX, baselineY, col);
+                        curX += g_activeFontRenderer->shapedRun.totalAdvanceX;
+                    } else {
+                        drawVectorGlyph(renderer, cp, curX, cy - (4.0f * scale), scale, r, g, b, a);
+                        curX += charW;
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    // Pure vector fallback
+    const char* ptr = str.data();
+    const char* end = ptr + str.size();
+    float curX = x;
+    const float charW = 7.5f * scale;
+    float startY = cy - (4.0f * scale);
+    while (ptr < end) {
+        uint32_t cp = decodeNextUtf8(ptr, end);
+        if (cp == ' ') {
+            curX += charW;
+            continue;
+        }
+        drawVectorGlyph(renderer, cp, curX, startY, scale, r, g, b, a);
+        curX += charW;
+    }
+}
+
+void drawVectorStringLeftAlignedY(std::string_view str, float x, float cy, float scale, float r, float g, float b, float a) {
+    BatchRenderer2D* ren = getEffectiveBatchRenderer();
+    if (ren) {
+        drawVectorStringLeftAlignedY(*ren, str, x, cy, scale, r, g, b, a);
+    }
+}
+
 float drawSyntaxString(std::string_view str, float x, float y, float scale, float r, float g, float b, float a = 1.0f) {
     if (str.empty()) return x;
     BatchRenderer2D* ren = getEffectiveBatchRenderer();
     if (!ren) return x;
+
+    const auto* shareTech = getEffectiveShareTechFont();
+    if (g_useEbfTypography && shareTech && shareTech->isValid()) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        shareTech->drawText(*ren, x, y, fontSize, str, r, g, b, a);
+        return x + shareTech->measureText(str, fontSize);
+    }
 
     if (g_activeFontRenderer &&
         (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
@@ -1443,6 +1696,13 @@ float drawSyntaxString(std::string_view str, float x, float y, float scale, floa
 
 void drawMonoString(BatchRenderer2D& renderer, std::string_view str, float x, float y, float scale, float r, float g, float b, float a) {
     if (str.empty()) return;
+
+    const auto* shareTech = getEffectiveShareTechFont();
+    if (g_useEbfTypography && shareTech && shareTech->isValid()) {
+        float fontSize = std::max(10.0f, scale * 15.5f);
+        shareTech->drawText(renderer, x, y, fontSize, str, r, g, b, a);
+        return;
+    }
 
     if (g_activeFontRenderer &&
         (g_activeFontRenderer->fontMono != eatsbits::text::kInvalidFontId || g_activeFontRenderer->fontNormal != eatsbits::text::kInvalidFontId)) {
@@ -1544,6 +1804,28 @@ inline void drawRectOutline(const Rect& rect, const Color& c, float lineWidth = 
 
 inline void drawRectOutline(const Rect& rect, float r, float g, float b, float a = 1.0f, float lineWidth = 1.0f) {
     drawRectOutline(rect.x, rect.y, rect.w, rect.h, r, g, b, a, lineWidth);
+}
+
+inline void drawPath(const Point2D* points, size_t count, float lineWidth, const Color& c, bool closed = false) {
+    drawPath(points, count, lineWidth, c.r, c.g, c.b, c.a, closed);
+}
+
+inline void drawPath(const std::vector<Point2D>& points, float lineWidth, const Color& c, bool closed = false) {
+    drawPath(points.data(), points.size(), lineWidth, c.r, c.g, c.b, c.a, closed);
+}
+
+inline void drawPathGradient(const Point2D* points, size_t count, float lineWidth, const Color& c0, const Color& c1, bool closed = false, bool parametric = false) {
+    drawPathGradient(points, count, lineWidth, c0.r, c0.g, c0.b, c0.a, c1.r, c1.g, c1.b, c1.a, closed, parametric);
+}
+
+inline void drawPatternedRectGradient(float x, float y, float w, float h, const Color& c0, const Color& c1,
+                                       VectorPatternType pattern, float intensity = 0.08f, float scale = 8.0f, float cornerRadius = 0.0f) {
+    drawPatternedRectGradient(x, y, w, h, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.a, pattern, intensity, scale, cornerRadius);
+}
+
+inline void drawPatternedRectGradient(const Rect& rect, const Color& c0, const Color& c1,
+                                       VectorPatternType pattern, float intensity = 0.08f, float scale = 8.0f, float cornerRadius = 0.0f) {
+    drawPatternedRectGradient(rect.x, rect.y, rect.w, rect.h, c0, c1, pattern, intensity, scale, cornerRadius);
 }
 
 // =========================================================================
@@ -2864,6 +3146,10 @@ void GuiWindow::openDetachedInstrument(uint32_t trackIndex) {
         }
     };
 
+    FloatingWindowManager::instance().onAuditionNote = [this](uint32_t idx, uint8_t note, float vel) {
+        auditionTrackNote(idx, note, vel);
+    };
+
     FloatingWindowManager::instance().onWindowClosed = [this](uint32_t closedIdx) {
         const auto* closedPanel = FloatingWindowManager::instance().getPanelDef(closedIdx);
         if (closedPanel && closedIdx < arrangerTracks_.size()) {
@@ -3258,6 +3544,31 @@ void hitTestNodeRecursive(const project::GuiLayoutNode& node, float x, float y, 
             out.currentNormVal = p ? p->getNormalized() : 0.5f;
             return;
         }
+    } else if (node.type == project::GuiNodeType::ListBox) {
+        float boxX = adjNodeX + 4.0f;
+        float boxY = adjNodeY + 16.0f;
+        float boxW = node.boundsW - 8.0f;
+        float boxH = node.boundsH * scale - 20.0f;
+        if (x >= boxX && x <= boxX + boxW && y >= boxY && y <= boxY + boxH) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {boxX, boxY};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.0f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Button) {
+        float btnX = adjNodeX + 4.0f;
+        float btnY = adjNodeY + 4.0f;
+        float btnW = node.boundsW - 8.0f;
+        float btnH = node.boundsH * scale - 8.0f;
+        if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
+            out.hit = true;
+            out.paramName = !node.paramName.empty() ? node.paramName : (!node.action.empty() ? node.action : "randomize");
+            out.position = {btnX, btnY};
+            out.currentNormVal = 1.0f;
+            return;
+        }
     }
 
     for (const auto& child : node.children) {
@@ -3304,6 +3615,31 @@ void hitTestCompactNodeRecursive(const project::GuiLayoutNode& node, float local
             out.position = {trkX, trkY};
             const auto* p = preset.findParam(node.paramName);
             out.currentNormVal = p ? p->getNormalized() : 0.5f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::ListBox) {
+        float boxX = node.boundsX + 4.0f;
+        float boxY = node.boundsY + 16.0f;
+        float boxW = node.boundsW - 8.0f;
+        float boxH = node.boundsH - 20.0f;
+        if (localX >= boxX && localX <= boxX + boxW && localY >= boxY && localY <= boxY + boxH) {
+            out.hit = true;
+            out.paramName = node.paramName;
+            out.position = {boxX, boxY};
+            const auto* p = preset.findParam(node.paramName);
+            out.currentNormVal = p ? p->getNormalized() : 0.0f;
+            return;
+        }
+    } else if (node.type == project::GuiNodeType::Button) {
+        float btnX = node.boundsX + 4.0f;
+        float btnY = node.boundsY + 4.0f;
+        float btnW = node.boundsW - 8.0f;
+        float btnH = node.boundsH - 8.0f;
+        if (localX >= btnX && localX <= btnX + btnW && localY >= btnY && localY <= btnY + btnH) {
+            out.hit = true;
+            out.paramName = !node.paramName.empty() ? node.paramName : (!node.action.empty() ? node.action : "randomize");
+            out.position = {btnX, btnY};
+            out.currentNormVal = 1.0f;
             return;
         }
     }
@@ -4120,7 +4456,7 @@ void GuiWindow::syncArrangerFromSequencer() {
             styleIdx = 1;
         } else if (lower.find("909") != std::string::npos || lower.find("drum") != std::string::npos || lower.find("hat") != std::string::npos || lower.find("snare") != std::string::npos || lower.find("clap") != std::string::npos) {
             styleIdx = 2;
-        } else if (lower.find("dx7") != std::string::npos || lower.find("rhodes") != std::string::npos || lower.find("ep") != std::string::npos || lower.find("keys") != std::string::npos) {
+        } else if (lower.find("dx7") != std::string::npos || lower.find("dxvii") != std::string::npos || lower.find("rhodes") != std::string::npos || lower.find("ep") != std::string::npos || lower.find("keys") != std::string::npos) {
             styleIdx = 3;
         } else if (lower.find("piano") != std::string::npos || lower.find("grand") != std::string::npos || lower.find("guitar") != std::string::npos || lower.find("string") != std::string::npos) {
             styleIdx = 4;
@@ -4602,7 +4938,9 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
         if (eng == "tb303" || inst.find("303") != std::string::npos || name.find("303") != std::string::npos) targetKeyword = "303";
         else if (eng == "tr808" || inst.find("808") != std::string::npos || name.find("808") != std::string::npos) targetKeyword = "808";
         else if (eng == "tr909" || inst.find("909") != std::string::npos || name.find("909") != std::string::npos) targetKeyword = "909";
-        else if (eng == "dx7" || inst.find("DX7") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
+        else if (eng == "dx7" || eng == "dxvii_epiano" || eng == "dxvii" || eng == "eats_dx" ||
+                 inst.find("DX7") != std::string::npos || inst.find("DXVII") != std::string::npos ||
+                 name.find("DX7") != std::string::npos || name.find("DXVII") != std::string::npos) targetKeyword = "dx";
         else if (eng == "piano" || inst.find("Piano") != std::string::npos || name.find("Grand") != std::string::npos) targetKeyword = "piano";
         else if (eng.find("astral") != std::string::npos || inst.find("astral") != std::string::npos || name.find("astral") != std::string::npos ||
                  eng.find("Astral") != std::string::npos || inst.find("Astral") != std::string::npos || name.find("Astral") != std::string::npos ||
@@ -4618,7 +4956,7 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
             else if (name.find("808") != std::string::npos || name.find("Drum") != std::string::npos) targetKeyword = "808";
             else if (name.find("909") != std::string::npos) targetKeyword = "909";
             else if (name.find("Bass") != std::string::npos || name.find("Sub") != std::string::npos) targetKeyword = "bass";
-            else if (name.find("Lead") != std::string::npos || name.find("Poly") != std::string::npos || name.find("DX7") != std::string::npos) targetKeyword = "dx7";
+            else if (name.find("Lead") != std::string::npos || name.find("Poly") != std::string::npos || name.find("DX7") != std::string::npos || name.find("DXVII") != std::string::npos) targetKeyword = "dx";
             else if (name.find("Master") != std::string::npos || name.find("Delay") != std::string::npos || name.find("Echo") != std::string::npos) targetKeyword = "delay";
 
             if (targetKeyword.empty()) {
@@ -4631,7 +4969,7 @@ void GuiWindow::syncTrackToPreset(uint32_t trackIndex) {
                         targetKeyword = (dk->getKitType() == audio::DrumKitType::TR909) ? "909" : "808";
                     }
                     else if (dynamic_cast<audio::DelayNode*>(nodePtr.get())) targetKeyword = "delay";
-                    else if (dynamic_cast<audio::PolySynthNode*>(nodePtr.get())) targetKeyword = "dx7";
+                    else if (dynamic_cast<audio::PolySynthNode*>(nodePtr.get()) || dynamic_cast<audio::Dx7Node*>(nodePtr.get())) targetKeyword = "dx";
                     else if (dynamic_cast<audio::PhysicalInstrumentNode*>(nodePtr.get())) targetKeyword = "piano";
                 }
             }
@@ -4821,7 +5159,7 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
         if (engHint.find("clavinet") != std::string::npos || engHint.find("clav") != std::string::npos || engHint.find("d6") != std::string::npos) isClav = true;
         else if (engHint.find("snes") != std::string::npos || engHint.find("sfxr") != std::string::npos || engHint.find("spc") != std::string::npos) isSnes = true;
         else if (engHint.find("sid") != std::string::npos || engHint.find("c64") != std::string::npos) isSid = true;
-        else if (engHint.find("dx7") != std::string::npos || engHint.find("fm") != std::string::npos || engHint.find("rhodes") != std::string::npos) isDx7 = true;
+        else if (engHint.find("dx7") != std::string::npos || engHint.find("dxvii") != std::string::npos || engHint.find("fm") != std::string::npos || engHint.find("rhodes") != std::string::npos) isDx7 = true;
         else if (engHint.find("ym2612") != std::string::npos || engHint.find("genesis") != std::string::npos) isYm2612 = true;
         else if (engHint.find("808") != std::string::npos || engHint.find("909") != std::string::npos || engHint.find("drum") != std::string::npos) isDrums = true;
         else if (engHint.find("303") != std::string::npos || engHint.find("acid") != std::string::npos) isTb303 = true;
@@ -5163,6 +5501,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     transportHeaderWidget_ = std::make_unique<TransportHeader>();
     bottomNavBarWidget_ = std::make_unique<BottomNavBar>();
     syncDesignViewToProject();
+    if (modularArrangerView_) {
+        modularArrangerView_->setActiveTrack(0);
+        modularArrangerView_->syncDrawerDataForTrack(0);
+    }
 
     bottomNavBarWidget_->onTabSelected = [this](int tabIdx) {
         if (tabIdx >= 0 && tabIdx <= 4) {
@@ -6990,6 +7332,42 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     g_activeBatchRenderer = batchRenderer_.get();
 
     batchRenderer_->setMonospaceGlyphHook([this](float x, float y, float w, float h, char32_t codepoint, uint32_t fgColor) -> bool {
+        if (!g_activeBatchRenderer && batchRenderer_) {
+            g_activeBatchRenderer = batchRenderer_.get();
+        }
+
+        float r = static_cast<float>(fgColor & 0xFF) / 255.0f;
+        float g = static_cast<float>((fgColor >> 8) & 0xFF) / 255.0f;
+        float b = static_cast<float>((fgColor >> 16) & 0xFF) / 255.0f;
+        float a = static_cast<float>((fgColor >> 24) & 0xFF) / 255.0f;
+
+        // 1. Converted / EbfFont ShareTech Mono for script editors and monospace cells
+        const auto* shareTech = getEffectiveShareTechFont();
+        if (g_useEbfTypography && g_activeBatchRenderer && shareTech && shareTech->isValid()) {
+            if (codepoint == 32) return true; // whitespace
+            float fontSize = h * 0.92f;
+            float baselineY = y + h * 0.78f;
+            const auto* rec = shareTech->findGlyph(codepoint);
+            if (rec) {
+                float u = (shareTech->getHeader().unitsPerEm > 0) ? static_cast<float>(shareTech->getHeader().unitsPerEm) : 1000.0f;
+                float glyphAdvance = static_cast<float>(rec->advanceX) * (fontSize / u);
+                float gx = x + std::max(0.0f, (w - glyphAdvance) * 0.5f);
+                if (shareTech->renderGlyph(*g_activeBatchRenderer, codepoint, gx, baselineY, fontSize, r, g, b, a)) {
+                    return true;
+                }
+            }
+        }
+
+        // Active Vector Glyph Packs (Terminal, Editor, DspMath, Score)
+        if (g_activeBatchRenderer) {
+            float glyphScale = std::min(w / 7.5f, h / 8.0f);
+            float gx = x + (w - 7.5f * glyphScale) * 0.5f;
+            float gy = y + (h - 8.0f * glyphScale) * 0.5f;
+            if (glyph::GlyphRegistry::instance().render(*g_activeBatchRenderer, codepoint, gx, gy, glyphScale, r, g, b, a)) {
+                return true;
+            }
+        }
+
         if (!fontRenderer_) return false;
         eatsbits::text::FontId fid = (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) ? fontRenderer_->fontMono : fontRenderer_->fontNormal;
         if (fid == eatsbits::text::kInvalidFontId) return false;
@@ -7014,10 +7392,6 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             return false;
         }
 
-        if (!g_activeBatchRenderer && batchRenderer_) {
-            g_activeBatchRenderer = batchRenderer_.get();
-        }
-
         float fontSize = std::min(h * 0.90f, w / 0.585f);
         if (fontSize < 9.0f) fontSize = 9.0f;
 
@@ -7034,6 +7408,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             renderShapedGlyphs(*g_activeBatchRenderer, *fontRenderer_, fid, fontSize, startX, baselineY, fgColor);
             return true;
         }
+
         return false;
     });
 
@@ -8650,8 +9025,8 @@ void GuiWindow::renderFrame() {
 
                         // Minimalist Controls toggle (Performance Vector Knobs & Sliders)
                         bool isMin = isMinimalGuiEnabled();
-                        drawVectorString("Minimalist Controls (Performance Vector Knobs)", hubX + 28.0f, contentY + 238.0f, 0.85f, theme.textPrimary);
-                        drawVectorString("Bypasses 3D skeuomorphism for clean vector dials (Bitwig/Ableton)", hubX + 28.0f, contentY + 252.0f, 0.62f, theme.textMuted);
+                        drawVectorString("Minimalist GUI & Controls (Performance Mode)", hubX + 28.0f, contentY + 238.0f, 0.85f, theme.textPrimary);
+                        drawVectorString("Bypasses 3D skeuomorphism & complex backgrounds for flat dials and solid panels", hubX + 28.0f, contentY + 252.0f, 0.62f, theme.textMuted);
                         drawRoundedRect(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
                                        isMin ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
                         drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
@@ -9036,6 +9411,38 @@ void GuiWindow::initFontRenderer() {
     fontRenderer_ = std::make_unique<FontRendererState>();
     g_activeFontRenderer = fontRenderer_.get();
 
+    // 1. Initialize EbfFont Oswald for zero-dependency vector UI typography (pre-converted EBF format)
+    const std::vector<std::string> oswaldEbfPaths = {
+        "assets/fonts/Oswald-Regular.ebf",
+        "../assets/fonts/Oswald-Regular.ebf",
+        "../../assets/fonts/Oswald-Regular.ebf",
+        "c:/git/eatsbits/assets/fonts/Oswald-Regular.ebf",
+        "build/Oswald-Regular.ebf",
+        "../build/Oswald-Regular.ebf"
+    };
+    for (const auto& op : oswaldEbfPaths) {
+        if (std::filesystem::exists(op) && g_ebfOswald.loadFromFile(op)) {
+            std::cout << "[GuiWindow] Loaded Oswald EbfFont from " << op << " (" << g_ebfOswald.getGlyphCount() << " glyphs)\n";
+            break;
+        }
+    }
+
+    // 2. Initialize EbfFont ShareTech Mono for code editor and digital readouts (pre-converted EBF format)
+    const std::vector<std::string> shareTechEbfPaths = {
+        "assets/fonts/ShareTechMono-Regular.ebf",
+        "../assets/fonts/ShareTechMono-Regular.ebf",
+        "../../assets/fonts/ShareTechMono-Regular.ebf",
+        "c:/git/eatsbits/assets/fonts/ShareTechMono-Regular.ebf",
+        "build/ShareTechMono-Regular.ebf",
+        "../build/ShareTechMono-Regular.ebf"
+    };
+    for (const auto& sp : shareTechEbfPaths) {
+        if (std::filesystem::exists(sp) && g_ebfShareTech.loadFromFile(sp)) {
+            std::cout << "[GuiWindow] Loaded ShareTech Mono EbfFont from " << sp << " (" << g_ebfShareTech.getGlyphCount() << " glyphs)\n";
+            break;
+        }
+    }
+
     // Prioritize Oswald for primary UI typography
     std::vector<std::string> searchPaths;
     if (!pendingFontPath_.empty()) {
@@ -9108,30 +9515,6 @@ void GuiWindow::initFontRenderer() {
         fontRenderer_->fontNormal = fontRenderer_->fontMono;
     }
 
-    // Load Nerd Font Symbols as fallback for iconography
-    const std::vector<std::string> nerdSymbolPaths = {
-        "assets/fonts/SymbolsNerdFont-Regular.ttf",
-        "../assets/fonts/SymbolsNerdFont-Regular.ttf",
-        "../../assets/fonts/SymbolsNerdFont-Regular.ttf",
-        "c:/git/eatsbits/assets/fonts/SymbolsNerdFont-Regular.ttf"
-    };
-    for (const auto& nsPath : nerdSymbolPaths) {
-        if (std::filesystem::exists(nsPath)) {
-            eatsbits::text::FontId nsId = fontRenderer_->fontMgr.loadFontFromFile("nerd_symbols", nsPath);
-            if (nsId != eatsbits::text::kInvalidFontId) {
-                if (fontRenderer_->fontFallback != eatsbits::text::kInvalidFontId) {
-                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontFallback, nsId);
-                } else if (fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId) {
-                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontNormal, nsId);
-                }
-                if (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) {
-                    fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, nsId);
-                }
-                std::cout << "[GuiWindow] Loaded Nerd Font Symbols fallback from " << nsPath << std::endl;
-                break;
-            }
-        }
-    }
 #endif
 }
 
@@ -9874,32 +10257,44 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
             float scale = contentW / designW;
 
             const std::string& bg = preset->compactGuiRoot.background.empty() ? preset->guiRoot.background : preset->compactGuiRoot.background;
-            if (bg == "minimal_white") {
-                drawRectGradient(pX, pY, pW, pH, 0.92f, 0.94f, 0.96f, 0.82f, 0.84f, 0.88f);
+            if (isMinimalGuiEnabled()) {
+                Color minBg(0.14f, 0.16f, 0.20f);
+                if (bg == "minimal_white") minBg = Color(0.92f, 0.93f, 0.95f);
+                else if (bg == "walnut" || bg == "wood" || bg == "clavinet") minBg = Color(0.24f, 0.16f, 0.10f);
+                else if (bg == "silver") minBg = Color(0.72f, 0.74f, 0.78f);
+                else if (bg == "snes_faceplate") minBg = Color(0.85f, 0.84f, 0.80f);
+                else if (bg == "c64_breadbin") minBg = Color(0.22f, 0.19f, 0.16f);
+                else if (bg == "dx7_faceplate") minBg = Color(0.10f, 0.10f, 0.08f);
+                else if (bg == "ym2612_faceplate") minBg = Color(0.08f, 0.08f, 0.09f);
+                else if (bg == "convolver_faceplate") minBg = Color(0.12f, 0.14f, 0.17f);
+                drawRect(pX, pY, pW, pH, minBg.r, minBg.g, minBg.b, 1.0f);
+                drawRectOutline(pX, pY, pW, pH, minBg.lighten(0.15f).r, minBg.lighten(0.15f).g, minBg.lighten(0.15f).b, 0.8f, 1.0f);
+            } else if (bg == "minimal_white") {
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.92f, 0.94f, 0.96f, 0.82f, 0.84f, 0.88f, 1.0f, VectorPatternType::DotGrid, 0.025f, 10.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.45f, 0.48f, 0.55f, 1.0f, 1.5f);
             } else if (bg == "c64_breadbin") {
-                drawRectGradient(pX, pY, pW, pH, 0.24f, 0.21f, 0.17f, 0.16f, 0.14f, 0.11f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.24f, 0.21f, 0.17f, 0.16f, 0.14f, 0.11f, 1.0f, VectorPatternType::HorizontalSlats, 0.05f, 6.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.42f, 0.37f, 0.71f, 1.0f, 1.5f);
             } else if (bg == "dx7_faceplate") {
-                drawRectGradient(pX, pY, pW, pH, 0.12f, 0.11f, 0.09f, 0.07f, 0.06f, 0.06f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.12f, 0.11f, 0.09f, 0.07f, 0.06f, 0.06f, 1.0f, VectorPatternType::CircuitTraces, 0.045f, 16.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.0f, 0.66f, 0.53f, 1.0f, 1.5f);
             } else if (bg == "snes_faceplate") {
-                drawRectGradient(pX, pY, pW, pH, 0.76f, 0.76f, 0.80f, 0.62f, 0.62f, 0.66f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.76f, 0.76f, 0.80f, 0.62f, 0.62f, 0.66f, 1.0f, VectorPatternType::DiagonalMesh, 0.035f, 8.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.48f, 0.42f, 0.72f, 1.0f, 1.5f);
             } else if (bg == "ym2612_faceplate") {
-                drawRectGradient(pX, pY, pW, pH, 0.08f, 0.08f, 0.09f, 0.04f, 0.04f, 0.05f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.08f, 0.08f, 0.09f, 0.04f, 0.04f, 0.05f, 1.0f, VectorPatternType::HexHoneycomb, 0.04f, 10.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.90f, 0.66f, 0.14f, 1.0f, 1.5f);
             } else if (bg == "convolver_faceplate") {
-                drawRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f, 1.0f, VectorPatternType::DiagonalMesh, 0.04f, 8.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.0f, 0.90f, 1.0f, 1.0f, 1.5f);
             } else if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
-                drawRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f, 1.0f, VectorPatternType::WoodGrain, 0.055f, 6.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.65f, 0.42f, 0.18f, 1.0f, 1.5f);
             } else if (bg == "silver") {
-                drawRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f, 1.0f, VectorPatternType::BrushedSteel, 0.04f, 3.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.45f, 0.50f, 0.62f, 1.0f, 1.5f);
             } else {
-                drawRectGradient(pX, pY, pW, pH, 0.11f, 0.12f, 0.16f, 0.06f, 0.07f, 0.10f);
+                drawPatternedRectGradient(pX, pY, pW, pH, 0.11f, 0.12f, 0.16f, 0.06f, 0.07f, 0.10f, 1.0f, VectorPatternType::DotGrid, 0.025f, 12.0f);
                 drawRectOutline(pX, pY, pW, pH, 0.22f, 0.26f, 0.35f, 1.0f, 1.5f);
             }
 
@@ -10053,6 +10448,77 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                     drawLine(adjNodeX + adjNodeW * 0.5f, adjNodeY + 4.0f,
                              adjNodeX + adjNodeW * 0.5f, adjNodeY + adjNodeH - 4.0f,
                              Color(0.4f, 0.45f, 0.55f, 0.5f), 1.0f);
+                } else if (node.type == project::GuiNodeType::ListBox) {
+                    int totalOpts = static_cast<int>(node.options.size());
+                    const auto* p = preset->findParam(node.paramName);
+                    float curVal = p ? p->currentVal : 0.0f;
+                    int currentIdx = std::clamp(static_cast<int>(std::round(curVal)), 0, std::max(0, totalOpts - 1));
+
+                    float boxX = adjNodeX + 4.0f * scale;
+                    float boxY = adjNodeY + 14.0f * scale;
+                    float boxW = adjNodeW - 8.0f * scale;
+                    float boxH = adjNodeH - 18.0f * scale;
+
+                    // Header: Red LED dot + Label + Digital Red Counter
+                    float ledX = boxX + 4.0f * scale;
+                    float ledY = adjNodeY + 6.0f * scale;
+                    drawCircle(ledX, ledY, 3.0f * scale, Color(0.95f, 0.15f, 0.15f, 0.35f));
+                    drawCircle(ledX, ledY, 1.8f * scale, Color(1.0f, 0.20f, 0.20f, 1.0f));
+
+                    drawVectorString(node.label, ledX + 7.0f * scale, adjNodeY + 2.0f * scale, 0.45f * scale + 0.10f, Color(0.60f, 0.65f, 0.75f));
+
+                    if (totalOpts > 0) {
+                        char counterBuf[16];
+                        std::snprintf(counterBuf, sizeof(counterBuf), "%02d/%02d", currentIdx + 1, totalOpts);
+                        drawVectorString(counterBuf, boxX + boxW - 32.0f * scale, adjNodeY + 2.0f * scale, 0.45f * scale + 0.10f, Color(0.95f, 0.15f, 0.15f));
+                    }
+
+                    // Beveled Dark Smoky Glass Container
+                    drawRoundedRect(boxX, boxY, boxW, boxH, 3.0f, Color(0.08f, 0.08f, 0.10f));
+                    drawRoundedRectOutline(boxX, boxY, boxW, boxH, 3.0f, Color(0.30f, 0.14f, 0.16f), 1.0f);
+
+                    // Glass top specular glare
+                    drawRoundedRect(boxX + 1.0f, boxY + 1.0f, boxW - 2.0f, boxH * 0.40f, 2.0f, Color(1.0f, 1.0f, 1.0f, 0.04f));
+
+                    // Visible Items
+                    if (totalOpts > 0) {
+                        int visibleRows = 4;
+                        float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+                        int scrollStart = std::clamp(currentIdx - 1, 0, std::max(0, totalOpts - visibleRows));
+
+                        float listW = boxW - 12.0f * scale;
+                        for (int row = 0; row < visibleRows; ++row) {
+                            int itemIdx = scrollStart + row;
+                            if (itemIdx >= totalOpts) break;
+                            float iy = boxY + 2.0f + static_cast<float>(row) * rowH;
+                            bool isSelected = (itemIdx == currentIdx);
+
+                            if (isSelected) {
+                                drawRoundedRect(boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, Color(0.38f, 0.08f, 0.08f, 0.85f));
+                                drawRoundedRectOutline(boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, Color(0.80f, 0.15f, 0.15f), 1.0f);
+                                drawVectorString(">", boxX + 4.0f * scale, iy + (rowH - 8.0f * scale) * 0.5f, 0.40f * scale + 0.08f, Color(1.0f, 0.25f, 0.25f));
+                                drawVectorString(node.options[itemIdx], boxX + 12.0f * scale, iy + (rowH - 8.0f * scale) * 0.5f, 0.42f * scale + 0.10f, Color(1.0f, 1.0f, 1.0f));
+                            } else {
+                                drawVectorString(node.options[itemIdx], boxX + 12.0f * scale, iy + (rowH - 8.0f * scale) * 0.5f, 0.40f * scale + 0.08f, Color(0.50f, 0.54f, 0.60f));
+                            }
+                        }
+
+                        // Steppers on the right
+                        float stripX = boxX + boxW - 10.0f * scale;
+                        drawRoundedRect(stripX, boxY + 2.0f, 8.0f * scale, boxH - 4.0f, 2.0f, Color(0.12f, 0.13f, 0.16f));
+                        drawVectorString("^", stripX + 1.5f * scale, boxY + 2.0f, 0.38f * scale + 0.06f, Color(0.70f, 0.75f, 0.85f));
+                        drawVectorString("v", stripX + 1.5f * scale, boxY + boxH - 9.0f * scale, 0.38f * scale + 0.06f, Color(0.70f, 0.75f, 0.85f));
+                    }
+                } else if (node.type == project::GuiNodeType::Button) {
+                    float btnX = adjNodeX + 3.0f * scale;
+                    float btnY = adjNodeY + 3.0f * scale;
+                    float btnW = adjNodeW - 6.0f * scale;
+                    float btnH = adjNodeH - 6.0f * scale;
+                    drawRoundedRect(btnX, btnY, btnW, btnH, 3.0f, Color(0.18f, 0.12f, 0.12f));
+                    drawRoundedRectOutline(btnX, btnY, btnW, btnH, 3.0f, Color(0.85f, 0.25f, 0.20f), 1.0f);
+                    float txtScale = 0.45f * scale + 0.08f;
+                    float txtW = node.label.size() * 5.0f * txtScale;
+                    drawVectorString(node.label, btnX + (btnW - txtW) * 0.5f, btnY + (btnH - 7.0f * scale) * 0.5f, txtScale, Color(0.95f, 0.85f, 0.80f));
                 }
             };
 
@@ -10066,40 +10532,54 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
         drawRectDropShadow(pX, pY, pW, pH, 6.0f, 14.0f, light, 0.40f);
 
         const std::string& bg = preset->guiRoot.background;
-        if (bg == "minimal_white") {
-            drawRectGradient(pX, pY, pW, pH, 0.92f, 0.94f, 0.96f, 0.82f, 0.84f, 0.88f);
+        if (isMinimalGuiEnabled()) {
+            Color minBg(0.14f, 0.16f, 0.20f);
+            if (bg == "minimal_white") minBg = Color(0.92f, 0.93f, 0.95f);
+            else if (bg == "walnut" || bg == "wood" || bg == "clavinet") minBg = Color(0.24f, 0.16f, 0.10f);
+            else if (bg == "silver") minBg = Color(0.72f, 0.74f, 0.78f);
+            else if (bg == "snes_faceplate") minBg = Color(0.85f, 0.84f, 0.80f);
+            else if (bg == "c64_breadbin") minBg = Color(0.22f, 0.19f, 0.16f);
+            else if (bg == "dx7_faceplate") minBg = Color(0.10f, 0.10f, 0.08f);
+            else if (bg == "ym2612_faceplate") minBg = Color(0.08f, 0.08f, 0.09f);
+            else if (bg == "convolver_faceplate") minBg = Color(0.12f, 0.14f, 0.17f);
+            drawRect(pX, pY, pW, pH, minBg.r, minBg.g, minBg.b, 1.0f);
+            drawRectOutline(pX, pY, pW, pH, minBg.lighten(0.15f).r, minBg.lighten(0.15f).g, minBg.lighten(0.15f).b, 0.8f, 1.0f);
+        } else if (bg == "minimal_white") {
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.92f, 0.94f, 0.96f, 0.82f, 0.84f, 0.88f, 1.0f, VectorPatternType::DotGrid, 0.025f, 10.0f);
             drawRectOutline(pX, pY, pW, pH, 0.45f, 0.48f, 0.55f, 1.0f, 2.0f);
         } else if (bg == "c64_breadbin") {
-            drawRectGradient(pX, pY, pW, pH, 0.24f, 0.21f, 0.17f, 0.16f, 0.14f, 0.11f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.24f, 0.21f, 0.17f, 0.16f, 0.14f, 0.11f, 1.0f, VectorPatternType::HorizontalSlats, 0.05f, 6.0f);
             drawRectOutline(pX, pY, pW, pH, 0.42f, 0.37f, 0.71f, 1.0f, 2.5f);
         } else if (bg == "dx7_faceplate") {
-            drawRectGradient(pX, pY, pW, pH, 0.12f, 0.11f, 0.09f, 0.07f, 0.06f, 0.06f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.12f, 0.11f, 0.09f, 0.07f, 0.06f, 0.06f, 1.0f, VectorPatternType::CircuitTraces, 0.045f, 16.0f);
             drawRectOutline(pX, pY, pW, pH, 0.0f, 0.66f, 0.53f, 1.0f, 2.5f);
         } else if (bg == "snes_faceplate") {
-            drawRectGradient(pX, pY, pW, pH, 0.76f, 0.76f, 0.80f, 0.62f, 0.62f, 0.66f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.76f, 0.76f, 0.80f, 0.62f, 0.62f, 0.66f, 1.0f, VectorPatternType::DiagonalMesh, 0.035f, 8.0f);
             drawRectOutline(pX, pY, pW, pH, 0.48f, 0.42f, 0.72f, 1.0f, 2.5f);
         } else if (bg == "ym2612_faceplate") {
-            drawRectGradient(pX, pY, pW, pH, 0.08f, 0.08f, 0.09f, 0.04f, 0.04f, 0.05f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.08f, 0.08f, 0.09f, 0.04f, 0.04f, 0.05f, 1.0f, VectorPatternType::HexHoneycomb, 0.04f, 10.0f);
             drawRectOutline(pX, pY, pW, pH, 0.90f, 0.66f, 0.14f, 1.0f, 2.5f);
         } else if (bg == "convolver_faceplate") {
-            drawRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.13f, 0.15f, 0.18f, 0.07f, 0.08f, 0.10f, 1.0f, VectorPatternType::DiagonalMesh, 0.04f, 8.0f);
             drawRectOutline(pX, pY, pW, pH, 0.0f, 0.90f, 1.0f, 1.0f, 2.5f);
         } else if (bg == "walnut" || bg == "wood" || bg == "clavinet") {
-            drawRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.18f, 0.11f, 0.07f, 0.10f, 0.06f, 0.04f, 1.0f, VectorPatternType::WoodGrain, 0.055f, 6.0f);
             drawRectOutline(pX, pY, pW, pH, 0.65f, 0.42f, 0.18f, 1.0f, 2.0f);
         } else if (bg == "silver") {
-            drawRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.26f, 0.28f, 0.35f, 0.16f, 0.18f, 0.23f, 1.0f, VectorPatternType::BrushedSteel, 0.04f, 3.0f);
             drawRectOutline(pX, pY, pW, pH, 0.45f, 0.50f, 0.62f, 1.0f, 2.0f);
         } else {
-            drawRectGradient(pX, pY, pW, pH, 0.11f, 0.12f, 0.16f, 0.06f, 0.07f, 0.10f);
+            drawPatternedRectGradient(pX, pY, pW, pH, 0.11f, 0.12f, 0.16f, 0.06f, 0.07f, 0.10f, 1.0f, VectorPatternType::DotGrid, 0.025f, 12.0f);
             drawRectOutline(pX, pY, pW, pH, 0.22f, 0.26f, 0.35f, 1.0f, 2.0f);
         }
 
-        // Corner hex mounting bolts
-        drawCircle(pX + 12.0f, pY + 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
-        drawCircle(pX + pW - 12.0f, pY + 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
-        drawCircle(pX + 12.0f, pY + pH - 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
-        drawCircle(pX + pW - 12.0f, pY + pH - 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
+        // Corner hex mounting bolts (skipped in minimal mode)
+        if (!isMinimalGuiEnabled()) {
+            drawCircle(pX + 12.0f, pY + 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
+            drawCircle(pX + pW - 12.0f, pY + 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
+            drawCircle(pX + 12.0f, pY + pH - 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
+            drawCircle(pX + pW - 12.0f, pY + pH - 12.0f, 3.5f, 0.4f, 0.44f, 0.52f);
+        }
 
         // Top Banner Plate
         drawRect(pX, pY, pW, 52.0f, (bg == "minimal_white") ? 0.85f : ((bg == "walnut" || bg == "wood" || bg == "clavinet") ? 0.12f : 0.07f),
@@ -10242,6 +10722,78 @@ void GuiWindow::drawTrackPropertiesContainer(float x, float y, float width, floa
                 drawLine(adjNodeX + node.boundsW * 0.5f, adjNodeY + 6.0f,
                          adjNodeX + node.boundsW * 0.5f, adjNodeY + node.boundsH * scale - 6.0f,
                          Color(0.4f, 0.45f, 0.55f, 0.5f), 1.0f);
+            } else if (node.type == project::GuiNodeType::ListBox) {
+                int totalOpts = static_cast<int>(node.options.size());
+                const auto* p = preset->findParam(node.paramName);
+                float curVal = p ? p->currentVal : 0.0f;
+                int currentIdx = std::clamp(static_cast<int>(std::round(curVal)), 0, std::max(0, totalOpts - 1));
+
+                float boxX = adjNodeX + 4.0f;
+                float boxY = adjNodeY + 16.0f;
+                float boxW = node.boundsW - 8.0f;
+                float boxH = node.boundsH * scale - 20.0f;
+
+                // 1. Header: Red LED dot + Label + Digital Red Counter
+                float ledX = boxX + 4.0f;
+                float ledY = adjNodeY + 7.0f;
+                drawCircle(ledX, ledY, 3.5f, Color(0.95f, 0.15f, 0.15f, 0.35f));
+                drawCircle(ledX, ledY, 2.0f, Color(1.0f, 0.20f, 0.20f, 1.0f));
+
+                drawVectorString(node.label, ledX + 8.0f, adjNodeY + 2.0f, 0.55f, Color(0.60f, 0.65f, 0.75f));
+
+                if (totalOpts > 0) {
+                    char counterBuf[16];
+                    std::snprintf(counterBuf, sizeof(counterBuf), "%02d/%02d", currentIdx + 1, totalOpts);
+                    drawVectorString(counterBuf, boxX + boxW - 36.0f, adjNodeY + 2.0f, 0.55f, Color(0.95f, 0.15f, 0.15f));
+                }
+
+                // 2. Beveled Dark Smoky Glass Container
+                drawRoundedRect(boxX, boxY, boxW, boxH, 4.0f, Color(0.08f, 0.08f, 0.10f));
+                drawRoundedRectOutline(boxX, boxY, boxW, boxH, 4.0f, Color(0.30f, 0.14f, 0.16f), 1.0f);
+
+                // Glass top specular glare
+                drawRoundedRect(boxX + 1.0f, boxY + 1.0f, boxW - 2.0f, boxH * 0.40f, 3.0f, Color(1.0f, 1.0f, 1.0f, 0.04f));
+
+                // 3. Visible Items
+                if (totalOpts > 0) {
+                    int visibleRows = 4;
+                    float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+                    int scrollStart = std::clamp(currentIdx - 1, 0, std::max(0, totalOpts - visibleRows));
+
+                    float listW = boxW - 14.0f;
+                    for (int row = 0; row < visibleRows; ++row) {
+                        int itemIdx = scrollStart + row;
+                        if (itemIdx >= totalOpts) break;
+                        float iy = boxY + 2.0f + static_cast<float>(row) * rowH;
+                        bool isSelected = (itemIdx == currentIdx);
+
+                        if (isSelected) {
+                            // Glowing red selection bar
+                            drawRoundedRect(boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, Color(0.38f, 0.08f, 0.08f, 0.85f));
+                            drawRoundedRectOutline(boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, Color(0.80f, 0.15f, 0.15f), 1.0f);
+                            drawVectorString(">", boxX + 5.0f, iy + (rowH - 10.0f) * 0.5f, 0.50f, Color(1.0f, 0.25f, 0.25f));
+                            drawVectorString(node.options[itemIdx], boxX + 14.0f, iy + (rowH - 10.0f) * 0.5f, 0.52f, Color(1.0f, 1.0f, 1.0f));
+                        } else {
+                            drawVectorString(node.options[itemIdx], boxX + 14.0f, iy + (rowH - 10.0f) * 0.5f, 0.48f, Color(0.50f, 0.54f, 0.60f));
+                        }
+                    }
+
+                    // Steppers on the right
+                    float stripX = boxX + boxW - 12.0f;
+                    drawRoundedRect(stripX, boxY + 2.0f, 10.0f, boxH - 4.0f, 2.0f, Color(0.12f, 0.13f, 0.16f));
+                    drawVectorString("^", stripX + 2.0f, boxY + 3.0f, 0.45f, Color(0.70f, 0.75f, 0.85f));
+                    drawVectorString("v", stripX + 2.0f, boxY + boxH - 11.0f, 0.45f, Color(0.70f, 0.75f, 0.85f));
+                }
+            } else if (node.type == project::GuiNodeType::Button) {
+                float btnX = adjNodeX + 4.0f;
+                float btnY = adjNodeY + 4.0f;
+                float btnW = node.boundsW - 8.0f;
+                float btnH = node.boundsH * scale - 8.0f;
+                drawRoundedRect(btnX, btnY, btnW, btnH, 4.0f, Color(0.18f, 0.12f, 0.12f));
+                drawRoundedRectOutline(btnX, btnY, btnW, btnH, 4.0f, Color(0.85f, 0.25f, 0.20f), 1.2f);
+                float txtScale = 0.52f;
+                float txtW = node.label.size() * 5.6f * txtScale;
+                drawVectorString(node.label, btnX + (btnW - txtW) * 0.5f, btnY + (btnH - 8.0f) * 0.5f, txtScale, Color(0.95f, 0.85f, 0.80f));
             }
         };
 
@@ -11441,6 +11993,7 @@ void GuiWindow::setEditSubView(EditSubView subView) noexcept {
 void GuiWindow::setActiveView(WorkspaceView view) noexcept {
     if (activeView_ != view) {
         invalidateChromeCache();
+        focusManager_.clearFocus();
     }
     activeView_ = view;
     if (view == WorkspaceView::Design) {
@@ -11960,6 +12513,11 @@ void GuiWindow::initArrangerTracks() {
     t0.eqLow = 0.40f; t0.eqMid = 0.60f; t0.eqHigh = 0.70f;
     t0.chordFollowMode = theory::ChordFollowMode::Chord;
 
+    if (auto p = project::BuiltinPresetRegistry::createPresetById("dxvii_epiano")) {
+        t0.eatscriptCode = p->rawScript;
+        t0.customGuiPanel = createGuiPanelFromPresetDefinition(*p);
+    }
+
     ArrangerClip c1;
     c1.name = "FM Chords";
     c1.startBar = 1;
@@ -12324,21 +12882,74 @@ void GuiWindow::handleTrackInspectorInteraction(const HitTestTrackInspectorResul
             const auto* preset = getActivePreset();
             bool isSwitch = false;
             bool isSlider = false;
+            bool isButton = false;
+            const project::GuiLayoutNode* listNode = nullptr;
             if (preset) {
                 std::function<void(const project::GuiLayoutNode&)> findType = [&](const project::GuiLayoutNode& n) {
-                    if (n.paramName == inspHit.paramName) {
+                    if (n.paramName == inspHit.paramName || (n.type == project::GuiNodeType::Button && n.action == inspHit.paramName)) {
                         if (n.type == project::GuiNodeType::Switch) isSwitch = true;
                         else if (n.type == project::GuiNodeType::Slider) isSlider = true;
+                        else if (n.type == project::GuiNodeType::ListBox) listNode = &n;
+                        else if (n.type == project::GuiNodeType::Button) isButton = true;
                     }
                     for (const auto& c : n.children) findType(c);
                 };
                 findType(preset->guiRoot);
-                if (!isSwitch && !isSlider) findType(preset->compactGuiRoot);
+                if (!isSwitch && !isSlider && !listNode && !isButton) findType(preset->compactGuiRoot);
             }
             if (isSwitch) {
                 float curV = inspHit.normVal;
                 float newV = (curV >= 0.5f) ? 0.0f : 1.0f;
                 dispatchHardwareParam(inspHit.paramName, newV);
+                break;
+            }
+            if (isButton) {
+                uint32_t newSeed = 1 + (std::rand() % 9998);
+                dispatchHardwareParam("Seed", static_cast<float>(newSeed));
+                const auto* pType = preset ? preset->findParam("SFXType") : nullptr;
+                int sfxType = pType ? std::clamp(static_cast<int>(std::round(pType->currentVal)), 0, 10) : 0;
+                auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(sfxType, newSeed);
+                for (const auto& [param, val] : pMap) {
+                    float normVal = val;
+                    if (param == "Waveform") normVal = val / 11.0f;
+                    else if (param == "Attack") normVal = std::clamp(val / 0.5f, 0.0f, 1.0f);
+                    else if (param == "Decay") normVal = std::clamp(val / 2.0f, 0.0f, 1.0f);
+                    else if (param == "Release") normVal = std::clamp(val / 2.0f, 0.0f, 1.0f);
+                    else if (param == "PitchSweep") normVal = std::clamp((val + 2.0f) / 4.0f, 0.0f, 1.0f);
+                    else if (param == "VibratoRate") normVal = std::clamp(val / 20.0f, 0.0f, 1.0f);
+                    else if (param == "EchoDelay") normVal = std::clamp(val / 480.0f, 0.0f, 1.0f);
+                    dispatchHardwareParam(param, normVal);
+                }
+                auditionTrackNote(selectedTrackIndex_, 72, 0.85f);
+                break;
+            }
+            if (listNode && !listNode->options.empty()) {
+                int totalOpts = static_cast<int>(listNode->options.size());
+                const auto* p = preset ? preset->findParam(listNode->paramName) : nullptr;
+                int curIdx = std::clamp(static_cast<int>(std::round(p ? p->currentVal : (inspHit.normVal * (totalOpts - 1)))), 0, totalOpts - 1);
+                int newIdx = (curIdx + 1) % totalOpts;
+                float normRatio = (totalOpts > 1) ? static_cast<float>(newIdx) / static_cast<float>(totalOpts - 1) : 0.0f;
+                dispatchHardwareParam(listNode->paramName, normRatio);
+
+                if (listNode->paramName == "SFXType") {
+                    const auto* pSeed = preset ? preset->findParam("Seed") : nullptr;
+                    uint32_t seed = pSeed ? static_cast<uint32_t>(std::clamp(pSeed->currentVal, 1.0f, 9999.0f)) : 42;
+                    auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(newIdx, seed);
+                    for (const auto& [param, val] : pMap) {
+                        float normVal = val;
+                        if (param == "Waveform") normVal = val / 11.0f;
+                        else if (param == "Attack") normVal = std::clamp(val / 0.5f, 0.0f, 1.0f);
+                        else if (param == "Decay") normVal = std::clamp(val / 2.0f, 0.0f, 1.0f);
+                        else if (param == "Release") normVal = std::clamp(val / 2.0f, 0.0f, 1.0f);
+                        else if (param == "PitchSweep") normVal = std::clamp((val + 2.0f) / 4.0f, 0.0f, 1.0f);
+                        else if (param == "VibratoRate") normVal = std::clamp(val / 20.0f, 0.0f, 1.0f);
+                        else if (param == "EchoDelay") normVal = std::clamp(val / 480.0f, 0.0f, 1.0f);
+                        dispatchHardwareParam(param, normVal);
+                    }
+                    auditionTrackNote(selectedTrackIndex_, 72, 0.85f);
+                } else if (listNode->paramName == "Waveform") {
+                    auditionTrackNote(selectedTrackIndex_, 60, 0.85f);
+                }
                 break;
             }
             dragMode_ = DragMode::HardwareKnob;
@@ -15864,28 +16475,19 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
         // 4. Dispatch clicks according to Active View
         if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
-            bool skipModularEdit = false;
-            if (editSubView_ == EditSubView::Tracker) {
-                float folX = static_cast<float>(width_) - 250.0f;
-                bool isFol = (x >= folX && x <= (folX + 105.0f) && y >= 103.0f && y <= 127.0f);
-                if (isFol || hitTestTracker(x, y).hit) {
-                    skipModularEdit = true;
-                }
-            }
-            if (!skipModularEdit) {
-                ViewContext ctx = createViewContext();
-                PointerEvent pev;
-                pev.type = PointerType::Mouse;
-                pev.action = PointerAction::Down;
-                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-                pev.x = x;
-                pev.y = y;
-                pev.rawX = x;
-                pev.rawY = y;
-                modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
-                if (modularEditView_->handlePointer(pev, ctx)) {
-                    return;
-                }
+            ViewContext ctx = createViewContext();
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
+            if (modularEditView_->handlePointer(pev, ctx)) {
+                markNeedsRedraw();
+                return;
             }
         }
         if (activeView_ == WorkspaceView::Arranger) {
@@ -16662,53 +17264,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         });
                     activeDragHandler_ = &marqueeSelectPresenter_;
                     dragMode_ = DragMode::PianoRollMarquee;
-                    return;
-                }
-            } else if (editSubView_ == EditSubView::Tracker) {
-                // Tracker Grid Hit (Header Mute/Solo or Cell Selection/Audition)
-                // Also check top Follow button at [width - 250, 103, 105, 24]
-                float folX = static_cast<float>(width_) - 250.0f;
-                if (x >= folX && x <= (folX + 105.0f) && y >= 103.0f && y <= 127.0f) {
-                    trackerFollowPlayback_ = !trackerFollowPlayback_;
-                    return;
-                }
-
-                auto trkHit = hitTestTracker(x, y);
-                if (trkHit.hit && engine_) {
-                    auto& seq = engine_->getSequencer();
-                    if (trkHit.trackIndex < seq.getNumTracks()) {
-                        auto* tr = seq.getTrack(trkHit.trackIndex);
-                        if (tr) {
-                            if (trkHit.isHeader) {
-                                if (trkHit.isMute) {
-                                    tr->setMuted(!tr->isMuted());
-                                    if (trkHit.trackIndex < mixerStrips_.size()) {
-                                        mixerStrips_[trkHit.trackIndex].mute = tr->isMuted();
-                                    }
-                                } else if (trkHit.isSolo) {
-                                    tr->setSolo(!tr->isSolo());
-                                    if (trkHit.trackIndex < mixerStrips_.size()) {
-                                        mixerStrips_[trkHit.trackIndex].solo = tr->isSolo();
-                                    }
-                                } else {
-                                    trackerSelectedTrack_ = trkHit.trackIndex;
-                                    setSelectedTrackIndex(trkHit.trackIndex);
-                                }
-                            } else {
-                                trackerSelectedRow_ = trkHit.row;
-                                trackerSelectedTrack_ = trkHit.trackIndex;
-                                setSelectedTrackIndex(trkHit.trackIndex);
-                                auto st = tr->getStep(trkHit.row);
-                                if (st.active) {
-                                    tr->selectStep(trkHit.row, true);
-                                    engine_->postNoteOn(st.note, 0.85f, false, false, static_cast<int>(trkHit.trackIndex));
-                                    previewingPitch_ = st.note;
-                                } else {
-                                    tr->clearSelection();
-                                }
-                            }
-                        }
-                    }
                     return;
                 }
             } else if (editSubView_ == EditSubView::Score) {
@@ -17591,14 +18146,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
-    // Intercept keyboard input if an element has active keyboard focus
-    if (focusManager_.isAnyFocused()) {
-        if (focusManager_.dispatchKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
-            markNeedsRedraw();
-            return;
-        }
-    }
-
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
     bool modalOrTerminalActive = projectHubOpen_ ||
@@ -17608,6 +18155,14 @@ void GuiWindow::onKeyDown(int key, int mods) {
                                  audioToMidiDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
                                  (activePluginDialog && activePluginDialog->isOpen());
+
+    // Intercept keyboard input if an element has active keyboard focus (and no modal is open)
+    if (!modalOrTerminalActive && focusManager_.isAnyFocused()) {
+        if (focusManager_.dispatchKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
 
     // Spacebar: Global DAW playback toggle
     if (key == 32 && !isCtrl && !isAlt && !modalOrTerminalActive) {
@@ -17952,9 +18507,10 @@ void GuiWindow::onKeyDown(int key, int mods) {
     }
     // Edit View Hotkeys (Piano Roll, Tracker, Score, Script)
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
-        if (editSubView_ != EditSubView::Tracker) {
-            ViewContext ctx = createViewContext();
-            if (modularEditView_->handleKey(key, 0, 1, mods, ctx)) return;
+        ViewContext ctx = createViewContext();
+        if (modularEditView_->handleKey(key, 0, 1, mods, ctx)) {
+            markNeedsRedraw();
+            return;
         }
     }
     // Track Inspector View Hotkeys & Plugin Search Dialog Input
@@ -18191,84 +18747,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
             engine_->panic();
         }
     }
-    // Tracker View Navigation & QWERTY Musical Note Entry
-    else if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) &&
-             editSubView_ == EditSubView::Tracker && !browserOpen_) {
-        auto& seq = engine_->getSequencer();
-        const size_t numTracks = seq.getNumTracks();
-
-        // Up Arrow (265): Move cursor up 1 row
-        if (key == 265) {
-            trackerSelectedRow_ = (trackerSelectedRow_ == 0) ? 63 : trackerSelectedRow_ - 1;
-        }
-        // Down Arrow (264): Move cursor down 1 row
-        else if (key == 264) {
-            trackerSelectedRow_ = (trackerSelectedRow_ + 1) % 64;
-        }
-        // Left Arrow (263): Move cursor left 1 track
-        else if (key == 263) {
-            if (trackerSelectedTrack_ > 0) {
-                trackerSelectedTrack_--;
-                selectedTrackIndex_ = trackerSelectedTrack_;
-            }
-        }
-        // Right Arrow (262): Move cursor right 1 track
-        else if (key == 262) {
-            if (numTracks > 0 && trackerSelectedTrack_ + 1 < numTracks) {
-                trackerSelectedTrack_++;
-                selectedTrackIndex_ = trackerSelectedTrack_;
-            }
-        }
-        // Page Up (266): Jump 16 rows up (1 bar)
-        else if (key == 266) {
-            trackerSelectedRow_ = (trackerSelectedRow_ < 16) ? 0 : trackerSelectedRow_ - 16;
-        }
-        // Page Down (267): Jump 16 rows down (1 bar)
-        else if (key == 267) {
-            trackerSelectedRow_ = std::min(63u, trackerSelectedRow_ + 16);
-        }
-        // Home (268): Jump to row 0
-        else if (key == 268) {
-            trackerSelectedRow_ = 0;
-        }
-        // End (269): Jump to row 63
-        else if (key == 269) {
-            trackerSelectedRow_ = 63;
-        }
-        // Delete (261) or Backspace (259): Clear step note
-        else if (key == 261 || key == 259) {
-            if (numTracks > 0 && trackerSelectedTrack_ < numTracks) {
-                auto* tr = seq.getTrack(trackerSelectedTrack_);
-                if (tr) {
-                    auto st = tr->getStep(trackerSelectedRow_);
-                    st.active = false;
-                    tr->setStep(trackerSelectedRow_, st);
-                }
-            }
-            trackerSelectedRow_ = (trackerSelectedRow_ + 1) % 64;
-        }
-        // QWERTY Musical Note Entry
-        else {
-            int pitch = qwertyKeyToMidiPitch(key, 4);
-            if (pitch >= 0) {
-                if (numTracks > 0 && trackerSelectedTrack_ < numTracks) {
-                    auto* tr = seq.getTrack(trackerSelectedTrack_);
-                    if (tr) {
-                        auto st = tr->getStep(trackerSelectedRow_);
-                        st.active = true;
-                        st.note = static_cast<uint8_t>(pitch);
-                        st.velocity = 0.85f;
-                        st.gateLength = 0.75f;
-                        tr->setStep(trackerSelectedRow_, st);
-                        engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f, false, false, static_cast<int>(trackerSelectedTrack_));
-                        previewingPitch_ = pitch;
-                    }
-                }
-                trackerSelectedRow_ = (trackerSelectedRow_ + 1) % 64;
-            }
-        }
-    }
-    // 'R' (82): Panic Stop (outside tracker mode)
+    // 'R' (82): Panic Stop
     else if (key == 82) {
         engine_->panic();
     }
@@ -18326,12 +18805,6 @@ void GuiWindow::onChar(unsigned int codepoint) {
     if (valueEditDialog_.isOpen()) {
         return;
     }
-    if (focusManager_.isAnyFocused()) {
-        if (focusManager_.dispatchChar(static_cast<char32_t>(codepoint))) {
-            markNeedsRedraw();
-            return;
-        }
-    }
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     if (activePluginDialog && activePluginDialog->isOpen()) {
         if (activePluginDialog->handleChar(static_cast<char32_t>(codepoint))) {
@@ -18361,6 +18834,13 @@ void GuiWindow::onChar(unsigned int codepoint) {
 
     if (isAnyModalActive()) {
         return;
+    }
+
+    if (focusManager_.isAnyFocused()) {
+        if (focusManager_.dispatchChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
     }
 
     // Active View text input fallback
@@ -18407,6 +18887,7 @@ bool GuiWindow::isAudioToMidiDialogOpen() const noexcept {
 }
 
 void GuiWindow::openPresetDialog(PluginDialogMode mode, uint32_t trackIndex) {
+    focusManager_.clearFocus();
     presetSearchDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
     std::string trkName = "";
     if (trackIndex < mixerStrips_.size()) {
@@ -18670,8 +19151,8 @@ void GuiWindow::setMinimalGuiEnabled(bool enable) noexcept {
 void GuiWindow::toggleMinimalGui() noexcept {
     setMinimalGuiEnabled(!isMinimalGuiEnabled());
     saveSettings();
-    setStatusMessage(isMinimalGuiEnabled() ? "Minimalist Controls: ENABLED (High Performance Vector Knobs)"
-                                          : "Minimalist Controls: DISABLED (Skeuomorphic 3D Knobs)");
+    setStatusMessage(isMinimalGuiEnabled() ? "Minimalist GUI: ENABLED (Flat Vector Knobs & Solid Panels)"
+                                          : "Minimalist GUI: DISABLED (Skeuomorphic 3D & Procedural Surfaces)");
 }
 
 void GuiWindow::revertSettingsToDefault() {

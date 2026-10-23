@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <set>
+#include <unordered_map>
 #include <functional>
 #include <algorithm>
 #include <cmath>
@@ -55,6 +56,13 @@ struct PianoRollNote {
     std::string lyric{""};
     int column{0};
     std::string effectCommand{"00"};
+    std::unordered_map<std::string, std::string> customParams{};
+};
+
+struct TrackerParamCol {
+    std::string key;
+    std::string header;
+    std::string defaultValue{"00"};
 };
 
 /**
@@ -83,12 +91,7 @@ public:
     [[nodiscard]] const TextEditorWidget& getScriptEditor() const noexcept { return scriptEditor_; }
 
     // Sub-view mode
-    void setSubView(EditSubViewMode mode) noexcept {
-        subView_ = mode;
-        if (onSubViewChanged) {
-            onSubViewChanged(subView_);
-        }
-    }
+    void setSubView(EditSubViewMode mode) noexcept;
     [[nodiscard]] EditSubViewMode getSubView() const noexcept { return subView_; }
 
     [[nodiscard]] const Rect2D& getBtnPianoRoll() const noexcept { return btnPianoRoll_; }
@@ -215,9 +218,26 @@ private:
     int trackerBaseOctave_{4};
     int trackerSelectedStep_{0};
     int trackerSelectedCol_{0};
+    int trackerSelectedSubCol_{0}; // 0: Note, 1: Vol, 2: Sld, 3: Fx, 4+: Custom params
+    int trackerNumLanes_{2};
+    bool trackerShowCustomParams_{false};
+    std::vector<TrackerParamCol> trackerCustomCols_;
     int trackerBlockAnchorStep_{-1};
     int trackerBlockAnchorCol_{-1};
     bool trackerHasBlockSelection_{false};
+    bool trackerFollowPlayback_{false};
+    Rect2D btnOctDown_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnOctUp_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnLaneDown_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnLaneUp_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnToggleParams_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnFollow_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    void ensureTrackerCursorVisible() noexcept;
+    void updateTrackerLanesFromNotes() noexcept;
+    void addTrackerLane() noexcept;
+    void removeTrackerLane() noexcept;
+    void registerTrackerParamCol(const std::string& key);
 
     // Piano Roll layout & viewport
     float stepWidth_{28.0f};
@@ -227,6 +247,7 @@ private:
     float scrollX_{0.0f};
     float scrollY_{200.0f}; // Centered around middle octaves
     float trackerScrollY_{0.0f};
+    float trackerScrollX_{0.0f};
     float scoreScrollX_{0.0f};
 
     // Interaction drag modes

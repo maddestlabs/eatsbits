@@ -150,6 +150,8 @@ private:
 
     // Interactive Drag State
     bool isDraggingKnob_{false};
+    bool isDraggingListBox_{false};
+    bool isListBoxDragging_{false};
     int activeKnobIndex_{-1};
     int draggingRow_{-1};
     int draggingWidget_{-1};

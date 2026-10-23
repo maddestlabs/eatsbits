@@ -184,6 +184,8 @@ public:
                 node.subtitle = current_.str; advance();
             } else if (key == "background") {
                 node.background = current_.str; advance();
+            } else if (key == "pattern") {
+                node.pattern = current_.str; advance();
             } else if (key == "accent") {
                 node.accent = current_.str; advance();
             } else if (key == "knobStyle" || key == "style") {
@@ -320,6 +322,7 @@ GuiLayoutNode convertValueToGuiNode(const eatscript::Value& val) {
     node.title = val.get("title").asString();
     node.subtitle = val.get("subtitle").asString();
     node.background = val.get("background").asString();
+    node.pattern = val.get("pattern").asString();
     node.accent = val.get("accent").asString();
     node.action = val.get("action").asString();
 

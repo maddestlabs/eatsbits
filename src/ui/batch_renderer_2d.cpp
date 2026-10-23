@@ -371,6 +371,27 @@ public:
 
         if (minX > maxX || minY > maxY) return;
 
+        // 1:1 unscaled opaque scanline blit optimization (e.g. for cached faceplate backgrounds)
+        if (std::abs(w - static_cast<float>(imgW)) < 0.01f &&
+            std::abs(h - static_cast<float>(imgH)) < 0.01f &&
+            std::abs(u0) < 0.001f && std::abs(v0) < 0.001f &&
+            std::abs(u1 - 1.0f) < 0.001f && std::abs(v1 - 1.0f) < 0.001f &&
+            opacity >= 0.999f) {
+            int srcStartX = minX - static_cast<int>(std::floor(x));
+            int copyW = maxX - minX + 1;
+            if (copyW > 0) {
+                for (int py = minY; py <= maxY; ++py) {
+                    int srcY = py - static_cast<int>(std::floor(y));
+                    if (srcY >= 0 && srcY < imgH) {
+                        const uint32_t* srcRow = reinterpret_cast<const uint32_t*>(rgba) + (srcY * imgW + srcStartX);
+                        uint32_t* dstRow = &framebuffer_[py * viewportWidth_ + minX];
+                        std::memcpy(dstRow, srcRow, static_cast<size_t>(copyW) * sizeof(uint32_t));
+                    }
+                }
+                return;
+            }
+        }
+
         const float invW = 1.0f / w;
         const float invH = 1.0f / h;
         const float du = u1 - u0;
@@ -2604,6 +2625,23 @@ void BatchRenderer2D::drawRgbaBitmapRegion(float x, float y, float w, float h, c
     }
 }
 
+void BatchRenderer2D::drawCachedVertices(const std::vector<Vertex2D>& vertices, float offsetX, float offsetY) {
+    if (vertices.empty()) return;
+    size_t oldSize = vertices_.size();
+    vertices_.resize(oldSize + vertices.size());
+    Vertex2D* dst = &vertices_[oldSize];
+    const Vertex2D* src = vertices.data();
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        dst[i] = src[i];
+        dst[i].x += offsetX;
+        dst[i].y += offsetY;
+    }
+}
+
+void BatchRenderer2D::copyActiveVertices(std::vector<Vertex2D>& outVertices) const {
+    outVertices = vertices_;
+}
+
 uint32_t BatchRenderer2D::createTexture(int width, int height, const uint8_t* rgbaPixels) {
     if (width <= 0 || height <= 0 || !rgbaPixels) return 0;
     uint32_t handle = nextTextureId_++;
@@ -2834,6 +2872,578 @@ void BatchRenderer2D::drawCatenaryBezier(Point2D p0, Point2D cp0, Point2D cp1, P
         drawLine(prevX, prevY, currX, currY, r, g, b, a, lineWidth);
         prevX = currX;
         prevY = currY;
+    }
+}
+
+void BatchRenderer2D::drawPath(const Point2D* points, size_t count, float lineWidth,
+                               float r, float g, float b, float a, bool closed) {
+    if (!points || count < 2 || lineWidth <= 0.0f || a <= 0.0f) return;
+    float halfW = std::max(0.5f, lineWidth * 0.5f);
+    uint32_t col = packColor(r, g, b, a);
+
+    const size_t segCount = closed ? count : (count - 1);
+    constexpr size_t STACK_LIMIT = 64;
+    struct Vec2 { float x, y; };
+
+    Vec2 stackNormals[STACK_LIMIT];
+    std::vector<Vec2> heapNormals;
+    Vec2* normals = stackNormals;
+    if (segCount > STACK_LIMIT) {
+        heapNormals.resize(segCount);
+        normals = heapNormals.data();
+    }
+
+    for (size_t i = 0; i < segCount; ++i) {
+        size_t nextIdx = (i + 1) % count;
+        float dx = points[nextIdx].x - points[i].x;
+        float dy = points[nextIdx].y - points[i].y;
+        float len = std::sqrt(dx * dx + dy * dy);
+        if (len > 1e-4f) {
+            normals[i] = { (-dy / len) * halfW, (dx / len) * halfW };
+        } else {
+            normals[i] = { 0.0f, halfW };
+        }
+    }
+
+    Vec2 stackOffsets[STACK_LIMIT];
+    std::vector<Vec2> heapOffsets;
+    Vec2* offsets = stackOffsets;
+    if (count > STACK_LIMIT) {
+        heapOffsets.resize(count);
+        offsets = heapOffsets.data();
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        if (!closed && i == 0) {
+            offsets[i] = normals[0];
+        } else if (!closed && i == count - 1) {
+            offsets[i] = normals[count - 2];
+        } else {
+            size_t prevSeg = (i == 0) ? (count - 1) : (i - 1);
+            size_t nextSeg = i % segCount;
+            float mx = 0.5f * (normals[prevSeg].x + normals[nextSeg].x);
+            float my = 0.5f * (normals[prevSeg].y + normals[nextSeg].y);
+            float mLenSq = mx * mx + my * my;
+            if (mLenSq < 1e-4f) {
+                offsets[i] = normals[prevSeg];
+            } else {
+                float s = (halfW * halfW) / mLenSq;
+                s = std::min(s, 4.0f); // Miter limit clamp
+                offsets[i] = { mx * s, my * s };
+            }
+        }
+    }
+
+    for (size_t i = 0; i < segCount; ++i) {
+        size_t i0 = i;
+        size_t i1 = (i + 1) % count;
+
+        Vertex2D v0{ points[i0].x + offsets[i0].x, points[i0].y + offsets[i0].y, 0.0f, 0.0f, col, 0, {0, 0} };
+        Vertex2D v1{ points[i1].x + offsets[i1].x, points[i1].y + offsets[i1].y, 0.0f, 0.0f, col, 0, {0, 0} };
+        Vertex2D v2{ points[i1].x - offsets[i1].x, points[i1].y - offsets[i1].y, 0.0f, 0.0f, col, 0, {0, 0} };
+        Vertex2D v3{ points[i0].x - offsets[i0].x, points[i0].y - offsets[i0].y, 0.0f, 0.0f, col, 0, {0, 0} };
+
+        applyTransform(v0.x, v0.y);
+        applyTransform(v1.x, v1.y);
+        applyTransform(v2.x, v2.y);
+        applyTransform(v3.x, v3.y);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+}
+
+void BatchRenderer2D::drawPathGradient(const Point2D* points, size_t count, float lineWidth,
+                                       float r0, float g0, float b0, float a0,
+                                       float r1, float g1, float b1, float a1,
+                                       bool closed, bool parametric) {
+    if (!points || count < 2 || lineWidth <= 0.0f) return;
+    float halfW = std::max(0.5f, lineWidth * 0.5f);
+
+    constexpr size_t STACK_LIMIT = 64;
+    uint32_t stackCols[STACK_LIMIT];
+    std::vector<uint32_t> heapCols;
+    uint32_t* cols = stackCols;
+    if (count > STACK_LIMIT) {
+        heapCols.resize(count);
+        cols = heapCols.data();
+    }
+
+    if (parametric) {
+        float totalLen = 0.0f;
+        float stackLens[STACK_LIMIT];
+        std::vector<float> heapLens;
+        float* lens = stackLens;
+        if (count > STACK_LIMIT) {
+            heapLens.resize(count);
+            lens = heapLens.data();
+        }
+        lens[0] = 0.0f;
+        for (size_t i = 0; i + 1 < count; ++i) {
+            float dx = points[i + 1].x - points[i].x;
+            float dy = points[i + 1].y - points[i].y;
+            totalLen += std::sqrt(dx * dx + dy * dy);
+            lens[i + 1] = totalLen;
+        }
+        float invTotal = (totalLen > 1e-4f) ? (1.0f / totalLen) : 0.0f;
+        for (size_t i = 0; i < count; ++i) {
+            float t = std::clamp(lens[i] * invTotal, 0.0f, 1.0f);
+            cols[i] = packColor(r0 + (r1 - r0) * t,
+                                g0 + (g1 - g0) * t,
+                                b0 + (b1 - b0) * t,
+                                a0 + (a1 - a0) * t);
+        }
+    } else {
+        // Vertical/spatial gradient matching background gradient
+        float minY = points[0].y;
+        float maxY = points[0].y;
+        for (size_t i = 1; i < count; ++i) {
+            minY = std::min(minY, points[i].y);
+            maxY = std::max(maxY, points[i].y);
+        }
+        float invH = (maxY > minY + 1e-4f) ? (1.0f / (maxY - minY)) : 0.0f;
+        for (size_t i = 0; i < count; ++i) {
+            float t = std::clamp((points[i].y - minY) * invH, 0.0f, 1.0f);
+            cols[i] = packColor(r0 + (r1 - r0) * t,
+                                g0 + (g1 - g0) * t,
+                                b0 + (b1 - b0) * t,
+                                a0 + (a1 - a0) * t);
+        }
+    }
+
+    const size_t segCount = closed ? count : (count - 1);
+    struct Vec2 { float x, y; };
+
+    Vec2 stackNormals[STACK_LIMIT];
+    std::vector<Vec2> heapNormals;
+    Vec2* normals = stackNormals;
+    if (segCount > STACK_LIMIT) {
+        heapNormals.resize(segCount);
+        normals = heapNormals.data();
+    }
+
+    for (size_t i = 0; i < segCount; ++i) {
+        size_t nextIdx = (i + 1) % count;
+        float dx = points[nextIdx].x - points[i].x;
+        float dy = points[nextIdx].y - points[i].y;
+        float len = std::sqrt(dx * dx + dy * dy);
+        if (len > 1e-4f) {
+            normals[i] = { (-dy / len) * halfW, (dx / len) * halfW };
+        } else {
+            normals[i] = { 0.0f, halfW };
+        }
+    }
+
+    Vec2 stackOffsets[STACK_LIMIT];
+    std::vector<Vec2> heapOffsets;
+    Vec2* offsets = stackOffsets;
+    if (count > STACK_LIMIT) {
+        heapOffsets.resize(count);
+        offsets = heapOffsets.data();
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        if (!closed && i == 0) {
+            offsets[i] = normals[0];
+        } else if (!closed && i == count - 1) {
+            offsets[i] = normals[count - 2];
+        } else {
+            size_t prevSeg = (i == 0) ? (count - 1) : (i - 1);
+            size_t nextSeg = i % segCount;
+            float mx = 0.5f * (normals[prevSeg].x + normals[nextSeg].x);
+            float my = 0.5f * (normals[prevSeg].y + normals[nextSeg].y);
+            float mLenSq = mx * mx + my * my;
+            if (mLenSq < 1e-4f) {
+                offsets[i] = normals[prevSeg];
+            } else {
+                float s = (halfW * halfW) / mLenSq;
+                s = std::min(s, 4.0f);
+                offsets[i] = { mx * s, my * s };
+            }
+        }
+    }
+
+    for (size_t i = 0; i < segCount; ++i) {
+        size_t i0 = i;
+        size_t i1 = (i + 1) % count;
+
+        Vertex2D v0{ points[i0].x + offsets[i0].x, points[i0].y + offsets[i0].y, 0.0f, 0.0f, cols[i0], 0, {0, 0} };
+        Vertex2D v1{ points[i1].x + offsets[i1].x, points[i1].y + offsets[i1].y, 0.0f, 0.0f, cols[i1], 0, {0, 0} };
+        Vertex2D v2{ points[i1].x - offsets[i1].x, points[i1].y - offsets[i1].y, 0.0f, 0.0f, cols[i1], 0, {0, 0} };
+        Vertex2D v3{ points[i0].x - offsets[i0].x, points[i0].y - offsets[i0].y, 0.0f, 0.0f, cols[i0], 0, {0, 0} };
+
+        applyTransform(v0.x, v0.y);
+        applyTransform(v1.x, v1.y);
+        applyTransform(v2.x, v2.y);
+        applyTransform(v3.x, v3.y);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+}
+
+void BatchRenderer2D::drawPathBezier(const Point2D* controlPoints, size_t count, float lineWidth,
+                                     float r, float g, float b, float a, int segmentsPerCurve) {
+    if (!controlPoints || count < 4 || lineWidth <= 0.0f) return;
+    int segs = std::clamp(segmentsPerCurve, 4, 64);
+
+    size_t numCurves = (count - 1) / 3;
+    if (numCurves == 0) return;
+
+    std::vector<Point2D> pts;
+    pts.reserve(numCurves * segs + 1);
+    pts.push_back(controlPoints[0]);
+
+    for (size_t c = 0; c < numCurves; ++c) {
+        const Point2D& p0 = controlPoints[c * 3 + 0];
+        const Point2D& cp0 = controlPoints[c * 3 + 1];
+        const Point2D& cp1 = controlPoints[c * 3 + 2];
+        const Point2D& p1 = controlPoints[c * 3 + 3];
+
+        for (int i = 1; i <= segs; ++i) {
+            float t = static_cast<float>(i) / static_cast<float>(segs);
+            float u = 1.0f - t;
+            float tt = t * t;
+            float uu = u * u;
+            float uuu = uu * u;
+            float ttt = tt * t;
+
+            float x = uuu * p0.x + 3.0f * uu * t * cp0.x + 3.0f * u * tt * cp1.x + ttt * p1.x;
+            float y = uuu * p0.y + 3.0f * uu * t * cp0.y + 3.0f * u * tt * cp1.y + ttt * p1.y;
+            pts.push_back({ x, y });
+        }
+    }
+
+    drawPath(pts.data(), pts.size(), lineWidth, r, g, b, a, false);
+}
+
+void BatchRenderer2D::drawPatternedRectGradient(float x, float y, float w, float h,
+                                                float r0, float g0, float b0,
+                                                float r1, float g1, float b1, float a,
+                                                VectorPatternType pattern,
+                                                float patternIntensity,
+                                                float patternScale,
+                                                float cornerRadius) {
+    if (w <= 0.0f || h <= 0.0f || a <= 0.0f) return;
+
+    // 1. Draw base procedural gradient quad (rounded if cornerRadius > 0.5f)
+    if (cornerRadius > 0.5f) {
+        drawRoundedRectGradient(x, y, w, h, cornerRadius, r0, g0, b0, r1, g1, b1, a);
+    } else {
+        drawRectGradient(x, y, w, h, r0, g0, b0, r1, g1, b1, a);
+    }
+
+    if (pattern == VectorPatternType::None || patternIntensity <= 0.001f) return;
+
+    // 2. Scoped Scissor to keep all pattern lines/geometry strictly inside rectangle
+    ScissorScope scissor(this, x, y, w, h);
+
+    const float intensity = std::clamp(patternIntensity, 0.01f, 1.0f);
+    const float scale = std::max(2.0f, patternScale);
+
+    if (pattern == VectorPatternType::HorizontalSlats) {
+        // Optimal 1D Separable pattern: Milled ribs / horizontal slats / brushed grain
+        // Adaptive LOD: clamp step to bound vertex/scanline count regardless of fullscreen resolution
+        const float stepY = std::max(scale, h / 80.0f);
+        for (float sy = y + stepY; sy < y + h; sy += stepY) {
+            float t = (h > 0.001f) ? ((sy - y) / h) : 0.0f;
+            float rBase = r0 + (r1 - r0) * t;
+            float gBase = g0 + (g1 - g0) * t;
+            float bBase = b0 + (b1 - b0) * t;
+
+            // Specular rib highlight on top edge (direct axis-aligned rect quad for peak performance)
+            float rHi = std::min(1.0f, rBase + intensity * 1.5f);
+            float gHi = std::min(1.0f, gBase + intensity * 1.5f);
+            float bHi = std::min(1.0f, bBase + intensity * 1.5f);
+            drawRect(x, sy, w, 1.0f, rHi, gHi, bHi, std::min(1.0f, a * 0.95f));
+
+            // Milled groove recession shadow on bottom edge
+            float rLo = std::max(0.0f, rBase - intensity * 1.1f);
+            float gLo = std::max(0.0f, gBase - intensity * 1.1f);
+            float bLo = std::max(0.0f, bBase - intensity * 1.1f);
+            drawRect(x, sy + 1.0f, w, 1.0f, rLo, gLo, bLo, std::min(1.0f, a * 0.95f));
+        }
+    } else if (pattern == VectorPatternType::DiagonalMesh) {
+        // Carbon fiber / Kevlar diagonal cross-hatch with adaptive LOD
+        const float diagStep = std::max(scale, (w + h) / 80.0f);
+        float rMid = (r0 + r1) * 0.5f;
+        float gMid = (g0 + g1) * 0.5f;
+        float bMid = (b0 + b1) * 0.5f;
+        float rHi = std::min(1.0f, rMid + intensity * 1.6f);
+        float gHi = std::min(1.0f, gMid + intensity * 1.6f);
+        float bHi = std::min(1.0f, bMid + intensity * 1.6f);
+        float rLo = std::max(0.0f, rMid - intensity * 1.2f);
+        float gLo = std::max(0.0f, gMid - intensity * 1.2f);
+        float bLo = std::max(0.0f, bMid - intensity * 1.2f);
+
+        // +45 degree lines (highlight sheen)
+        for (float d = -h; d < w + h; d += diagStep) {
+            float x0 = x + d;
+            float y0 = y;
+            float x1 = x + d + h;
+            float y1 = y + h;
+            drawLine(x0, y0, x1, y1, rHi, gHi, bHi, std::min(1.0f, a * 0.9f), 1.0f);
+        }
+        // -45 degree lines (shadow weave)
+        for (float d = 0.0f; d < w + 2.0f * h; d += diagStep) {
+            float x0 = x + d;
+            float y0 = y;
+            float x1 = x + d - h;
+            float y1 = y + h;
+            drawLine(x0, y0, x1, y1, rLo, gLo, bLo, std::min(1.0f, a * 0.9f), 1.0f);
+        }
+    } else if (pattern == VectorPatternType::HexHoneycomb) {
+        // Hexagonal mesh with adaptive radius clamping
+        const float hexR = std::max(scale * 0.5f, std::max(w, h) / 50.0f);
+        const float hexW = hexR * 1.7320508f;
+        const float hexH = hexR * 1.5f;
+        int row = 0;
+        for (float hy = y + hexR; hy < y + h + hexR; hy += hexH, ++row) {
+            float xOffset = (row % 2 == 1) ? (hexW * 0.5f) : 0.0f;
+            for (float hx = x + xOffset; hx < x + w + hexW; hx += hexW) {
+                float t = (h > 0.001f) ? std::clamp((hy - y) / h, 0.0f, 1.0f) : 0.0f;
+                float rBase = r0 + (r1 - r0) * t;
+                float gBase = g0 + (g1 - g0) * t;
+                float bBase = b0 + (b1 - b0) * t;
+                float rHex = std::min(1.0f, rBase + intensity * 1.6f);
+                float gHex = std::min(1.0f, gBase + intensity * 1.6f);
+                float bHex = std::min(1.0f, bBase + intensity * 1.6f);
+
+                Point2D hexPts[6];
+                for (int v = 0; v < 6; ++v) {
+                    float ang = static_cast<float>(v) * 1.04719755f;
+                    hexPts[v] = { hx + hexR * std::cos(ang), hy + hexR * std::sin(ang) };
+                }
+                drawPath(hexPts, 6, 1.0f, rHex, gHex, bHex, std::min(1.0f, a * 0.9f), true);
+            }
+        }
+    } else if (pattern == VectorPatternType::DotGrid) {
+        // Precision instrument breadboard / stipple matrix with fast point quads
+        const float dotStep = std::max(scale, std::max(w, h) / 45.0f);
+        for (float dy = y + dotStep * 0.5f; dy < y + h; dy += dotStep) {
+            float t = (h > 0.001f) ? std::clamp((dy - y) / h, 0.0f, 1.0f) : 0.0f;
+            float rBase = r0 + (r1 - r0) * t;
+            float gBase = g0 + (g1 - g0) * t;
+            float bBase = b0 + (b1 - b0) * t;
+            float rDot = std::min(1.0f, rBase + intensity * 1.8f);
+            float gDot = std::min(1.0f, gBase + intensity * 1.8f);
+            float bDot = std::min(1.0f, bBase + intensity * 1.8f);
+
+            for (float dx = x + dotStep * 0.5f; dx < x + w; dx += dotStep) {
+                // High-performance direct quad dot instead of heavy analytical SDF circle
+                drawRect(dx - 0.75f, dy - 0.75f, 1.5f, 1.5f, rDot, gDot, bDot, std::min(1.0f, a * 0.9f));
+            }
+        }
+    } else if (pattern == VectorPatternType::CircuitTraces) {
+        // Silkscreen PCB / synth circuit traces
+        const float traceStep = std::max(scale * 2.0f, h / 16.0f);
+        float rTrace = std::min(1.0f, (r0 + r1) * 0.5f + intensity * 2.2f);
+        float gTrace = std::min(1.0f, (g0 + g1) * 0.5f + intensity * 2.2f);
+        float bTrace = std::min(1.0f, (b0 + b1) * 0.5f + intensity * 2.2f);
+
+        int traceIdx = 0;
+        for (float cy = y + 14.0f; cy < y + h - 14.0f; cy += traceStep, ++traceIdx) {
+            float startX = x + 16.0f + static_cast<float>((traceIdx * 23) % 40);
+            float bendX1 = startX + 30.0f + static_cast<float>((traceIdx * 17) % 30);
+            float bendY = cy + ((traceIdx % 2 == 0) ? 14.0f : -14.0f);
+            float endX = std::min(x + w - 16.0f, bendX1 + 45.0f + static_cast<float>((traceIdx * 31) % 40));
+
+            Point2D tracePts[4] = {
+                { startX, cy },
+                { bendX1, cy },
+                { bendX1 + 14.0f, bendY },
+                { endX, bendY }
+            };
+            drawPath(tracePts, 4, 1.4f, rTrace, gTrace, bTrace, std::min(1.0f, a * 0.95f), false);
+            drawCircle(startX, cy, 3.0f, rTrace, gTrace, bTrace, std::min(1.0f, a * 0.95f), 12);
+            drawCircle(endX, bendY, 3.0f, rTrace, gTrace, bTrace, std::min(1.0f, a * 0.95f), 12);
+            drawCircle(startX, cy, 1.4f, r0, g0, b0, a, 8);
+            drawCircle(endX, bendY, 1.4f, r0, g0, b0, a, 8);
+        }
+    } else if (pattern == VectorPatternType::BrushedSteel) {
+        // Multi-frequency hairline brushed metal with high-contrast specular highlights & micro-abrasions
+        const float baseStep = std::max(scale * 0.5f, h / 120.0f);
+        int lineIdx = 0;
+        for (float sy = y + 2.0f; sy < y + h - 1.0f; sy += baseStep, ++lineIdx) {
+            float t = (h > 0.001f) ? ((sy - y) / h) : 0.0f;
+            float rBase = r0 + (r1 - r0) * t;
+            float gBase = g0 + (g1 - g0) * t;
+            float bBase = b0 + (b1 - b0) * t;
+
+            float jitter = static_cast<float>((lineIdx * 37) % 7) / 7.0f;
+            float lineIntensity = intensity * (0.6f + 0.8f * jitter);
+
+            float rHi = std::min(1.0f, rBase + lineIntensity * 1.8f);
+            float gHi = std::min(1.0f, gBase + lineIntensity * 1.8f);
+            float bHi = std::min(1.0f, bBase + lineIntensity * 1.8f);
+
+            float rLo = std::max(0.0f, rBase - lineIntensity * 1.3f);
+            float gLo = std::max(0.0f, gBase - lineIntensity * 1.3f);
+            float bLo = std::max(0.0f, bBase - lineIntensity * 1.3f);
+
+            if (lineIdx % 6 == 0) {
+                float segW1 = w * 0.42f;
+                float segGap = w * 0.08f;
+                drawRect(x, sy, segW1, 1.0f, rHi, gHi, bHi, std::min(1.0f, a * 0.85f));
+                drawRect(x + segW1 + segGap, sy, w - segW1 - segGap, 1.0f, rHi, gHi, bHi, std::min(1.0f, a * 0.85f));
+            } else {
+                drawRect(x, sy, w, 1.0f, rHi, gHi, bHi, std::min(1.0f, a * 0.85f));
+            }
+            drawRect(x, sy + 1.0f, w, 1.0f, rLo, gLo, bLo, std::min(1.0f, a * 0.85f));
+        }
+    } else if (pattern == VectorPatternType::WoodGrain) {
+        // Organic wavy growth-ring lines (Walnut / Rosewood)
+        const float grainStep = std::max(scale * 1.5f, h / 28.0f);
+        int ringIdx = 0;
+        for (float gy = y + grainStep * 0.6f; gy < y + h; gy += grainStep, ++ringIdx) {
+            float t = (h > 0.001f) ? ((gy - y) / h) : 0.0f;
+            float rBase = r0 + (r1 - r0) * t;
+            float gBase = g0 + (g1 - g0) * t;
+            float bBase = b0 + (b1 - b0) * t;
+
+            float rWood = std::max(0.0f, rBase - intensity * 1.6f);
+            float gWood = std::max(0.0f, gBase - intensity * 1.6f);
+            float bWood = std::max(0.0f, bBase - intensity * 1.6f);
+
+            Point2D pts[7];
+            const int segCount = 6;
+            float dx = w / static_cast<float>(segCount);
+            float phase = static_cast<float>(ringIdx) * 1.15f;
+            float amp = 4.0f + static_cast<float>(ringIdx % 4) * 2.5f;
+            for (int s = 0; s <= segCount; ++s) {
+                float sx = x + static_cast<float>(s) * dx;
+                float sy = gy + amp * std::sin(static_cast<float>(s) * 0.9f + phase)
+                              + (amp * 0.4f) * std::cos(static_cast<float>(s) * 1.7f + phase * 0.7f);
+                pts[s] = { sx, sy };
+            }
+            drawPath(pts, segCount + 1, 1.5f, rWood, gWood, bWood, std::min(1.0f, a * 0.88f), false);
+        }
+    } else if (pattern == VectorPatternType::SpeakerGrill) {
+        // Vintage amplifier interlocking diamond woven fabric grill
+        const float grillStep = std::max(scale, (w + h) / 60.0f);
+        float rHi = std::min(1.0f, (r0 + r1) * 0.5f + intensity * 1.7f);
+        float gHi = std::min(1.0f, (g0 + g1) * 0.5f + intensity * 1.7f);
+        float bHi = std::min(1.0f, (b0 + b1) * 0.5f + intensity * 1.7f);
+        float rLo = std::max(0.0f, (r0 + r1) * 0.5f - intensity * 1.4f);
+        float gLo = std::max(0.0f, (g0 + g1) * 0.5f - intensity * 1.4f);
+        float bLo = std::max(0.0f, (b0 + b1) * 0.5f - intensity * 1.4f);
+
+        for (float d = -h * 0.6f; d < w + h * 0.6f; d += grillStep) {
+            drawLine(x + d, y, x + d + h * 0.577f, y + h, rHi, gHi, bHi, std::min(1.0f, a * 0.9f), 1.2f);
+        }
+        for (float d = 0.0f; d < w + h * 1.2f; d += grillStep) {
+            drawLine(x + d, y, x + d - h * 0.577f, y + h, rLo, gLo, bLo, std::min(1.0f, a * 0.9f), 1.2f);
+        }
+        const float nodeStep = grillStep * 1.5f;
+        for (float ny = y + nodeStep * 0.5f; ny < y + h; ny += nodeStep) {
+            for (float nx = x + nodeStep * 0.5f; nx < x + w; nx += nodeStep) {
+                drawRect(nx - 0.8f, ny - 0.8f, 1.6f, 1.6f, rHi, gHi, bHi, std::min(1.0f, a * 0.75f));
+            }
+        }
+    } else if (pattern == VectorPatternType::VintagePatina) {
+        // Physical vintage patina: subtle vignette darkening + deterministic dust flecks and hairline wear
+        drawRectVignette(x, y, w, h, 0.0f, intensity * 1.8f, 0.0f, 0.0f, 0.0f);
+        drawDustSpecks(x, y, w, h, 50, 0x1337BEEFu, 0.90f, 0.90f, 0.88f, intensity * 1.5f);
+        drawLine(x, y + 1.0f, x + w, y + 1.0f, 1.0f, 1.0f, 1.0f, std::min(1.0f, intensity * 0.6f), 1.0f);
+        drawLine(x + 1.0f, y, x + 1.0f, y + h, 1.0f, 1.0f, 1.0f, std::min(1.0f, intensity * 0.4f), 1.0f);
+    }
+}
+
+void BatchRenderer2D::drawRectVignette(float x, float y, float w, float h,
+                                       float innerAlpha, float outerAlpha,
+                                       float r, float g, float b) {
+    if (w <= 0.0f || h <= 0.0f) return;
+
+    // 16-triangle center-fan Gouraud shaded mesh.
+    // Center point (cx, cy) with innerAlpha, 16 perimeter points with outerAlpha.
+    float cx = x + w * 0.5f;
+    float cy = y + h * 0.5f;
+
+    uint32_t colInner = packColor(r, g, b, std::clamp(innerAlpha, 0.0f, 1.0f));
+    uint32_t colOuter = packColor(r, g, b, std::clamp(outerAlpha, 0.0f, 1.0f));
+
+    Vertex2D centerV{cx, cy, 0.0f, 0.0f, colInner, 5, {0, 0}};
+    applyTransform(centerV.x, centerV.y);
+
+    Point2D perimeter[16] = {
+        { x, y },
+        { x + w * 0.25f, y },
+        { x + w * 0.50f, y },
+        { x + w * 0.75f, y },
+        { x + w, y },
+        { x + w, y + h * 0.25f },
+        { x + w, y + h * 0.50f },
+        { x + w, y + h * 0.75f },
+        { x + w, y + h },
+        { x + w * 0.75f, y + h },
+        { x + w * 0.50f, y + h },
+        { x + w * 0.25f, y + h },
+        { x, y + h },
+        { x, y + h * 0.75f },
+        { x, y + h * 0.50f },
+        { x, y + h * 0.25f }
+    };
+
+    for (int i = 0; i < 16; ++i) {
+        Point2D p0 = perimeter[i];
+        Point2D p1 = perimeter[(i + 1) % 16];
+
+        Vertex2D v0{p0.x, p0.y, 0.0f, 0.0f, colOuter, 5, {0, 0}};
+        Vertex2D v1{p1.x, p1.y, 0.0f, 0.0f, colOuter, 5, {0, 0}};
+        applyTransform(v0.x, v0.y);
+        applyTransform(v1.x, v1.y);
+
+        vertices_.push_back(centerV);
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+    }
+}
+
+void BatchRenderer2D::drawDustSpecks(float x, float y, float w, float h,
+                                     int count, uint32_t seed,
+                                     float r, float g, float b,
+                                     float maxAlpha) {
+    if (w <= 0.0f || h <= 0.0f || count <= 0 || maxAlpha <= 0.001f) return;
+
+    // Linear Congruential Generator (LCG) state for deterministic pseudo-random distribution
+    uint32_t state = (seed != 0) ? seed : 0xDEADBEEFu;
+    auto lcgNext = [&state]() -> uint32_t {
+        state = state * 1664525u + 1013904223u;
+        return state;
+    };
+
+    int numFlecks = std::clamp(count, 1, 300);
+    for (int i = 0; i < numFlecks; ++i) {
+        float rx = static_cast<float>((lcgNext() >> 16) % 10000) / 10000.0f;
+        float ry = static_cast<float>((lcgNext() >> 16) % 10000) / 10000.0f;
+        float rAlpha = static_cast<float>((lcgNext() >> 16) % 1000) / 1000.0f;
+        uint32_t rType = lcgNext();
+
+        float px = x + rx * w;
+        float py = y + ry * h;
+        float alpha = std::clamp(rAlpha * maxAlpha, 0.01f, 1.0f);
+
+        // 80% micro-dust specks, 20% tiny hairline scratches/fibers
+        if ((rType % 5) == 0) {
+            float angle = static_cast<float>((rType >> 8) % 628) / 100.0f;
+            float len = 2.0f + static_cast<float>((rType >> 16) % 3);
+            float x1 = std::clamp(px + std::cos(angle) * len, x, x + w);
+            float y1 = std::clamp(py + std::sin(angle) * len, y, y + h);
+            drawLine(px, py, x1, y1, r, g, b, alpha, 1.0f);
+        } else {
+            float sz = ((rType % 7) == 0) ? 1.5f : 1.0f;
+            drawRect(px, py, sz, sz, r, g, b, alpha);
+        }
     }
 }
 

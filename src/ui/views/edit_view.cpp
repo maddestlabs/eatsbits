@@ -1,6 +1,7 @@
 #include "eatsbits/ui/views/edit_view.hpp"
 #include "eatsbits/ui/views/arranger_view.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/score/score_glyphs.hpp"
 #include "eatsbits/ui/widgets/piano_keyboard.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
@@ -11,6 +12,8 @@
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <unordered_set>
+#include <unordered_map>
 
 namespace eatsbits::ui {
 
@@ -52,6 +55,69 @@ EditView::EditView() {
 }
 
 EditView::~EditView() = default;
+
+void EditView::setSubView(EditSubViewMode mode) noexcept {
+    subView_ = mode;
+    if (subView_ == EditSubViewMode::Tracker) {
+        updateTrackerLanesFromNotes();
+    }
+    if (onSubViewChanged) {
+        onSubViewChanged(subView_);
+    }
+}
+
+void EditView::updateTrackerLanesFromNotes() noexcept {
+    std::unordered_map<int, int> stepCount;
+    int maxPoly = 0;
+    for (const auto& n : notes_) {
+        int s = static_cast<int>(std::round(n.startStep));
+        stepCount[s]++;
+        if (stepCount[s] > maxPoly) maxPoly = stepCount[s];
+        if (n.column + 1 > maxPoly) maxPoly = n.column + 1;
+    }
+    trackerNumLanes_ = std::max({2, maxPoly, trackerNumLanes_});
+    if (trackerSelectedCol_ >= trackerNumLanes_) {
+        trackerSelectedCol_ = trackerNumLanes_ - 1;
+    }
+}
+
+void EditView::addTrackerLane() noexcept {
+    if (trackerNumLanes_ < 16) {
+        trackerNumLanes_++;
+        trackerSelectedCol_ = trackerNumLanes_ - 1;
+        ensureTrackerCursorVisible();
+    }
+}
+
+void EditView::removeTrackerLane() noexcept {
+    if (trackerNumLanes_ <= 2) return;
+    int colToRemove = trackerNumLanes_ - 1;
+    notes_.erase(std::remove_if(notes_.begin(), notes_.end(), [=](const PianoRollNote& n) {
+        return n.column == colToRemove;
+    }), notes_.end());
+    trackerNumLanes_--;
+    if (trackerSelectedCol_ >= trackerNumLanes_) {
+        trackerSelectedCol_ = trackerNumLanes_ - 1;
+    }
+    ensureTrackerCursorVisible();
+    formatEatscriptFromNotes();
+    if (onNotesChanged) {
+        onNotesChanged(activeTrackIndex_, activeClipIndex_);
+    }
+}
+
+void EditView::registerTrackerParamCol(const std::string& key) {
+    if (key.empty()) return;
+    for (const auto& c : trackerCustomCols_) {
+        if (c.key == key) return;
+    }
+    TrackerParamCol col;
+    col.key = key;
+    std::string h = key;
+    for (auto& ch : h) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    col.header = h.substr(0, 3);
+    trackerCustomCols_.push_back(col);
+}
 
 void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
     activeTrackIndex_ = idx;
@@ -360,12 +426,54 @@ void EditView::addNote(uint8_t pitch, float startStep, float durationSteps, floa
     n.isSlide = isSlide;
     n.isAccent = isAccent;
     n.articulation = "normal";
-    n.column = trackerSelectedCol_;
+
+    std::unordered_set<int> usedCols;
+    for (const auto& existing : notes_) {
+        if (std::abs(existing.startStep - n.startStep) < 0.25f) {
+            usedCols.insert(existing.column);
+        }
+    }
+    int col = 0;
+    while (usedCols.count(col) > 0) {
+        col++;
+    }
+    n.column = col;
+    if (n.column + 1 > trackerNumLanes_) {
+        trackerNumLanes_ = n.column + 1;
+    }
+
     n.effectCommand = "00";
     clearSelection();
     notes_.push_back(n);
     formatEatscriptFromNotes();
     if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
+}
+
+void EditView::ensureTrackerCursorVisible() noexcept {
+    float rowH = 24.0f;
+    float visibleH = std::max(100.0f, contentBounds_.h - 62.0f);
+    float stepY = static_cast<float>(trackerSelectedStep_) * rowH;
+    float margin = 3.0f * rowH;
+
+    if (stepY < trackerScrollY_ + margin) {
+        trackerScrollY_ = std::max(0.0f, stepY - margin);
+    } else if (stepY + rowH > trackerScrollY_ + visibleH - margin) {
+        trackerScrollY_ = std::max(0.0f, stepY + rowH - visibleH + margin);
+    }
+
+    float rowNumW = 48.0f;
+    float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+    float colW = 140.0f + extraParamsW;
+    float colSpacing = 6.0f;
+    float colLeft = static_cast<float>(trackerSelectedCol_) * (colW + colSpacing);
+    float colRight = colLeft + colW;
+    float visibleW = std::max(100.0f, contentBounds_.w - rowNumW);
+
+    if (colLeft < trackerScrollX_) {
+        trackerScrollX_ = std::max(0.0f, colLeft);
+    } else if (colRight > trackerScrollX_ + visibleW) {
+        trackerScrollX_ = std::max(0.0f, colRight - visibleW + 16.0f);
+    }
 }
 
 void EditView::deleteNoteAt(float step, uint8_t pitch) {
@@ -501,6 +609,8 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
     chordTrack_ = chordTrack;
 
     notes_.clear();
+    std::unordered_map<int, int> stepColMap;
+    int maxPoly = 0;
     for (size_t i = 0; i < clip.notes.size(); ++i) {
         const auto& cn = clip.notes[i];
         PianoRollNote pn;
@@ -513,10 +623,14 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
         pn.isSlide = false;
         pn.isAccent = false;
         pn.articulation = "normal";
-        pn.column = 0;
+        int sInt = static_cast<int>(std::round(pn.startStep));
+        int cIdx = stepColMap[sInt]++;
+        pn.column = cIdx;
+        if (cIdx + 1 > maxPoly) maxPoly = cIdx + 1;
         pn.effectCommand = "00";
         notes_.push_back(pn);
     }
+    trackerNumLanes_ = std::max(2, maxPoly);
 
     // Ghost notes from other tracks' clips
     ghostNotes_.clear();
@@ -637,10 +751,17 @@ void EditView::formatEatscriptFromNotes() {
         std::string pName = PianoKeyboard::getNoteName(n.pitch);
         ss << "{ pitch = \"" << pName << "\", step = " << std::fixed << std::setprecision(1) << n.startStep
            << ", dur = " << n.durationSteps << ", vel = " << std::setprecision(2) << n.velocity;
+        if (n.column > 0) ss << ", lane = " << n.column;
         if (n.isSlide) ss << ", slide = true";
         if (n.isAccent) ss << ", accent = true";
         if (!n.articulation.empty() && n.articulation != "normal") ss << ", art = \"" << n.articulation << "\"";
         if (!n.lyric.empty()) ss << ", lyric = \"" << n.lyric << "\"";
+        if (!n.effectCommand.empty() && n.effectCommand != "00") ss << ", fx = \"" << n.effectCommand << "\"";
+        for (const auto& [k, v] : n.customParams) {
+            if (!k.empty() && !v.empty()) {
+                ss << ", " << k << " = \"" << v << "\"";
+            }
+        }
         ss << " }\n";
     }
 
@@ -656,6 +777,7 @@ void EditView::parseNotesFromEatscript() {
     std::istringstream stream(scriptBuffer_);
     std::string line;
     int idx = 0;
+    std::unordered_map<int, int> stepColMap;
 
     while (std::getline(stream, line)) {
         if (line.find('{') == std::string::npos || line.find("pitch") == std::string::npos) continue;
@@ -717,14 +839,68 @@ void EditView::parseNotesFromEatscript() {
             }
         }
 
+        auto lPos = line.find("lane");
+        if (lPos == std::string::npos) lPos = line.find("col");
+        if (lPos != std::string::npos) {
+            auto eq = line.find('=', lPos);
+            if (eq != std::string::npos) {
+                try {
+                    n.column = std::stoi(line.substr(eq + 1));
+                } catch (...) {
+                    n.column = 0;
+                }
+            }
+        } else {
+            int sInt = static_cast<int>(std::round(n.startStep));
+            n.column = stepColMap[sInt]++;
+        }
+
+        auto fxPos = line.find("fx");
+        if (fxPos != std::string::npos) {
+            auto q1 = line.find('"', fxPos);
+            auto q2 = (q1 != std::string::npos) ? line.find('"', q1 + 1) : std::string::npos;
+            if (q1 != std::string::npos && q2 != std::string::npos) {
+                n.effectCommand = line.substr(q1 + 1, q2 - q1 - 1);
+            }
+        }
+
         if (line.find("slide = true") != std::string::npos) n.isSlide = true;
         if (line.find("accent = true") != std::string::npos) n.isAccent = true;
+
+        const std::vector<std::string> knownChipKeys = {"echo", "alg", "fb", "pan", "mod", "cut", "res"};
+        for (const auto& ck : knownChipKeys) {
+            auto pos = line.find(ck + " =");
+            if (pos == std::string::npos) pos = line.find(ck + "=");
+            if (pos != std::string::npos) {
+                auto eq = line.find('=', pos);
+                if (eq != std::string::npos) {
+                    auto afterEq = line.find_first_not_of(" \t", eq + 1);
+                    if (afterEq != std::string::npos) {
+                        std::string valStr;
+                        if (line[afterEq] == '"') {
+                            auto endQ = line.find('"', afterEq + 1);
+                            if (endQ != std::string::npos) {
+                                valStr = line.substr(afterEq + 1, endQ - afterEq - 1);
+                            }
+                        } else {
+                            auto endVal = line.find_first_of(",} \t\r\n", afterEq);
+                            valStr = (endVal != std::string::npos) ? line.substr(afterEq, endVal - afterEq) : line.substr(afterEq);
+                        }
+                        if (!valStr.empty()) {
+                            n.customParams[ck] = valStr;
+                            registerTrackerParamCol(ck);
+                        }
+                    }
+                }
+            }
+        }
 
         newNotes.push_back(n);
     }
 
     if (!newNotes.empty()) {
         notes_ = std::move(newNotes);
+        updateTrackerLanesFromNotes();
         if (!isSyncing_ && onNotesChanged) {
             onNotesChanged(activeTrackIndex_, activeClipIndex_);
         }
@@ -1335,34 +1511,95 @@ void EditView::renderTracker(const ViewContext& ctx) {
 
     drawText(r, "TRACKER MATRIX", toolBounds.x + 16.0f, toolBounds.y + 9.0f, 11.0f, theme.primaryAccent);
 
-    std::string octText = "OCTAVE: " + std::to_string(trackerBaseOctave_);
-    drawText(r, octText, toolBounds.x + 160.0f, toolBounds.y + 9.0f, 10.5f, theme.highlight);
+    std::string octText = "OCT: " + std::to_string(trackerBaseOctave_);
+    drawText(r, octText, toolBounds.x + 135.0f, toolBounds.y + 9.0f, 10.0f, theme.highlight);
+
+    btnOctDown_ = Rect2D(toolBounds.x + 185.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnOctUp_ = Rect2D(toolBounds.x + 209.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    drawRoundedRect(r, btnOctDown_.x, btnOctDown_.y, btnOctDown_.w, btnOctDown_.h, 3.0f, theme.controlBackground, 0.8f);
+    drawText(r, "-", btnOctDown_.x + 7.0f, btnOctDown_.y + 5.0f, 11.0f, theme.textPrimary);
+    drawRoundedRect(r, btnOctUp_.x, btnOctUp_.y, btnOctUp_.w, btnOctUp_.h, 3.0f, theme.controlBackground, 0.8f);
+    drawText(r, "+", btnOctUp_.x + 6.0f, btnOctUp_.y + 5.0f, 11.0f, theme.textPrimary);
+
+    std::string laneText = "LANES: " + std::to_string(trackerNumLanes_);
+    drawText(r, laneText, toolBounds.x + 245.0f, toolBounds.y + 9.0f, 10.0f, theme.primaryAccent);
+
+    btnLaneDown_ = Rect2D(toolBounds.x + 305.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnLaneUp_ = Rect2D(toolBounds.x + 329.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    drawRoundedRect(r, btnLaneDown_.x, btnLaneDown_.y, btnLaneDown_.w, btnLaneDown_.h, 3.0f,
+                    trackerNumLanes_ > 2 ? theme.controlBackground : (theme.controlBackground * 0.4f), 0.8f);
+    drawText(r, "-", btnLaneDown_.x + 7.0f, btnLaneDown_.y + 5.0f, 11.0f,
+             trackerNumLanes_ > 2 ? theme.textPrimary : theme.textMuted);
+    drawRoundedRect(r, btnLaneUp_.x, btnLaneUp_.y, btnLaneUp_.w, btnLaneUp_.h, 3.0f, theme.controlBackground, 0.8f);
+    drawText(r, "+", btnLaneUp_.x + 6.0f, btnLaneUp_.y + 5.0f, 11.0f, theme.textPrimary);
+
+    btnToggleParams_ = Rect2D(toolBounds.x + 365.0f, toolBounds.y + 5.0f, 85.0f, 22.0f);
+    drawRoundedRect(r, btnToggleParams_.x, btnToggleParams_.y, btnToggleParams_.w, btnToggleParams_.h, 3.0f,
+                    trackerShowCustomParams_ ? (theme.primaryAccent * 0.35f) : theme.controlBackground, 0.8f);
+    drawText(r, trackerShowCustomParams_ ? "CHIP FX: ON" : "CHIP FX", btnToggleParams_.x + 10.0f, btnToggleParams_.y + 6.0f, 9.5f,
+             trackerShowCustomParams_ ? theme.highlight : theme.textMuted);
+
+    btnFollow_ = Rect2D(toolBounds.x + toolBounds.w - 110.0f, toolBounds.y + 5.0f, 96.0f, 22.0f);
+    drawRoundedRect(r, btnFollow_.x, btnFollow_.y, btnFollow_.w, btnFollow_.h, 3.0f,
+                    trackerFollowPlayback_ ? (theme.playActive * 0.35f) : theme.controlBackground, 0.8f);
+    drawText(r, trackerFollowPlayback_ ? "FOLLOW: ON" : "FOLLOW: OFF",
+             btnFollow_.x + 12.0f, btnFollow_.y + 6.0f, 9.5f,
+             trackerFollowPlayback_ ? theme.playActive : theme.textMuted);
 
     if (trackerHasBlockSelection_) {
-        drawRoundedRect(r, toolBounds.x + 270.0f, toolBounds.y + 5.0f, 140.0f, 22.0f, 3.0f,
+        drawRoundedRect(r, toolBounds.x + 465.0f, toolBounds.y + 5.0f, 110.0f, 22.0f, 3.0f,
                         theme.primaryAccent * 0.25f, 0.9f);
-        drawText(r, "BLOCK SELECTED", toolBounds.x + 280.0f, toolBounds.y + 9.0f, 10.0f, theme.primaryAccent);
+        drawText(r, "BLOCK SELECTED", toolBounds.x + 473.0f, toolBounds.y + 9.0f, 9.5f, theme.primaryAccent);
     }
 
     float colHeaderY = toolBounds.y + toolH + 4.0f;
     float rowNumW = 48.0f;
-    float colW = 140.0f;
+    float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+    float colW = 140.0f + extraParamsW;
+    float colSpacing = 6.0f;
 
     drawText(r, "STEP", contentBounds_.x + 12.0f, colHeaderY + 4.0f, 9.5f, theme.textMuted, 0.7f);
 
-    for (int c = 0; c < 4; ++c) {
-        float cx = contentBounds_.x + rowNumW + static_cast<float>(c) * (colW + 6.0f);
-        bool isSelCol = (trackerSelectedCol_ == c);
-        drawRoundedRect(r, cx, colHeaderY, colW, 20.0f, 3.0f,
-                        isSelCol ? (theme.primaryAccent * 0.25f) : theme.controlBackground, 0.8f);
-        std::string colLabel = "CH " + std::to_string(c + 1) + " (NOTE/VOL/SLD/FX)";
-        drawText(r, colLabel, cx + 8.0f, colHeaderY + 4.0f, 9.5f,
-                 isSelCol ? theme.highlight : theme.textPrimary);
+    float matrixStartX = contentBounds_.x + rowNumW;
+    float matrixW = std::max(0.0f, contentBounds_.w - rowNumW);
+
+    {
+        BatchRenderer2D::ScissorScope colHeaderScissor(r, matrixStartX, colHeaderY, matrixW, 24.0f);
+        for (int c = 0; c < trackerNumLanes_; ++c) {
+            float cx = matrixStartX + static_cast<float>(c) * (colW + colSpacing) - trackerScrollX_;
+            if (cx + colW < matrixStartX || cx > contentBounds_.x + contentBounds_.w) continue;
+
+            bool isSelCol = (trackerSelectedCol_ == c);
+            drawRoundedRect(r, cx, colHeaderY, colW, 20.0f, 3.0f,
+                            isSelCol ? (theme.primaryAccent * 0.25f) : theme.controlBackground, 0.8f);
+
+            std::string colLabel = "LANE " + std::to_string(c + 1);
+            if (trackerShowCustomParams_ && !trackerCustomCols_.empty()) {
+                colLabel += " (NOTE/V/S/FX";
+                for (const auto& cp : trackerCustomCols_) {
+                    colLabel += "/" + cp.header;
+                }
+                colLabel += ")";
+            } else {
+                colLabel += " (NOTE/VOL/SLD/FX)";
+            }
+            drawText(r, colLabel, cx + 6.0f, colHeaderY + 4.0f, 9.0f,
+                     isSelCol ? theme.highlight : theme.textPrimary);
+        }
     }
 
     float startRowY = colHeaderY + 26.0f;
     float rowH = 24.0f;
     int maxRows = 64;
+
+    if (trackerFollowPlayback_ && ctx.audioEngine && ctx.audioEngine->getSequencer().isPlaying()) {
+        uint32_t curStep = ctx.audioEngine->getSequencer().getTransport().getCurrentStep() % 64;
+        float curStepY = static_cast<float>(curStep) * rowH;
+        float visibleH = std::max(100.0f, contentBounds_.h - 62.0f);
+        trackerScrollY_ = std::max(0.0f, curStepY - visibleH * 0.5f);
+    }
+
+    BatchRenderer2D::ScissorScope matrixScissor(r, contentBounds_.x, startRowY, contentBounds_.w, std::max(0.0f, contentBounds_.y + contentBounds_.h - startRowY));
 
     for (int step = 0; step < maxRows; ++step) {
         float ry = startRowY + static_cast<float>(step) * rowH - trackerScrollY_;
@@ -1390,8 +1627,10 @@ void EditView::renderTracker(const ViewContext& ctx) {
                      isPlayheadStep ? theme.playActive : (isSelectedRow ? theme.highlight : (isBeat ? theme.highlight : theme.textMuted)),
                      isPlayheadStep ? 1.0f : (isSelectedRow ? 1.0f : (isBeat ? 0.9f : 0.6f)));
 
-        for (int c = 0; c < 4; ++c) {
-            float cx = contentBounds_.x + rowNumW + static_cast<float>(c) * (colW + 6.0f);
+        for (int c = 0; c < trackerNumLanes_; ++c) {
+            float cx = matrixStartX + static_cast<float>(c) * (colW + colSpacing) - trackerScrollX_;
+            if (cx + colW < matrixStartX || cx > contentBounds_.x + contentBounds_.w) continue;
+
             bool isCellSelected = (isSelectedRow && trackerSelectedCol_ == c);
 
             std::string noteStr = "---";
@@ -1400,6 +1639,7 @@ void EditView::renderTracker(const ViewContext& ctx) {
             std::string fxStr = "00";
             bool hasNote = false;
             bool noteIsSelected = false;
+            const PianoRollNote* matchedNote = nullptr;
 
             for (const auto& n : notes_) {
                 if (static_cast<int>(std::round(n.startStep)) == step && n.column == c) {
@@ -1409,6 +1649,7 @@ void EditView::renderTracker(const ViewContext& ctx) {
                     fxStr = n.effectCommand;
                     hasNote = true;
                     noteIsSelected = n.isSelected;
+                    matchedNote = &n;
                     break;
                 }
             }
@@ -1424,6 +1665,20 @@ void EditView::renderTracker(const ViewContext& ctx) {
             }
 
             std::string cellText = noteStr + " " + volStr + " " + sldStr + " " + fxStr;
+            if (trackerShowCustomParams_) {
+                for (const auto& cp : trackerCustomCols_) {
+                    std::string val = "..";
+                    if (matchedNote) {
+                        auto it = matchedNote->customParams.find(cp.key);
+                        if (it != matchedNote->customParams.end() && !it->second.empty()) {
+                            val = it->second;
+                            if (val.size() > 2) val = val.substr(0, 2);
+                        }
+                    }
+                    cellText += " " + val;
+                }
+            }
+
             Color cellCol = hasNote ? (noteIsSelected ? theme.highlight : trackColor_) : theme.textMuted;
             drawMonoText(r, cellText, cx + 8.0f, ry + 5.0f, 10.5f, cellCol, hasNote ? 1.0f : 0.6f);
         }
@@ -1469,8 +1724,19 @@ void EditView::renderScore(const ViewContext& ctx) {
     float lineSpacing = 14.0f;
 
     bool isTreble = (scoreClef_ == ScoreClef::Treble) || (scoreClef_ == ScoreClef::Auto && activeTrackIndex_ != 0 && activeTrackIndex_ != 2);
-    std::string clefSymbol = isTreble ? "[TREBLE G-CLEF]" : "[BASS F-CLEF]";
-    drawText(r, clefSymbol, staffStartX, staffY - 26.0f, 11.5f, Color(0.15f, 0.15f, 0.15f));
+    ScoreVectorGlyphs::setBatchRenderer(&r);
+    Color clefCol(0.15f, 0.15f, 0.18f, 0.95f);
+
+    if (isTreble) {
+        // Treble G-clef centered around G4 (2nd line from bottom = line 3 from top = staffY + 3.0f * lineSpacing)
+        ScoreVectorGlyphs::drawTrebleClef(staffStartX + 12.0f, staffY + 3.0f * lineSpacing, lineSpacing,
+                                          clefCol.r, clefCol.g, clefCol.b, clefCol.a);
+    } else {
+        // Bass F-clef centered around F3 (2nd line from top = line 1 from top = staffY + 1.0f * lineSpacing)
+        ScoreVectorGlyphs::drawBassClef(staffStartX + 12.0f, staffY + 1.0f * lineSpacing, lineSpacing,
+                                        clefCol.r, clefCol.g, clefCol.b, clefCol.a);
+    }
+
     drawText(r, "4 / 4", staffStartX + 120.0f, staffY + 16.0f, 15.0f, Color(0.2f, 0.2f, 0.2f));
 
     for (int l = 0; l < 5; ++l) {
@@ -1497,34 +1763,56 @@ void EditView::renderScore(const ViewContext& ctx) {
         if (isTreble) {
             if (n.pitch <= 60) {
                 float lcy = staffY + 5.0f * lineSpacing;
-                drawLine(r, nx - 8.0f, lcy, nx + 12.0f, lcy, Color(0.2f, 0.2f, 0.2f), 0.9f, 1.5f);
+                ScoreVectorGlyphs::drawLedgerLine(nx, lcy, lineSpacing, 0.2f, 0.2f, 0.2f, 0.9f);
             }
             if (n.pitch >= 81) {
                 float lay = staffY - lineSpacing;
-                drawLine(r, nx - 8.0f, lay, nx + 12.0f, lay, Color(0.2f, 0.2f, 0.2f), 0.9f, 1.5f);
+                ScoreVectorGlyphs::drawLedgerLine(nx, lay, lineSpacing, 0.2f, 0.2f, 0.2f, 0.9f);
             }
         } else {
             if (n.pitch >= 60) {
                 float lcy = staffY - lineSpacing;
-                drawLine(r, nx - 8.0f, lcy, nx + 12.0f, lcy, Color(0.2f, 0.2f, 0.2f), 0.9f, 1.5f);
+                ScoreVectorGlyphs::drawLedgerLine(nx, lcy, lineSpacing, 0.2f, 0.2f, 0.2f, 0.9f);
             }
             if (n.pitch <= 40) {
                 float ley = staffY + 5.0f * lineSpacing;
-                drawLine(r, nx - 8.0f, ley, nx + 12.0f, ley, Color(0.2f, 0.2f, 0.2f), 0.9f, 1.5f);
+                ScoreVectorGlyphs::drawLedgerLine(nx, ley, lineSpacing, 0.2f, 0.2f, 0.2f, 0.9f);
             }
         }
 
-        Color headCol = n.isSelected ? theme.highlight : Color(0.12f, 0.12f, 0.12f);
-        drawCircle(r, nx, ny, 6.0f, headCol);
-        if (n.isSelected) {
-            drawCircleOutline(r, nx, ny, 7.5f, theme.primaryAccent, 1.0f, 2.0f);
+        Color headCol = n.isSelected ? theme.highlight : Color(0.12f, 0.12f, 0.15f);
+
+        // Classical SMuFL notehead & stem rendering
+        if (n.durationSteps >= 16.0f) {
+            // Whole note (open oval with carved center, no stem)
+            ScoreVectorGlyphs::drawWholeNotehead(nx, ny, lineSpacing, headCol.r, headCol.g, headCol.b, 1.0f);
+        } else if (n.durationSteps >= 8.0f) {
+            // Half note (open oval with stem)
+            ScoreVectorGlyphs::drawHalfNotehead(nx, ny, lineSpacing, headCol.r, headCol.g, headCol.b, 1.0f);
+            bool stemUp = (ny > staffY + 2.0f * lineSpacing);
+            ScoreVectorGlyphs::drawStem(nx, ny, lineSpacing, stemUp, headCol.r, headCol.g, headCol.b, 1.0f, 3.2f);
+        } else {
+            // Quarter / 8th / 16th note (filled notehead with stem)
+            ScoreVectorGlyphs::drawBlackNotehead(nx, ny, lineSpacing, headCol.r, headCol.g, headCol.b, 1.0f);
+            bool stemUp = (ny > staffY + 2.0f * lineSpacing);
+            ScoreVectorGlyphs::drawStem(nx, ny, lineSpacing, stemUp, headCol.r, headCol.g, headCol.b, 1.0f, 3.2f);
+            if (n.durationSteps <= 2.0f) {
+                float flagEndY = stemUp ? (ny - lineSpacing * 3.2f) : (ny + lineSpacing * 3.2f);
+                float flagStartX = nx + (stemUp ? (lineSpacing * 0.60f) : -(lineSpacing * 0.60f));
+                r.drawLine(flagStartX, flagEndY, flagStartX + (stemUp ? 6.0f : -6.0f), flagEndY + (stemUp ? 8.0f : -8.0f),
+                           headCol.r, headCol.g, headCol.b, 1.0f, 1.8f);
+            }
         }
 
-        drawLine(r, nx + 5.0f, ny, nx + 5.0f, ny - 28.0f, headCol, 1.0f, 1.8f);
+        if (n.isSelected) {
+            drawCircleOutline(r, nx, ny, lineSpacing * 0.8f, theme.primaryAccent, 1.0f, 2.0f);
+        }
 
         std::string tag = PianoKeyboard::getNoteName(n.pitch);
         if (tag.find('#') != std::string::npos) {
-            drawText(r, "#", nx - 14.0f, ny - 7.0f, 11.0f, headCol, 0.95f);
+            ScoreVectorGlyphs::drawSharp(nx - 13.0f, ny, lineSpacing * 0.90f, headCol.r, headCol.g, headCol.b, 0.95f);
+        } else if (tag.find('b') != std::string::npos) {
+            ScoreVectorGlyphs::drawFlat(nx - 13.0f, ny, lineSpacing * 0.90f, headCol.r, headCol.g, headCol.b, 0.95f);
         }
         drawText(r, tag, nx - 8.0f, ny + 10.0f, 9.0f, Color(0.35f, 0.35f, 0.35f), 0.9f);
     }
@@ -2068,31 +2356,83 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 }
             }
         } else if (subView_ == EditSubViewMode::Tracker) {
+            if (btnOctDown_.contains(ev.x, ev.y)) {
+                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 1, 6);
+                return true;
+            }
+            if (btnOctUp_.contains(ev.x, ev.y)) {
+                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ + 1, 1, 6);
+                return true;
+            }
+            if (btnLaneDown_.contains(ev.x, ev.y)) {
+                removeTrackerLane();
+                return true;
+            }
+            if (btnLaneUp_.contains(ev.x, ev.y)) {
+                addTrackerLane();
+                return true;
+            }
+            if (btnToggleParams_.contains(ev.x, ev.y)) {
+                trackerShowCustomParams_ = !trackerShowCustomParams_;
+                if (trackerShowCustomParams_ && trackerCustomCols_.empty()) {
+                    registerTrackerParamCol("echo");
+                    registerTrackerParamCol("alg");
+                    registerTrackerParamCol("fb");
+                }
+                ensureTrackerCursorVisible();
+                return true;
+            }
+            if (btnFollow_.contains(ev.x, ev.y)) {
+                trackerFollowPlayback_ = !trackerFollowPlayback_;
+                return true;
+            }
+
             float rowNumW = 48.0f;
-            float colW = 140.0f;
+            float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+            float colW = 140.0f + extraParamsW;
+            float colSpacing = 6.0f;
             float startRowY = contentBounds_.y + 62.0f;
             float rowH = 24.0f;
 
             if (ev.y >= startRowY) {
                 int clickedStep = static_cast<int>((ev.y - startRowY + trackerScrollY_) / rowH);
-                float relX = ev.x - (contentBounds_.x + rowNumW);
-                int clickedCol = static_cast<int>(relX / (colW + 6.0f));
+                float relX = ev.x - (contentBounds_.x + rowNumW) + trackerScrollX_;
+                int clickedCol = static_cast<int>(relX / (colW + colSpacing));
 
-                if (clickedStep >= 0 && clickedStep < 64 && clickedCol >= 0 && clickedCol < 4) {
-                    trackerSelectedStep_ = clickedStep;
-                    trackerSelectedCol_ = clickedCol;
-
-                    clearSelection();
-                    for (auto& n : notes_) {
-                        if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
-                            n.isSelected = true;
-                            int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
-                                ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
-                            auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
-                            break;
+                if (clickedStep >= 0 && clickedStep < 64) {
+                    if (ev.x < contentBounds_.x + rowNumW && ev.x >= contentBounds_.x) {
+                        // Click in STEP number lane -> select step
+                        trackerSelectedStep_ = clickedStep;
+                        clearSelection();
+                        for (auto& n : notes_) {
+                            if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == trackerSelectedCol_) {
+                                n.isSelected = true;
+                                int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                                    ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                                auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                                break;
+                            }
                         }
+                        ensureTrackerCursorVisible();
+                        return true;
                     }
-                    return true;
+                    if (clickedCol >= 0 && clickedCol < trackerNumLanes_) {
+                        trackerSelectedStep_ = clickedStep;
+                        trackerSelectedCol_ = clickedCol;
+
+                        clearSelection();
+                        for (auto& n : notes_) {
+                            if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
+                                n.isSelected = true;
+                                int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                                    ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                                auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                                break;
+                            }
+                        }
+                        ensureTrackerCursorVisible();
+                        return true;
+                    }
                 }
             }
         } else if (subView_ == EditSubViewMode::Score) {
@@ -2389,6 +2729,10 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             stopAuditionPitch(pitch, ctx);
             return true;
         }
+        if (auditioningPitch_ >= 0) {
+            stopAuditionPitch(auditioningPitch_, ctx);
+            return true;
+        }
     } else if (ev.action == PointerAction::Scroll) {
         if (hasSelectedNotes() && sidebarBounds_.contains(ev.x, ev.y)) {
             float maxScroll = std::max(0.0f, 400.0f - sidebarBounds_.h);
@@ -2401,6 +2745,9 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             scrollY_ = std::clamp(scrollY_ - ev.scrollY * 22.0f, 0.0f, maxScrollY);
         } else if (subView_ == EditSubViewMode::Tracker) {
             trackerScrollY_ = std::max(0.0f, trackerScrollY_ - ev.scrollY * 24.0f);
+            if (std::abs(ev.scrollX) > 0.01f) {
+                trackerScrollX_ = std::max(0.0f, trackerScrollX_ - ev.scrollX * 28.0f);
+            }
         } else if (subView_ == EditSubViewMode::Score) {
             scoreScrollX_ = std::max(0.0f, scoreScrollX_ - ev.scrollX * 34.0f);
         } else if (subView_ == EditSubViewMode::Script) {
@@ -2450,7 +2797,11 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
             notes_.erase(std::remove_if(notes_.begin(), notes_.end(), [&](const PianoRollNote& n) {
                 return (static_cast<int>(std::round(n.startStep)) == trackerSelectedStep_ && n.column == trackerSelectedCol_);
             }), notes_.end());
+            trackerSelectedStep_ = (trackerSelectedStep_ + 1) % 64;
+            ensureTrackerCursorVisible();
             formatEatscriptFromNotes();
+            if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
+            else if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
             return true;
         }
         if (hasSelectedNotes()) {
@@ -2470,10 +2821,55 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
     }
 
     if (subView_ == EditSubViewMode::Tracker) {
-        if (key == 265) { trackerSelectedStep_ = std::max(0, trackerSelectedStep_ - 1); return true; } // Up
-        if (key == 264) { trackerSelectedStep_ = std::min(63, trackerSelectedStep_ + 1); return true; } // Down
-        if (key == 263) { trackerSelectedCol_ = std::max(0, trackerSelectedCol_ - 1); return true; } // Left
-        if (key == 262) { trackerSelectedCol_ = std::min(3, trackerSelectedCol_ + 1); return true; } // Right
+        if (key == 265) { // Up
+            trackerSelectedStep_ = (trackerSelectedStep_ == 0) ? 63 : trackerSelectedStep_ - 1;
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 264) { // Down
+            trackerSelectedStep_ = (trackerSelectedStep_ + 1) % 64;
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 263) { // Left
+            trackerSelectedCol_ = std::max(0, trackerSelectedCol_ - 1);
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 262) { // Right
+            trackerSelectedCol_ = std::min(trackerNumLanes_ - 1, trackerSelectedCol_ + 1);
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 258) { // Tab
+            if (mods & 1) { // Shift+Tab
+                trackerSelectedCol_ = (trackerSelectedCol_ + trackerNumLanes_ - 1) % trackerNumLanes_;
+            } else {
+                trackerSelectedCol_ = (trackerSelectedCol_ + 1) % trackerNumLanes_;
+            }
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 266) { // PageUp (-16 steps)
+            trackerSelectedStep_ = (trackerSelectedStep_ < 16) ? 0 : trackerSelectedStep_ - 16;
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 267) { // PageDown (+16 steps)
+            trackerSelectedStep_ = std::min(63, trackerSelectedStep_ + 16);
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 268) { // Home
+            trackerSelectedStep_ = 0;
+            ensureTrackerCursorVisible();
+            return true;
+        }
+        if (key == 269) { // End
+            trackerSelectedStep_ = 63;
+            ensureTrackerCursorVisible();
+            return true;
+        }
 
         if (key == 91 || key == 45) {
             trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 1, 6);
@@ -2492,28 +2888,45 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
                 }
             }
             formatEatscriptFromNotes();
+            if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
+            else if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
             return true;
         }
 
         int semitone = -1;
         switch (key) {
-            case 90: case 122: semitone = 0; break;
-            case 83: case 115: semitone = 1; break;
-            case 88: case 120: semitone = 2; break;
-            case 68: case 100: semitone = 3; break;
-            case 67: case 99:  semitone = 4; break;
-            case 86: case 118: semitone = 5; break;
-            case 71: case 103: semitone = 6; break;
-            case 66: case 98:  semitone = 7; break;
-            case 72: case 104: semitone = 8; break;
-            case 78: case 110: semitone = 9; break;
-            case 74: case 106: semitone = 10; break;
-            case 77: case 109: semitone = 11; break;
-            case 81: case 113: semitone = 12; break;
-            case 50:           semitone = 13; break;
-            case 87: case 119: semitone = 14; break;
-            case 51:           semitone = 15; break;
-            case 69: case 101: semitone = 16; break;
+            // Lower Octave
+            case 90: case 122: semitone = 0; break;  // Z -> C
+            case 83: case 115: semitone = 1; break;  // S -> C#
+            case 88: case 120: semitone = 2; break;  // X -> D
+            case 68: case 100: semitone = 3; break;  // D -> D#
+            case 67: case 99:  semitone = 4; break;  // C -> E
+            case 86: case 118: semitone = 5; break;  // V -> F
+            case 71: case 103: semitone = 6; break;  // G -> F#
+            case 66: case 98:  semitone = 7; break;  // B -> G
+            case 72: case 104: semitone = 8; break;  // H -> G#
+            case 78: case 110: semitone = 9; break;  // N -> A
+            case 74: case 106: semitone = 10; break; // J -> A#
+            case 77: case 109: semitone = 11; break; // M -> B
+
+            // Upper Octave (+1 Octave)
+            case 81: case 113: semitone = 12; break; // Q -> C
+            case 50:           semitone = 13; break; // 2 -> C#
+            case 87: case 119: semitone = 14; break; // W -> D
+            case 51:           semitone = 15; break; // 3 -> D#
+            case 69: case 101: semitone = 16; break; // E -> E
+            case 82: case 114: semitone = 17; break; // R -> F
+            case 53:           semitone = 18; break; // 5 -> F#
+            case 84: case 116: semitone = 19; break; // T -> G
+            case 54:           semitone = 20; break; // 6 -> G#
+            case 89: case 121: semitone = 21; break; // Y -> A
+            case 55:           semitone = 22; break; // 7 -> A#
+            case 85: case 117: semitone = 23; break; // U -> B
+            case 73: case 105: semitone = 24; break; // I -> C (+2 Octaves)
+            case 57:           semitone = 25; break; // 9 -> C#
+            case 79: case 111: semitone = 26; break; // O -> D
+            case 48:           semitone = 27; break; // 0 -> D#
+            case 80: case 112: semitone = 28; break; // P -> E
         }
 
         if (semitone >= 0) {
@@ -2539,8 +2952,11 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
             }
 
             auditionPitch(pitch, 0.85f, ctx);
-            trackerSelectedStep_ = std::min(63, trackerSelectedStep_ + 1);
+            trackerSelectedStep_ = (trackerSelectedStep_ + 1) % 64;
+            ensureTrackerCursorVisible();
             formatEatscriptFromNotes();
+            if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
+            else if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
             return true;
         }
     }

@@ -165,12 +165,224 @@ void testAbsoluteCanvasAndMacroStrip() {
     std::cout << "  -> PASSED: AbsoluteCanvas vector scaling and compact macro strip reflow verified." << std::endl;
 }
 
+void testVectorPatternsAndVignette() {
+    std::cout << "[Test 5] Vector Patterns, Rect Vignette, and Deterministic Dust Specks..." << std::endl;
+
+    BatchRenderer2D renderer;
+    renderer.beginFrame(1920.0f, 1080.0f);
+
+    const VectorPatternType patterns[] = {
+        VectorPatternType::None,
+        VectorPatternType::HorizontalSlats,
+        VectorPatternType::DiagonalMesh,
+        VectorPatternType::HexHoneycomb,
+        VectorPatternType::DotGrid,
+        VectorPatternType::CircuitTraces,
+        VectorPatternType::BrushedSteel,
+        VectorPatternType::WoodGrain,
+        VectorPatternType::SpeakerGrill,
+        VectorPatternType::VintagePatina
+    };
+
+    float px = 10.0f;
+    for (auto pat : patterns) {
+        size_t vCountBefore = renderer.getVertexCount();
+        renderer.drawPatternedRectGradient(px, 10.0f, 180.0f, 120.0f,
+                                           0.25f, 0.25f, 0.28f,
+                                           0.12f, 0.12f, 0.15f, 1.0f,
+                                           pat, 0.12f, 6.0f, 4.0f);
+        size_t vCountAfter = renderer.getVertexCount();
+        assert(vCountAfter > vCountBefore);
+        px += 190.0f;
+        if (px > 1600.0f) px = 10.0f;
+    }
+
+    // Test Rectangular Vignette
+    size_t vCountVigBefore = renderer.getVertexCount();
+    renderer.drawRectVignette(20.0f, 200.0f, 600.0f, 350.0f, 0.0f, 0.65f, 0.0f, 0.0f, 0.0f);
+    size_t vCountVigAfter = renderer.getVertexCount();
+    assert(vCountVigAfter == vCountVigBefore + 48); // 16 triangles * 3 vertices
+
+    // Test Deterministic Dust Specks
+    size_t vCountDustBefore = renderer.getVertexCount();
+    renderer.drawDustSpecks(20.0f, 200.0f, 600.0f, 350.0f, 50, 42, 0.9f, 0.9f, 0.9f, 0.35f);
+    size_t vCountDustAfter = renderer.getVertexCount();
+    assert(vCountDustAfter > vCountDustBefore);
+
+    renderer.endFrame();
+    std::cout << "  -> PASSED: All 9 vector patterns, rectangular vignette, and deterministic dust specks verified." << std::endl;
+}
+
+void testTieredFaceplateStyling() {
+    std::cout << "[Test 6] 3-Tier Background Styling (Gradient, Pattern, Dirt/Noise, Opacity)..." << std::endl;
+
+    ThemeTokens theme = Theme::get(Theme::Preset::AteTrack);
+    BatchRenderer2D renderer;
+    renderer.beginFrame(1920.0f, 1080.0f);
+
+    // 1. Test different gradient types with patterns and dirt
+    const GuiGradientType gradTypes[] = {
+        GuiGradientType::VerticalLinear,
+        GuiGradientType::RadialVignette,
+        GuiGradientType::DiagonalLinear,
+        GuiGradientType::Solid
+    };
+
+    float px = 10.0f;
+    for (auto gt : gradTypes) {
+        GuiPanelDef panel;
+        panel.title = "TIERED SYNTH";
+        panel.subtitle = "Hardware Chassis";
+        panel.chassisStyle = GuiChassisStyle::BrushedSteel;
+        panel.gradientType = gt;
+        panel.patternOverride = VectorPatternType::BrushedSteel;
+        panel.dirtNoiseLevel = 0.45f;
+        panel.backgroundOpacity = 0.85f;
+
+        size_t vBefore = renderer.getVertexCount();
+        drawGuiFaceplate(renderer, panel, Rect2D(px, 10.0f, 240.0f, 160.0f), theme);
+        size_t vAfter = renderer.getVertexCount();
+        assert(vAfter > vBefore);
+        px += 250.0f;
+    }
+
+    // 2. Test Opacity = 0.0f (background omitted) vs 1.0f (full background)
+    GuiPanelDef panelZero;
+    panelZero.title = "ZERO OPACITY";
+    panelZero.backgroundOpacity = 0.0f;
+    panelZero.hideHeader = true;
+    panelZero.woodCheeks = false;
+    size_t vZeroBefore = renderer.getVertexCount();
+    drawGuiFaceplate(renderer, panelZero, Rect2D(10.0f, 200.0f, 240.0f, 160.0f), theme);
+    size_t vZeroCount = renderer.getVertexCount() - vZeroBefore;
+
+    GuiPanelDef panelFull;
+    panelFull.title = "FULL OPACITY";
+    panelFull.backgroundOpacity = 1.0f;
+    panelFull.hideHeader = true;
+    panelFull.woodCheeks = false;
+    size_t vFullBefore = renderer.getVertexCount();
+    drawGuiFaceplate(renderer, panelFull, Rect2D(260.0f, 200.0f, 240.0f, 160.0f), theme);
+    size_t vFullCount = renderer.getVertexCount() - vFullBefore;
+
+    assert(vFullCount > vZeroCount);
+
+    renderer.endFrame();
+    std::cout << "  -> PASSED: 3-tier styling stack (Gradient, Pattern, Dirt/Noise, Opacity) validated cleanly." << std::endl;
+}
+
+void testMinimalGuiModeBypassesComplexBackgrounds() {
+    std::cout << "[Test 7] Minimal GUI Mode Background Bypass (Settings Toggle)..." << std::endl;
+
+    BatchRenderer2D renderer;
+    renderer.beginFrame(1920.0f, 1080.0f);
+
+    GuiPanelDef panel;
+    panel.title = "TEST SYNTH";
+    panel.chassisStyle = GuiChassisStyle::BrushedSteel;
+    panel.gradientType = GuiGradientType::RadialVignette;
+    panel.patternOverride = VectorPatternType::BrushedSteel;
+    panel.dirtNoiseLevel = 0.75f;
+    panel.woodCheeks = true;
+
+    // 1. Render in full aesthetic mode
+    ThemeTokens normalTheme = Theme::get(Theme::Preset::AteTrack);
+    normalTheme.controlMode = ControlAestheticMode::AutoThemeDefault;
+    size_t vNormBefore = renderer.getVertexCount();
+    drawGuiFaceplate(renderer, panel, Rect2D(20.0f, 20.0f, 500.0f, 320.0f), normalTheme);
+    size_t vNormCount = renderer.getVertexCount() - vNormBefore;
+
+    // 2. Render in ForceMinimal mode (the Setting dialog toggle)
+    ThemeTokens minTheme = Theme::get(Theme::Preset::AteTrack);
+    minTheme.controlMode = ControlAestheticMode::ForceMinimal;
+    size_t vMinBefore = renderer.getVertexCount();
+    drawGuiFaceplate(renderer, panel, Rect2D(20.0f, 20.0f, 500.0f, 320.0f), minTheme);
+    size_t vMinCount = renderer.getVertexCount() - vMinBefore;
+
+    assert(vMinCount < vNormCount / 4);
+    std::cout << "  -> Vertex reduction verified: " << vNormCount << " verts (complex) vs "
+              << vMinCount << " verts (minimal solid color)." << std::endl;
+
+    renderer.endFrame();
+    std::cout << "  -> PASSED: Minimal GUI setting successfully bypasses complex backgrounds." << std::endl;
+}
+
+void testFaceplateTextureCacheLifecycle() {
+    std::cout << "[Test 8] Faceplate Texture Cache & Zero-Recomputation Lifecycle..." << std::endl;
+
+    ThemeTokens theme = Theme::get(Theme::Preset::AteTrack);
+    BatchRenderer2D renderer;
+    renderer.beginFrame(1920.0f, 1080.0f);
+
+    // 1. SNES Synth / Sfxr: Must retain clean procedural gradient-only quad (VectorPatternType::None)
+    GuiPanelDef snesPanel;
+    snesPanel.title = "SNES SFXR";
+    snesPanel.subtitle = "16-Bit Audio Engine";
+    snesPanel.chassisStyle = GuiChassisStyle::Snes;
+    assert(snesPanel.getEffectivePattern() == VectorPatternType::None);
+
+    drawGuiFaceplate(renderer, snesPanel, Rect2D(20.0f, 20.0f, 400.0f, 240.0f), theme);
+    // Uncached gradient-only quad: cache is not needed / remains empty
+    assert(!snesPanel.backgroundCache.isValid);
+    assert(snesPanel.backgroundCache.cachedPixels.empty());
+    std::cout << "  -> PASSED: SNES Synth & Sfxr retained clean procedural gradient-only quad." << std::endl;
+
+    // 2. Hardware Skeuomorphic Instrument (BrushedSteel / CircuitTraces / Carbon):
+    // Verifies FaceplateBackgroundCache populates both vector vertices and software bitmap pixels
+    GuiPanelDef steelPanel;
+    steelPanel.title = "ANALOG BASSLINE";
+    steelPanel.subtitle = "Hardware Synth";
+    steelPanel.chassisStyle = GuiChassisStyle::BrushedSteel;
+    steelPanel.patternOverride = VectorPatternType::CircuitTraces;
+    steelPanel.dirtNoiseLevel = 0.30f;
+    assert(steelPanel.getEffectivePattern() == VectorPatternType::CircuitTraces);
+
+    assert(!steelPanel.backgroundCache.isValid);
+    drawGuiFaceplate(renderer, steelPanel, Rect2D(50.0f, 50.0f, 600.0f, 360.0f), theme);
+
+    // After first frame render: cache is valid, vertices and pixels stored
+    assert(steelPanel.backgroundCache.isValid);
+    assert(steelPanel.backgroundCache.cacheW == 600);
+    assert(steelPanel.backgroundCache.cacheH == 360);
+    assert(!steelPanel.backgroundCache.cachedVertices.empty());
+    assert(!steelPanel.backgroundCache.cachedPixels.empty());
+    assert(steelPanel.backgroundCache.cachedPixels.size() == 600 * 360);
+    uint64_t initialHash = steelPanel.backgroundCache.stateHash;
+    assert(initialHash != 0);
+
+    // 3. Second render pass at identical dimensions: Cache is reused, zero rebuilds
+    size_t vBefore = renderer.getVertexCount();
+    drawGuiFaceplate(renderer, steelPanel, Rect2D(50.0f, 50.0f, 600.0f, 360.0f), theme);
+    size_t vAfter = renderer.getVertexCount();
+    assert(vAfter > vBefore);
+    assert(steelPanel.backgroundCache.stateHash == initialHash);
+
+    // 4. Moving the panel (e.g. scroll or window move) preserves cache
+    drawGuiFaceplate(renderer, steelPanel, Rect2D(120.0f, 80.0f, 600.0f, 360.0f), theme);
+    assert(steelPanel.backgroundCache.stateHash == initialHash);
+
+    // 5. Resizing the panel (e.g. window maximization / fullscreen) updates cache
+    drawGuiFaceplate(renderer, steelPanel, Rect2D(0.0f, 0.0f, 800.0f, 500.0f), theme);
+    assert(steelPanel.backgroundCache.isValid);
+    assert(steelPanel.backgroundCache.cacheW == 800);
+    assert(steelPanel.backgroundCache.cacheH == 500);
+    assert(steelPanel.backgroundCache.stateHash != initialHash);
+    assert(steelPanel.backgroundCache.cachedPixels.size() == 800 * 500);
+
+    renderer.endFrame();
+    std::cout << "  -> PASSED: Faceplate texture cache & zero-recomputation lifecycle verified." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Eatsbits Vector Surface Test Suite ===\n";
     testVectorFaceplateStyles();
     testCustomTintsAndWoodCheeks();
     testCleanMinimalWhiteFaceplate();
     testAbsoluteCanvasAndMacroStrip();
+    testVectorPatternsAndVignette();
+    testTieredFaceplateStyling();
+    testMinimalGuiModeBypassesComplexBackgrounds();
+    testFaceplateTextureCacheLifecycle();
     std::cout << "=== All Vector Surface Tests Passed Successfully! ===\n";
     return 0;
 }

@@ -1080,6 +1080,8 @@ public:
     [[nodiscard]] const std::string& getActiveMonoFontPath() const noexcept { return activeMonoFontPath_; }
     [[nodiscard]] bool isFontLoaded() const noexcept;
     [[nodiscard]] bool isMonoFontLoaded() const noexcept;
+    static void setEbfTypographyEnabled(bool enabled) noexcept;
+    [[nodiscard]] static bool isEbfTypographyEnabled() noexcept;
 
     // Score Notation View
     [[nodiscard]] ScoreClef getScoreClef() const noexcept { return scoreClef_; }

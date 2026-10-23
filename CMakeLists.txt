@@ -26,6 +26,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/clap/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/Source
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/daisysp/DaisySP-LGPL/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 add_compile_definitions(USE_DAISYSP_LGPL=1)
 
@@ -294,6 +295,9 @@ add_library(eats_render_wgpu STATIC
     src/ui/monospace_font_8x16.cpp
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
+    src/ui/glyph/glyph_packs.cpp
+    src/ui/glyph/ebf_font.cpp
+    src/ui/glyph/ebf_converter.cpp
     src/ui/clay/clay_batch_bridge.cpp
     third_party/stb/stb_image.c
 )

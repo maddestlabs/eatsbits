@@ -1,7 +1,10 @@
 #include "eatsbits/ui/floating_window_manager.hpp"
+#include "eatsbits/audio/dsp/snes_sfxr_generator.hpp"
+#include "eatsbits/audio/dsp/prng.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 
 #if !defined(__EMSCRIPTEN__)
 #include <GLFW/glfw3.h>
@@ -17,6 +20,16 @@
 #include <GLFW/glfw3native.h>
 #endif
 #endif
+
+namespace {
+inline bool stringEqualsIgnoreCase(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+        [](char c1, char c2) noexcept {
+            return std::tolower(static_cast<unsigned char>(c1)) == std::tolower(static_cast<unsigned char>(c2));
+        });
+}
+} // namespace
 
 namespace eatsbits::ui {
 
@@ -182,6 +195,22 @@ bool FloatingWindowManager::openDetachedInstrument(uint32_t trackIndex,
         }
     });
 
+    glfwSetScrollCallback(win, [](GLFWwindow* w, double xoffset, double yoffset) {
+        auto* mgr = static_cast<FloatingWindowManager*>(glfwGetWindowUserPointer(w));
+        if (!mgr) return;
+        double xpos, ypos;
+        glfwGetCursorPos(w, &xpos, &ypos);
+        for (auto& pair : mgr->windows_) {
+            if (pair.second.window == w) {
+                mgr->handleScroll(pair.second, static_cast<float>(xoffset), static_cast<float>(yoffset), static_cast<float>(xpos), static_cast<float>(ypos));
+                if (pair.second.isDirty) {
+                    mgr->renderWindow(w);
+                }
+                break;
+            }
+        }
+    });
+
     windows_[trackIndex] = std::move(info);
     return true;
 #else
@@ -338,6 +367,221 @@ void FloatingWindowManager::renderWindow(GLFWwindow* w) {
 #endif
 }
 
+void FloatingWindowManager::handleScroll(DetachedWindowInfo& info, float /*xoffset*/, float yoffset, float xpos, float ypos) {
+    auto handleListBoxScroll = [&](GuiWidgetDef& w) -> bool {
+        if (w.type == GuiWidgetType::ListBox && w.bounds.contains(xpos, ypos)) {
+            int totalOpts = static_cast<int>(w.options.size());
+            int visibleRows = 4;
+            int maxScroll = std::max(0, totalOpts - visibleRows);
+            if (maxScroll > 0) {
+                int delta = (yoffset > 0.0f) ? -1 : 1;
+                int currentScroll = static_cast<int>(std::round(w.scrollOffset));
+                w.scrollOffset = static_cast<float>(std::clamp(currentScroll + delta, 0, maxScroll));
+                info.isDirty = true;
+            }
+            return true;
+        }
+        return false;
+    };
+
+    if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
+        for (auto& w : info.panelDef.widgets) {
+            if (handleListBoxScroll(w)) return;
+        }
+    } else {
+        for (auto& row : info.panelDef.rows) {
+            for (auto& w : row.widgets) {
+                if (handleListBoxScroll(w)) return;
+            }
+        }
+    }
+}
+
+void FloatingWindowManager::triggerRandomize(DetachedWindowInfo& info) {
+    uint32_t newSeed = static_cast<uint32_t>((std::rand() % 9990) + 10);
+
+    for (auto& rw : info.panelDef.rows) {
+        for (auto& wid : rw.widgets) {
+            if (wid.id == "w_seed" || stringEqualsIgnoreCase(wid.param, "Seed")) {
+                wid.currentVal = static_cast<float>(newSeed);
+            }
+        }
+    }
+    if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
+        for (auto& wid : info.panelDef.widgets) {
+            if (wid.id == "w_seed" || stringEqualsIgnoreCase(wid.param, "Seed")) {
+                wid.currentVal = static_cast<float>(newSeed);
+            }
+        }
+    }
+    if (onParamChanged) {
+        onParamChanged(info.trackIndex, "Seed", static_cast<float>(newSeed));
+    }
+
+    auto containsSfxr = [](std::string_view s) noexcept -> bool {
+        std::string lower;
+        lower.reserve(s.size());
+        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        return lower.find("sfxr") != std::string::npos;
+    };
+    bool isSfxr = (containsSfxr(info.title) || containsSfxr(info.panelDef.title));
+
+    if (isSfxr) {
+        int sfxType = 0;
+        for (const auto& rw : info.panelDef.rows) {
+            for (const auto& wid : rw.widgets) {
+                if (wid.id == "w_sfxtype" || stringEqualsIgnoreCase(wid.param, "SFXType")) {
+                    sfxType = std::clamp(static_cast<int>(std::round(wid.currentVal)), 0, 10);
+                    break;
+                }
+            }
+        }
+        auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(sfxType, newSeed);
+        auto applyParam = [&](const std::string& widId, const std::string& pName, float normVal) {
+            for (auto& rw : info.panelDef.rows) {
+                for (auto& wid : rw.widgets) {
+                    if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                        wid.currentVal = normVal;
+                    }
+                }
+            }
+            if (onParamChanged) {
+                onParamChanged(info.trackIndex, pName, normVal);
+            }
+        };
+
+        applyParam("w_wavetable", "Waveform", pMap["Waveform"] / 11.0f);
+        applyParam("w_attack", "Attack", std::clamp(pMap["Attack"] / 0.5f, 0.0f, 1.0f));
+        applyParam("w_decay", "Decay", std::clamp(pMap["Decay"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sustain", "Sustain", std::clamp(pMap["Sustain"], 0.0f, 1.0f));
+        applyParam("w_release", "Release", std::clamp(pMap["Release"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sweep", "PitchSweep", std::clamp((pMap["PitchSweep"] + 2.0f) / 4.0f, 0.0f, 1.0f));
+        applyParam("w_vibrate", "VibratoRate", std::clamp(pMap["VibratoRate"] / 20.0f, 0.0f, 1.0f));
+        applyParam("w_vibdepth", "VibratoDepth", std::clamp(pMap["VibratoDepth"], 0.0f, 1.0f));
+        applyParam("w_echoms", "EchoDelay", std::clamp(pMap["EchoDelay"] / 480.0f, 0.0f, 1.0f));
+        applyParam("w_echovol", "EchoVolume", std::clamp(pMap["EchoVolume"], 0.0f, 1.0f));
+
+        if (onAuditionNote) {
+            onAuditionNote(info.trackIndex, 72, 0.85f);
+        }
+    } else {
+        eatsbits::audio::DeterministicPRNG prng(newSeed);
+        int wave = prng.nextInt(0, 11);
+        float att = prng.nextRange(0.002f, 0.12f) / 0.5f;
+        float dec = prng.nextRange(0.10f, 0.80f) / 2.0f;
+        float sus = prng.nextRange(0.20f, 0.90f);
+        float rel = prng.nextRange(0.08f, 0.60f) / 2.0f;
+        float vibR = prng.nextRange(3.0f, 9.0f) / 20.0f;
+        float vibD = prng.nextRange(0.0f, 0.25f);
+        float echD = prng.nextRange(60.0f, 260.0f) / 480.0f;
+        float echF = prng.nextRange(0.20f, 0.70f);
+        float echV = prng.nextRange(0.15f, 0.55f);
+
+        auto applyParam = [&](const std::string& widId, const std::string& pName, float normVal) {
+            for (auto& rw : info.panelDef.rows) {
+                for (auto& wid : rw.widgets) {
+                    if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                        wid.currentVal = normVal;
+                    }
+                }
+            }
+            if (onParamChanged) {
+                onParamChanged(info.trackIndex, pName, normVal);
+            }
+        };
+
+        applyParam("w_wavetable", "Waveform", static_cast<float>(wave) / 11.0f);
+        applyParam("w_attack", "Attack", att);
+        applyParam("w_decay", "Decay", dec);
+        applyParam("w_sustain", "Sustain", sus);
+        applyParam("w_release", "Release", rel);
+        applyParam("w_vibrate", "VibratoRate", vibR);
+        applyParam("w_vibdepth", "VibratoDepth", vibD);
+        applyParam("w_echoms", "EchoDelay", echD);
+        applyParam("w_echofdbk", "EchoFeedback", echF);
+        applyParam("w_echovol", "EchoVolume", echV);
+
+        if (onAuditionNote) {
+            onAuditionNote(info.trackIndex, 60, 0.85f);
+        }
+    }
+    info.isDirty = true;
+}
+
+void FloatingWindowManager::selectListBoxOption(DetachedWindowInfo& info, GuiWidgetDef& w, int newIdx) {
+    int totalOpts = static_cast<int>(w.options.size());
+    if (totalOpts <= 0) return;
+    newIdx = std::clamp(newIdx, 0, totalOpts - 1);
+    w.currentVal = static_cast<float>(newIdx);
+    w.valueDisplay = (newIdx < totalOpts) ? w.options[newIdx] : std::to_string(newIdx);
+
+    int visibleRows = 4;
+    if (static_cast<float>(newIdx) < w.scrollOffset) {
+        w.scrollOffset = static_cast<float>(newIdx);
+    } else if (static_cast<float>(newIdx) >= w.scrollOffset + static_cast<float>(visibleRows)) {
+        w.scrollOffset = static_cast<float>(newIdx - visibleRows + 1);
+    }
+    w.scrollOffset = std::clamp(w.scrollOffset, 0.0f, static_cast<float>(std::max(0, totalOpts - visibleRows)));
+
+    float normVal = (totalOpts > 1) ? static_cast<float>(newIdx) / static_cast<float>(totalOpts - 1) : 0.0f;
+    if (onParamChanged) {
+        onParamChanged(info.trackIndex, w.param, normVal);
+    }
+
+    auto containsSfxr = [](std::string_view s) noexcept -> bool {
+        std::string lower;
+        lower.reserve(s.size());
+        for (char c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        return lower.find("sfxr") != std::string::npos;
+    };
+    bool isSfxr = (containsSfxr(info.title) || containsSfxr(info.panelDef.title));
+
+    if (w.id == "w_sfxtype" || stringEqualsIgnoreCase(w.param, "SFXType")) {
+        uint32_t seed = 42;
+        for (const auto& rw : info.panelDef.rows) {
+            for (const auto& wid : rw.widgets) {
+                if (wid.id == "w_seed" || stringEqualsIgnoreCase(wid.param, "Seed")) {
+                    seed = static_cast<uint32_t>(std::clamp(wid.currentVal, 1.0f, 9999.0f));
+                    break;
+                }
+            }
+        }
+        auto pMap = eatsbits::audio::SNESSFXRGenerator::generateParamsForType(newIdx, seed);
+        auto applyParam = [&](const std::string& widId, const std::string& pName, float normParamVal) {
+            for (auto& rw : info.panelDef.rows) {
+                for (auto& wid : rw.widgets) {
+                    if (wid.id == widId || stringEqualsIgnoreCase(wid.param, pName)) {
+                        wid.currentVal = normParamVal;
+                    }
+                }
+            }
+            if (onParamChanged) {
+                onParamChanged(info.trackIndex, pName, normParamVal);
+            }
+        };
+
+        applyParam("w_wavetable", "Waveform", pMap["Waveform"] / 11.0f);
+        applyParam("w_attack", "Attack", std::clamp(pMap["Attack"] / 0.5f, 0.0f, 1.0f));
+        applyParam("w_decay", "Decay", std::clamp(pMap["Decay"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sustain", "Sustain", std::clamp(pMap["Sustain"], 0.0f, 1.0f));
+        applyParam("w_release", "Release", std::clamp(pMap["Release"] / 2.0f, 0.0f, 1.0f));
+        applyParam("w_sweep", "PitchSweep", std::clamp((pMap["PitchSweep"] + 2.0f) / 4.0f, 0.0f, 1.0f));
+        applyParam("w_vibrate", "VibratoRate", std::clamp(pMap["VibratoRate"] / 20.0f, 0.0f, 1.0f));
+        applyParam("w_vibdepth", "VibratoDepth", std::clamp(pMap["VibratoDepth"], 0.0f, 1.0f));
+        applyParam("w_echoms", "EchoDelay", std::clamp(pMap["EchoDelay"] / 480.0f, 0.0f, 1.0f));
+        applyParam("w_echovol", "EchoVolume", std::clamp(pMap["EchoVolume"], 0.0f, 1.0f));
+
+        if (onAuditionNote) {
+            onAuditionNote(info.trackIndex, 72, 0.85f);
+        }
+    } else if (w.id == "w_wavetable" || stringEqualsIgnoreCase(w.param, "Waveform")) {
+        if (onAuditionNote) {
+            onAuditionNote(info.trackIndex, isSfxr ? 72 : 60, 0.85f);
+        }
+    }
+    info.isDirty = true;
+}
+
 void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int button, int action, float mx, float my) {
     if (button == 1 /* GLFW_MOUSE_BUTTON_RIGHT */ && action == 1 /* GLFW_PRESS */) {
         auto resetWidget = [&](GuiWidgetDef& w) {
@@ -387,10 +631,25 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                 float cy = w.bounds.y + (w.bounds.h * 0.44f);
                 float dist = std::hypot(mx - cx, my - cy);
                 if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
+                    if (w.type == GuiWidgetType::ActionButton || (w.type == GuiWidgetType::NixieDisplay && w.id == "w_seed")) {
+                        triggerRandomize(info);
+                        return;
+                    }
                     if (w.type == GuiWidgetType::ToggleSwitch) {
                         w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
                         float normVal = (w.maxVal > w.minVal) ? (w.currentVal - w.minVal) / (w.maxVal - w.minVal) : w.currentVal;
                         if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
+                        info.isDirty = true;
+                        return;
+                    }
+                    if (w.type == GuiWidgetType::ListBox) {
+                        info.isDraggingListBox = true;
+                        info.isListBoxDragging = false;
+                        info.draggingRow = 0;
+                        info.draggingWidget = static_cast<int>(i);
+                        info.dragStartX = mx;
+                        info.dragStartY = my;
+                        info.dragStartVal = w.scrollOffset;
                         info.isDirty = true;
                         return;
                     }
@@ -418,10 +677,25 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
                     float cy = w.bounds.y + (w.bounds.h * 0.44f);
                     float dist = std::hypot(mx - cx, my - cy);
                     if (w.bounds.contains(mx, my) || dist <= (w.bounds.w * 0.5f)) {
+                        if (w.type == GuiWidgetType::ActionButton || (w.type == GuiWidgetType::NixieDisplay && w.id == "w_seed")) {
+                            triggerRandomize(info);
+                            return;
+                        }
                         if (w.type == GuiWidgetType::ToggleSwitch) {
                             w.currentVal = (w.currentVal > 0.5f) ? 0.0f : 1.0f;
                             float normVal = (w.maxVal > w.minVal) ? (w.currentVal - w.minVal) / (w.maxVal - w.minVal) : w.currentVal;
                             if (onParamChanged) onParamChanged(info.trackIndex, w.param, normVal);
+                            info.isDirty = true;
+                            return;
+                        }
+                        if (w.type == GuiWidgetType::ListBox) {
+                            info.isDraggingListBox = true;
+                            info.isListBoxDragging = false;
+                            info.draggingRow = static_cast<int>(rIdx);
+                            info.draggingWidget = static_cast<int>(wIdx);
+                            info.dragStartX = mx;
+                            info.dragStartY = my;
+                            info.dragStartVal = w.scrollOffset;
                             info.isDirty = true;
                             return;
                         }
@@ -441,6 +715,61 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
             }
         }
     } else if (action == 0 /* GLFW_RELEASE */) {
+        if (info.isDraggingListBox) {
+            auto handleListBoxRelease = [&](GuiWidgetDef& w) {
+                int totalOpts = static_cast<int>(w.options.size());
+                if (!info.isListBoxDragging && totalOpts > 0) {
+                    float boxX = w.bounds.x + 4.0f;
+                    float boxY = w.bounds.y + 14.0f;
+                    float boxW = w.bounds.w - 8.0f;
+                    float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                    float stripX = boxX + boxW - 13.0f;
+                    int visibleRows = 4;
+                    float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+
+                    if (mx >= stripX && mx <= boxX + boxW) {
+                        int maxScroll = std::max(0, totalOpts - visibleRows);
+                        if (my <= boxY + 14.0f) {
+                            w.scrollOffset = std::max(0.0f, w.scrollOffset - 1.0f);
+                        } else if (my >= boxY + boxH - 14.0f) {
+                            w.scrollOffset = std::min(static_cast<float>(maxScroll), w.scrollOffset + 1.0f);
+                        } else {
+                            float rel = (my - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
+                            w.scrollOffset = std::clamp(rel * static_cast<float>(maxScroll), 0.0f, static_cast<float>(maxScroll));
+                        }
+                    } else if (my >= boxY + 2.0f && my <= boxY + boxH) {
+                        int scrollStart = static_cast<int>(std::round(w.scrollOffset));
+                        int clickedRow = static_cast<int>((my - (boxY + 2.0f)) / rowH);
+                        if (clickedRow >= 0 && clickedRow < visibleRows) {
+                            int targetIdx = scrollStart + clickedRow;
+                            if (targetIdx >= 0 && targetIdx < totalOpts) {
+                                selectListBoxOption(info, w, targetIdx);
+                            }
+                        }
+                    }
+                }
+            };
+
+            if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
+                if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < info.panelDef.widgets.size()) {
+                    handleListBoxRelease(info.panelDef.widgets[info.draggingWidget]);
+                }
+            } else {
+                if (info.draggingRow >= 0 && static_cast<size_t>(info.draggingRow) < info.panelDef.rows.size()) {
+                    auto& row = info.panelDef.rows[info.draggingRow];
+                    if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < row.widgets.size()) {
+                        handleListBoxRelease(row.widgets[info.draggingWidget]);
+                    }
+                }
+            }
+            info.isDraggingListBox = false;
+            info.isListBoxDragging = false;
+            info.draggingRow = -1;
+            info.draggingWidget = -1;
+            info.isDirty = true;
+            return;
+        }
+
         info.isDragging = false;
         info.draggingRow = -1;
         info.draggingWidget = -1;
@@ -449,6 +778,39 @@ void FloatingWindowManager::handleMouseButton(DetachedWindowInfo& info, int butt
 }
 
 void FloatingWindowManager::handleMouseMove(DetachedWindowInfo& info, float mx, float my) {
+    if (info.isDraggingListBox) {
+        auto handleListBoxMove = [&](GuiWidgetDef& w) {
+            float dy = my - info.dragStartY;
+            if (!info.isListBoxDragging && std::abs(dy) > 4.0f) {
+                info.isListBoxDragging = true;
+            }
+            if (info.isListBoxDragging) {
+                int totalOpts = static_cast<int>(w.options.size());
+                int visibleRows = 4;
+                float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                float rowH = std::max(8.0f, (boxH - 4.0f) / static_cast<float>(visibleRows));
+                float scrollDelta = -dy / rowH;
+                float maxScroll = static_cast<float>(std::max(0, totalOpts - visibleRows));
+                w.scrollOffset = std::clamp(info.dragStartVal + scrollDelta, 0.0f, maxScroll);
+                info.isDirty = true;
+            }
+        };
+
+        if (info.panelDef.layoutMode == GuiLayoutMode::AbsoluteCanvas) {
+            if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < info.panelDef.widgets.size()) {
+                handleListBoxMove(info.panelDef.widgets[info.draggingWidget]);
+            }
+        } else {
+            if (info.draggingRow >= 0 && static_cast<size_t>(info.draggingRow) < info.panelDef.rows.size()) {
+                auto& row = info.panelDef.rows[info.draggingRow];
+                if (info.draggingWidget >= 0 && static_cast<size_t>(info.draggingWidget) < row.widgets.size()) {
+                    handleListBoxMove(row.widgets[info.draggingWidget]);
+                }
+            }
+        }
+        return;
+    }
+
     if (!info.isDragging) return;
     (void)mx;
 

@@ -3,12 +3,16 @@
 #include "eatsbits/project/preset_loader.hpp"
 #include "eatsbits/project/preset_manager.hpp"
 #include "eatsbits/project/eats_builtin_presets.hpp"
+#include "eatsbits/ui/clay/clay_context.hpp"
+#include "clay.h"
 #include <algorithm>
 #include <cmath>
 
 namespace eatsbits::ui {
 
 TrackInspectorView::TrackInspectorView() {
+    clayContext_ = std::make_unique<clay::ClayContext>();
+    clayContext_->initialize(1280.0f, 720.0f);
     initDefaultTracks();
     panel_.setShowTrackRibbon(false);
 
@@ -288,6 +292,40 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
         } catch (...) {}
     }
 
+    if (trk.instrumentEngine == "sfxr" || trk.instrumentEngine == "eats_sfxr" || trk.instrument.find("sfxr") != std::string::npos) {
+        trk.knobs = {
+            {"SFXType", "SFX TYPE", 0.0f, "Laser"},
+            {"Seed", "RNG SEED", 42.0f, "42"},
+            {"Waveform", "WAVETABLE", 0.0f, "Square"},
+            {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+            {"Decay", "DECAY", 0.35f / 2.0f, "350 ms"},
+            {"Sustain", "SUSTAIN", 0.20f, "20%"},
+            {"Release", "RELEASE", 0.20f / 2.0f, "200 ms"},
+            {"PitchSweep", "SWEEP", (-0.45f + 2.0f) / 4.0f, "-0.45"},
+            {"VibratoRate", "VIB RATE", 0.0f, "0 Hz"},
+            {"VibratoDepth", "VIB DEPTH", 0.0f, "0%"},
+            {"EchoDelay", "ECHO MS", 120.0f / 480.0f, "120 ms"},
+            {"EchoVolume", "ECHO VOL", 0.35f, "35%"}
+        };
+        return;
+    }
+
+    if (trk.instrumentEngine == "snes" || trk.instrumentEngine == "snes_synth" || trk.instrumentEngine == "snes_console_synth" || trk.instrument.find("snes") != std::string::npos) {
+        trk.knobs = {
+            {"Waveform", "WAVETABLE", 0.0f, "Square"},
+            {"Attack", "ATTACK", 0.005f / 0.5f, "5 ms"},
+            {"Decay", "DECAY", 0.30f / 2.0f, "300 ms"},
+            {"Sustain", "SUSTAIN", 0.50f, "50%"},
+            {"Release", "RELEASE", 0.25f / 2.0f, "250 ms"},
+            {"VibratoRate", "VIB RATE", 5.5f / 20.0f, "5.5 Hz"},
+            {"VibratoDepth", "VIB DEPTH", 0.10f, "10%"},
+            {"EchoDelay", "ECHO MS", 140.0f / 480.0f, "140 ms"},
+            {"EchoFeedback", "ECHO FDBK", 0.55f / 0.90f, "55%"},
+            {"EchoVolume", "ECHO VOL", 0.40f, "40%"}
+        };
+        return;
+    }
+
     if (auto p = eatsbits::project::BuiltinPresetRegistry::createPresetById(trk.instrumentEngine)) {
         trk.eatscriptCode = p->rawScript;
         trk.customGuiPanel = createGuiPanelFromPresetDefinition(*p);
@@ -341,7 +379,7 @@ void TrackInspectorView::syncKnobsForTrack(InspectorTrackChannel& trk) {
             {"decay", "DECAY", 0.50f, "450 ms"},
             {"snap", "SNAP", 0.75f, "75%"}
         };
-    } else if (trk.instrumentEngine == "dx7") {
+    } else if (trk.instrumentEngine == "dx7" || trk.instrumentEngine == "dxvii_epiano" || trk.instrumentEngine == "dxvii" || trk.instrumentEngine == "eats_dx") {
         trk.knobs = {
             {"algo", "ALGO", 0.35f, "Algo 5"},
             {"feedback", "FEEDBACK", 0.65f, "Lvl 6"},
@@ -791,10 +829,50 @@ void TrackInspectorView::syncFromWindow(
     }
 }
 
+void TrackInspectorView::declareLayout(clay::ClayContext& ctx, float width, float height) {
+    (void)ctx;
+    CLAY(CLAY_ID("TrackInspectorViewRoot"), {
+        .layout = {
+            .sizing = { CLAY_SIZING_FIXED(width), CLAY_SIZING_FIXED(height) },
+            .childGap = 0,
+            .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+            .layoutDirection = CLAY_TOP_TO_BOTTOM,
+        }
+    }) {
+        CLAY(CLAY_ID("TrackInspectorViewport"), {
+            .layout = {
+                .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+                .childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP },
+            }
+        }) {}
+    }
+}
+
 void TrackInspectorView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     bounds_ = bounds;
     panel_.setShowTrackRibbon(false);
-    panel_.layout(bounds, ctx);
+
+    Rect2D viewportBounds = bounds;
+    if (clayContext_) {
+        if (!clayContext_->isInitialized()) {
+            clayContext_->initialize(bounds.w, bounds.h);
+        } else {
+            clayContext_->setDimensions(bounds.w, bounds.h);
+        }
+        clayContext_->beginLayout();
+        declareLayout(*clayContext_, bounds.w, bounds.h);
+        clayContext_->endLayout(0.016f);
+
+        auto vpData = clayContext_->getElementData(CLAY_ID("TrackInspectorViewport"));
+        if (vpData.found) {
+            viewportBounds = Rect2D(bounds.x + vpData.boundingBox.x,
+                                    bounds.y + vpData.boundingBox.y,
+                                    vpData.boundingBox.width,
+                                    vpData.boundingBox.height);
+        }
+    }
+
+    panel_.layout(viewportBounds, ctx);
 }
 
 void TrackInspectorView::render(const ViewContext& ctx) {
@@ -808,10 +886,16 @@ void TrackInspectorView::render(const ViewContext& ctx) {
     if (drawerData_.totalTracks == 0 || drawerData_.instrumentEngine.empty()) {
         updateDrawerData();
     }
+
+    // Strictly scissor rendering to bounds so scrolling content never bleeds into top/bottom panels
+    BatchRenderer2D::ScissorScope scissor(r, bounds_);
     panel_.render(r, theme, drawerData_, ctx.mouseX, ctx.mouseY);
 }
 
 bool TrackInspectorView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
+    if (ev.action == PointerAction::Scroll && !bounds_.contains(ev.x, ev.y)) {
+        return false;
+    }
     if (drawerData_.totalTracks == 0 || drawerData_.instrumentEngine.empty()) {
         updateDrawerData();
     }

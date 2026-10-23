@@ -1,5 +1,6 @@
 #include "eatsbits/ui/gui_panel_def.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
+#include "eatsbits/ui/icon_registry.hpp"
 #include "eatsbits/ui/clay/clay_context.hpp"
 #include "clay.h"
 #include <algorithm>
@@ -850,7 +851,7 @@ void drawKnobWidget(BatchRenderer2D& r,
         }
     }
 
-    // 6.5. Stationary Center Glyph / Icon (Text character, Symbol, or Nerd Font glyph on any knob)
+    // 6.5. Stationary Center Glyph / Icon (Text character, Symbol, or native IconRegistry icon on any knob)
     std::string_view glyph = (!w.centerGlyph.empty()) ?
         ((w.centerGlyph == "none" || w.centerGlyph == "None") ? "" : std::string_view(w.centerGlyph)) :
         std::string_view(shape.centerGlyph);
@@ -882,8 +883,22 @@ void drawKnobWidget(BatchRenderer2D& r,
         } else if (isHovered) {
             gCol = gCol.lighten(0.10f);
         }
-        drawCenteredText(r, glyph, cx - glyphW * 0.5f, cy - glyphH * 0.5f, glyphW, glyphH, glyphH,
-                         gCol.r, gCol.g, gCol.b, gCol.a);
+
+        // Check if glyph matches an IconRegistry icon (or starts with "icon:" / "preset:")
+        std::string_view iconLookup = glyph;
+        if (iconLookup.rfind("icon:", 0) == 0) {
+            iconLookup.remove_prefix(5);
+        } else if (iconLookup.rfind("preset:", 0) == 0) {
+            iconLookup.remove_prefix(7);
+        }
+        if (IconRegistry::instance().findIcon(iconLookup) != nullptr) {
+            float iconBoxSize = effectiveCapR * 1.10f;
+            Rect2D iconRect(cx - iconBoxSize * 0.5f, cy - iconBoxSize * 0.5f, iconBoxSize, iconBoxSize);
+            IconRegistry::instance().renderIcon(r, iconLookup, iconRect, gCol);
+        } else {
+            drawCenteredText(r, glyph, cx - glyphW * 0.5f, cy - glyphH * 0.5f, glyphW, glyphH, glyphH,
+                             gCol.r, gCol.g, gCol.b, gCol.a);
+        }
     }
 
     // 7. Active Drag Ring Outline
@@ -891,6 +906,37 @@ void drawKnobWidget(BatchRenderer2D& r,
         float dragR = (shape.hasSkirt ? radius * shape.skirtRatio : radius) + 5.0f;
         r.drawCircleOutline(cx, cy, dragR, 0.0f, 0.95f, 1.0f, 0.9f, 2.0f, 32);
     }
+}
+
+uint64_t GuiPanelDef::computeBackgroundHash(float w, float h, const ThemeTokens& theme) const noexcept {
+    uint64_t hval = 14695981039346656037ull; // FNV-1a 64-bit offset basis
+    auto hashCombine = [&hval](uint64_t v) {
+        hval ^= v;
+        hval *= 1099511628211ull;
+    };
+    hashCombine(static_cast<uint64_t>(std::round(w * 10.0f)));
+    hashCombine(static_cast<uint64_t>(std::round(h * 10.0f)));
+    hashCombine(static_cast<uint64_t>(chassisStyle));
+    hashCombine(static_cast<uint64_t>(gradientType));
+    hashCombine(static_cast<uint64_t>(getEffectivePattern()));
+    hashCombine(static_cast<uint64_t>(std::round(getEffectivePatternIntensity() * 1000.0f)));
+    hashCombine(static_cast<uint64_t>(std::round(getEffectivePatternScale() * 100.0f)));
+    hashCombine(static_cast<uint64_t>(std::round(dirtNoiseLevel * 1000.0f)));
+    hashCombine(static_cast<uint64_t>(std::round(backgroundOpacity * 1000.0f)));
+    hashCombine(static_cast<uint64_t>(woodCheeks ? 1 : 0));
+    hashCombine(static_cast<uint64_t>(hideHeader ? 1 : 0));
+    hashCombine(static_cast<uint64_t>(std::round(cornerRadius * 10.0f)));
+    hashCombine(static_cast<uint64_t>(accentColor.toRgba8()));
+    if (chassisTint.has_value()) {
+        hashCombine(static_cast<uint64_t>(chassisTint->toRgba8()));
+    } else {
+        hashCombine(0);
+    }
+    for (char c : title) hashCombine(static_cast<uint8_t>(c));
+    for (char c : subtitle) hashCombine(static_cast<uint8_t>(c));
+    hashCombine(static_cast<uint64_t>(theme.panelBackground.toRgba8()));
+    hashCombine(static_cast<uint64_t>(theme.primaryAccent.toRgba8()));
+    return hval;
 }
 
 void GuiPanelDef::layoutControls(const Rect2D& rect) {
@@ -1193,7 +1239,15 @@ void drawGuiFaceplate(BatchRenderer2D& r,
     // 1. Chassis background style
     float cr = 0.14f, cg = 0.16f, cb = 0.20f;
     switch (panel.chassisStyle) {
-        case GuiChassisStyle::DarkChassis:     cr = 0.13f; cg = 0.14f; cb = 0.18f; break;
+        case GuiChassisStyle::DarkChassis:
+            if (theme.isLight) {
+                cr = theme.panelBackground.r;
+                cg = theme.panelBackground.g;
+                cb = theme.panelBackground.b;
+            } else {
+                cr = 0.13f; cg = 0.14f; cb = 0.18f;
+            }
+            break;
         case GuiChassisStyle::PcbGreen:        cr = 0.06f; cg = 0.24f; cb = 0.12f; break;
         case GuiChassisStyle::MinimalWhite:    cr = 0.92f; cg = 0.93f; cb = 0.95f; break;
         case GuiChassisStyle::Silver:          cr = 0.76f; cg = 0.77f; cb = 0.80f; break;
@@ -1215,60 +1269,223 @@ void drawGuiFaceplate(BatchRenderer2D& r,
         cb = panel.chassisTint->b;
     }
 
-    bool isLightChassis = (panel.chassisStyle == GuiChassisStyle::MinimalWhite || panel.chassisStyle == GuiChassisStyle::Snes);
     Color baseCol(cr, cg, cb);
+    bool isLightChassis = (baseCol.luminance() > 0.45f) ||
+                          (panel.chassisStyle == GuiChassisStyle::MinimalWhite ||
+                           panel.chassisStyle == GuiChassisStyle::Snes ||
+                           panel.chassisStyle == GuiChassisStyle::Silver ||
+                           panel.chassisStyle == GuiChassisStyle::BrushedAluminum);
     Color gradTop = isLightChassis ? baseCol : baseCol.lighten(0.06f);
     Color gradBot = isLightChassis ? baseCol.darken(0.04f) : baseCol.darken(0.08f);
 
-    if (panel.cornerRadius > 0.0f) {
-        r.drawRoundedRectGradient(fpX, fpY, fpW, fpH, panel.cornerRadius,
-                                  gradTop.r, gradTop.g, gradTop.b,
-                                  gradBot.r, gradBot.g, gradBot.b, 1.0f);
+    auto renderFaceplateBackgroundGeometry = [&](BatchRenderer2D& tgt, float bx, float by, float bw, float bh) {
+        VectorPatternType effPattern = panel.getEffectivePattern();
+        float effIntensity = panel.getEffectivePatternIntensity();
+        float effScale = panel.getEffectivePatternScale();
+        float bgAlpha = std::clamp(panel.backgroundOpacity, 0.0f, 1.0f);
+
+        if (bgAlpha > 0.001f) {
+            if (effPattern != VectorPatternType::None) {
+                // Tier 1 & Tier 2: Gradient Base + Vector Pattern Overlay
+                if (panel.gradientType == GuiGradientType::Solid) {
+                    tgt.drawPatternedRectGradient(bx, by, bw, bh,
+                                                baseCol.r, baseCol.g, baseCol.b,
+                                                baseCol.r, baseCol.g, baseCol.b, bgAlpha,
+                                                effPattern, effIntensity, effScale,
+                                                panel.cornerRadius);
+                } else if (panel.gradientType == GuiGradientType::RadialVignette) {
+                    tgt.drawPatternedRectGradient(bx, by, bw, bh,
+                                                gradTop.r, gradTop.g, gradTop.b,
+                                                gradBot.r, gradBot.g, gradBot.b, bgAlpha,
+                                                effPattern, effIntensity, effScale,
+                                                panel.cornerRadius);
+                    tgt.drawRectVignette(bx, by, bw, bh, 0.0f, 0.55f * bgAlpha, 0.0f, 0.0f, 0.0f);
+                } else if (panel.gradientType == GuiGradientType::DiagonalLinear) {
+                    Color gradDiag = baseCol.lighten(0.09f);
+                    tgt.drawPatternedRectGradient(bx, by, bw, bh,
+                                                gradDiag.r, gradDiag.g, gradDiag.b,
+                                                gradBot.r, gradBot.g, gradBot.b, bgAlpha,
+                                                effPattern, effIntensity, effScale,
+                                                panel.cornerRadius);
+                    drawLine(tgt, bx, by, bx + bw * 0.45f, by, 1.0f, 1.0f, 1.0f, 0.15f * bgAlpha, 1.5f);
+                } else {
+                    // Standard VerticalLinear
+                    tgt.drawPatternedRectGradient(bx, by, bw, bh,
+                                                gradTop.r, gradTop.g, gradTop.b,
+                                                gradBot.r, gradBot.g, gradBot.b, bgAlpha,
+                                                effPattern, effIntensity, effScale,
+                                                panel.cornerRadius);
+                }
+
+                // Tier 3: Physical Imperfections / Dirt / Noise
+                if (panel.dirtNoiseLevel > 0.005f) {
+                    int dustCount = std::clamp(static_cast<int>(panel.dirtNoiseLevel * 100.0f), 4, 120);
+                    float dustAlpha = panel.dirtNoiseLevel * 0.45f * bgAlpha;
+                    tgt.drawDustSpecks(bx, by, bw, bh, dustCount, 0x4D414444u, 0.88f, 0.88f, 0.86f, dustAlpha);
+                    if (panel.dirtNoiseLevel > 0.35f) {
+                        float scratchAlpha = std::min(1.0f, (panel.dirtNoiseLevel - 0.35f) * 0.5f * bgAlpha);
+                        drawLine(tgt, bx + 1.0f, by + 1.0f, bx + bw - 1.0f, by + 1.0f, 1.0f, 1.0f, 1.0f, scratchAlpha, 1.0f);
+                    }
+                }
+            } else {
+                // High-performance smooth gradient-only background: 1 quad (2 triangles) for 60+ FPS at any resolution
+                if (panel.gradientType == GuiGradientType::Solid) {
+                    if (panel.cornerRadius > 0.5f) {
+                        drawRoundedRect(tgt, bx, by, bw, bh, panel.cornerRadius,
+                                        baseCol.r, baseCol.g, baseCol.b, bgAlpha);
+                    } else {
+                        tgt.drawRect(bx, by, bw, bh, baseCol.r, baseCol.g, baseCol.b, bgAlpha);
+                    }
+                } else if (panel.gradientType == GuiGradientType::DiagonalLinear) {
+                    Color gradDiag = baseCol.lighten(0.09f);
+                    if (panel.cornerRadius > 0.5f) {
+                        drawRoundedRectGradient(tgt, bx, by, bw, bh, panel.cornerRadius,
+                                                gradDiag.r, gradDiag.g, gradDiag.b,
+                                                gradBot.r, gradBot.g, gradBot.b, bgAlpha);
+                    } else {
+                        tgt.drawRectGradient(bx, by, bw, bh,
+                                           gradDiag.r, gradDiag.g, gradDiag.b,
+                                           gradBot.r, gradBot.g, gradBot.b, bgAlpha);
+                    }
+                } else {
+                    // VerticalLinear or RadialVignette base
+                    if (panel.cornerRadius > 0.5f) {
+                        drawRoundedRectGradient(tgt, bx, by, bw, bh, panel.cornerRadius,
+                                                gradTop.r, gradTop.g, gradTop.b,
+                                                gradBot.r, gradBot.g, gradBot.b, bgAlpha);
+                    } else {
+                        tgt.drawRectGradient(bx, by, bw, bh,
+                                           gradTop.r, gradTop.g, gradTop.b,
+                                           gradBot.r, gradBot.g, gradBot.b, bgAlpha);
+                    }
+                }
+            }
+        }
+
+        if (panel.cornerRadius > 0.0f) {
+            Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
+            drawRoundedRectOutline(tgt, bx, by, bw, bh, panel.cornerRadius,
+                                   rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
+            drawRoundedRectOutline(tgt, bx + 1.0f, by + 1.0f, bw - 2.0f, bh - 2.0f,
+                                   std::max(0.0f, panel.cornerRadius - 1.0f),
+                                   0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
+        } else {
+            Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
+            tgt.drawRectOutline(bx, by, bw, bh,
+                              rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
+        }
+
+        // Vintage Wood Cheeks on sides
+        if (panel.woodCheeks && !isLightChassis) {
+            drawRoundedRect(tgt, bx - 12.0f, by, 12.0f, bh, 4.0f, 0.28f, 0.14f, 0.08f, 1.0f);
+            drawLine(tgt, bx - 2.0f, by + 4.0f, bx - 2.0f, by + bh - 4.0f, 0.38f, 0.20f, 0.12f, 0.85f, 1.0f);
+            drawRoundedRect(tgt, bx + bw, by, 12.0f, bh, 4.0f, 0.28f, 0.14f, 0.08f, 1.0f);
+            drawLine(tgt, bx + bw + 2.0f, by + 4.0f, bx + bw + 2.0f, by + bh - 4.0f, 0.38f, 0.20f, 0.12f, 0.85f, 1.0f);
+        }
+
+        // Corner mounting screws
+        if (!isLightChassis) {
+            auto drawCornerScrew = [&](float sx, float sy) {
+                drawCircle(tgt, sx, sy, 4.5f, 0.35f, 0.38f, 0.45f, 1.0f);
+                drawCircle(tgt, sx, sy, 3.2f, 0.20f, 0.22f, 0.26f, 1.0f);
+                drawLine(tgt, sx - 2.5f, sy, sx + 2.5f, sy, 0.45f, 0.48f, 0.55f, 1.0f, 1.2f);
+            };
+            drawCornerScrew(bx + 10.0f, by + 10.0f);
+            drawCornerScrew(bx + bw - 10.0f, by + 10.0f);
+            drawCornerScrew(bx + 10.0f, by + bh - 10.0f);
+            drawCornerScrew(bx + bw - 10.0f, by + bh - 10.0f);
+        }
+    };
+
+    bool isMinimal = (theme.controlMode == ControlAestheticMode::ForceMinimal) ||
+                     (Theme::getControlMode() == ControlAestheticMode::ForceMinimal);
+
+    if (isMinimal) {
+        // High-Performance Minimal Mode:
+        // Pure solid base color with simple outline, zero complex gradients, zero vector patterns, zero dirt/noise
         Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
-        drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius,
-                               rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
-        drawRoundedRectOutline(r, fpX + 1.0f, fpY + 1.0f, fpW - 2.0f, fpH - 2.0f,
-                               std::max(0.0f, panel.cornerRadius - 1.0f),
-                               0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
+        if (panel.cornerRadius > 0.5f) {
+            r.drawRoundedRect(fpX, fpY, fpW, fpH, panel.cornerRadius, baseCol.r, baseCol.g, baseCol.b, 1.0f);
+            drawRoundedRectOutline(r, fpX, fpY, fpW, fpH, panel.cornerRadius, rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.0f);
+        } else {
+            r.drawRect(fpX, fpY, fpW, fpH, baseCol.r, baseCol.g, baseCol.b, 1.0f);
+            r.drawRectOutline(fpX, fpY, fpW, fpH, rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.0f);
+        }
     } else {
-        r.drawRectGradient(fpX, fpY, fpW, fpH,
-                           gradTop.r, gradTop.g, gradTop.b,
-                           gradBot.r, gradBot.g, gradBot.b, 1.0f);
-        Color rimCol = isLightChassis ? Color(0.68f, 0.71f, 0.76f) : baseCol.lighten(0.18f);
-        r.drawRectOutline(fpX, fpY, fpW, fpH,
-                          rimCol.r, rimCol.g, rimCol.b, 0.65f, 1.2f);
+        VectorPatternType effPattern = panel.getEffectivePattern();
+
+        if (effPattern == VectorPatternType::None) {
+            // SNES Synth, SNES Sfxr, MinimalWhite, and clean models:
+            // Fast procedural gradient-only quad (2 triangles / 6 vertices)
+            renderFaceplateBackgroundGeometry(r, fpX, fpY, fpW, fpH);
+        } else {
+            // Complex Vector Pattern & Patina Background:
+            // Backed by dedicated FaceplateBackgroundCache so geometry is rendered ONCE on resize/style change
+            uint64_t currHash = panel.computeBackgroundHash(fpW, fpH, theme);
+            uint32_t cW = static_cast<uint32_t>(std::max(16.0f, std::round(fpW)));
+            uint32_t cH = static_cast<uint32_t>(std::max(16.0f, std::round(fpH)));
+
+            if (!panel.backgroundCache.isValid ||
+                panel.backgroundCache.stateHash != currHash ||
+                panel.backgroundCache.cacheW != cW ||
+                panel.backgroundCache.cacheH != cH) {
+
+                panel.backgroundCache.cacheW = cW;
+                panel.backgroundCache.cacheH = cH;
+                panel.backgroundCache.cachedX = fpX;
+                panel.backgroundCache.cachedY = fpY;
+                panel.backgroundCache.stateHash = currHash;
+                panel.backgroundCache.cachedVertices.clear();
+
+                // 1. Record vector vertices at local (0, 0)
+                BatchRenderer2D recordRenderer;
+                recordRenderer.beginFrame(static_cast<float>(cW), static_cast<float>(cH));
+                renderFaceplateBackgroundGeometry(recordRenderer, 0.0f, 0.0f, static_cast<float>(cW), static_cast<float>(cH));
+                recordRenderer.copyActiveVertices(panel.backgroundCache.cachedVertices);
+                recordRenderer.endFrame();
+
+                // 2. Also software-rasterize to RGBA pixels for CPU blitting / popout window / CLAP export
+                BatchRenderer2D offlineRasterizer;
+                offlineRasterizer.initialize(nullptr, cW, cH);
+                offlineRasterizer.beginFrame(static_cast<float>(cW), static_cast<float>(cH));
+                renderFaceplateBackgroundGeometry(offlineRasterizer, 0.0f, 0.0f, static_cast<float>(cW), static_cast<float>(cH));
+                offlineRasterizer.endFrame();
+                const uint32_t* fb = offlineRasterizer.getFramebuffer();
+                if (fb) {
+                    panel.backgroundCache.cachedPixels.assign(fb, fb + (static_cast<size_t>(cW) * cH));
+                }
+                panel.backgroundCache.isValid = true;
+            }
+
+            // Blit/draw cached background with zero per-frame CPU calculations
+            if (r.getFramebuffer() != nullptr && !panel.backgroundCache.cachedPixels.empty()) {
+                r.drawRgbaBitmap(fpX, fpY, fpW, fpH,
+                                 reinterpret_cast<const uint8_t*>(panel.backgroundCache.cachedPixels.data()),
+                                 panel.backgroundCache.cacheW, panel.backgroundCache.cacheH, 1.0f);
+            } else {
+                r.drawCachedVertices(panel.backgroundCache.cachedVertices, fpX, fpY);
+            }
+        }
     }
 
-    // 2. Vintage Wood Cheeks on sides (skipped for clean minimal white or when disabled)
-    if (panel.woodCheeks && !isLightChassis) {
-        drawRoundedRect(r, fpX - 12.0f, fpY, 12.0f, fpH, 4.0f, 0.28f, 0.14f, 0.08f, 1.0f);
-        drawLine(r, fpX - 2.0f, fpY + 4.0f, fpX - 2.0f, fpY + fpH - 4.0f, 0.38f, 0.20f, 0.12f, 0.85f, 1.0f);
-        drawRoundedRect(r, fpX + fpW, fpY, 12.0f, fpH, 4.0f, 0.28f, 0.14f, 0.08f, 1.0f);
-        drawLine(r, fpX + fpW + 2.0f, fpY + 4.0f, fpX + fpW + 2.0f, fpY + fpH - 4.0f, 0.38f, 0.20f, 0.12f, 0.85f, 1.0f);
-    }
-
-    // 3. Corner mounting screws (skipped for minimal white)
-    if (!isLightChassis) {
-        auto drawCornerScrew = [&](float sx, float sy) {
-            drawCircle(r, sx, sy, 4.5f, 0.35f, 0.38f, 0.45f, 1.0f);
-            drawCircle(r, sx, sy, 3.2f, 0.20f, 0.22f, 0.26f, 1.0f);
-            drawLine(r, sx - 2.5f, sy, sx + 2.5f, sy, 0.45f, 0.48f, 0.55f, 1.0f, 1.2f);
-        };
-        drawCornerScrew(fpX + 10.0f, fpY + 10.0f);
-        drawCornerScrew(fpX + fpW - 10.0f, fpY + 10.0f);
-        drawCornerScrew(fpX + 10.0f, fpY + fpH - 10.0f);
-        drawCornerScrew(fpX + fpW - 10.0f, fpY + fpH - 10.0f);
-    }
-
-    // 4. Machined Header banner (only if not hidden and not minimal white)
+    // 4. Machined Header banner (only if not hidden)
     float headerH = 0.0f;
-    if (!panel.hideHeader && !isLightChassis) {
+    if (!panel.hideHeader) {
         headerH = 44.0f;
-        drawRoundedRect(r, fpX + 4.0f, fpY + 4.0f, fpW - 8.0f, headerH, 6.0f, 0.08f, 0.09f, 0.12f, 0.85f);
-        drawCircle(r, fpX + 20.0f, fpY + 22.0f, 8.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.25f);
-        drawCircle(r, fpX + 20.0f, fpY + 22.0f, 5.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 1.0f);
-        drawText(r, panel.title, fpX + 34.0f, fpY + 14.0f, 13.0f, 0.95f, 0.95f, 0.95f, 1.0f);
-        drawText(r, panel.subtitle, fpX + 34.0f, fpY + 29.0f, 9.5f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.9f);
+        if (isLightChassis) {
+            Color hdrBg = theme.isLight ? theme.panelHeader : Color(0.88f, 0.90f, 0.93f, 0.9f);
+            drawRoundedRect(r, fpX + 4.0f, fpY + 4.0f, fpW - 8.0f, headerH, 6.0f, hdrBg.r, hdrBg.g, hdrBg.b, 0.85f);
+            drawCircle(r, fpX + 20.0f, fpY + 22.0f, 8.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.25f);
+            drawCircle(r, fpX + 20.0f, fpY + 22.0f, 5.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 1.0f);
+            drawText(r, panel.title, fpX + 34.0f, fpY + 14.0f, 13.0f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
+            drawText(r, panel.subtitle, fpX + 34.0f, fpY + 29.0f, 9.5f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.9f);
+        } else {
+            drawRoundedRect(r, fpX + 4.0f, fpY + 4.0f, fpW - 8.0f, headerH, 6.0f, 0.08f, 0.09f, 0.12f, 0.85f);
+            drawCircle(r, fpX + 20.0f, fpY + 22.0f, 8.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.25f);
+            drawCircle(r, fpX + 20.0f, fpY + 22.0f, 5.0f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 1.0f);
+            drawText(r, panel.title, fpX + 34.0f, fpY + 14.0f, 13.0f, 0.95f, 0.95f, 0.95f, 1.0f);
+            drawText(r, panel.subtitle, fpX + 34.0f, fpY + 29.0f, 9.5f, panel.accentColor.r, panel.accentColor.g, panel.accentColor.b, 0.9f);
+        }
     }
 
     // 5. Render Rows and Widgets
@@ -1281,10 +1498,7 @@ void drawGuiFaceplate(BatchRenderer2D& r,
         float cx = w.bounds.x + (w.bounds.w * 0.5f);
         float cy = w.bounds.y + (w.bounds.h * 0.44f);
 
-        constexpr float minA = -2.35619449f;
-        constexpr float maxA = 2.35619449f;
         float norm = std::clamp((w.currentVal - w.minVal) / std::max(0.001f, w.maxVal - w.minVal), 0.0f, 1.0f);
-        float curA = minA + (norm * (maxA - minA));
 
         if (w.type == GuiWidgetType::Divider) {
             // Vertical divider line between module sections
@@ -1620,9 +1834,9 @@ void drawGuiFaceplate(BatchRenderer2D& r,
             int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, std::max(0, totalOpts - 1));
 
             float boxX = w.bounds.x + 4.0f;
-            float boxY = w.bounds.y + 16.0f;
+            float boxY = w.bounds.y + 14.0f;
             float boxW = w.bounds.w - 8.0f;
-            float boxH = w.bounds.h - 20.0f;
+            float boxH = std::max(24.0f, w.bounds.h - 16.0f);
 
             // 1. Header: Red LED dot + Label + Digital Red Counter
             float ledX = boxX + 4.0f;
@@ -1656,20 +1870,20 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                 int visibleRows = 4;
                 float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
                 
-                // Track scroll offset to ensure selected item is in view
-                if (static_cast<float>(currentIdx) < w.scrollOffset) {
-                    w.scrollOffset = static_cast<float>(currentIdx);
-                } else if (static_cast<float>(currentIdx) >= w.scrollOffset + static_cast<float>(visibleRows)) {
-                    w.scrollOffset = static_cast<float>(currentIdx - visibleRows + 1);
-                }
+                // Keep scroll offset clamped within scrollable range
                 w.scrollOffset = std::clamp(w.scrollOffset, 0.0f, static_cast<float>(std::max(0, totalOpts - visibleRows)));
                 int scrollStart = static_cast<int>(std::round(w.scrollOffset));
 
                 float listW = boxW - 14.0f;
+
+                // Scissor clip items strictly inside the dark glass container
+                ScissorScope scissor(r, boxX + 1.0f, boxY + 1.0f, boxW - 2.0f, boxH - 2.0f);
+
                 for (int row = 0; row < visibleRows; ++row) {
                     int itemIdx = scrollStart + row;
                     if (itemIdx >= totalOpts) break;
                     float iy = boxY + 2.0f + static_cast<float>(row) * rowH;
+                    float rowMidY = iy + (rowH - 1.0f) * 0.5f;
                     bool isSelected = (itemIdx == currentIdx);
 
                     if (isSelected) {
@@ -1677,21 +1891,21 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                         drawRoundedRect(r, boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, 0.38f, 0.08f, 0.08f, 0.85f);
                         drawRoundedRectOutline(r, boxX + 2.0f, iy, listW, rowH - 1.0f, 2.0f, 0.80f, 0.15f, 0.15f, 0.9f, 1.0f);
                         // Red chevron
-                        drawText(r, ">", boxX + 6.0f, iy + (rowH - 9.0f) * 0.5f, 8.5f, 1.0f, 0.25f, 0.25f, 1.0f);
-                        // Selected text in bright white
-                        drawText(r, w.options[itemIdx], boxX + 16.0f, iy + (rowH - 9.0f) * 0.5f, 9.5f, 1.0f, 1.0f, 1.0f, 1.0f);
+                        drawTextLeftAlignedY(r, ">", boxX + 6.0f, rowMidY, 8.5f, 1.0f, 0.30f, 0.30f, 1.0f);
+                        // Selected text in bright white, accurately vertically centered
+                        drawTextLeftAlignedY(r, w.options[itemIdx], boxX + 15.0f, rowMidY, 9.5f, 1.0f, 1.0f, 1.0f, 1.0f);
                     } else {
-                        // Muted slate text
-                        drawText(r, w.options[itemIdx], boxX + 16.0f, iy + (rowH - 9.0f) * 0.5f, 9.0f, 0.50f, 0.54f, 0.60f, 0.90f);
+                        // Muted slate text, accurately vertically centered
+                        drawTextLeftAlignedY(r, w.options[itemIdx], boxX + 15.0f, rowMidY, 9.0f, 0.52f, 0.56f, 0.62f, 0.90f);
                     }
                 }
 
                 // 4. Steppers & Scroll Strip on the right
                 float stripX = boxX + boxW - 13.0f;
                 drawLine(r, stripX, boxY + 3.0f, stripX, boxY + boxH - 3.0f, 0.35f, 0.12f, 0.14f, 0.70f, 1.0f);
-                // Stepper chevrons
-                drawText(r, "^", stripX + 3.0f, boxY + 3.0f, 8.0f, 0.95f, 0.20f, 0.20f, 1.0f);
-                drawText(r, "v", stripX + 3.0f, boxY + boxH - 11.0f, 8.0f, 0.95f, 0.20f, 0.20f, 1.0f);
+                // Crisp vector stepper chevrons
+                drawChevronUp(r, stripX + 6.0f, boxY + 7.0f, 5.0f, Color(0.95f, 0.20f, 0.20f, 1.0f), 1.2f);
+                drawChevronDown(r, stripX + 6.0f, boxY + boxH - 7.0f, 5.0f, Color(0.95f, 0.20f, 0.20f, 1.0f), 1.2f);
 
                 // Scroll thumb
                 float trackH = boxH - 24.0f;
@@ -1821,7 +2035,6 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                     if (activeMacros.size() >= 6) break;
                 }
             }
-            size_t count = activeMacros.size();
             for (size_t i = 0; i < activeMacros.size(); ++i) {
                 bool isDragging = (draggingRow == 0 && draggingWidget == static_cast<int>(i));
                 drawSingleWidget(*activeMacros[i], isDragging);
@@ -1853,15 +2066,6 @@ void drawGuiFaceplate(BatchRenderer2D& r,
             drawLine(r, fpX + padX, divY, fpX + fpW - padX, divY,
                      0.75f, 0.78f, 0.84f, 0.65f, 1.0f);
         }
-    }
-
-    if (isLightChassis) {
-        std::string_view badgeText = (panel.title.find("ASTRAL") != std::string::npos ||
-                                      panel.title.find("Astral") != std::string::npos ||
-                                      panel.subtitle.find("Ambient") != std::string::npos)
-                                     ? "ASTRAL // VER 2.0"
-                                     : "SMAOLAB // VER 2.0";
-        drawText(r, badgeText, fpX + 16.0f, fpY + fpH - 14.0f, 8.5f, 0.85f, 0.20f, 0.25f, 0.85f);
     }
 }
 

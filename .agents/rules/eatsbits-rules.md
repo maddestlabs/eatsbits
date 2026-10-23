@@ -19,6 +19,6 @@ always_on: true
 - Use `ThemeTokens` (`theme.primaryAccent`, `theme.controlBackground`, etc.) instead of hardcoded magic colors.
 - Preserve diegetic analog aesthetics and high-DPI scaling.
 
-## 4. Verification & Testing
-- Always verify changes via `.\build.ps1 -Test` or CTest before finishing tasks.
-- Keep test pass rates at 100%.
+## 4. Verification & Testing Policy
+- **Do NOT run build or test commands automatically** (no .\build.ps1 -Test, ctest, or running test binaries).
+- The user actively tests updates manually. Test execution is strictly reserved for the user unless explicitly requested.

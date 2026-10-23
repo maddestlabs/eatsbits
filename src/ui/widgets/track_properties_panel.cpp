@@ -157,14 +157,31 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
     for (char& c : bg) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (bg == "minimal_white" || bg == "white") panel.chassisStyle = GuiChassisStyle::MinimalWhite;
     else if (bg == "silver") panel.chassisStyle = GuiChassisStyle::Silver;
-    else if (bg == "walnut" || bg == "wood" || bg == "blonde_pine" || bg == "pine" || bg == "spruce_top") panel.chassisStyle = GuiChassisStyle::Walnut;
+    else if (bg == "walnut" || bg == "wood" || bg == "blonde_pine" || bg == "pine" || bg == "spruce_top" || bg == "spanish_cedar" || bg == "cedar") panel.chassisStyle = GuiChassisStyle::Walnut;
     else if (bg == "rosewood") panel.chassisStyle = GuiChassisStyle::Rosewood;
     else if (bg == "snes" || bg == "snes_faceplate") panel.chassisStyle = GuiChassisStyle::Snes;
     else if (bg == "grunge") panel.chassisStyle = GuiChassisStyle::Grunge;
     else if (bg == "pcb" || bg == "pcb_green") panel.chassisStyle = GuiChassisStyle::PcbGreen;
     else if (bg == "brushed_steel") panel.chassisStyle = GuiChassisStyle::BrushedSteel;
-    else if (bg == "brushed_aluminum") panel.chassisStyle = GuiChassisStyle::BrushedAluminum;
+    else if (bg == "brushed_aluminum" || bg == "brushed_silver" || bg == "aluminum" || bg == "brushed_metal") panel.chassisStyle = GuiChassisStyle::BrushedAluminum;
+    else if (bg == "carbon" || bg == "carbon_fibre" || bg == "carbon_fiber") panel.chassisStyle = GuiChassisStyle::Carbon;
+    else if (bg == "crinkle" || bg == "crinkle_paint") panel.chassisStyle = GuiChassisStyle::CrinklePaint;
+    else if (bg == "bakelite") panel.chassisStyle = GuiChassisStyle::Bakelite;
+    else if (bg == "matte" || bg == "matte_powder" || bg == "powder_coat") panel.chassisStyle = GuiChassisStyle::MattePowderCoat;
     else panel.chassisStyle = GuiChassisStyle::DarkChassis;
+
+    std::string pat = def.guiRoot.pattern;
+    for (char& c : pat) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (pat == "slats" || pat == "slat" || pat == "horizontal_slats") panel.patternOverride = VectorPatternType::HorizontalSlats;
+    else if (pat == "steel" || pat == "brushed_steel" || pat == "brushed") panel.patternOverride = VectorPatternType::BrushedSteel;
+    else if (pat == "wood" || pat == "woodgrain" || pat == "wood_grain") panel.patternOverride = VectorPatternType::WoodGrain;
+    else if (pat == "grill" || pat == "speaker_grill" || pat == "fabric") panel.patternOverride = VectorPatternType::SpeakerGrill;
+    else if (pat == "patina" || pat == "vintage" || pat == "vintage_patina") panel.patternOverride = VectorPatternType::VintagePatina;
+    else if (pat == "mesh" || pat == "carbon" || pat == "diagonal_mesh") panel.patternOverride = VectorPatternType::DiagonalMesh;
+    else if (pat == "honeycomb" || pat == "hex" || pat == "hex_honeycomb") panel.patternOverride = VectorPatternType::HexHoneycomb;
+    else if (pat == "dots" || pat == "dot" || pat == "dot_grid") panel.patternOverride = VectorPatternType::DotGrid;
+    else if (pat == "circuits" || pat == "circuit" || pat == "circuit_traces" || pat == "pcb") panel.patternOverride = VectorPatternType::CircuitTraces;
+    else if (pat == "none") panel.patternOverride = VectorPatternType::None;
 
     if (!def.guiRoot.accent.empty() && def.guiRoot.accent[0] == '#' && def.guiRoot.accent.size() >= 7) {
         try {
@@ -218,6 +235,8 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
         } else if (wNode.type == eatsbits::project::GuiNodeType::ListBox) {
             w.type = GuiWidgetType::ListBox;
             w.options = wNode.options;
+            w.minVal = 0.0f;
+            w.maxVal = static_cast<float>(std::max(0, static_cast<int>(wNode.options.size()) - 1));
         } else if (wNode.type == eatsbits::project::GuiNodeType::Button) {
             w.type = GuiWidgetType::ActionButton;
         } else if (wNode.type == eatsbits::project::GuiNodeType::Divider) {
@@ -253,15 +272,29 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
         if (p) {
             w.currentVal = p->currentVal;
             w.defaultVal = p->defaultVal;
-            w.minVal = p->minVal;
-            w.maxVal = p->maxVal;
-            w.valueDisplay = p->getFormatted();
+            if (w.type != GuiWidgetType::ListBox) {
+                w.minVal = p->minVal;
+                w.maxVal = p->maxVal;
+            }
+            if (wNode.type == eatsbits::project::GuiNodeType::ListBox && !wNode.options.empty()) {
+                int idx = std::clamp(static_cast<int>(std::round(p->currentVal)), 0, static_cast<int>(wNode.options.size() - 1));
+                w.currentVal = static_cast<float>(idx);
+                w.valueDisplay = wNode.options[idx];
+            } else {
+                w.valueDisplay = p->getFormatted();
+            }
             if (w.unit.empty()) w.unit = p->unit;
         } else {
             w.currentVal = 0.5f;
             w.defaultVal = 0.5f;
-            w.minVal = 0.0f;
-            w.maxVal = 1.0f;
+            if (w.type != GuiWidgetType::ListBox) {
+                w.minVal = 0.0f;
+                w.maxVal = 1.0f;
+            }
+            if (wNode.type == eatsbits::project::GuiNodeType::ListBox && !wNode.options.empty()) {
+                w.currentVal = 0.0f;
+                w.valueDisplay = wNode.options[0];
+            }
         }
         return w;
     };
@@ -270,7 +303,13 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
         if (node.type == eatsbits::project::GuiNodeType::Row) {
             GuiRowDef row;
             for (const auto& wNode : node.children) {
-                row.widgets.push_back(convertWidgetNode(wNode));
+                if (wNode.type == eatsbits::project::GuiNodeType::Column) {
+                    for (const auto& colChild : wNode.children) {
+                        row.widgets.push_back(convertWidgetNode(colChild));
+                    }
+                } else {
+                    row.widgets.push_back(convertWidgetNode(wNode));
+                }
             }
             if (!row.widgets.empty()) {
                 panel.rows.push_back(row);
@@ -286,7 +325,13 @@ GuiPanelDef createGuiPanelFromPresetDefinition(const eatsbits::project::PresetDe
             if (!hasChildRows && !node.children.empty()) {
                 GuiRowDef row;
                 for (const auto& wNode : node.children) {
-                    row.widgets.push_back(convertWidgetNode(wNode));
+                    if (wNode.type == eatsbits::project::GuiNodeType::Column) {
+                        for (const auto& colChild : wNode.children) {
+                            row.widgets.push_back(convertWidgetNode(colChild));
+                        }
+                    } else {
+                        row.widgets.push_back(convertWidgetNode(wNode));
+                    }
                 }
                 if (!row.widgets.empty()) {
                     panel.rows.push_back(row);
@@ -356,11 +401,22 @@ std::vector<TrackPropertiesKnob> extractKnobsFromPresetDefinition(const eatsbits
             const auto* p = def.findParam(node.paramName);
             if (p) {
                 k.value = p->getNormalized();
-                k.display = p->getFormatted();
+                if (node.type == eatsbits::project::GuiNodeType::ListBox && !node.options.empty()) {
+                    int idx = std::clamp(static_cast<int>(std::round(p->currentVal)), 0, static_cast<int>(node.options.size() - 1));
+                    k.display = node.options[idx];
+                    k.value = (node.options.size() > 1) ? (static_cast<float>(idx) / static_cast<float>(node.options.size() - 1)) : 0.0f;
+                } else {
+                    k.display = p->getFormatted();
+                }
                 if (k.unit.empty()) k.unit = p->unit;
             } else {
-                k.value = 0.5f;
-                k.display = "50%";
+                if (node.type == eatsbits::project::GuiNodeType::ListBox && !node.options.empty()) {
+                    k.value = 0.0f;
+                    k.display = node.options[0];
+                } else {
+                    k.value = 0.5f;
+                    k.display = "50%";
+                }
             }
             result.push_back(k);
         }
@@ -525,6 +581,7 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
                              containsCaseInsensitive(data.presetTitle, "303"));
 
     bool isSfxr = !isClav && !is303 && (stringEqualsIgnoreCase(eng, "sfxr") ||
+                                       stringEqualsIgnoreCase(eng, "eats_sfxr") ||
                                        containsCaseInsensitive(data.instrument, "sfxr") ||
                                        containsCaseInsensitive(data.presetTitle, "sfxr"));
 
@@ -739,7 +796,9 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
             lbType.options = {"Laser", "Explosion", "Powerup", "Coin", "Jump", "Hurt", "Lose", "Button", "Warp", "Mutate", "Custom SNES"};
             lbType.currentVal = getListBoxVal(lbType, 0.0f);
             lbType.minVal = 0.0f;
-            lbType.maxVal = 10.0f;
+            lbType.maxVal = static_cast<float>(std::max(0, static_cast<int>(lbType.options.size()) - 1));
+            int typeIdx = std::clamp(static_cast<int>(std::round(lbType.currentVal)), 0, static_cast<int>(lbType.options.size() - 1));
+            lbType.valueDisplay = lbType.options[typeIdx];
             r1.widgets.push_back(lbType);
 
             GuiWidgetDef lbWave;
@@ -750,7 +809,9 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
             lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
             lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
             lbWave.minVal = 0.0f;
-            lbWave.maxVal = 11.0f;
+            lbWave.maxVal = static_cast<float>(std::max(0, static_cast<int>(lbWave.options.size()) - 1));
+            int waveIdx = std::clamp(static_cast<int>(std::round(lbWave.currentVal)), 0, static_cast<int>(lbWave.options.size() - 1));
+            lbWave.valueDisplay = lbWave.options[waveIdx];
             r1.widgets.push_back(lbWave);
 
             GuiWidgetDef wSeed;
@@ -807,6 +868,10 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
                     if (draggingRow == static_cast<int>(rIdx) && draggingWidget == static_cast<int>(wIdx)) continue;
                     if (w.type == GuiWidgetType::ListBox) {
                         w.currentVal = getListBoxVal(w, w.currentVal);
+                        if (!w.options.empty()) {
+                            int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                            w.valueDisplay = w.options[idx];
+                        }
                     } else if (w.type == GuiWidgetType::NixieDisplay) {
                         w.currentVal = getNixieVal(w, w.currentVal);
                     } else {
@@ -842,7 +907,9 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
             lbWave.options = {"Square", "Pulse 25%", "Pulse 12%", "Sawtooth", "Triangle", "Sine", "Organ", "Strings", "Flute", "Slap Bass", "Chime", "Noise"};
             lbWave.currentVal = getListBoxVal(lbWave, 0.0f);
             lbWave.minVal = 0.0f;
-            lbWave.maxVal = 11.0f;
+            lbWave.maxVal = static_cast<float>(std::max(0, static_cast<int>(lbWave.options.size()) - 1));
+            int waveIdx = std::clamp(static_cast<int>(std::round(lbWave.currentVal)), 0, static_cast<int>(lbWave.options.size() - 1));
+            lbWave.valueDisplay = lbWave.options[waveIdx];
             r1.widgets.push_back(lbWave);
 
             GuiWidgetDef lbFilter;
@@ -853,7 +920,9 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
             lbFilter.options = {"Off", "LowPass", "HighPass", "BandPass"};
             lbFilter.currentVal = getListBoxVal(lbFilter, 0.0f);
             lbFilter.minVal = 0.0f;
-            lbFilter.maxVal = 3.0f;
+            lbFilter.maxVal = static_cast<float>(std::max(0, static_cast<int>(lbFilter.options.size()) - 1));
+            int filtIdx = std::clamp(static_cast<int>(std::round(lbFilter.currentVal)), 0, static_cast<int>(lbFilter.options.size() - 1));
+            lbFilter.valueDisplay = lbFilter.options[filtIdx];
             r1.widgets.push_back(lbFilter);
 
             auto addKnob1 = [&](const std::string& id, const std::string& label, const std::string& param, float defVal, float minV, float maxV, const std::string& unit) {
@@ -910,6 +979,10 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
                     if (draggingRow == static_cast<int>(rIdx) && draggingWidget == static_cast<int>(wIdx)) continue;
                     if (w.type == GuiWidgetType::ListBox) {
                         w.currentVal = getListBoxVal(w, w.currentVal);
+                        if (!w.options.empty()) {
+                            int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                            w.valueDisplay = w.options[idx];
+                        }
                     } else {
                         w.currentVal = findKnobVal(w.param, "", w.currentVal);
                     }
@@ -990,7 +1063,7 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
     guiPanel.cornerRadius = 6.0f;
     if (eng == "tr808" || eng == "tr909") {
         guiPanel.chassisStyle = GuiChassisStyle::Grunge;
-    } else if (eng == "dx7") {
+    } else if (eng == "dx7" || eng == "dxvii_epiano" || eng == "dxvii" || eng == "eats_dx") {
         guiPanel.chassisStyle = GuiChassisStyle::DarkChassis;
     } else if (eng == "piano" || eng == "piano_physical") {
         guiPanel.chassisStyle = GuiChassisStyle::Walnut;
@@ -1132,7 +1205,7 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
                     else if (i == 3) kStyle = GuiKnobStyle::TwoToneStepped;
                     else if (i == 4) kStyle = GuiKnobStyle::Tb303Halo;
                     else kStyle = GuiKnobStyle::Standard;
-                } else if (eng == "dx7") {
+                } else if (eng == "dx7" || eng == "dxvii_epiano" || eng == "dxvii" || eng == "eats_dx") {
                     if (i == 0) kStyle = GuiKnobStyle::AnodizedKnurled;
                     else if (i == 1) kStyle = GuiKnobStyle::TwoToneStepped;
                     else if (i == 2) kStyle = GuiKnobStyle::BakeliteSkirt;
@@ -1183,6 +1256,50 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
     if (data.knobs.empty()) {
         const_cast<TrackPropertiesDrawerData&>(data).syncKnobsIfEmpty();
     }
+
+    const std::string& eng = data.instrumentEngine;
+    auto containsCI = [](std::string_view text, std::string_view needle) noexcept -> bool {
+        if (needle.empty()) return true;
+        if (text.size() < needle.size()) return false;
+        auto it = std::search(text.begin(), text.end(), needle.begin(), needle.end(),
+            [](char ch1, char ch2) {
+                return std::tolower(static_cast<unsigned char>(ch1)) == std::tolower(static_cast<unsigned char>(ch2));
+            });
+        return it != text.end();
+    };
+    bool isClav = (stringEqualsIgnoreCase(eng, "clavinet") ||
+                   containsCI(data.instrument, "clav") || containsCI(data.presetTitle, "clav") ||
+                   containsCI(data.instrument, "d6") || containsCI(data.presetTitle, "d6"));
+    bool is303 = !isClav && (stringEqualsIgnoreCase(eng, "tb303") ||
+                             containsCI(data.instrument, "303") || containsCI(data.presetTitle, "303"));
+    bool isSfxr = !isClav && !is303 && (stringEqualsIgnoreCase(eng, "sfxr") ||
+                                       stringEqualsIgnoreCase(eng, "eats_sfxr") ||
+                                       containsCI(data.instrument, "sfxr") || containsCI(data.presetTitle, "sfxr"));
+    bool isSnes = !isClav && !is303 && !isSfxr && (stringEqualsIgnoreCase(eng, "snes") ||
+                                                  stringEqualsIgnoreCase(eng, "snes_synth") ||
+                                                  stringEqualsIgnoreCase(eng, "snes_console_synth") ||
+                                                  containsCI(data.instrument, "snes") || containsCI(data.presetTitle, "snes"));
+    bool isAstral = !isClav && !is303 && !isSfxr && !isSnes && (
+        stringEqualsIgnoreCase(eng, "ambient_pad") ||
+        stringEqualsIgnoreCase(eng, "astral_pad") ||
+        stringEqualsIgnoreCase(eng, "astral_shimmer_pad") ||
+        containsCI(data.instrument, "astral") || containsCI(data.presetTitle, "astral") ||
+        containsCI(data.instrument, "shimmer") || containsCI(data.presetTitle, "shimmer")
+    );
+    bool isSteelGuitar = !isClav && !is303 && !isSfxr && !isSnes && !isAstral && (
+        stringEqualsIgnoreCase(eng, "acoustic_steel_guitar") ||
+        stringEqualsIgnoreCase(eng, "steel_acoustic_guitar") ||
+        containsCI(data.instrument, "steel") || containsCI(data.presetTitle, "steel")
+    );
+    bool isCanonical = isClav || is303 || isSfxr || isSnes || isAstral || isSteelGuitar;
+
+    if (isCanonical) {
+        populateCanonicalInstrumentGuiPanel(guiPanel_, data,
+            (dragMode_ == DragMode::InstrumentKnob) ? draggingRow_ : -1,
+            (dragMode_ == DragMode::InstrumentKnob) ? draggingWidget_ : -1);
+        return;
+    }
+
     if (data.customGuiPanel.has_value()) {
         guiPanel_ = *data.customGuiPanel;
         for (auto& row : guiPanel_.rows) {
@@ -1191,7 +1308,12 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
                     if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                         stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
                         w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
-                        if (!k.display.empty()) w.valueDisplay = k.display;
+                        if (w.type == GuiWidgetType::ListBox && !w.options.empty()) {
+                            int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                            w.valueDisplay = w.options[idx];
+                        } else if (!k.display.empty()) {
+                            w.valueDisplay = k.display;
+                        }
                         break;
                     }
                 }
@@ -1209,7 +1331,12 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
                         if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                             stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
                             w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
-                            if (!k.display.empty()) w.valueDisplay = k.display;
+                            if (w.type == GuiWidgetType::ListBox && !w.options.empty()) {
+                                int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                                w.valueDisplay = w.options[idx];
+                            } else if (!k.display.empty()) {
+                                w.valueDisplay = k.display;
+                            }
                             break;
                         }
                     }
@@ -1226,7 +1353,12 @@ void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawer
                     if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                         stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
                         w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
-                        if (!k.display.empty()) w.valueDisplay = k.display;
+                        if (w.type == GuiWidgetType::ListBox && !w.options.empty()) {
+                            int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                            w.valueDisplay = w.options[idx];
+                        } else if (!k.display.empty()) {
+                            w.valueDisplay = k.display;
+                        }
                         break;
                     }
                 }
@@ -1388,78 +1520,75 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
     float contentW = bounds_.w - (padding * 2.0f);
     bool isWide = (bounds_.w >= 560.0f);
 
-    // Master Console Mode (Mixer Master selected)
-    if (data.isMasterSelected || data.tab == TrackPropertiesTab::Master) {
-        renderMasterSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
-        if (needScrollbar_) renderScrollbar(r, theme);
-        if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
-            std::string tip = getTooltip(mouseX, mouseY, data);
-            if (!tip.empty()) drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, bounds_.x + bounds_.w);
+    {
+        // Strictly scissor panel content to bounds so it never renders past panels
+        BatchRenderer2D::ScissorScope panelScissor(r, bounds_);
+
+        // Master Console Mode (Mixer Master selected)
+        if (data.isMasterSelected || data.tab == TrackPropertiesTab::Master) {
+            renderMasterSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
+            if (needScrollbar_) renderScrollbar(r, theme);
+            return;
         }
-        return;
-    }
 
-    // Clip Mode (Arranger Clip selected)
-    if (data.tab == TrackPropertiesTab::Clip) {
-        renderClipSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
-        if (needScrollbar_) renderScrollbar(r, theme);
-        if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
-            std::string tip = getTooltip(mouseX, mouseY, data);
-            if (!tip.empty()) drawTooltipBadge(r, tip, mouseX, mouseY - 14.0f, theme, false, bounds_.x + bounds_.w);
+        // Clip Mode (Arranger Clip selected)
+        if (data.tab == TrackPropertiesTab::Clip) {
+            renderClipSection(r, theme, data, contentX, bounds_.y + 8.0f - scrollY_, contentW, mouseX, mouseY);
+            if (needScrollbar_) renderScrollbar(r, theme);
+            return;
         }
-        return;
-    }
 
-    float curCardY = bounds_.y + 8.0f - scrollY_;
-    if (showTrackRibbon_) {
-        renderTrackSelectorRibbon(r, theme, data);
-        curCardY += ribbonBounds_.h + 6.0f;
-    }
+        float curCardY = bounds_.y + 8.0f - scrollY_;
+        if (showTrackRibbon_) {
+            renderTrackSelectorRibbon(r, theme, data);
+            curCardY += ribbonBounds_.h + 6.0f;
+        }
 
-    float headH = isWide ? 40.0f : 36.0f;
-    headerCardBounds_ = Rect2D(contentX, curCardY, contentW, headH);
-    renderHeaderCard(r, theme, data, headerCardBounds_.x, headerCardBounds_.y, headerCardBounds_.w, isWide, mouseX, mouseY);
-    curCardY += headH + 8.0f;
+        float headH = isWide ? 40.0f : 36.0f;
+        headerCardBounds_ = Rect2D(contentX, curCardY, contentW, headH);
+        renderHeaderCard(r, theme, data, headerCardBounds_.x, headerCardBounds_.y, headerCardBounds_.w, isWide, mouseX, mouseY);
+        curCardY += headH + 8.0f;
 
-    colorCardBounds_ = Rect2D(contentX, curCardY, contentW, 36.0f);
-    renderColorPalette(r, theme, data, colorCardBounds_.x, colorCardBounds_.y, colorCardBounds_.w);
-    curCardY += 36.0f + 8.0f;
+        colorCardBounds_ = Rect2D(contentX, curCardY, contentW, 36.0f);
+        renderColorPalette(r, theme, data, colorCardBounds_.x, colorCardBounds_.y, colorCardBounds_.w);
+        curCardY += 36.0f + 8.0f;
 
-    if (data.isMixerMode) {
-        eqCardBounds_ = Rect2D(contentX, curCardY, contentW, 138.0f);
-        renderEqCard(r, theme, data, eqCardBounds_.x, eqCardBounds_.y, eqCardBounds_.w);
-        curCardY += 138.0f + 8.0f;
-    }
+        if (data.isMixerMode) {
+            eqCardBounds_ = Rect2D(contentX, curCardY, contentW, 138.0f);
+            renderEqCard(r, theme, data, eqCardBounds_.x, eqCardBounds_.y, eqCardBounds_.w);
+            curCardY += 138.0f + 8.0f;
+        }
 
-    float faceplateH = data.instrumentExpanded ? (isWide ? 280.0f : 240.0f) : 38.0f;
-    faceplateBounds_ = Rect2D(contentX, curCardY, contentW, faceplateH);
-    renderFaceplateCard(r, theme, data, faceplateBounds_.x, faceplateBounds_.y, faceplateBounds_.w, isWide);
-    curCardY += faceplateH + 8.0f;
+        float faceplateH = data.instrumentExpanded ? (isWide ? 280.0f : 240.0f) : 38.0f;
+        faceplateBounds_ = Rect2D(contentX, curCardY, contentW, faceplateH);
+        renderFaceplateCard(r, theme, data, faceplateBounds_.x, faceplateBounds_.y, faceplateBounds_.w, isWide);
+        curCardY += faceplateH + 8.0f;
 
-    chordFollowBounds_ = Rect2D(contentX, curCardY, contentW, 88.0f);
-    renderChordFollowCard(r, theme, data, chordFollowBounds_.x, chordFollowBounds_.y, chordFollowBounds_.w);
-    curCardY += 88.0f + 8.0f;
+        chordFollowBounds_ = Rect2D(contentX, curCardY, contentW, 88.0f);
+        renderChordFollowCard(r, theme, data, chordFollowBounds_.x, chordFollowBounds_.y, chordFollowBounds_.w);
+        curCardY += 88.0f + 8.0f;
 
-    float mfxH = computeMidiFxRackHeight(data);
-    midiFxBounds_ = Rect2D(contentX, curCardY, contentW, mfxH);
-    renderMidiFxCard(r, theme, data, midiFxBounds_.x, midiFxBounds_.y, midiFxBounds_.w, isWide);
-    curCardY += mfxH + 8.0f;
+        float mfxH = computeMidiFxRackHeight(data);
+        midiFxBounds_ = Rect2D(contentX, curCardY, contentW, mfxH);
+        renderMidiFxCard(r, theme, data, midiFxBounds_.x, midiFxBounds_.y, midiFxBounds_.w, isWide);
+        curCardY += mfxH + 8.0f;
 
-    float afxH = computeAudioFxRackHeight(data);
-    audioFxBounds_ = Rect2D(contentX, curCardY, contentW, afxH);
-    renderAudioFxCard(r, theme, data, audioFxBounds_.x, audioFxBounds_.y, audioFxBounds_.w, isWide);
-    curCardY += afxH + 8.0f;
+        float afxH = computeAudioFxRackHeight(data);
+        audioFxBounds_ = Rect2D(contentX, curCardY, contentW, afxH);
+        renderAudioFxCard(r, theme, data, audioFxBounds_.x, audioFxBounds_.y, audioFxBounds_.w, isWide);
+        curCardY += afxH + 8.0f;
 
-    float actionsH = 68.0f;
-    trackActionsBounds_ = Rect2D(contentX, curCardY, contentW, actionsH);
-    renderTrackActionsCard(r, theme, data, trackActionsBounds_.x, trackActionsBounds_.y, trackActionsBounds_.w, isWide, mouseX, mouseY);
-    curCardY += actionsH + 12.0f;
+        float actionsH = 68.0f;
+        trackActionsBounds_ = Rect2D(contentX, curCardY, contentW, actionsH);
+        renderTrackActionsCard(r, theme, data, trackActionsBounds_.x, trackActionsBounds_.y, trackActionsBounds_.w, isWide, mouseX, mouseY);
+        curCardY += actionsH + 12.0f;
 
-    totalContentHeight_ = (curCardY + scrollY_) - (bounds_.y + 8.0f);
-    needScrollbar_ = (totalContentHeight_ > bounds_.h);
+        totalContentHeight_ = (curCardY + scrollY_) - (bounds_.y + 8.0f);
+        needScrollbar_ = (totalContentHeight_ > bounds_.h);
 
-    if (needScrollbar_) {
-        renderScrollbar(r, theme);
+        if (needScrollbar_) {
+            renderScrollbar(r, theme);
+        }
     }
 
     if (!isInsideDrawer_ && mouseX >= 0.0f && mouseY >= 0.0f) {
@@ -2773,6 +2902,9 @@ std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackProp
 
 TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const TrackPropertiesDrawerData& data) const noexcept {
     TrackPropertiesHitResult res;
+    if (bounds_.w > 0.0f && bounds_.h > 0.0f && !bounds_.contains(mx, my)) {
+        return res;
+    }
 
     // Scrollbar hit
     if (scrollbarBounds_.contains(mx, my)) {
@@ -4183,19 +4315,22 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
 
     // Mouse Wheel Scrolling
     if (ev.action == PointerAction::Scroll) {
+        if (bounds_.w > 0.0f && bounds_.h > 0.0f && !bounds_.contains(ev.x, ev.y)) {
+            return false;
+        }
         // First check if mouse wheel is hovering over any ListBox widget
         for (auto& row : guiPanel_.rows) {
             for (auto& w : row.widgets) {
                 if (w.type == GuiWidgetType::ListBox && w.bounds.contains(ev.x, ev.y)) {
                     int totalOpts = static_cast<int>(w.options.size());
-                    if (totalOpts > 0) {
-                        int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
+                    int visibleRows = 4;
+                    int maxScroll = std::max(0, totalOpts - visibleRows);
+                    if (maxScroll > 0) {
                         int delta = (ev.scrollY > 0.0f) ? -1 : 1;
-                        int newIdx = std::clamp(currentIdx + delta, 0, totalOpts - 1);
-                        if (newIdx != currentIdx) {
-                            selectListBoxOption(w, newIdx, data);
-                        }
+                        int currentScroll = static_cast<int>(std::round(w.scrollOffset));
+                        w.scrollOffset = static_cast<float>(std::clamp(currentScroll + delta, 0, maxScroll));
                     }
+                    focusedWidgetId_ = w.id;
                     return true;
                 }
             }
@@ -4210,6 +4345,10 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
     // Pointer Down
     if (ev.action == PointerAction::Down) {
         scroller_.stop();
+
+        if (bounds_.w > 0.0f && bounds_.h > 0.0f && !bounds_.contains(ev.x, ev.y)) {
+            return false;
+        }
 
         // Check Scrollbar Hit
         if (scrollbarBounds_.contains(ev.x, ev.y)) {
@@ -4486,41 +4625,14 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                     }
 
                     if (w.type == GuiWidgetType::ListBox) {
-                        int totalOpts = static_cast<int>(w.options.size());
-                        if (totalOpts > 0) {
-                            int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
-                            float boxX = w.bounds.x + 4.0f;
-                            float boxY = w.bounds.y + 16.0f;
-                            float boxW = w.bounds.w - 8.0f;
-                            float boxH = w.bounds.h - 20.0f;
-                            float stripX = boxX + boxW - 13.0f;
-                            int newIdx = currentIdx;
-
-                            if (ev.x >= stripX && ev.x <= boxX + boxW) {
-                                if (ev.y <= boxY + 14.0f) {
-                                    newIdx = std::max(0, currentIdx - 1);
-                                } else if (ev.y >= boxY + boxH - 14.0f) {
-                                    newIdx = std::min(totalOpts - 1, currentIdx + 1);
-                                } else {
-                                    float rel = (ev.y - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
-                                    newIdx = std::clamp(static_cast<int>(std::round(rel * (totalOpts - 1))), 0, totalOpts - 1);
-                                }
-                            } else if (ev.y >= boxY + 2.0f && ev.y <= boxY + boxH) {
-                                int visibleRows = 4;
-                                float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
-                                int scrollStart = w.scrollOffset;
-                                int clickedRow = static_cast<int>((ev.y - (boxY + 2.0f)) / rowH);
-                                if (clickedRow >= 0 && clickedRow < visibleRows) {
-                                    int targetIdx = scrollStart + clickedRow;
-                                    if (targetIdx >= 0 && targetIdx < totalOpts) {
-                                        newIdx = targetIdx;
-                                    }
-                                }
-                            }
-
-                            selectListBoxOption(w, newIdx, data);
-                        }
-                        dragMode_ = DragMode::None;
+                        dragMode_ = DragMode::ListBoxDrag;
+                        draggingRow_ = static_cast<int>(rIdx);
+                        draggingWidget_ = static_cast<int>(wIdx);
+                        dragStartX_ = ev.x;
+                        dragStartY_ = ev.y;
+                        dragStartVal_ = w.scrollOffset;
+                        isListBoxDragging_ = false;
+                        focusedWidgetId_ = w.id;
                         return true;
                     }
                     if (w.maxVal > w.minVal) {
@@ -4606,6 +4718,28 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             if (std::hypot(ev.x - longPressPos_.x, ev.y - longPressPos_.y) > 10.0f) {
                 isLongPressActive_ = false;
             }
+        }
+
+        if (dragMode_ == DragMode::ListBoxDrag) {
+            if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
+                draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
+                auto& w = guiPanel_.rows[draggingRow_].widgets[draggingWidget_];
+                float dy = ev.y - dragStartY_;
+                float slop = (ev.type == PointerType::Touch) ? 6.0f : 3.0f;
+                if (!isListBoxDragging_ && std::abs(dy) > slop) {
+                    isListBoxDragging_ = true;
+                }
+                if (isListBoxDragging_) {
+                    int totalOpts = static_cast<int>(w.options.size());
+                    int visibleRows = 4;
+                    float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                    float rowH = std::max(8.0f, (boxH - 4.0f) / static_cast<float>(visibleRows));
+                    float scrollDelta = -dy / rowH;
+                    float maxScroll = static_cast<float>(std::max(0, totalOpts - visibleRows));
+                    w.scrollOffset = std::clamp(dragStartVal_ + scrollDelta, 0.0f, maxScroll);
+                }
+            }
+            return true;
         }
 
         if (dragMode_ == DragMode::TouchScroll) {
@@ -4848,6 +4982,49 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
     // Pointer Up or Cancel
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
         isLongPressActive_ = false;
+        if (dragMode_ == DragMode::ListBoxDrag) {
+            if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
+                draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
+                auto& w = guiPanel_.rows[draggingRow_].widgets[draggingWidget_];
+                int totalOpts = static_cast<int>(w.options.size());
+                if (!isListBoxDragging_ && totalOpts > 0 && ev.action == PointerAction::Up) {
+                    float boxX = w.bounds.x + 4.0f;
+                    float boxY = w.bounds.y + 14.0f;
+                    float boxW = w.bounds.w - 8.0f;
+                    float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                    float stripX = boxX + boxW - 13.0f;
+                    int visibleRows = 4;
+                    float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+
+                    if (ev.x >= stripX && ev.x <= boxX + boxW) {
+                        int maxScroll = std::max(0, totalOpts - visibleRows);
+                        if (ev.y <= boxY + 14.0f) {
+                            w.scrollOffset = std::max(0.0f, w.scrollOffset - 1.0f);
+                        } else if (ev.y >= boxY + boxH - 14.0f) {
+                            w.scrollOffset = std::min(static_cast<float>(maxScroll), w.scrollOffset + 1.0f);
+                        } else {
+                            float rel = (ev.y - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
+                            w.scrollOffset = std::clamp(rel * static_cast<float>(maxScroll), 0.0f, static_cast<float>(maxScroll));
+                        }
+                    } else if (ev.y >= boxY + 2.0f && ev.y <= boxY + boxH) {
+                        int scrollStart = static_cast<int>(std::round(w.scrollOffset));
+                        int clickedRow = static_cast<int>((ev.y - (boxY + 2.0f)) / rowH);
+                        if (clickedRow >= 0 && clickedRow < visibleRows) {
+                            int targetIdx = scrollStart + clickedRow;
+                            if (targetIdx >= 0 && targetIdx < totalOpts) {
+                                selectListBoxOption(w, targetIdx, data);
+                            }
+                        }
+                    }
+                }
+            }
+            dragMode_ = DragMode::None;
+            isListBoxDragging_ = false;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
+            return true;
+        }
+
         if (dragMode_ == DragMode::TouchScroll) {
             dragMode_ = DragMode::None;
             scroller_.endDrag(ev.timestampMs);

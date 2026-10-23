@@ -66,6 +66,11 @@ DesignView::DesignView() {
 
     initDefaultTargetsAndCode();
 
+    colorPickerDialog_.onColorSelected = [this](const Color& col, size_t) {
+        guiPanel_.chassisTint = col;
+        syncGuiPanelToScript();
+    };
+
     // Default patch cords (preserving unit test invariants)
     patchCords_.push_back({0, 0, 1, 0, 1.0f, 0.55f, 0.0f});
     patchCords_.push_back({1, 1, 2, 0, 0.13f, 0.96f, 0.91f});
@@ -1470,6 +1475,18 @@ void DesignView::syncGuiPanelToScript() {
     if (guiPanel_.chassisTint.has_value()) {
         ss << "        \"chassisTint\": " << guiPanel_.chassisTint->toRgba8() << ",\n";
     }
+    if (guiPanel_.patternOverride.has_value()) {
+        ss << "        \"pattern\": " << static_cast<int>(*guiPanel_.patternOverride) << ",\n";
+    }
+    if (guiPanel_.gradientType != GuiGradientType::VerticalLinear) {
+        ss << "        \"gradient\": " << static_cast<int>(guiPanel_.gradientType) << ",\n";
+    }
+    if (guiPanel_.dirtNoiseLevel > 0.001f) {
+        ss << "        \"dirtNoise\": " << guiPanel_.dirtNoiseLevel << ",\n";
+    }
+    if (guiPanel_.backgroundOpacity < 0.999f) {
+        ss << "        \"bgOpacity\": " << guiPanel_.backgroundOpacity << ",\n";
+    }
     ss << "        \"woodCheeks\": " << (guiPanel_.woodCheeks ? "True" : "False") << ",\n";
     ss << "        \"rows\": [\n";
 
@@ -2215,6 +2232,11 @@ void DesignView::render(const ViewContext& ctx) {
             break;
     }
 
+    if (colorPickerDialog_.isOpen()) {
+        colorPickerDialog_.layout(bounds_.w > 0.0f ? bounds_.w : 1280.0f, bounds_.h > 0.0f ? bounds_.h : 720.0f);
+        colorPickerDialog_.render(*ctx.renderer, *ctx.theme);
+    }
+
     // Render Target Dropdown popup on top if open
     if (isTargetDropdownOpen_) {
         auto& r = *ctx.renderer;
@@ -2222,7 +2244,7 @@ void DesignView::render(const ViewContext& ctx) {
 
         drawRoundedRect(r, targetDropdownMenuBounds_.x, targetDropdownMenuBounds_.y,
                         targetDropdownMenuBounds_.w, targetDropdownMenuBounds_.h, 6.0f,
-                        0.10f, 0.12f, 0.16f, 0.98f);
+                        theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 0.98f);
         drawRoundedRectOutline(r, targetDropdownMenuBounds_.x, targetDropdownMenuBounds_.y,
                                targetDropdownMenuBounds_.w, targetDropdownMenuBounds_.h, 6.0f,
                                theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f, 1.2f);
@@ -2252,7 +2274,9 @@ void DesignView::render(const ViewContext& ctx) {
                      allTargets_[i].badgeColor.r, allTargets_[i].badgeColor.g, allTargets_[i].badgeColor.b, 1.0f);
 
             drawText(r, allTargets_[i].title, itemR.x + 88.0f, itemR.y + 7.0f, 10.0f,
-                     isSel ? 1.0f : 0.85f, isSel ? 1.0f : 0.85f, isSel ? 1.0f : 0.85f, 1.0f);
+                     isSel ? theme.textPrimary.r : theme.textSecondary.r,
+                     isSel ? theme.textPrimary.g : theme.textSecondary.g,
+                     isSel ? theme.textPrimary.b : theme.textSecondary.b, 1.0f);
 
             itemY += itemH + 2.0f;
         }
@@ -2271,7 +2295,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.8f, 1.2f);
 
     drawRoundedRect(r, explorerToggleBtn_.x, explorerToggleBtn_.y, explorerToggleBtn_.w, explorerToggleBtn_.h, 4.0f,
-                    0.15f, 0.17f, 0.22f, 0.8f);
+                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.85f);
     drawRoundedRectOutline(r, explorerToggleBtn_.x, explorerToggleBtn_.y, explorerToggleBtn_.w, explorerToggleBtn_.h, 4.0f,
                            isExplorerOpen_ ? theme.primaryAccent.r : theme.borderSubtle.r,
                            isExplorerOpen_ ? theme.primaryAccent.g : theme.borderSubtle.g,
@@ -2281,7 +2305,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
     float ix = explorerToggleBtn_.x + 8.0f;
     float iy = explorerToggleBtn_.y + 7.0f;
     drawRect(r, ix, iy, 4.0f, 14.0f, isExplorerOpen_ ? theme.primaryAccent.r : 0.5f, isExplorerOpen_ ? theme.primaryAccent.g : 0.5f, isExplorerOpen_ ? theme.primaryAccent.b : 0.5f, 1.0f);
-    drawRect(r, ix + 6.0f, iy, 8.0f, 14.0f, 0.35f, 0.38f, 0.45f, 0.8f);
+    drawRect(r, ix + 6.0f, iy, 8.0f, 14.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.8f);
 
     drawRoundedRect(r, targetBadgeBounds_.x, targetBadgeBounds_.y, targetBadgeBounds_.w, targetBadgeBounds_.h, 3.0f,
                     activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
@@ -2289,7 +2313,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
              0.0f, 0.0f, 0.0f, 1.0f);
 
     drawRoundedRect(r, targetDropdownBtn_.x, targetDropdownBtn_.y, targetDropdownBtn_.w, targetDropdownBtn_.h, 4.0f,
-                    0.12f, 0.14f, 0.18f, 0.9f);
+                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.90f);
     drawRoundedRectOutline(r, targetDropdownBtn_.x, targetDropdownBtn_.y, targetDropdownBtn_.w, targetDropdownBtn_.h, 4.0f,
                            activeT.badgeColor.r * 0.6f, activeT.badgeColor.g * 0.6f, activeT.badgeColor.b * 0.6f, 0.8f, 1.0f);
 
@@ -2306,7 +2330,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
             Color bg{accent.r * 0.35f, accent.g * 0.35f, accent.b * 0.35f, 0.95f};
             drawButton(r, b, label, bg, accent, accent, 10.0f, 3.0f, 1.2f);
         } else {
-            drawButton(r, b, label, Color{0.14f, 0.15f, 0.19f, 0.85f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, theme.textMuted, 10.0f, 3.0f, 0.0f);
+            drawButton(r, b, label, theme.controlBackground, Color{0.0f, 0.0f, 0.0f, 0.0f}, theme.textMuted, 10.0f, 3.0f, 0.0f);
         }
     };
 
@@ -2316,7 +2340,7 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
     drawModeBtn(btnGui_, "GUI", mode_ == DesignSubMode::GuiDesigner, Color{1.0f, 0.16f, 0.55f});
 
     drawButton(r, btnCompile_, "▶ APPLY",
-               Color{0.05f, 0.35f, 0.18f, 0.95f}, Color{0.0f, 0.95f, 0.45f, 1.0f}, Color{0.0f, 1.0f, 0.55f, 1.0f},
+               theme.playActive.withAlpha(0.85f), theme.playActive, theme.isLight ? Color{1.0f, 1.0f, 1.0f, 1.0f} : theme.textPrimary,
                10.5f, 4.0f, 1.2f);
 }
 
@@ -2326,10 +2350,10 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
 
     // Sidebar background & separator
     drawRect(r, explorerBounds_.x, explorerBounds_.y, explorerBounds_.w, explorerBounds_.h,
-             0.09f, 0.10f, 0.13f, 1.0f);
+             theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 1.0f);
     drawLine(r, explorerBounds_.x + explorerBounds_.w, explorerBounds_.y,
              explorerBounds_.x + explorerBounds_.w, explorerBounds_.y + explorerBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
     // 1. Sidebar Header with active project indicator
     float ey = explorerBounds_.y + 8.0f;
@@ -2341,13 +2365,13 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     float badgeH = 16.0f;
     float badgeX = explorerBounds_.x + explorerBounds_.w - badgeW - 8.0f;
     drawRoundedRect(r, badgeX, ey - 1.0f, badgeW, badgeH, 3.0f,
-                    0.05f, 0.20f, 0.12f, 0.85f);
+                    theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.85f);
     drawRoundedRectOutline(r, badgeX, ey - 1.0f, badgeW, badgeH, 3.0f,
-                           0.0f, 0.95f, 0.45f, 0.70f, 1.0f);
-    drawCircle(r, badgeX + 7.0f, ey + 7.0f, 2.5f, 0.0f, 1.0f, 0.55f, 1.0f);
+                           theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.70f, 1.0f);
+    drawCircle(r, badgeX + 7.0f, ey + 7.0f, 2.5f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
     char badgeLabel[32];
     std::snprintf(badgeLabel, sizeof(badgeLabel), "%zu LOADED", allTargets_.size());
-    drawText(r, badgeLabel, badgeX + 13.0f, ey + 2.0f, 8.0f, 0.0f, 1.0f, 0.55f, 1.0f);
+    drawText(r, badgeLabel, badgeX + 13.0f, ey + 2.0f, 8.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
     ey += 22.0f;
 
@@ -2369,8 +2393,8 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
             drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, accent.r, accent.g, accent.b, 0.90f, 1.0f);
             drawText(r, label, b.x + (b.w - static_cast<float>(label.length()) * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, accent.r, accent.g, accent.b, 1.0f);
         } else {
-            drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, 0.12f, 0.13f, 0.17f, 0.85f);
-            drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, 0.20f, 0.22f, 0.28f, 0.60f, 1.0f);
+            drawRoundedRect(r, b.x, b.y, b.w, b.h, 3.0f, theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.85f);
+            drawRoundedRectOutline(r, b.x, b.y, b.w, b.h, 3.0f, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.60f, 1.0f);
             drawText(r, label, b.x + (b.w - static_cast<float>(label.length()) * 5.2f) * 0.5f, b.y + 4.5f, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.85f);
         }
     };
@@ -2386,16 +2410,16 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
     explorerSearchBoxBounds_ = Rect2D(explorerBounds_.x + 8.0f, ey, explorerBounds_.w - 16.0f, 22.0f);
     drawRoundedRect(r, explorerSearchBoxBounds_.x, explorerSearchBoxBounds_.y,
                     explorerSearchBoxBounds_.w, explorerSearchBoxBounds_.h, 3.0f,
-                    0.05f, 0.06f, 0.08f, 0.95f);
+                    theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.95f);
     drawRoundedRectOutline(r, explorerSearchBoxBounds_.x, explorerSearchBoxBounds_.y,
                            explorerSearchBoxBounds_.w, explorerSearchBoxBounds_.h, 3.0f,
-                           0.18f, 0.20f, 0.25f, 0.60f, 1.0f);
+                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.60f, 1.0f);
     std::string_view searchPlaceholder = scriptFilterQuery_.empty() ? std::string_view("Filter loaded scripts...") : std::string_view(scriptFilterQuery_);
     drawMonoText(r, searchPlaceholder,
                  explorerSearchBoxBounds_.x + 8.0f, explorerSearchBoxBounds_.y + 5.0f, 9.0f,
-                 scriptFilterQuery_.empty() ? theme.textMuted.r : 0.95f,
-                 scriptFilterQuery_.empty() ? theme.textMuted.g : 0.95f,
-                 scriptFilterQuery_.empty() ? theme.textMuted.b : 0.95f,
+                 scriptFilterQuery_.empty() ? theme.textMuted.r : theme.textPrimary.r,
+                 scriptFilterQuery_.empty() ? theme.textMuted.g : theme.textPrimary.g,
+                 scriptFilterQuery_.empty() ? theme.textMuted.b : theme.textPrimary.b,
                  scriptFilterQuery_.empty() ? 0.55f : 1.0f);
 
     ey += 28.0f;
@@ -2481,9 +2505,9 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
                                     grp.accent.r, grp.accent.g, grp.accent.b, 1.0f);
                 } else {
                     drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
-                                    0.11f, 0.12f, 0.16f, 0.70f);
+                                    theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.70f);
                     drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
-                                           0.18f, 0.20f, 0.25f, 0.50f, 1.0f);
+                                           theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.50f, 1.0f);
                 }
 
                 // Track color indicator
@@ -2502,7 +2526,9 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
 
                 // Title
                 drawText(r, allTargets_[i].title, itemR.x + 20.0f, itemR.y + 4.0f, 9.5f,
-                         isSel ? 1.0f : 0.88f, isSel ? 1.0f : 0.88f, isSel ? 1.0f : 0.88f, 1.0f);
+                         isSel ? theme.textPrimary.r : theme.textSecondary.r,
+                         isSel ? theme.textPrimary.g : theme.textSecondary.g,
+                         isSel ? theme.textPrimary.b : theme.textSecondary.b, 1.0f);
 
                 // Subtitle
                 drawText(r, allTargets_[i].subtitle, itemR.x + 20.0f, itemR.y + 17.0f, 8.0f,
@@ -2528,7 +2554,7 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
         float divY = currentContentY - explorerScrollY_;
         if (divY >= listTopY && divY <= listBottomY) {
             drawLine(r, explorerBounds_.x + 8.0f, divY, explorerBounds_.x + explorerBounds_.w - 8.0f, divY,
-                     0.16f, 0.18f, 0.24f, 0.70f, 1.0f);
+                     theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.70f, 1.0f);
         }
         currentContentY += 6.0f;
     }
@@ -2546,9 +2572,9 @@ void DesignView::renderExplorerSidebar(const ViewContext& ctx) {
         float thumbY = listTopY + (explorerScrollY_ / explorerMaxScrollY_) * (trackH - thumbH);
 
         drawRoundedRect(r, trackX, listTopY, scrollTrackW, trackH, 1.5f,
-                        0.07f, 0.08f, 0.10f, 0.50f);
+                        theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.50f);
         drawRoundedRect(r, trackX, thumbY, scrollTrackW, thumbH, 1.5f,
-                        0.30f, 0.35f, 0.45f, 0.80f);
+                        theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.80f);
     }
 }
 
@@ -2558,20 +2584,20 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
     const auto& activeT = getActiveTarget();
 
     drawRect(r, editorHeaderBounds_.x, editorHeaderBounds_.y, editorHeaderBounds_.w, editorHeaderBounds_.h,
-             0.13f, 0.15f, 0.19f, 1.0f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
     drawLine(r, editorHeaderBounds_.x, editorHeaderBounds_.y + editorHeaderBounds_.h,
              editorHeaderBounds_.x + editorHeaderBounds_.w, editorHeaderBounds_.y + editorHeaderBounds_.h,
-             0.22f, 0.25f, 0.32f, 1.0f, 1.0f);
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
     char targetBuf[128];
     std::snprintf(targetBuf, sizeof(targetBuf), "TARGET: %s", activeT.title.c_str());
     drawText(r, targetBuf, editorHeaderBounds_.x + 10.0f, editorHeaderBounds_.y + 8.0f, 10.5f,
              activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
 
-    drawButton(r, btnSelectAll_, "SELECT ALL", Color{0.12f, 0.14f, 0.18f, 0.8f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.7f, 0.75f, 0.85f, 1.0f}, 9.0f, 3.0f, 1.0f);
-    drawButton(r, btnCopy_, "COPY", Color{0.12f, 0.14f, 0.18f, 0.8f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.7f, 0.75f, 0.85f, 1.0f}, 9.0f, 3.0f, 1.0f);
-    drawButton(r, btnSubmitPr_, "SUBMIT PR", Color{0.14f, 0.18f, 0.24f, 0.8f}, Color{theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f}, theme.primaryAccent, 9.0f, 3.0f, 1.0f);
-    drawButton(r, btnApiDocs_, "API DOCS", Color{0.05f, 0.20f, 0.12f, 0.8f}, Color{0.0f, 0.95f, 0.45f, 0.8f}, Color{0.0f, 0.95f, 0.45f, 1.0f}, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnSelectAll_, "SELECT ALL", theme.controlBackground, theme.borderSubtle, theme.textSecondary, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnCopy_, "COPY", theme.controlBackground, theme.borderSubtle, theme.textSecondary, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnSubmitPr_, "SUBMIT PR", theme.controlBackground, theme.primaryAccent.withAlpha(0.8f), theme.primaryAccent, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnApiDocs_, "API DOCS", theme.controlBackground, theme.secondaryAccent.withAlpha(0.8f), theme.secondaryAccent, 9.0f, 3.0f, 1.0f);
 
     textEditor_.render(ctx);
 
@@ -2594,11 +2620,11 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
         const auto& p = currentParams_[i];
         const auto& pb = p.bounds;
 
-        drawRoundedRect(r, pb.x, pb.y, pb.w, pb.h, 4.0f, 0.12f, 0.14f, 0.18f, 0.95f);
+        drawRoundedRect(r, pb.x, pb.y, pb.w, pb.h, 4.0f, theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.95f);
         drawRoundedRectOutline(r, pb.x, pb.y, pb.w, pb.h, 4.0f,
                                activeT.badgeColor.r * 0.4f, activeT.badgeColor.g * 0.4f, activeT.badgeColor.b * 0.4f, 0.8f, 1.0f);
 
-        drawText(r, p.name, pb.x + 8.0f, pb.y + 6.0f, 10.0f, 0.95f, 0.95f, 0.95f, 1.0f);
+        drawText(r, p.name, pb.x + 8.0f, pb.y + 6.0f, 10.0f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
         char valBuf[32];
         std::snprintf(valBuf, sizeof(valBuf), "%.1f", p.currentVal);
@@ -2612,45 +2638,50 @@ void DesignView::renderCodeEditorCanvas(const ViewContext& ctx) {
 
         float norm = (p.maxVal > p.minVal) ? std::clamp((p.currentVal - p.minVal) / (p.maxVal - p.minVal), 0.0f, 1.0f) : 0.5f;
 
-        drawRoundedRect(r, trackX, trackY, trackW, trackH, 3.0f, 0.06f, 0.07f, 0.09f, 1.0f);
+        drawRoundedRect(r, trackX, trackY, trackW, trackH, 3.0f, theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 1.0f);
         drawRoundedRect(r, trackX, trackY, trackW * norm, trackH, 3.0f,
                         activeT.badgeColor.r * 0.7f, activeT.badgeColor.g * 0.7f, activeT.badgeColor.b * 0.7f, 1.0f);
 
         float thumbX = trackX + (trackW * norm);
-        drawCircle(r, thumbX, trackY + 3.0f, 6.0f, 0.95f, 0.95f, 0.95f, 1.0f);
+        drawCircle(r, thumbX, trackY + 3.0f, 6.0f, theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
         drawCircle(r, thumbX, trackY + 3.0f, 3.0f, activeT.badgeColor.r, activeT.badgeColor.g, activeT.badgeColor.b, 1.0f);
     }
 }
 
 void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     auto& r = *ctx.renderer;
+    const auto& theme = *ctx.theme;
 
     // Dark chassis background
-    drawRect(r, rect.x, rect.y, rect.w, rect.h, 0.11f, 0.12f, 0.15f, 1.0f);
+    drawRect(r, rect.x, rect.y, rect.w, rect.h,
+             theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
     // Top modular sub-toolbar
     float topBarH = 34.0f;
     modularToolbarBounds_ = Rect2D(rect.x, rect.y, rect.w, topBarH);
     drawRect(r, modularToolbarBounds_.x, modularToolbarBounds_.y, modularToolbarBounds_.w, modularToolbarBounds_.h,
-             0.09f, 0.10f, 0.13f, 1.0f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
     drawLine(r, modularToolbarBounds_.x, modularToolbarBounds_.y + modularToolbarBounds_.h,
              modularToolbarBounds_.x + modularToolbarBounds_.w, modularToolbarBounds_.y + modularToolbarBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.2f);
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.2f);
 
     char rackTitle[96];
     std::string_view activeTTitle = getActiveTarget().title;
     std::snprintf(rackTitle, sizeof(rackTitle), "MODULAR RACK: %.*s",
                   static_cast<int>(activeTTitle.size()), activeTTitle.data());
     drawText(r, rackTitle, modularToolbarBounds_.x + 14.0f, modularToolbarBounds_.y + 10.0f, 10.5f,
-             1.0f, 0.55f, 0.0f, 1.0f);
+             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
     // DSP Sync indicator
+    Color dspSyncBg = theme.isLight ? Color{0.86f, 0.95f, 0.88f, 0.9f} : Color{0.05f, 0.22f, 0.12f, 0.9f};
+    Color dspSyncBorder = Color{0.0f, 0.85f, 0.40f, 0.7f};
+    Color dspSyncText = theme.isLight ? Color{0.0f, 0.60f, 0.25f, 1.0f} : Color{0.0f, 1.0f, 0.55f, 1.0f};
     drawRoundedRect(r, modularToolbarBounds_.x + 280.0f, modularToolbarBounds_.y + 6.0f, 110.0f, 22.0f, 3.0f,
-                    0.05f, 0.22f, 0.12f, 0.9f);
+                    dspSyncBg.r, dspSyncBg.g, dspSyncBg.b, dspSyncBg.a);
     drawRoundedRectOutline(r, modularToolbarBounds_.x + 280.0f, modularToolbarBounds_.y + 6.0f, 110.0f, 22.0f, 3.0f,
-                           0.0f, 0.95f, 0.45f, 0.7f, 1.0f);
+                           dspSyncBorder.r, dspSyncBorder.g, dspSyncBorder.b, dspSyncBorder.a, 1.0f);
     drawText(r, "* DSP SYNC: OK", modularToolbarBounds_.x + 288.0f, modularToolbarBounds_.y + 11.0f, 9.0f,
-             0.0f, 1.0f, 0.55f, 1.0f);
+             dspSyncText.r, dspSyncText.g, dspSyncText.b, 1.0f);
 
     // Add module & reset patch buttons
     btnModularResetPatch_ = Rect2D(modularToolbarBounds_.x + modularToolbarBounds_.w - 110.0f, modularToolbarBounds_.y + 6.0f, 98.0f, 22.0f);
@@ -2662,18 +2693,19 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     // Draw Zoom buttons
     char zoomPct[16];
     std::snprintf(zoomPct, sizeof(zoomPct), "%d%%", static_cast<int>(std::round(modularZoomPan_.getZoomX() * 100.0f)));
-    drawButton(r, btnModularZoomReset_, zoomPct,
-               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 9.0f, 3.0f, 1.0f);
-    drawButton(r, btnModularZoomOut_, "-",
-               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 11.0f, 3.0f, 1.0f);
-    drawButton(r, btnModularZoomIn_, "+",
-               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 11.0f, 3.0f, 1.0f);
+    Color btnBg = theme.controlBackground;
+    Color btnBorder = theme.borderSubtle;
+    Color btnText = theme.textPrimary;
+    drawButton(r, btnModularZoomReset_, zoomPct, btnBg, btnBorder, btnText, 9.0f, 3.0f, 1.0f);
+    drawButton(r, btnModularZoomOut_, "-", btnBg, btnBorder, btnText, 11.0f, 3.0f, 1.0f);
+    drawButton(r, btnModularZoomIn_, "+", btnBg, btnBorder, btnText, 11.0f, 3.0f, 1.0f);
 
+    Color addModBorder{theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.8f};
     drawButton(r, btnModularAddModule_, "+ ADD MODULE",
-               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{1.0f, 0.85f, 0.0f, 0.6f}, Color{1.0f, 0.85f, 0.0f, 1.0f}, 9.5f, 3.0f, 1.0f);
+               btnBg, addModBorder, theme.primaryAccent, 9.5f, 3.0f, 1.0f);
 
     drawButton(r, btnModularResetPatch_, "RESET PATCH",
-               Color{0.14f, 0.17f, 0.23f, 0.9f}, Color{0.25f, 0.28f, 0.35f, 0.8f}, Color{0.8f, 0.85f, 0.95f, 1.0f}, 9.5f, 3.0f, 1.0f);
+               btnBg, btnBorder, theme.textSecondary, 9.5f, 3.0f, 1.0f);
 
     // Canvas Viewport & Scissoring
     float rackBodyY = rect.y + topBarH;
@@ -2683,10 +2715,10 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
     ScissorScope scissorScope(r, rect.x, rackBodyY, rect.w, rackBodyH);
 
     // Canvas background
-    drawRect(r, rect.x, rackBodyY, rect.w, rackBodyH, 0.07f, 0.08f, 0.10f, 1.0f);
+    drawRect(r, rect.x, rackBodyY, rect.w, rackBodyH,
+             theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
     // Multi-Row Eurorack Rails (Standard 3U = 380px)
-    constexpr float kRowHeight = 380.0f;
     constexpr float kRailH = 16.0f;
     float row0Y = rackBodyY;
     float minWorldY = modularZoomPan_.screenToWorldY(rackBodyY);
@@ -2705,13 +2737,15 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
         float rowScreenH = modularZoomPan_.worldDistanceToScreenY(kRowHeight);
 
         // Dark backplane
-        drawRect(r, rect.x, rowScreenY, rect.w, rowScreenH, 0.06f, 0.07f, 0.09f, 1.0f);
+        Color backplaneCol = theme.isLight ? theme.panelBackground.darken(0.06f) : theme.backgroundDark.darken(0.04f);
+        drawRect(r, rect.x, rowScreenY, rect.w, rowScreenH, backplaneCol.r, backplaneCol.g, backplaneCol.b, 1.0f);
 
         // Power distribution bus bar channel (VCV Rack / Cardinal aesthetic)
         float busWorldY = rowWorldY + (kRowHeight * 0.5f) - 14.0f;
         float busScreenY = modularZoomPan_.worldToScreenY(busWorldY);
         float busScreenH = modularZoomPan_.worldDistanceToScreenY(28.0f);
-        drawRect(r, rect.x, busScreenY, rect.w, busScreenH, 0.10f, 0.11f, 0.14f, 1.0f);
+        Color busCol = theme.controlWell;
+        drawRect(r, rect.x, busScreenY, rect.w, busScreenH, busCol.r, busCol.g, busCol.b, 1.0f);
         // Red stripe on ribbon bus cable
         drawRect(r, rect.x, busScreenY + 2.0f, rect.w, 3.0f, 0.75f, 0.18f, 0.18f, 0.55f);
 
@@ -2798,8 +2832,10 @@ void DesignView::renderModularRack(const ViewContext& ctx, const Rect2D& rect) {
 
         // Title banner
         float banH = 24.0f * zoom;
-        drawRect(r, sx, sy, sw, banH, 0.14f, 0.15f, 0.18f, 1.0f);
-        drawText(r, mod.title, sx + 12.0f * zoom, sy + 6.0f * zoom, 10.0f * zoom, 0.0f, 0.95f, 1.0f, 1.0f);
+        Color bannerBg = theme.isLight ? theme.panelHeader : Color{0.14f, 0.15f, 0.18f, 1.0f};
+        drawRect(r, sx, sy, sw, banH, bannerBg.r, bannerBg.g, bannerBg.b, 1.0f);
+        drawText(r, mod.title, sx + 12.0f * zoom, sy + 6.0f * zoom, 10.0f * zoom,
+                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
 
         // Drag handle grip dots on top right of title banner
         float gripX = sx + sw - 14.0f * zoom;
@@ -2968,14 +3004,16 @@ void DesignView::renderSplitView(const ViewContext& ctx) {
              theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.9f, 2.0f);
 
     drawRect(r, splitSubBarBounds_.x, splitSubBarBounds_.y, splitSubBarBounds_.w, splitSubBarBounds_.h,
-             0.09f, 0.10f, 0.13f, 1.0f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
 
     auto drawSplitBtn = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {
         if (active) {
-            Color bg{accent.r * 0.3f, accent.g * 0.3f, accent.b * 0.3f, 0.9f};
+            Color bg = theme.isLight ?
+                Color{accent.r * 0.2f + 0.8f, accent.g * 0.2f + 0.8f, accent.b * 0.2f + 0.8f, 0.95f} :
+                Color{accent.r * 0.3f, accent.g * 0.3f, accent.b * 0.3f, 0.9f};
             drawButton(r, b, label, bg, accent, accent, 9.0f, 3.0f, 1.0f);
         } else {
-            drawButton(r, b, label, Color{0.14f, 0.15f, 0.18f, 0.8f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, theme.textMuted, 9.0f, 3.0f, 0.0f);
+            drawButton(r, b, label, theme.controlBackground, theme.borderSubtle, theme.textMuted, 9.0f, 3.0f, 1.0f);
         }
     };
 
@@ -2997,10 +3035,10 @@ void DesignView::renderGuiPreview(const ViewContext& ctx) {
 
     // Top Sub-bar for GUI Tab: Title + [● LIVE INTERACTION] vs [DESIGN MODE] + [SUBMIT PR]
     drawRect(r, guiSubBarBounds_.x, guiSubBarBounds_.y, guiSubBarBounds_.w, guiSubBarBounds_.h,
-             0.09f, 0.10f, 0.13f, 1.0f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
     drawLine(r, guiSubBarBounds_.x, guiSubBarBounds_.y + guiSubBarBounds_.h,
              guiSubBarBounds_.x + guiSubBarBounds_.w, guiSubBarBounds_.y + guiSubBarBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
     std::string guiTitle = "GUI INTERFACE: " + getActiveTarget().title;
     drawText(r, guiTitle, guiSubBarBounds_.x + 14.0f, guiSubBarBounds_.y + 9.0f, 10.5f,
@@ -3008,17 +3046,21 @@ void DesignView::renderGuiPreview(const ViewContext& ctx) {
 
     auto drawSubBtn = [&](const Rect2D& b, const std::string& label, bool active, const Color& accent) {
         if (active) {
-            Color bg{accent.r * 0.3f, accent.g * 0.3f, accent.b * 0.3f, 0.95f};
+            Color bg = theme.isLight ?
+                Color{accent.r * 0.2f + 0.8f, accent.g * 0.2f + 0.8f, accent.b * 0.2f + 0.8f, 0.95f} :
+                Color{accent.r * 0.3f, accent.g * 0.3f, accent.b * 0.3f, 0.95f};
             drawButton(r, b, label, bg, accent, accent, 9.5f, 3.0f, 1.0f);
         } else {
-            drawButton(r, b, label, Color{0.14f, 0.16f, 0.20f, 0.8f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, theme.textMuted, 9.5f, 3.0f, 0.0f);
+            drawButton(r, b, label, theme.controlBackground, theme.borderSubtle, theme.textMuted, 9.5f, 3.0f, 1.0f);
         }
     };
 
     drawSubBtn(btnGuiLive_, "LIVE INTERACTION", !isGuiDesignMode_, theme.primaryAccent);
     drawSubBtn(btnGuiDesign_, "DESIGN MODE", isGuiDesignMode_, Color{0.0f, 0.95f, 0.45f});
 
-    Color prBg{theme.primaryAccent.r * 0.2f, theme.primaryAccent.g * 0.2f, theme.primaryAccent.b * 0.2f, 0.8f};
+    Color prBg = theme.isLight ?
+        Color{theme.primaryAccent.r * 0.15f + 0.85f, theme.primaryAccent.g * 0.15f + 0.85f, theme.primaryAccent.b * 0.15f + 0.85f, 0.9f} :
+        Color{theme.primaryAccent.r * 0.2f, theme.primaryAccent.g * 0.2f, theme.primaryAccent.b * 0.2f, 0.8f};
     Color prBorder{theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.6f};
     drawButton(r, btnGuiPr_, "SUBMIT PR", prBg, prBorder, theme.primaryAccent, 9.5f, 3.0f, 1.0f);
 
@@ -3050,39 +3092,43 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
 
     // 1. Top Designer Toolbar
     drawRect(r, designerToolbarBounds_.x, designerToolbarBounds_.y, designerToolbarBounds_.w, designerToolbarBounds_.h,
-             0.09f, 0.10f, 0.13f, 1.0f);
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
     drawLine(r, designerToolbarBounds_.x, designerToolbarBounds_.y + designerToolbarBounds_.h,
              designerToolbarBounds_.x + designerToolbarBounds_.w, designerToolbarBounds_.y + designerToolbarBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
     // Designer buttons
     drawButton(r, btnTogglePalette_, isPaletteOpen_ ? "TOOLBOX <" : "TOOLBOX >",
-               Color{0.14f, 0.16f, 0.20f, 0.8f}, isPaletteOpen_ ? theme.primaryAccent : Color{0.25f, 0.28f, 0.35f, 0.8f},
+               theme.controlBackground, isPaletteOpen_ ? theme.primaryAccent : theme.borderSubtle,
                isPaletteOpen_ ? theme.primaryAccent : theme.textMuted, 9.0f, 3.0f, 1.0f);
 
-    drawButton(r, btnAddRow_, "+ ADD ROW",
-               Color{0.12f, 0.24f, 0.18f, 0.85f}, Color{0.0f, 0.95f, 0.45f, 0.8f}, Color{0.0f, 1.0f, 0.55f, 1.0f},
-               9.0f, 3.0f, 1.0f);
+    Color addRowBg = theme.isLight ? Color{0.85f, 0.96f, 0.90f, 0.9f} : Color{0.12f, 0.24f, 0.18f, 0.85f};
+    Color addRowBorder = Color{0.0f, 0.85f, 0.40f, 0.8f};
+    Color addRowText = theme.isLight ? Color{0.0f, 0.60f, 0.25f, 1.0f} : Color{0.0f, 1.0f, 0.55f, 1.0f};
+    drawButton(r, btnAddRow_, "+ ADD ROW", addRowBg, addRowBorder, addRowText, 9.0f, 3.0f, 1.0f);
 
     if (selectedDesignerRow_ >= 0) {
-        drawButton(r, btnDeleteRow_, "- DEL ROW",
-                   Color{0.24f, 0.12f, 0.14f, 0.85f}, Color{1.0f, 0.35f, 0.35f, 0.8f}, Color{1.0f, 0.5f, 0.5f, 1.0f},
-                   9.0f, 3.0f, 1.0f);
+        Color delRowBg = theme.isLight ? Color{0.98f, 0.88f, 0.88f, 0.9f} : Color{0.24f, 0.12f, 0.14f, 0.85f};
+        Color delRowBorder = Color{0.9f, 0.35f, 0.35f, 0.8f};
+        Color delRowText = theme.isLight ? Color{0.8f, 0.15f, 0.15f, 1.0f} : Color{1.0f, 0.5f, 0.5f, 1.0f};
+        drawButton(r, btnDeleteRow_, "- DEL ROW", delRowBg, delRowBorder, delRowText, 9.0f, 3.0f, 1.0f);
     }
 
     if (selectedDesignerWidget_ >= 0) {
-        drawButton(r, btnDuplicateWidget_, "DUPLICATE",
-                   Color{0.14f, 0.18f, 0.24f, 0.85f}, Color{1.0f, 0.85f, 0.0f, 0.8f}, Color{1.0f, 0.85f, 0.0f, 1.0f},
-                   9.0f, 3.0f, 1.0f);
+        Color dupBg = theme.isLight ? Color{0.98f, 0.95f, 0.85f, 0.9f} : Color{0.14f, 0.18f, 0.24f, 0.85f};
+        Color dupBorder = Color{0.9f, 0.75f, 0.0f, 0.8f};
+        Color dupText = theme.isLight ? Color{0.75f, 0.55f, 0.0f, 1.0f} : Color{1.0f, 0.85f, 0.0f, 1.0f};
+        drawButton(r, btnDuplicateWidget_, "DUPLICATE", dupBg, dupBorder, dupText, 9.0f, 3.0f, 1.0f);
 
-        drawButton(r, btnDeleteWidget_, "DELETE",
-                   Color{0.28f, 0.10f, 0.12f, 0.9f}, Color{1.0f, 0.20f, 0.25f, 0.9f}, Color{1.0f, 0.30f, 0.35f, 1.0f},
-                   9.0f, 3.0f, 1.0f);
+        Color delWdgBg = theme.isLight ? Color{0.98f, 0.88f, 0.88f, 0.9f} : Color{0.28f, 0.10f, 0.12f, 0.9f};
+        Color delWdgBorder = Color{0.95f, 0.20f, 0.25f, 0.9f};
+        Color delWdgText = theme.isLight ? Color{0.8f, 0.15f, 0.15f, 1.0f} : Color{1.0f, 0.30f, 0.35f, 1.0f};
+        drawButton(r, btnDeleteWidget_, "DELETE", delWdgBg, delWdgBorder, delWdgText, 9.0f, 3.0f, 1.0f);
     }
 
     drawButton(r, btnToggleInspector_, isInspectorOpen_ ? "INSPECTOR >" : "INSPECTOR <",
-               Color{0.14f, 0.16f, 0.20f, 0.8f}, isInspectorOpen_ ? Color{1.0f, 0.85f, 0.0f, 0.8f} : Color{0.25f, 0.28f, 0.35f, 0.8f},
-               isInspectorOpen_ ? Color{1.0f, 0.85f, 0.0f, 1.0f} : theme.textMuted, 9.0f, 3.0f, 1.0f);
+               theme.controlBackground, isInspectorOpen_ ? theme.primaryAccent : theme.borderSubtle,
+               isInspectorOpen_ ? theme.primaryAccent : theme.textMuted, 9.0f, 3.0f, 1.0f);
 
     float bodyY = designerToolbarBounds_.y + designerToolbarBounds_.h;
     float bodyH = rect.h - designerToolbarBounds_.h;
@@ -3094,8 +3140,10 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
     paletteItems_.clear();
     if (isPaletteOpen_) {
         Rect2D palR(rect.x, bodyY, palW, bodyH);
-        drawRect(r, palR.x, palR.y, palR.w, palR.h, 0.10f, 0.11f, 0.14f, 1.0f);
-        drawLine(r, palR.x + palR.w, palR.y, palR.x + palR.w, palR.y + palR.h, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+        drawRect(r, palR.x, palR.y, palR.w, palR.h,
+                 theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 1.0f);
+        drawLine(r, palR.x + palR.w, palR.y, palR.x + palR.w, palR.y + palR.h,
+                 theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
         r.pushScissor(palR.x, palR.y, palR.w, palR.h);
 
@@ -3107,14 +3155,18 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
             Rect2D itemR(palR.x + 8.0f, py, palR.w - 16.0f, 24.0f);
             paletteItems_.push_back({id, title, cat, type, kStyle, itemR});
 
-            drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f, 0.14f, 0.16f, 0.20f, 0.9f);
-            drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f, 0.22f, 0.25f, 0.32f, 0.8f, 1.0f);
-            drawText(r, "+ " + title, itemR.x + 10.0f, itemR.y + 7.0f, 8.5f, 0.92f, 0.94f, 0.98f, 1.0f);
+            drawRoundedRect(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                            theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.9f);
+            drawRoundedRectOutline(r, itemR.x, itemR.y, itemR.w, itemR.h, 4.0f,
+                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.8f, 1.0f);
+            drawText(r, "+ " + title, itemR.x + 10.0f, itemR.y + 7.0f, 8.5f,
+                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
 
             py += 27.0f;
         };
 
-        drawText(r, "HARDWARE CONSOLE (14)", palR.x + 10.0f, py, 8.5f, 1.0f, 0.85f, 0.0f, 1.0f);
+        drawText(r, "HARDWARE CONSOLE (14)", palR.x + 10.0f, py, 8.5f,
+                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
         py += 15.0f;
         addPaletteItem("hw_lens", "Neumorphic Lens (White)", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::NeumorphicLens);
         addPaletteItem("hw_lens_pink", "Neumorphic Lens (Pink)", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::NeumorphicLensPink);
@@ -3131,14 +3183,16 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
         addPaletteItem("hw_studio_clean", "Studio Clean Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::StudioClean);
         addPaletteItem("hw_studio_cyan", "Studio Cyan Dial", "CONSOLE", GuiWidgetType::Knob, GuiKnobStyle::StudioCyan);
 
-        drawText(r, "CONTROLS (4)", palR.x + 10.0f, py, 8.5f, 0.0f, 0.95f, 1.0f, 1.0f);
+        drawText(r, "CONTROLS (4)", palR.x + 10.0f, py, 8.5f,
+                 theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 1.0f);
         py += 15.0f;
         addPaletteItem("ctl_knob", "Rotary Knob", "CONTROLS", GuiWidgetType::Knob, GuiKnobStyle::Standard);
         addPaletteItem("ctl_slider", "Hardware Slider", "CONTROLS", GuiWidgetType::Slider, GuiKnobStyle::Standard);
         addPaletteItem("ctl_switch", "Toggle Switch", "CONTROLS", GuiWidgetType::ToggleSwitch, GuiKnobStyle::Standard);
         addPaletteItem("ctl_button", "Action Button", "CONTROLS", GuiWidgetType::ActionButton, GuiKnobStyle::Standard);
 
-        drawText(r, "DISPLAYS & METERS (3)", palR.x + 10.0f, py, 8.5f, 0.0f, 1.0f, 0.55f, 1.0f);
+        drawText(r, "DISPLAYS & METERS (3)", palR.x + 10.0f, py, 8.5f,
+                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
         py += 15.0f;
         addPaletteItem("dsp_nixie", "Nixie Tube Display", "DISPLAYS", GuiWidgetType::NixieDisplay, GuiKnobStyle::Standard);
         addPaletteItem("dsp_vu", "LED VU Level Meter", "DISPLAYS", GuiWidgetType::VuMeter, GuiKnobStyle::Standard);
@@ -3151,8 +3205,10 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
     }
 
     // 3. Right Property Inspector Sidebar
-    inspectorThemeBtns_.clear();
-    inspectorAccentBtns_.clear();
+    inspectorPatternBtns_.clear();
+    inspectorGradientBtns_.clear();
+    dirtNoiseSliderBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
+    bgOpacitySliderBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
     inspectorChassisTintBtns_.clear();
     inspectorParamBtns_.clear();
     inspectorKnobStyleBtns_.clear();
@@ -3161,106 +3217,280 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
 
     if (isInspectorOpen_) {
         Rect2D inspR(rect.x + rect.w - inspW, bodyY, inspW, bodyH);
-        drawRect(r, inspR.x, inspR.y, inspR.w, inspR.h, 0.10f, 0.11f, 0.14f, 1.0f);
-        drawLine(r, inspR.x, inspR.y, inspR.x, inspR.y + inspR.h, 0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+        drawRect(r, inspR.x, inspR.y, inspR.w, inspR.h,
+                 theme.panelBackground.r, theme.panelBackground.g, theme.panelBackground.b, 1.0f);
+        drawLine(r, inspR.x, inspR.y, inspR.x, inspR.y + inspR.h,
+                 theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 1.0f, 1.0f);
 
-        float iy = inspR.y + 10.0f;
+        r.pushScissor(inspR.x, inspR.y, inspR.w, inspR.h);
+        float iy = inspR.y + 10.0f - inspectorScrollY_;
 
         if (isChassisSelected_ || (selectedDesignerRow_ < 0 && selectedDesignerWidget_ < 0)) {
             // Chassis Properties
-            drawText(r, "CHASSIS SETTINGS", inspR.x + 12.0f, iy, 10.5f, 1.0f, 0.85f, 0.0f, 1.0f);
+            drawText(r, "CHASSIS SETTINGS", inspR.x + 12.0f, iy, 10.5f,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
             iy += 22.0f;
 
-            drawText(r, "Title: " + guiPanel_.title, inspR.x + 12.0f, iy, 9.5f, 0.9f, 0.9f, 0.9f, 1.0f);
+            drawText(r, "Title: " + guiPanel_.title, inspR.x + 12.0f, iy, 9.5f,
+                     theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
             iy += 16.0f;
-            drawText(r, "Subtitle: " + guiPanel_.subtitle, inspR.x + 12.0f, iy, 8.5f, 0.7f, 0.75f, 0.85f, 0.9f);
+            drawText(r, "Subtitle: " + guiPanel_.subtitle, inspR.x + 12.0f, iy, 8.5f,
+                     theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 0.9f);
             iy += 24.0f;
 
-            drawText(r, "BACKGROUND MATERIAL", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            // 1. Chassis Base Color
+            drawText(r, "CHASSIS COLOR", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
             iy += 14.0f;
 
-            auto addThemeChip = [&](const std::string& name, GuiChassisStyle style) {
-                Rect2D chipR(inspR.x + 8.0f, iy, inspR.w - 16.0f, 22.0f);
-                inspectorThemeBtns_.push_back({style, chipR});
-                bool isSel = (guiPanel_.chassisStyle == style);
-                drawRoundedRect(r, chipR.x, chipR.y, chipR.w, chipR.h, 3.0f,
-                                isSel ? 0.22f : 0.14f, isSel ? 0.26f : 0.16f, isSel ? 0.35f : 0.20f, 0.9f);
-                drawRoundedRectOutline(r, chipR.x, chipR.y, chipR.w, chipR.h, 3.0f,
-                                       isSel ? 0.0f : 0.2f, isSel ? 0.95f : 0.25f, isSel ? 1.0f : 0.3f, 0.8f, 1.0f);
-                drawText(r, name, chipR.x + 8.0f, chipR.y + 6.0f, 8.5f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, 1.0f);
-                iy += 25.0f;
-            };
-
-            addThemeChip("Dark Chassis", GuiChassisStyle::DarkChassis);
-            addThemeChip("Brushed Aluminum", GuiChassisStyle::BrushedAluminum);
-            addThemeChip("Brushed Steel", GuiChassisStyle::BrushedSteel);
-            addThemeChip("Matte Powder-Coat", GuiChassisStyle::MattePowderCoat);
-            addThemeChip("Crinkle Wrinkle", GuiChassisStyle::CrinklePaint);
-            addThemeChip("Bakelite Swirl", GuiChassisStyle::Bakelite);
-            addThemeChip("Walnut Wood", GuiChassisStyle::Walnut);
-            addThemeChip("Rosewood", GuiChassisStyle::Rosewood);
-            addThemeChip("PCB Green", GuiChassisStyle::PcbGreen);
-            addThemeChip("Silver Console", GuiChassisStyle::Silver);
-            addThemeChip("SNES Vintage", GuiChassisStyle::Snes);
-            addThemeChip("Aged Grunge", GuiChassisStyle::Grunge);
-            addThemeChip("Carbon Fibre", GuiChassisStyle::Carbon);
-
-            iy += 6.0f;
-            drawText(r, "CHASSIS TINT / FINISH", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
-            iy += 14.0f;
-
-            struct TintPreset {
+            struct ColorPreset {
                 std::optional<Color> color;
                 std::string label;
             };
-            TintPreset tints[6] = {
-                {std::nullopt, "NAT"},
-                {Color(0.12f, 0.45f, 0.95f), "BLU"},
-                {Color(0.85f, 0.72f, 0.45f), "GLD"},
-                {Color(0.08f, 0.42f, 0.18f), "GRN"},
-                {Color(0.55f, 0.08f, 0.12f), "RED"},
-                {Color(0.18f, 0.20f, 0.24f), "SLT"}
+            // 12 curated hardware chassis colors in 2 rows of 6
+            const ColorPreset swatches[12] = {
+                {std::nullopt, "DARK"},
+                {Color(0.18f, 0.20f, 0.24f), "STEEL"},
+                {Color(0.76f, 0.78f, 0.82f), "SLVR"},
+                {Color(0.91f, 0.92f, 0.94f), "WHT"},
+                {Color(0.28f, 0.17f, 0.10f), "WLNT"},
+                {Color(0.22f, 0.08f, 0.06f), "ROSE"},
+                {Color(0.32f, 0.11f, 0.06f), "BAKE"},
+                {Color(0.86f, 0.85f, 0.81f), "CREM"},
+                {Color(0.06f, 0.24f, 0.12f), "PCB"},
+                {Color(0.08f, 0.09f, 0.11f), "CARB"},
+                {Color(0.12f, 0.18f, 0.28f), "NAVY"},
+                {Color(0.35f, 0.25f, 0.08f), "AMBR"}
             };
-            for (int t = 0; t < 6; ++t) {
-                Rect2D tintR(inspR.x + 8.0f + (t * 31.0f), iy, 27.0f, 20.0f);
-                inspectorChassisTintBtns_.push_back({tints[t].color, tintR});
-                bool isSel = (tints[t].color == guiPanel_.chassisTint);
-                Color btnBg = tints[t].color.has_value() ? *tints[t].color : Color(0.25f, 0.26f, 0.30f);
-                drawRoundedRect(r, tintR.x, tintR.y, tintR.w, tintR.h, 3.0f, btnBg.r, btnBg.g, btnBg.b, 1.0f);
-                if (isSel) {
-                    drawRoundedRectOutline(r, tintR.x, tintR.y, tintR.w, tintR.h, 3.0f, 1.0f, 1.0f, 1.0f, 0.95f, 1.5f);
+
+            const float swatchW = (inspR.w - 24.0f - 15.0f) / 6.0f;
+            const float swatchH = 20.0f;
+
+            for (int row = 0; row < 2; ++row) {
+                for (int col = 0; col < 6; ++col) {
+                    int idx = row * 6 + col;
+                    Rect2D sR(inspR.x + 12.0f + col * (swatchW + 3.0f), iy, swatchW, swatchH);
+                    inspectorChassisTintBtns_.push_back({swatches[idx].color, sR});
+                    bool isSel = (swatches[idx].color == guiPanel_.chassisTint);
+                    Color btnBg = swatches[idx].color.has_value() ? *swatches[idx].color : theme.controlBackground;
+                    drawRoundedRect(r, sR.x, sR.y, sR.w, sR.h, 3.0f, btnBg.r, btnBg.g, btnBg.b, 1.0f);
+                    if (isSel) {
+                        drawRoundedRectOutline(r, sR.x, sR.y, sR.w, sR.h, 3.0f,
+                                               theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.5f);
+                    } else {
+                        drawRoundedRectOutline(r, sR.x, sR.y, sR.w, sR.h, 3.0f,
+                                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
+                    }
+                    Color swatchTextColor = (btnBg.luminance() > 0.5f) ? Color(0.1f, 0.1f, 0.1f) : Color(0.9f, 0.9f, 0.9f);
+                    drawCenteredText(r, swatches[idx].label, sR.x, sR.y + 4.0f, sR.w, 12.0f, 6.5f,
+                                     swatchTextColor.r, swatchTextColor.g, swatchTextColor.b, 0.95f);
                 }
-                drawText(r, tints[t].label, tintR.x + 4.0f, tintR.y + 6.0f, 7.5f, 1.0f, 1.0f, 1.0f, 0.9f);
+                iy += swatchH + 4.0f;
             }
-            iy += 30.0f;
 
-            drawText(r, "ACCENT COLOR", inspR.x + 12.0f, iy, 8.5f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
-            iy += 14.0f;
-
-            Color accents[5] = {{0.0f, 0.95f, 1.0f}, {1.0f, 0.85f, 0.0f}, {1.0f, 0.16f, 0.55f}, {0.0f, 1.0f, 0.55f}, {1.0f, 0.55f, 0.0f}};
-            for (int a = 0; a < 5; ++a) {
-                Rect2D accR(inspR.x + 10.0f + (a * 38.0f), iy, 32.0f, 20.0f);
-                inspectorAccentBtns_.push_back({accents[a], accR});
-                drawRoundedRect(r, accR.x, accR.y, accR.w, accR.h, 3.0f, accents[a].r, accents[a].g, accents[a].b, 1.0f);
-            }
-            iy += 30.0f;
+            iy += 2.0f;
+            btnCustomColorPicker_ = Rect2D(inspR.x + 12.0f, iy, inspR.w - 24.0f, 22.0f);
+            drawButton(r, btnCustomColorPicker_, "+ CUSTOM COLOR PICKER...",
+                       theme.controlBackground, theme.borderSubtle,
+                       theme.textPrimary, 8.0f, 3.0f, 1.0f);
+            iy += 28.0f;
 
             inspectorWoodCheeksBtn_ = Rect2D(inspR.x + 10.0f, iy, inspR.w - 20.0f, 24.0f);
+            Color wcBg = guiPanel_.woodCheeks ?
+                (theme.isLight ? Color{0.85f, 0.96f, 0.90f, 0.9f} : Color{0.12f, 0.24f, 0.18f, 0.85f}) :
+                theme.controlBackground;
+            Color wcBorder = guiPanel_.woodCheeks ? Color{0.0f, 0.95f, 0.45f, 0.8f} : theme.borderSubtle;
+            Color wcText = guiPanel_.woodCheeks ?
+                (theme.isLight ? Color{0.0f, 0.60f, 0.25f, 1.0f} : Color{0.0f, 1.0f, 0.55f, 1.0f}) :
+                theme.textMuted;
             drawButton(r, inspectorWoodCheeksBtn_, guiPanel_.woodCheeks ? "WOOD CHEEKS: ENABLED" : "WOOD CHEEKS: DISABLED",
-                       Color{0.16f, 0.18f, 0.24f, 0.9f}, guiPanel_.woodCheeks ? Color{0.0f, 0.95f, 0.45f, 0.8f} : Color{0.3f, 0.3f, 0.3f, 0.8f},
-                       guiPanel_.woodCheeks ? Color{0.0f, 1.0f, 0.55f, 1.0f} : Color{0.7f, 0.7f, 0.7f, 1.0f}, 8.5f, 3.0f, 1.0f);
+                       wcBg, wcBorder, wcText, 8.5f, 3.0f, 1.0f);
+            iy += 30.0f;
+
+            // =========================================================================
+            // PROCEDURAL CHASSIS SURFACE (3-TIER + OPACITY STACK)
+            // =========================================================================
+            drawText(r, "PROCEDURAL CHASSIS SURFACE", inspR.x + 12.0f, iy, 9.0f,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+            iy += 16.0f;
+
+            // --- TIER 1: VECTOR PATTERN ---
+            drawText(r, "TIER 1: VECTOR PATTERN", inspR.x + 12.0f, iy, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            iy += 13.0f;
+
+            struct PatternChip {
+                std::optional<VectorPatternType> pattern;
+                std::string label;
+            };
+
+            // Row 1: AUTO, NONE, STEEL, WOOD
+            PatternChip row1[4] = {
+                {std::nullopt, "AUTO"},
+                {VectorPatternType::None, "NONE"},
+                {VectorPatternType::BrushedSteel, "STEEL"},
+                {VectorPatternType::WoodGrain, "WOOD"}
+            };
+            float btnW4 = (inspR.w - 24.0f - 9.0f) / 4.0f;
+            for (int p = 0; p < 4; ++p) {
+                Rect2D pR(inspR.x + 12.0f + p * (btnW4 + 3.0f), iy, btnW4, 20.0f);
+                inspectorPatternBtns_.push_back({row1[p].pattern, pR});
+                bool isSel = (row1[p].pattern == guiPanel_.patternOverride);
+                Color chipBg = isSel ?
+                    (theme.isLight ? theme.primaryAccent.withAlpha(0.2f) : theme.primaryAccent.withAlpha(0.3f)) :
+                    theme.controlBackground;
+                Color chipBorder = isSel ? theme.primaryAccent : theme.borderSubtle;
+                Color chipText = isSel ? (theme.isLight ? theme.primaryAccent.darken(0.1f) : theme.primaryAccent) : theme.textPrimary;
+                drawRoundedRect(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBg.r, chipBg.g, chipBg.b, 0.95f);
+                drawRoundedRectOutline(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBorder.r, chipBorder.g, chipBorder.b, 0.85f, 1.0f);
+                drawText(r, row1[p].label, pR.x + 3.0f, pR.y + 6.0f, 7.5f, chipText.r, chipText.g, chipText.b, 1.0f);
+            }
+            iy += 24.0f;
+
+            // Row 2: SLATS, MESH, HONEYCOMB, GRILL
+            PatternChip row2[4] = {
+                {VectorPatternType::HorizontalSlats, "SLATS"},
+                {VectorPatternType::DiagonalMesh, "MESH"},
+                {VectorPatternType::HexHoneycomb, "HONEYCOMB"},
+                {VectorPatternType::SpeakerGrill, "GRILL"}
+            };
+            for (int p = 0; p < 4; ++p) {
+                Rect2D pR(inspR.x + 12.0f + p * (btnW4 + 3.0f), iy, btnW4, 20.0f);
+                inspectorPatternBtns_.push_back({row2[p].pattern, pR});
+                bool isSel = (row2[p].pattern == guiPanel_.patternOverride);
+                Color chipBg = isSel ?
+                    (theme.isLight ? theme.primaryAccent.withAlpha(0.2f) : theme.primaryAccent.withAlpha(0.3f)) :
+                    theme.controlBackground;
+                Color chipBorder = isSel ? theme.primaryAccent : theme.borderSubtle;
+                Color chipText = isSel ? (theme.isLight ? theme.primaryAccent.darken(0.1f) : theme.primaryAccent) : theme.textPrimary;
+                drawRoundedRect(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBg.r, chipBg.g, chipBg.b, 0.95f);
+                drawRoundedRectOutline(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBorder.r, chipBorder.g, chipBorder.b, 0.85f, 1.0f);
+                drawText(r, row2[p].label, pR.x + 3.0f, pR.y + 6.0f, 7.5f, chipText.r, chipText.g, chipText.b, 1.0f);
+            }
+            iy += 24.0f;
+
+            // Row 3: DOT GRID, CIRCUITS, PATINA
+            PatternChip row3[3] = {
+                {VectorPatternType::DotGrid, "DOT GRID"},
+                {VectorPatternType::CircuitTraces, "CIRCUITS"},
+                {VectorPatternType::VintagePatina, "PATINA"}
+            };
+            float btnW3 = (inspR.w - 24.0f - 6.0f) / 3.0f;
+            for (int p = 0; p < 3; ++p) {
+                Rect2D pR(inspR.x + 12.0f + p * (btnW3 + 3.0f), iy, btnW3, 20.0f);
+                inspectorPatternBtns_.push_back({row3[p].pattern, pR});
+                bool isSel = (row3[p].pattern == guiPanel_.patternOverride);
+                Color chipBg = isSel ?
+                    (theme.isLight ? theme.primaryAccent.withAlpha(0.2f) : theme.primaryAccent.withAlpha(0.3f)) :
+                    theme.controlBackground;
+                Color chipBorder = isSel ? theme.primaryAccent : theme.borderSubtle;
+                Color chipText = isSel ? (theme.isLight ? theme.primaryAccent.darken(0.1f) : theme.primaryAccent) : theme.textPrimary;
+                drawRoundedRect(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBg.r, chipBg.g, chipBg.b, 0.95f);
+                drawRoundedRectOutline(r, pR.x, pR.y, pR.w, pR.h, 3.0f, chipBorder.r, chipBorder.g, chipBorder.b, 0.85f, 1.0f);
+                drawText(r, row3[p].label, pR.x + 4.0f, pR.y + 6.0f, 7.5f, chipText.r, chipText.g, chipText.b, 1.0f);
+            }
+            iy += 24.0f;
+
+            // Display active pattern status label
+            VectorPatternType effPat = guiPanel_.getEffectivePattern();
+            std::string patName = "NONE";
+            switch (effPat) {
+                case VectorPatternType::BrushedSteel: patName = "BRUSHED STEEL (Hairline Grain)"; break;
+                case VectorPatternType::WoodGrain: patName = "WOOD GRAIN (Growth Rings)"; break;
+                case VectorPatternType::SpeakerGrill: patName = "SPEAKER GRILL (Woven Fabric)"; break;
+                case VectorPatternType::VintagePatina: patName = "VINTAGE PATINA (Vignette + Specks)"; break;
+                case VectorPatternType::HorizontalSlats: patName = "SLATS (Milled Ribs)"; break;
+                case VectorPatternType::DiagonalMesh: patName = "MESH (Carbon Weave)"; break;
+                case VectorPatternType::HexHoneycomb: patName = "HEX HONEYCOMB"; break;
+                case VectorPatternType::DotGrid: patName = "DOT GRID (Perforated)"; break;
+                case VectorPatternType::CircuitTraces: patName = "CIRCUIT TRACES (PCB Silkscreen)"; break;
+                case VectorPatternType::None: default: patName = "NONE (Pure Gradient)"; break;
+            }
+            std::string statusText = guiPanel_.patternOverride.has_value() ? ("Active: " + patName) : ("Active (Auto): " + patName);
+            drawText(r, statusText, inspR.x + 12.0f, iy, 7.5f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.85f);
+            iy += 20.0f;
+
+            // --- TIER 2: GRADIENT SHADING ---
+            drawText(r, "TIER 2: GRADIENT SHADING", inspR.x + 12.0f, iy, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            iy += 13.0f;
+
+            struct GradChip {
+                GuiGradientType type;
+                std::string label;
+            };
+            GradChip gradRow[4] = {
+                {GuiGradientType::VerticalLinear, "LINEAR"},
+                {GuiGradientType::RadialVignette, "RADIAL"},
+                {GuiGradientType::DiagonalLinear, "DIAGONAL"},
+                {GuiGradientType::Solid, "SOLID"}
+            };
+            for (int g = 0; g < 4; ++g) {
+                Rect2D gR(inspR.x + 12.0f + g * (btnW4 + 3.0f), iy, btnW4, 20.0f);
+                inspectorGradientBtns_.push_back({gradRow[g].type, gR});
+                bool isSel = (gradRow[g].type == guiPanel_.gradientType);
+                Color chipBg = isSel ?
+                    (theme.isLight ? theme.primaryAccent.withAlpha(0.2f) : theme.primaryAccent.withAlpha(0.3f)) :
+                    theme.controlBackground;
+                Color chipBorder = isSel ? theme.primaryAccent : theme.borderSubtle;
+                Color chipText = isSel ? (theme.isLight ? theme.primaryAccent.darken(0.1f) : theme.primaryAccent) : theme.textPrimary;
+                drawRoundedRect(r, gR.x, gR.y, gR.w, gR.h, 3.0f, chipBg.r, chipBg.g, chipBg.b, 0.95f);
+                drawRoundedRectOutline(r, gR.x, gR.y, gR.w, gR.h, 3.0f, chipBorder.r, chipBorder.g, chipBorder.b, 0.85f, 1.0f);
+                drawText(r, gradRow[g].label, gR.x + 3.0f, gR.y + 6.0f, 7.5f, chipText.r, chipText.g, chipText.b, 1.0f);
+            }
+            iy += 26.0f;
+
+            // --- TIER 3: PHYSICAL DIRT / NOISE ---
+            int dirtPct = static_cast<int>(std::round(guiPanel_.dirtNoiseLevel * 100.0f));
+            drawText(r, "TIER 3: DIRT & NOISE (" + std::to_string(dirtPct) + "%)", inspR.x + 12.0f, iy, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            iy += 13.0f;
+
+            dirtNoiseSliderBounds_ = Rect2D(inspR.x + 12.0f, iy, inspR.w - 24.0f, 16.0f);
+            drawRoundedRect(r, dirtNoiseSliderBounds_.x, dirtNoiseSliderBounds_.y + 4.0f, dirtNoiseSliderBounds_.w, 8.0f, 3.0f,
+                            theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.9f);
+            float dirtFillW = dirtNoiseSliderBounds_.w * std::clamp(guiPanel_.dirtNoiseLevel, 0.0f, 1.0f);
+            if (dirtFillW > 0.0f) {
+                drawRoundedRect(r, dirtNoiseSliderBounds_.x, dirtNoiseSliderBounds_.y + 4.0f, dirtFillW, 8.0f, 3.0f, 0.85f, 0.65f, 0.20f, 0.85f);
+            }
+            drawRoundedRectOutline(r, dirtNoiseSliderBounds_.x, dirtNoiseSliderBounds_.y + 4.0f, dirtNoiseSliderBounds_.w, 8.0f, 3.0f,
+                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
+            float thumbX = dirtNoiseSliderBounds_.x + dirtFillW;
+            drawCircle(r, thumbX, dirtNoiseSliderBounds_.y + 8.0f, 6.0f, 1.0f, 0.80f, 0.30f, 1.0f);
+            drawCircle(r, thumbX, dirtNoiseSliderBounds_.y + 8.0f, 3.0f, 0.15f, 0.15f, 0.15f, 1.0f);
+            iy += 24.0f;
+
+            // --- TIER 4: MASTER BACKGROUND OPACITY ---
+            int opacPct = static_cast<int>(std::round(guiPanel_.backgroundOpacity * 100.0f));
+            drawText(r, "TIER 4: BACKGROUND OPACITY (" + std::to_string(opacPct) + "%)", inspR.x + 12.0f, iy, 8.0f, theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 1.0f);
+            iy += 13.0f;
+
+            bgOpacitySliderBounds_ = Rect2D(inspR.x + 12.0f, iy, inspR.w - 24.0f, 16.0f);
+            drawRoundedRect(r, bgOpacitySliderBounds_.x, bgOpacitySliderBounds_.y + 4.0f, bgOpacitySliderBounds_.w, 8.0f, 3.0f,
+                            theme.controlWell.r, theme.controlWell.g, theme.controlWell.b, 0.9f);
+            float opacFillW = bgOpacitySliderBounds_.w * std::clamp(guiPanel_.backgroundOpacity, 0.0f, 1.0f);
+            if (opacFillW > 0.0f) {
+                drawRoundedRect(r, bgOpacitySliderBounds_.x, bgOpacitySliderBounds_.y + 4.0f, opacFillW, 8.0f, 3.0f,
+                                theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.85f);
+            }
+            drawRoundedRectOutline(r, bgOpacitySliderBounds_.x, bgOpacitySliderBounds_.y + 4.0f, bgOpacitySliderBounds_.w, 8.0f, 3.0f,
+                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
+            float opacThumbX = bgOpacitySliderBounds_.x + opacFillW;
+            drawCircle(r, opacThumbX, bgOpacitySliderBounds_.y + 8.0f, 6.0f,
+                       theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+            drawCircle(r, opacThumbX, bgOpacitySliderBounds_.y + 8.0f, 3.0f, 0.15f, 0.15f, 0.15f, 1.0f);
+            iy += 26.0f;
 
         } else if (selectedDesignerRow_ >= 0 && selectedDesignerRow_ < static_cast<int>(guiPanel_.rows.size())) {
             auto& row = guiPanel_.rows[selectedDesignerRow_];
             if (selectedDesignerWidget_ >= 0 && selectedDesignerWidget_ < static_cast<int>(row.widgets.size())) {
                 auto& w = row.widgets[selectedDesignerWidget_];
 
-                drawText(r, "WIDGET PROPERTIES", inspR.x + 12.0f, iy, 10.5f, 0.0f, 0.95f, 1.0f, 1.0f);
+                drawText(r, "WIDGET PROPERTIES", inspR.x + 12.0f, iy, 10.5f,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
                 iy += 22.0f;
 
-                drawText(r, "ID: " + w.id, inspR.x + 12.0f, iy, 9.0f, 0.7f, 0.75f, 0.85f, 0.8f);
+                drawText(r, "ID: " + w.id, inspR.x + 12.0f, iy, 9.0f,
+                         theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 0.8f);
                 iy += 16.0f;
-                drawText(r, "Label: " + w.label, inspR.x + 12.0f, iy, 9.5f, 0.95f, 0.95f, 0.95f, 1.0f);
+                drawText(r, "Label: " + w.label, inspR.x + 12.0f, iy, 9.5f,
+                         theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 1.0f);
                 iy += 20.0f;
 
                 // Parameter Binding Selector
@@ -3271,8 +3501,16 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                     Rect2D pR(inspR.x + 8.0f, iy, inspR.w - 16.0f, 20.0f);
                     inspectorParamBtns_.push_back({p.name, pR});
                     bool isBound = (w.param == p.name);
-                    drawRoundedRect(r, pR.x, pR.y, pR.w, pR.h, 3.0f, isBound ? 0.0f : 0.14f, isBound ? 0.35f : 0.16f, isBound ? 0.45f : 0.20f, 0.9f);
-                    drawText(r, p.name, pR.x + 8.0f, pR.y + 5.0f, 8.5f, isBound ? 1.0f : 0.8f, isBound ? 1.0f : 0.8f, isBound ? 1.0f : 0.8f, 1.0f);
+                    Color pBg = isBound ?
+                        (theme.isLight ? theme.primaryAccent.withAlpha(0.25f) : theme.primaryAccent.withAlpha(0.35f)) :
+                        theme.controlBackground;
+                    Color pText = isBound ? (theme.isLight ? theme.primaryAccent.darken(0.15f) : theme.primaryAccent) : theme.textPrimary;
+                    drawRoundedRect(r, pR.x, pR.y, pR.w, pR.h, 3.0f, pBg.r, pBg.g, pBg.b, 0.9f);
+                    drawRoundedRectOutline(r, pR.x, pR.y, pR.w, pR.h, 3.0f,
+                                           isBound ? theme.primaryAccent.r : theme.borderSubtle.r,
+                                           isBound ? theme.primaryAccent.g : theme.borderSubtle.g,
+                                           isBound ? theme.primaryAccent.b : theme.borderSubtle.b, 0.7f, 1.0f);
+                    drawText(r, p.name, pR.x + 8.0f, pR.y + 5.0f, 8.5f, pText.r, pText.g, pText.b, 1.0f);
                     iy += 23.0f;
                 }
 
@@ -3317,16 +3555,22 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                         Rect2D sR(btnX, btnY, colW, btnH);
                         inspectorKnobStyleBtns_.push_back({kStyles[i].st, sR});
                         bool isSel = (w.knobStyle == kStyles[i].st);
-                        drawRoundedRect(r, sR.x, sR.y, sR.w, sR.h, 3.0f,
-                                        isSel ? 0.25f : 0.14f, isSel ? 0.22f : 0.16f, isSel ? 0.10f : 0.20f, 0.9f);
+                        Color kBg = isSel ?
+                            (theme.isLight ? theme.primaryAccent.withAlpha(0.22f) : theme.primaryAccent.withAlpha(0.3f)) :
+                            theme.controlBackground;
+                        drawRoundedRect(r, sR.x, sR.y, sR.w, sR.h, 3.0f, kBg.r, kBg.g, kBg.b, 0.9f);
                         if (isSel) {
                             Color hlCol = (kStyles[i].st == GuiKnobStyle::NeumorphicLensPink) ? Color(1.0f, 0.35f, 0.65f, 0.95f) :
                                           ((kStyles[i].st == GuiKnobStyle::NeumorphicLens) ? Color(0.96f, 0.98f, 1.0f, 0.95f) :
-                                           Color(1.0f, 0.85f, 0.0f, 0.95f));
+                                           theme.primaryAccent);
                             drawRoundedRectOutline(r, sR.x, sR.y, sR.w, sR.h, 3.0f, hlCol.r, hlCol.g, hlCol.b, hlCol.a, 1.2f);
+                            drawText(r, kStyles[i].name, sR.x + 4.0f, sR.y + 5.0f, 7.5f, hlCol.r, hlCol.g, hlCol.b, 1.0f);
+                        } else {
+                            drawRoundedRectOutline(r, sR.x, sR.y, sR.w, sR.h, 3.0f,
+                                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
+                            drawText(r, kStyles[i].name, sR.x + 4.0f, sR.y + 5.0f, 7.5f,
+                                     theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 1.0f);
                         }
-                        drawText(r, kStyles[i].name, sR.x + 4.0f, sR.y + 5.0f, 7.5f,
-                                 isSel ? 1.0f : 0.8f, isSel ? 0.85f : 0.8f, isSel ? 0.0f : 0.8f, 1.0f);
                     }
                     iy += ((kStyles.size() + 1) / 2) * (btnH + gapY) + 6.0f;
 
@@ -3341,12 +3585,12 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                     const GlyphChip glyphs[10] = {
                         {"none", "NONE"},
                         {"\xe2\x88\xbf", "\xe2\x88\xbf OSC"},
-                        {"\xf3\xb0\x93\x83", "SPK"},
-                        {"\xf3\xb0\x8e\x86", "NOTE"},
-                        {"\xf3\xb1\x90\x8b", "ZAP"},
-                        {"\xf3\xb0\x9d\x9a", "WAVE"},
-                        {"\xf3\xb0\x8b\x8b", "PHONES"},
-                        {"\xf3\xb0\x92\x93", "GEAR"},
+                        {"hw_speaker", "SPK"},
+                        {"ui_cat_midifx", "NOTE"},
+                        {"gen_zap", "ZAP"},
+                        {"fx_filter", "FILT"},
+                        {"hw_headphones", "PHONES"},
+                        {"inst_synth", "SYNTH"},
                         {"~", "~ MOD"},
                         {"*", "* STAR"}
                     };
@@ -3373,13 +3617,21 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                             isSel = (w.centerGlyph == glyphs[gi].glyph);
                         }
 
-                        drawRoundedRect(r, gR.x, gR.y, gR.w, gR.h, 3.0f,
-                                        isSel ? 0.28f : 0.14f, isSel ? 0.20f : 0.16f, isSel ? 0.28f : 0.20f, 0.9f);
+                        Color gBg = isSel ?
+                            (theme.isLight ? theme.primaryAccent.withAlpha(0.22f) : theme.primaryAccent.withAlpha(0.3f)) :
+                            theme.controlBackground;
+                        drawRoundedRect(r, gR.x, gR.y, gR.w, gR.h, 3.0f, gBg.r, gBg.g, gBg.b, 0.9f);
                         if (isSel) {
-                            drawRoundedRectOutline(r, gR.x, gR.y, gR.w, gR.h, 3.0f, 1.0f, 0.35f, 0.65f, 0.95f, 1.2f);
+                            drawRoundedRectOutline(r, gR.x, gR.y, gR.w, gR.h, 3.0f,
+                                                   theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.2f);
+                            drawCenteredText(r, glyphs[gi].label, gR.x, gR.y + 4.0f, gR.w, 12.0f, 7.5f,
+                                             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+                        } else {
+                            drawRoundedRectOutline(r, gR.x, gR.y, gR.w, gR.h, 3.0f,
+                                                   theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
+                            drawCenteredText(r, glyphs[gi].label, gR.x, gR.y + 4.0f, gR.w, 12.0f, 7.5f,
+                                             theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 1.0f);
                         }
-                        drawCenteredText(r, glyphs[gi].label, gR.x, gR.y + 4.0f, gR.w, 12.0f, 7.5f,
-                                         isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, 1.0f);
                     }
                     iy += 2 * (gBtnH + 3.0f) + 6.0f;
                 }
@@ -3395,26 +3647,48 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
                     Rect2D szR(inspR.x + 10.0f + (s * 68.0f), iy, 62.0f, 22.0f);
                     inspectorSizeBtns_.push_back({sizes[s], szR});
                     bool isSel = (std::abs(w.size - sizes[s]) < 2.0f);
-                    drawRoundedRect(r, szR.x, szR.y, szR.w, szR.h, 3.0f, isSel ? 0.22f : 0.14f, isSel ? 0.26f : 0.16f, isSel ? 0.35f : 0.20f, 0.9f);
-                    drawCenteredText(r, sLabels[s], szR.x, szR.y + 4.0f, szR.w, 14.0f, 8.5f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, isSel ? 1.0f : 0.8f, 1.0f);
+                    Color szBg = isSel ?
+                        (theme.isLight ? theme.primaryAccent.withAlpha(0.22f) : theme.primaryAccent.withAlpha(0.3f)) :
+                        theme.controlBackground;
+                    drawRoundedRect(r, szR.x, szR.y, szR.w, szR.h, 3.0f, szBg.r, szBg.g, szBg.b, 0.9f);
+                    if (isSel) {
+                        drawRoundedRectOutline(r, szR.x, szR.y, szR.w, szR.h, 3.0f,
+                                               theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f, 1.2f);
+                        drawCenteredText(r, sLabels[s], szR.x, szR.y + 4.0f, szR.w, 14.0f, 8.5f,
+                                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
+                    } else {
+                        drawRoundedRectOutline(r, szR.x, szR.y, szR.w, szR.h, 3.0f,
+                                               theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.6f, 1.0f);
+                        drawCenteredText(r, sLabels[s], szR.x, szR.y + 4.0f, szR.w, 14.0f, 8.5f,
+                                         theme.textSecondary.r, theme.textSecondary.g, theme.textSecondary.b, 1.0f);
+                    }
                 }
                 iy += 32.0f;
 
                 inspectorDuplicateBtn_ = Rect2D(inspR.x + 10.0f, iy, inspR.w - 20.0f, 24.0f);
-                drawButton(r, inspectorDuplicateBtn_, "DUPLICATE WIDGET",
-                           Color{0.14f, 0.18f, 0.24f, 0.9f}, Color{1.0f, 0.85f, 0.0f, 0.8f}, Color{1.0f, 0.85f, 0.0f, 1.0f}, 8.5f, 3.0f, 1.0f);
+                Color dupBg = theme.isLight ? Color{0.98f, 0.95f, 0.85f, 0.9f} : Color{0.14f, 0.18f, 0.24f, 0.85f};
+                Color dupBorder = Color{0.9f, 0.75f, 0.0f, 0.8f};
+                Color dupText = theme.isLight ? Color{0.75f, 0.55f, 0.0f, 1.0f} : Color{1.0f, 0.85f, 0.0f, 1.0f};
+                drawButton(r, inspectorDuplicateBtn_, "DUPLICATE WIDGET", dupBg, dupBorder, dupText, 8.5f, 3.0f, 1.0f);
                 iy += 28.0f;
 
                 inspectorDeleteBtn_ = Rect2D(inspR.x + 10.0f, iy, inspR.w - 20.0f, 24.0f);
-                drawButton(r, inspectorDeleteBtn_, "DELETE WIDGET",
-                           Color{0.28f, 0.10f, 0.12f, 0.9f}, Color{1.0f, 0.20f, 0.25f, 0.9f}, Color{1.0f, 0.30f, 0.35f, 1.0f}, 8.5f, 3.0f, 1.0f);
+                Color delWdgBg = theme.isLight ? Color{0.98f, 0.88f, 0.88f, 0.9f} : Color{0.28f, 0.10f, 0.12f, 0.9f};
+                Color delWdgBorder = Color{0.95f, 0.20f, 0.25f, 0.9f};
+                Color delWdgText = theme.isLight ? Color{0.8f, 0.15f, 0.15f, 1.0f} : Color{1.0f, 0.30f, 0.35f, 1.0f};
+                drawButton(r, inspectorDeleteBtn_, "DELETE WIDGET", delWdgBg, delWdgBorder, delWdgText, 8.5f, 3.0f, 1.0f);
             }
         }
+
+        float totalContentH = (iy + inspectorScrollY_) - (inspR.y + 10.0f);
+        inspectorMaxScrollY_ = std::max(0.0f, totalContentH - (inspR.h - 20.0f));
+        r.popScissor();
     }
 
     // 4. Center Canvas Editor Area
     Rect2D centerCanvas(rect.x + palW, bodyY, rect.w - palW - inspW, bodyH);
-    drawRect(r, centerCanvas.x, centerCanvas.y, centerCanvas.w, centerCanvas.h, 0.07f, 0.08f, 0.10f, 1.0f);
+    drawRect(r, centerCanvas.x, centerCanvas.y, centerCanvas.w, centerCanvas.h,
+             theme.backgroundDark.r, theme.backgroundDark.g, theme.backgroundDark.b, 1.0f);
 
     // Render Faceplate preview inside center area
     renderHardwareFaceplate(ctx, centerCanvas);
@@ -3447,6 +3721,10 @@ void DesignView::renderGuiDesigner(const ViewContext& ctx, const Rect2D& rect) {
 }
 
 bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
+    if (colorPickerDialog_.isOpen()) {
+        if (colorPickerDialog_.handlePointer(ev)) return true;
+    }
+
     if (projectDrawer_.handlePointer(ev, ctx)) {
         isExplorerOpen_ = projectDrawer_.isExpanded();
         return true;
@@ -3809,27 +4087,45 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 
                 // Right Inspector clicks
                 if (isInspectorOpen_) {
-                    if (isChassisSelected_) {
-                        for (const auto& tBtn : inspectorThemeBtns_) {
-                            if (tBtn.second.contains(ev.x, ev.y)) {
-                                guiPanel_.chassisStyle = tBtn.first;
-                                syncGuiPanelToScript();
-                                return true;
-                            }
-                        }
-                        for (const auto& aBtn : inspectorAccentBtns_) {
-                            if (aBtn.second.contains(ev.x, ev.y)) {
-                                guiPanel_.accentColor = aBtn.first;
-                                syncGuiPanelToScript();
-                                return true;
-                            }
-                        }
+                    if (isChassisSelected_ || (selectedDesignerRow_ < 0 && selectedDesignerWidget_ < 0)) {
                         for (const auto& cBtn : inspectorChassisTintBtns_) {
                             if (cBtn.second.contains(ev.x, ev.y)) {
                                 guiPanel_.chassisTint = cBtn.first;
                                 syncGuiPanelToScript();
                                 return true;
                             }
+                        }
+                        if (btnCustomColorPicker_.contains(ev.x, ev.y)) {
+                            colorPickerDialog_.open(guiPanel_.chassisTint.value_or(Color(0.14f, 0.16f, 0.20f)), "SELECT CHASSIS COLOR");
+                            return true;
+                        }
+                        for (const auto& pBtn : inspectorPatternBtns_) {
+                            if (pBtn.second.contains(ev.x, ev.y)) {
+                                guiPanel_.patternOverride = pBtn.first;
+                                syncGuiPanelToScript();
+                                return true;
+                            }
+                        }
+                        for (const auto& gBtn : inspectorGradientBtns_) {
+                            if (gBtn.second.contains(ev.x, ev.y)) {
+                                guiPanel_.gradientType = gBtn.first;
+                                syncGuiPanelToScript();
+                                return true;
+                            }
+                        }
+                        if (dirtNoiseSliderBounds_.contains(ev.x, ev.y)) {
+                            isDraggingDirtNoiseSlider_ = true;
+                            float t = std::clamp((ev.x - dirtNoiseSliderBounds_.x) / dirtNoiseSliderBounds_.w, 0.0f, 1.0f);
+                            guiPanel_.dirtNoiseLevel = t;
+                            syncGuiPanelToScript();
+                            return true;
+                        }
+                        if (bgOpacitySliderBounds_.contains(ev.x, ev.y)) {
+                            isDraggingBgOpacitySlider_ = true;
+                            float t = std::clamp((ev.x - bgOpacitySliderBounds_.x) / bgOpacitySliderBounds_.w, 0.0f, 1.0f);
+                            guiPanel_.backgroundOpacity = t;
+                            syncGuiPanelToScript();
+                            return true;
                         }
                         if (inspectorWoodCheeksBtn_.contains(ev.x, ev.y)) {
                             guiPanel_.woodCheeks = !guiPanel_.woodCheeks;
@@ -4077,6 +4373,24 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
 
+        // Procedural chassis dirt/noise and opacity dragging
+        if (isDraggingDirtNoiseSlider_) {
+            if (dirtNoiseSliderBounds_.w > 0.0f) {
+                float t = std::clamp((ev.x - dirtNoiseSliderBounds_.x) / dirtNoiseSliderBounds_.w, 0.0f, 1.0f);
+                guiPanel_.dirtNoiseLevel = t;
+                syncGuiPanelToScript();
+            }
+            return true;
+        }
+        if (isDraggingBgOpacitySlider_) {
+            if (bgOpacitySliderBounds_.w > 0.0f) {
+                float t = std::clamp((ev.x - bgOpacitySliderBounds_.x) / bgOpacitySliderBounds_.w, 0.0f, 1.0f);
+                guiPanel_.backgroundOpacity = t;
+                syncGuiPanelToScript();
+            }
+            return true;
+        }
+
         // Live parameter slider dragging in Code tab
         if (draggingParamIndex_ >= 0 && draggingParamIndex_ < static_cast<int>(currentParams_.size())) {
             auto& p = currentParams_[draggingParamIndex_];
@@ -4119,6 +4433,12 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 openModuleSearchDialog(touchDownWorldX_, touchDownWorldY_);
                 return true;
             }
+            return true;
+        }
+
+        if (isDraggingDirtNoiseSlider_ || isDraggingBgOpacitySlider_) {
+            isDraggingDirtNoiseSlider_ = false;
+            isDraggingBgOpacitySlider_ = false;
             return true;
         }
 
@@ -4229,6 +4549,10 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             paletteScrollY_ = std::clamp(paletteScrollY_ - ev.scrollY * 24.0f, 0.0f, paletteMaxScrollY_);
             return true;
         }
+        if (mode_ == DesignSubMode::GuiDesigner && isInspectorOpen_ && ev.x > bounds_.x + bounds_.w - 240.0f) {
+            inspectorScrollY_ = std::clamp(inspectorScrollY_ - ev.scrollY * 24.0f, 0.0f, inspectorMaxScrollY_);
+            return true;
+        }
         if (mode_ == DesignSubMode::ModularRack || (mode_ == DesignSubMode::Split && !splitShowsGui_)) {
             if (ev.mods.ctrl) {
                 // Ctrl + mousewheel: zoom in / out anchored to mouse cursor
@@ -4256,6 +4580,12 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 }
 
 bool DesignView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+    if (colorPickerDialog_.isOpen()) {
+        if (colorPickerDialog_.handleKey(key, scancode, action, mods)) {
+            return true;
+        }
+    }
+
     if (moduleSearchDialog_.isOpen()) {
         if (moduleSearchDialog_.handleKey(key, scancode, action, mods)) {
             return true;

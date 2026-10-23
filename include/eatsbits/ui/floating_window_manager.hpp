@@ -29,9 +29,12 @@ struct DetachedWindowInfo {
     std::unique_ptr<BatchRenderer2D> renderer;
     int draggingRow{-1};
     int draggingWidget{-1};
+    float dragStartX{0.0f};
     float dragStartY{0.0f};
     float dragStartVal{0.0f};
     bool isDragging{false};
+    bool isDraggingListBox{false};
+    bool isListBoxDragging{false};
 };
 
 /**
@@ -102,8 +105,14 @@ public:
     /// Parameter modification callback from detached windows.
     std::function<void(uint32_t trackIndex, const std::string& paramName, float normVal)> onParamChanged;
 
+    /// Audition note callback for auditioning when presets/types are selected in detached windows.
+    std::function<void(uint32_t trackIndex, uint8_t note, float velocity)> onAuditionNote;
+
     void handleMouseMove(DetachedWindowInfo& info, float xpos, float ypos);
     void handleMouseButton(DetachedWindowInfo& info, int button, int action, float xpos, float ypos);
+    void handleScroll(DetachedWindowInfo& info, float xoffset, float yoffset, float xpos, float ypos);
+    void selectListBoxOption(DetachedWindowInfo& info, GuiWidgetDef& w, int newIdx);
+    void triggerRandomize(DetachedWindowInfo& info);
 
 private:
     std::unordered_map<uint32_t, DetachedWindowInfo> windows_;

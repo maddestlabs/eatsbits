@@ -6,6 +6,7 @@
 #include "eatsbits/audio/graph/nodes/clap_audio_node.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/ui/gui_window.hpp"
+#include "eatsbits/project/preset_loader.hpp"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -109,6 +110,9 @@ int main(int /*argc*/, char** /*argv*/) {
         size_t t0 = seq.addTrack("DXVII E-Piano", dx7Id, 128);
         auto* tr0 = seq.getTrack(t0);
         tr0->setChordFollowMode(theory::ChordFollowMode::Chord);
+        if (auto p = eatsbits::project::BuiltinPresetRegistry::createPresetById("dxvii_epiano")) {
+            tr0->setEatscriptCode(p->rawScript);
+        }
 
         // 8 bars of lush comping chords (16 steps per bar)
         // Bar 1 (steps 0..15): Comping hits on steps 0, 6, 10

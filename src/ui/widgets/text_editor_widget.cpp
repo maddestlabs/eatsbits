@@ -182,14 +182,21 @@ void TextEditorWidget::render(const ViewContext& ctx) {
     }
 
     // 1. Overall Editor Background
-    drawRect(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h, 0.06f, 0.07f, 0.09f, 1.0f);
+    drawRect(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h,
+             theme.codeEditorBg.r, theme.codeEditorBg.g, theme.codeEditorBg.b, 1.0f);
 
     // 2. Active Line Highlight across text area and gutter
     int curLine = presenter_.getCursor().line;
     float activeLineY = textAreaBounds_.y + static_cast<float>(curLine) * lineHeight_ - presenter_.getScrollY();
     if (activeLineY >= bounds_.y - lineHeight_ && activeLineY <= bounds_.y + bounds_.h) {
         BatchRenderer2D::ScissorScope activeLineScissor(r, bounds_.x, bounds_.y, bounds_.w - minimapW_, bounds_.h);
-        drawRect(r, bounds_.x, activeLineY, bounds_.w - minimapW_, lineHeight_, 1.0f, 1.0f, 1.0f, 0.045f);
+        if (theme.isLight) {
+            drawRect(r, bounds_.x, activeLineY, bounds_.w - minimapW_, lineHeight_,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.08f);
+        } else {
+            drawRect(r, bounds_.x, activeLineY, bounds_.w - minimapW_, lineHeight_,
+                     1.0f, 1.0f, 1.0f, 0.045f);
+        }
     }
 
     // 3. Render Gutter and Text Content
@@ -204,7 +211,7 @@ void TextEditorWidget::render(const ViewContext& ctx) {
                                theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.75f, 1.2f);
     } else {
         drawRoundedRectOutline(r, bounds_.x, bounds_.y, bounds_.w, bounds_.h, 2.0f,
-                               0.18f, 0.20f, 0.26f, 0.8f, 1.0f);
+                               theme.codeEditorBorder.r, theme.codeEditorBorder.g, theme.codeEditorBorder.b, 0.8f, 1.0f);
     }
 
     // 6. Mobile Code Accessory Toolbar
@@ -219,10 +226,11 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
     const auto& doc = presenter_.getDocument();
 
     // Line number gutter background
-    drawRect(r, gutterBounds_.x, gutterBounds_.y, gutterBounds_.w, gutterBounds_.h, 0.08f, 0.09f, 0.12f, 1.0f);
+    drawRect(r, gutterBounds_.x, gutterBounds_.y, gutterBounds_.w, gutterBounds_.h,
+             theme.codeEditorGutter.r, theme.codeEditorGutter.g, theme.codeEditorGutter.b, 1.0f);
     drawLine(r, gutterBounds_.x + gutterBounds_.w, gutterBounds_.y,
              gutterBounds_.x + gutterBounds_.w, gutterBounds_.y + gutterBounds_.h,
-             0.16f, 0.18f, 0.24f, 1.0f, 1.0f);
+             theme.codeEditorBorder.r, theme.codeEditorBorder.g, theme.codeEditorBorder.b, 1.0f, 1.0f);
 
     int totalLines = static_cast<int>(doc.getLineCount());
     int firstVisible = static_cast<int>(std::floor(presenter_.getScrollY() / lineHeight_));
@@ -462,8 +470,8 @@ void TextEditorWidget::renderGutterAndText(const ViewContext& ctx) {
             bool isActive = (l == presenter_.getCursor().line);
 
             float numX = gutterBounds_.x + gutterBounds_.w - 8.0f - static_cast<float>(numStr.length()) * charWidth_;
-            uint32_t numCol = isActive ? packColorU32(1.0f, 1.0f, 1.0f, 0.95f)
-                                       : packColorU32(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.60f);
+            uint32_t numCol = isActive ? (theme.isLight ? packColor(theme.textPrimary, 0.95f) : packColorU32(1.0f, 1.0f, 1.0f, 0.95f))
+                                       : packColor(theme.codeEditorGutterText, 0.70f);
             r.drawMonospaceText(numX, ly, charWidth_, charH, numStr, numCol);
         }
     }
@@ -475,10 +483,11 @@ void TextEditorWidget::renderMinimap(const ViewContext& ctx) {
     const auto& doc = presenter_.getDocument();
 
     // Minimap Background & Divider
-    drawRect(r, minimapBounds_.x, minimapBounds_.y, minimapBounds_.w, minimapBounds_.h, 0.08f, 0.09f, 0.12f, 0.95f);
+    drawRect(r, minimapBounds_.x, minimapBounds_.y, minimapBounds_.w, minimapBounds_.h,
+             theme.codeEditorGutter.r, theme.codeEditorGutter.g, theme.codeEditorGutter.b, 0.95f);
     drawLine(r, minimapBounds_.x, minimapBounds_.y,
              minimapBounds_.x, minimapBounds_.y + minimapBounds_.h,
-             0.18f, 0.20f, 0.26f, 1.0f, 1.0f);
+             theme.codeEditorBorder.r, theme.codeEditorBorder.g, theme.codeEditorBorder.b, 1.0f, 1.0f);
 
     size_t lineCount = doc.getLineCount();
     if (lineCount == 0) return;
@@ -549,6 +558,9 @@ bool TextEditorWidget::handlePointer(const PointerEvent& ev, const ViewContext& 
 
     if (ev.action == PointerAction::Down) {
         if (!bounds_.contains(ev.x, ev.y)) {
+            if (ctx.focusManager && ctx.focusManager->hasFocus(this)) {
+                ctx.focusManager->clearFocus();
+            }
             return false;
         }
 
@@ -889,10 +901,10 @@ void TextEditorWidget::renderAccessoryToolbar(const ViewContext& ctx) {
                 if (isPressed) {
                     bgCol = Color(theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.35f);
                     bdrCol = theme.primaryAccent;
-                    textCol = Color(1.0f, 1.0f, 1.0f, 1.0f);
+                    textCol = theme.textPrimary;
                 } else {
-                    bgCol = Color(0.13f, 0.14f, 0.19f, 0.90f);
-                    bdrCol = Color(0.22f, 0.24f, 0.30f, 0.85f);
+                    bgCol = theme.controlBackground;
+                    bdrCol = theme.borderSubtle;
                     textCol = theme.textPrimary;
                 }
             }

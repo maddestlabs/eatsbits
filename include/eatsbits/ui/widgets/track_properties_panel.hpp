@@ -504,7 +504,8 @@ struct TrackPropertiesDrawerData {
                 {"decay", "DECAY", 0.55f, "450 ms"},
                 {"snap", "SNAP", 0.75f, "75%"}
             };
-        } else if (instrumentEngine == "dx7") {
+        } else if (instrumentEngine == "dx7" || instrumentEngine == "dxvii_epiano" || instrumentEngine == "dxvii" || instrumentEngine == "eats_dx" ||
+                   instrument.find("DX") != std::string::npos || presetTitle.find("DX") != std::string::npos) {
             knobs = {
                 {"algo", "ALGO", 0.35f, "Algo 5"},
                 {"feedback", "FEEDBACK", 0.65f, "Lvl 6"},
@@ -860,6 +861,7 @@ private:
         PanKnob,
         PanSlider = PanKnob,
         InstrumentKnob,
+        ListBoxDrag,
         EqKnob,
         AudioFxKnob,
         MidiFxKnob,
@@ -913,6 +915,7 @@ private:
     float dragStartX_{0.0f};
     float dragStartVal_{0.0f};
     float dragStartScrollY_{0.0f};
+    bool isListBoxDragging_{false};
     int activeKnobIndex_{-1};
     std::string activeParamName_{""};
     size_t activeFxIndex_{0};

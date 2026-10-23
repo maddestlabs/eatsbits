@@ -42,6 +42,16 @@ ArrangerView::ArrangerView() {
     t1.knob4 = 0.85f; t1.knob4Name = "VOLUME";
     t1.chordFollowMode = theory::ChordFollowMode::Chord;
 
+    if (auto p = eatsbits::project::BuiltinPresetRegistry::createPresetById("dxvii_epiano")) {
+        t1.eatscriptCode = p->rawScript;
+        t1.customGuiPanel = createGuiPanelFromPresetDefinition(*p);
+        auto kList = extractKnobsFromPresetDefinition(*p);
+        t1.knobs.clear();
+        for (const auto& k : kList) {
+            t1.knobs.push_back({k.name, k.label, k.value, k.display});
+        }
+    }
+
     ArrangerTimelineClip c1{"c1", "FM Chords", 0, 1, 8, 0.62f, 0.31f, 0.87f, false, false, false, 8, 0, 1.0f, false};
     c1.notes = {
         // Bar 1-2: C Major (C4, E4, G4, B4)
@@ -58,6 +68,7 @@ ArrangerView::ArrangerView() {
 
     tracks_ = {t1};
     refreshAllClipChords();
+    syncDrawerDataForTrack(0);
 
     // Connect Reusable PluginSearchDialog callbacks
     pluginDialog_.onPluginSelected = [this](PluginDialogMode mode, const PluginEntry& entry, uint32_t targetIdx) {
@@ -1716,37 +1727,23 @@ void ArrangerView::syncDrawerData() {
                              drawerData_.totalTracks != tracks_.size() ||
                              drawerData_.trackName != track.name ||
                              drawerData_.instrument != track.instrument ||
-                             drawerData_.instrumentEngine != expectedEngine);
-        if (trackChanged) {
-            if (track.knobs.empty()) {
-                drawerData_.knobs.clear();
-                drawerData_.syncKnobsIfEmpty();
-                track.knobs = drawerData_.knobs;
-            } else {
-                drawerData_.knobs = track.knobs;
-            }
-            drawerData_.midiFx = track.midiFx;
-            drawerData_.audioFx = track.audioFx;
-            drawerData_.trackIndex = activeTrackIndex_;
-            drawerData_.totalTracks = static_cast<uint32_t>(tracks_.size());
-            drawerData_.trackName = track.name;
-            drawerData_.instrument = track.instrument;
-            drawerData_.instrumentEngine = expectedEngine;
-            drawerData_.presetTitle = track.instrument.empty() ? track.name : track.instrument;
-            drawerData_.presetSubtitle = track.name + " • " + (track.instrument.empty() ? "Track" : track.instrument);
-            drawerData_.iconRef = track.iconRef;
+                             drawerData_.instrumentEngine != expectedEngine ||
+                             drawerData_.customGuiPanel.has_value() != track.customGuiPanel.has_value() ||
+                             (!track.customGuiPanel.has_value() && !track.instrumentEngine.empty()));
+        if (trackChanged || !drawerData_.customGuiPanel.has_value() || drawerData_.knobs.empty()) {
+            syncDrawerDataForTrack(activeTrackIndex_);
+        }
 
-            if (drawerData_.allTrackNames.size() != tracks_.size()) {
-                drawerData_.allTrackNames.clear();
-                drawerData_.allTrackNames.reserve(tracks_.size());
-                for (const auto& trk : tracks_) {
-                    drawerData_.allTrackNames.push_back(trk.name);
-                }
-            } else {
-                for (size_t i = 0; i < tracks_.size(); ++i) {
-                    if (drawerData_.allTrackNames[i] != tracks_[i].name) {
-                        drawerData_.allTrackNames[i] = tracks_[i].name;
-                    }
+        if (drawerData_.allTrackNames.size() != tracks_.size()) {
+            drawerData_.allTrackNames.clear();
+            drawerData_.allTrackNames.reserve(tracks_.size());
+            for (const auto& trk : tracks_) {
+                drawerData_.allTrackNames.push_back(trk.name);
+            }
+        } else {
+            for (size_t i = 0; i < tracks_.size(); ++i) {
+                if (drawerData_.allTrackNames[i] != tracks_[i].name) {
+                    drawerData_.allTrackNames[i] = tracks_[i].name;
                 }
             }
         }

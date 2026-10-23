@@ -59,6 +59,24 @@ inline void drawCenteredText(BatchRenderer2D& r, std::string_view str, float x, 
     drawCenteredText(r, str, Rect2D{x, y, w, h}, size, Color{red, green, blue, alpha}, 1.0f);
 }
 
+void drawVectorStringLeftAlignedY(BatchRenderer2D& r, std::string_view str, float x, float cy, float scale, float red, float green, float blue, float alpha = 1.0f);
+inline void drawVectorStringLeftAlignedY(BatchRenderer2D& r, std::string_view str, float x, float cy, float scale, const Color& c) {
+    drawVectorStringLeftAlignedY(r, str, x, cy, scale, c.r, c.g, c.b, c.a);
+}
+
+void drawVectorStringLeftAlignedY(std::string_view str, float x, float cy, float scale, float r, float g, float b, float a = 1.0f);
+inline void drawVectorStringLeftAlignedY(std::string_view str, float x, float cy, float scale, const Color& c) {
+    drawVectorStringLeftAlignedY(str, x, cy, scale, c.r, c.g, c.b, c.a);
+}
+
+void drawTextLeftAlignedY(BatchRenderer2D& r, std::string_view str, float x, float cy, float size,
+                          float red, float green, float blue, float alpha = 1.0f);
+
+inline void drawTextLeftAlignedY(BatchRenderer2D& r, std::string_view str, float x, float cy, float size,
+                                 const Color& col, float alpha = 1.0f) {
+    drawTextLeftAlignedY(r, str, x, cy, size, col.r, col.g, col.b, alpha * col.a);
+}
+
 void drawRotatedText(BatchRenderer2D& r, std::string_view str, float cx, float cy,
                      float angleDegrees, float size, const Color& col, float alpha = 1.0f);
 
@@ -235,6 +253,7 @@ inline void drawTriangle(BatchRenderer2D& r, float x0, float y0, float x1, float
 }
 
 float getMonoCharAdvance(float size);
+void drawDebugText(BatchRenderer2D& r, float x, float y, float size, std::string_view text, const Color& col);
 
 // =========================================================================
 // Unified Composable Control Core (Knobs & Sliders)

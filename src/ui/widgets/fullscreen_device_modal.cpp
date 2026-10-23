@@ -241,6 +241,49 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
         return;
     }
 
+    const std::string& eng = trackData_.instrumentEngine;
+    auto containsCI = [](std::string_view text, std::string_view needle) noexcept -> bool {
+        if (needle.empty()) return true;
+        if (text.size() < needle.size()) return false;
+        auto it = std::search(text.begin(), text.end(), needle.begin(), needle.end(),
+            [](char ch1, char ch2) {
+                return std::tolower(static_cast<unsigned char>(ch1)) == std::tolower(static_cast<unsigned char>(ch2));
+            });
+        return it != text.end();
+    };
+    bool isClav = (stringEqualsIgnoreCase(eng, "clavinet") ||
+                   containsCI(trackData_.instrument, "clav") || containsCI(trackData_.presetTitle, "clav") ||
+                   containsCI(trackData_.instrument, "d6") || containsCI(trackData_.presetTitle, "d6"));
+    bool is303 = !isClav && (stringEqualsIgnoreCase(eng, "tb303") ||
+                             containsCI(trackData_.instrument, "303") || containsCI(trackData_.presetTitle, "303"));
+    bool isSfxr = !isClav && !is303 && (stringEqualsIgnoreCase(eng, "sfxr") ||
+                                       stringEqualsIgnoreCase(eng, "eats_sfxr") ||
+                                       containsCI(trackData_.instrument, "sfxr") || containsCI(trackData_.presetTitle, "sfxr"));
+    bool isSnes = !isClav && !is303 && !isSfxr && (stringEqualsIgnoreCase(eng, "snes") ||
+                                                  stringEqualsIgnoreCase(eng, "snes_synth") ||
+                                                  stringEqualsIgnoreCase(eng, "snes_console_synth") ||
+                                                  containsCI(trackData_.instrument, "snes") || containsCI(trackData_.presetTitle, "snes"));
+    bool isAstral = !isClav && !is303 && !isSfxr && !isSnes && (
+        stringEqualsIgnoreCase(eng, "ambient_pad") ||
+        stringEqualsIgnoreCase(eng, "astral_pad") ||
+        stringEqualsIgnoreCase(eng, "astral_shimmer_pad") ||
+        containsCI(trackData_.instrument, "astral") || containsCI(trackData_.presetTitle, "astral") ||
+        containsCI(trackData_.instrument, "shimmer") || containsCI(trackData_.presetTitle, "shimmer")
+    );
+    bool isSteelGuitar = !isClav && !is303 && !isSfxr && !isSnes && !isAstral && (
+        stringEqualsIgnoreCase(eng, "acoustic_steel_guitar") ||
+        stringEqualsIgnoreCase(eng, "steel_acoustic_guitar") ||
+        containsCI(trackData_.instrument, "steel") || containsCI(trackData_.presetTitle, "steel")
+    );
+    bool isCanonical = isClav || is303 || isSfxr || isSnes || isAstral || isSteelGuitar;
+
+    if (isCanonical) {
+        populateCanonicalInstrumentGuiPanel(guiPanel_, trackData_,
+            isDraggingKnob_ ? draggingRow_ : -1,
+            isDraggingKnob_ ? draggingWidget_ : -1);
+        return;
+    }
+
     if (!trackData_.customGuiPanel.has_value() && !trackData_.eatscriptCode.empty()) {
         try {
             auto parsed = eatsbits::project::PresetLoader::parseFromEatscript(trackData_.eatscriptCode);
@@ -264,7 +307,12 @@ void FullscreenDeviceModal::syncGuiPanelFromTrackData() noexcept {
                     if (stringEqualsIgnoreCase(w.id, k.name) || stringEqualsIgnoreCase(w.label, k.name) ||
                         stringEqualsIgnoreCase(w.label, k.label) || stringEqualsIgnoreCase(w.param, k.name)) {
                         w.currentVal = (w.maxVal > w.minVal) ? (w.minVal + std::clamp(k.value, 0.0f, 1.0f) * (w.maxVal - w.minVal)) : k.value;
-                        if (!k.display.empty()) w.valueDisplay = k.display;
+                        if (w.type == GuiWidgetType::ListBox && !w.options.empty()) {
+                            int idx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, static_cast<int>(w.options.size() - 1));
+                            w.valueDisplay = w.options[idx];
+                        } else if (!k.display.empty()) {
+                            w.valueDisplay = k.display;
+                        }
                         break;
                     }
                 }
@@ -947,14 +995,14 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
             for (auto& w : row.widgets) {
                 if (w.type == GuiWidgetType::ListBox && w.bounds.contains(mx, my)) {
                     int totalOpts = static_cast<int>(w.options.size());
-                    if (totalOpts > 1) {
-                        int curIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
+                    int visibleRows = 4;
+                    int maxScroll = std::max(0, totalOpts - visibleRows);
+                    if (maxScroll > 0) {
                         int delta = (ev.scrollY > 0.0f) ? -1 : 1;
-                        int newIdx = std::clamp(curIdx + delta, 0, totalOpts - 1);
-                        if (newIdx != curIdx) {
-                            selectListBoxOption(w, newIdx);
-                        }
+                        int currentScroll = static_cast<int>(std::round(w.scrollOffset));
+                        w.scrollOffset = static_cast<float>(std::clamp(currentScroll + delta, 0, maxScroll));
                     }
+                    focusedWidgetId_ = w.id;
                     return true;
                 }
             }
@@ -1301,40 +1349,13 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                     }
 
                     if (w.type == GuiWidgetType::ListBox) {
-                        int totalOpts = static_cast<int>(w.options.size());
-                        if (totalOpts > 0) {
-                            int currentIdx = std::clamp(static_cast<int>(std::round(w.currentVal)), 0, totalOpts - 1);
-                            float boxX = w.bounds.x + 4.0f;
-                            float boxY = w.bounds.y + 16.0f;
-                            float boxW = w.bounds.w - 8.0f;
-                            float boxH = w.bounds.h - 20.0f;
-                            float stripX = boxX + boxW - 13.0f;
-                            int newIdx = currentIdx;
-
-                            if (ev.x >= stripX && ev.x <= boxX + boxW) {
-                                if (ev.y <= boxY + 14.0f) {
-                                    newIdx = std::max(0, currentIdx - 1);
-                                } else if (ev.y >= boxY + boxH - 14.0f) {
-                                    newIdx = std::min(totalOpts - 1, currentIdx + 1);
-                                } else {
-                                    float rel = (ev.y - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
-                                    newIdx = std::clamp(static_cast<int>(std::round(rel * (totalOpts - 1))), 0, totalOpts - 1);
-                                }
-                            } else if (ev.y >= boxY + 2.0f && ev.y <= boxY + boxH) {
-                                int visibleRows = 4;
-                                float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
-                                int scrollStart = static_cast<int>(std::round(w.scrollOffset));
-                                int clickedRow = static_cast<int>((ev.y - (boxY + 2.0f)) / rowH);
-                                if (clickedRow >= 0 && clickedRow < visibleRows) {
-                                    int targetIdx = scrollStart + clickedRow;
-                                    if (targetIdx >= 0 && targetIdx < totalOpts) {
-                                        newIdx = targetIdx;
-                                    }
-                                }
-                            }
-
-                            selectListBoxOption(w, newIdx);
-                        }
+                        isDraggingListBox_ = true;
+                        isListBoxDragging_ = false;
+                        draggingRow_ = static_cast<int>(rIdx);
+                        draggingWidget_ = static_cast<int>(wIdx);
+                        dragStartY_ = my;
+                        dragStartVal_ = w.scrollOffset;
+                        focusedWidgetId_ = w.id;
                         return true;
                     }
                     if (ev.type == PointerType::Touch || isMobile_) {
@@ -1394,6 +1415,28 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
                 isLongPressActive_ = false;
             }
         }
+    }
+
+    if (ev.action == PointerAction::Move && isDraggingListBox_) {
+        if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
+            draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
+            auto& w = guiPanel_.rows[draggingRow_].widgets[draggingWidget_];
+            float dy = my - dragStartY_;
+            float slop = (ev.type == PointerType::Touch || isMobile_) ? 6.0f : 3.0f;
+            if (!isListBoxDragging_ && std::abs(dy) > slop) {
+                isListBoxDragging_ = true;
+            }
+            if (isListBoxDragging_) {
+                int totalOpts = static_cast<int>(w.options.size());
+                int visibleRows = 4;
+                float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                float rowH = std::max(8.0f, (boxH - 4.0f) / static_cast<float>(visibleRows));
+                float scrollDelta = -dy / rowH;
+                float maxScroll = static_cast<float>(std::max(0, totalOpts - visibleRows));
+                w.scrollOffset = std::clamp(dragStartVal_ + scrollDelta, 0.0f, maxScroll);
+            }
+        }
+        return true;
     }
 
     if (ev.action == PointerAction::Move && isDraggingKnob_) {
@@ -1497,6 +1540,49 @@ bool FullscreenDeviceModal::handlePointer(const PointerEvent& ev) noexcept {
 
     if (ev.action == PointerAction::Up) {
         isLongPressActive_ = false;
+        if (isDraggingListBox_) {
+            if (draggingRow_ >= 0 && draggingRow_ < static_cast<int>(guiPanel_.rows.size()) &&
+                draggingWidget_ >= 0 && draggingWidget_ < static_cast<int>(guiPanel_.rows[draggingRow_].widgets.size())) {
+                auto& w = guiPanel_.rows[draggingRow_].widgets[draggingWidget_];
+                int totalOpts = static_cast<int>(w.options.size());
+                if (!isListBoxDragging_ && totalOpts > 0) {
+                    float boxX = w.bounds.x + 4.0f;
+                    float boxY = w.bounds.y + 14.0f;
+                    float boxW = w.bounds.w - 8.0f;
+                    float boxH = std::max(24.0f, w.bounds.h - 16.0f);
+                    float stripX = boxX + boxW - 13.0f;
+                    int visibleRows = 4;
+                    float rowH = (boxH - 4.0f) / static_cast<float>(visibleRows);
+
+                    if (mx >= stripX && mx <= boxX + boxW) {
+                        int maxScroll = std::max(0, totalOpts - visibleRows);
+                        if (my <= boxY + 14.0f) {
+                            w.scrollOffset = std::max(0.0f, w.scrollOffset - 1.0f);
+                        } else if (my >= boxY + boxH - 14.0f) {
+                            w.scrollOffset = std::min(static_cast<float>(maxScroll), w.scrollOffset + 1.0f);
+                        } else {
+                            float rel = (my - boxY - 14.0f) / std::max(1.0f, boxH - 28.0f);
+                            w.scrollOffset = std::clamp(rel * static_cast<float>(maxScroll), 0.0f, static_cast<float>(maxScroll));
+                        }
+                    } else if (my >= boxY + 2.0f && my <= boxY + boxH) {
+                        int scrollStart = static_cast<int>(std::round(w.scrollOffset));
+                        int clickedRow = static_cast<int>((my - (boxY + 2.0f)) / rowH);
+                        if (clickedRow >= 0 && clickedRow < visibleRows) {
+                            int targetIdx = scrollStart + clickedRow;
+                            if (targetIdx >= 0 && targetIdx < totalOpts) {
+                                selectListBoxOption(w, targetIdx);
+                            }
+                        }
+                    }
+                }
+            }
+            isDraggingListBox_ = false;
+            isListBoxDragging_ = false;
+            draggingRow_ = -1;
+            draggingWidget_ = -1;
+            return true;
+        }
+
         if (isDraggingKnob_) {
             isDraggingKnob_ = false;
             draggingRow_ = -1;

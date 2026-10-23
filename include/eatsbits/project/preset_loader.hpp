@@ -114,6 +114,7 @@ struct GuiLayoutNode {
 
     std::string rackSides{"none"}; // "none", "rosewood", "aluminum", "dark_walnut"
     std::vector<GuiLayoutNode> children;
+    std::string pattern;           // "none", "slats", "mesh", "honeycomb", "dots", "circuits"
 };
 
 struct PresetDefinition {

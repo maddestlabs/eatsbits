@@ -820,7 +820,8 @@ void MixerView::render(const ViewContext& ctx) {
         if (selCh.instrument.find("303") != std::string::npos || selCh.name.find("303") != std::string::npos) newEngine = "tb303";
         else if (selCh.instrument.find("808") != std::string::npos || selCh.name.find("808") != std::string::npos) newEngine = "tr808";
         else if (selCh.instrument.find("909") != std::string::npos || selCh.name.find("909") != std::string::npos) newEngine = "tr909";
-        else if (selCh.instrument.find("DX7") != std::string::npos || selCh.name.find("DX7") != std::string::npos) newEngine = "dx7";
+        else if (selCh.instrument.find("DX7") != std::string::npos || selCh.name.find("DX7") != std::string::npos ||
+                 selCh.instrument.find("DXVII") != std::string::npos || selCh.name.find("DXVII") != std::string::npos) newEngine = "dx7";
         else if (selCh.instrument.find("Piano") != std::string::npos || selCh.name.find("Piano") != std::string::npos || selCh.name.find("Grand") != std::string::npos) newEngine = "piano";
 
         if (drawerData_.instrumentEngine != newEngine) {

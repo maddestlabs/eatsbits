@@ -11,6 +11,8 @@
 #include <memory>
 #include <algorithm>
 
+namespace clay { class ClayContext; }
+
 namespace eatsbits::ui {
 
 struct InspectorTrackChannel {
@@ -55,8 +57,11 @@ public:
     TrackInspectorView();
     ~TrackInspectorView() override = default;
 
+    void declareLayout(clay::ClayContext& ctx, float width, float height);
     void layout(const Rect2D& bounds, const ViewContext& ctx) override;
     void render(const ViewContext& ctx) override;
+    [[nodiscard]] clay::ClayContext* getClayContext() noexcept { return clayContext_.get(); }
+    [[nodiscard]] const clay::ClayContext* getClayContext() const noexcept { return clayContext_.get(); }
     bool handlePointer(const PointerEvent& ev, const ViewContext& ctx) override;
     bool handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) override;
     bool handleChar(char32_t codepoint, const ViewContext& ctx) override;
@@ -188,6 +193,7 @@ private:
 
     TrackPropertiesPanel panel_;
     TrackPropertiesDrawerData drawerData_;
+    std::unique_ptr<clay::ClayContext> clayContext_;
 };
 
 } // namespace eatsbits::ui

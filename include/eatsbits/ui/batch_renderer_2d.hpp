@@ -49,6 +49,19 @@ enum class RenderBackendType {
     Headless
 };
 
+enum class VectorPatternType : uint8_t {
+    None = 0,
+    HorizontalSlats, // 1D separable scanline ribs / milled slats
+    DiagonalMesh,    // Carbon fiber / Kevlar diagonal cross-hatch
+    HexHoneycomb,    // Perforated hex grid
+    DotGrid,         // Synth breadboard / stipple matrix
+    CircuitTraces,   // Silkscreen PCB / synth circuit traces
+    BrushedSteel,    // Multi-pass hairline brushed metal with micro-abrasions
+    WoodGrain,       // Organic wavy growth-ring lines (Walnut / Rosewood)
+    SpeakerGrill,    // Vintage amplifier diamond / woven fabric grill
+    VintagePatina    // Physical finish aging with deterministic dust specks and micro-scratches
+};
+
 class IBatchRenderBackend {
 public:
     virtual ~IBatchRenderBackend() = default;
@@ -210,9 +223,37 @@ public:
     void drawArc(float cx, float cy, float radius, float startAngle, float endAngle, float r, float g, float b, float a = 1.0f, float lineWidth = 2.0f, int segments = 36);
     void drawLine(float x0, float y0, float x1, float y1, float r, float g, float b, float a = 1.0f, float lineWidth = 1.5f);
     void drawCatenaryBezier(Point2D p0, Point2D cp0, Point2D cp1, Point2D p1, float r, float g, float b, float a, float lineWidth);
+    void drawPath(const Point2D* points, size_t count, float lineWidth,
+                  float r, float g, float b, float a = 1.0f, bool closed = false);
+    void drawPathGradient(const Point2D* points, size_t count, float lineWidth,
+                          float r0, float g0, float b0, float a0,
+                          float r1, float g1, float b1, float a1,
+                          bool closed = false, bool parametric = false);
+    void drawPathBezier(const Point2D* controlPoints, size_t count, float lineWidth,
+                        float r, float g, float b, float a = 1.0f, int segmentsPerCurve = 16);
+    void drawPatternedRectGradient(float x, float y, float w, float h,
+                                   float r0, float g0, float b0,
+                                   float r1, float g1, float b1, float a,
+                                   VectorPatternType pattern,
+                                   float patternIntensity = 0.08f,
+                                   float patternScale = 8.0f,
+                                   float cornerRadius = 0.0f);
+    void drawRectVignette(float x, float y, float w, float h,
+                          float innerAlpha = 0.0f, float outerAlpha = 0.55f,
+                          float r = 0.0f, float g = 0.0f, float b = 0.0f);
+    void drawDustSpecks(float x, float y, float w, float h,
+                        int count = 60, uint32_t seed = 42,
+                        float r = 0.85f, float g = 0.85f, float b = 0.90f,
+                        float maxAlpha = 0.35f);
     void drawRgbaBitmap(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH, float opacity = 1.0f);
     void drawRgbaBitmapRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
                               float u0, float v0, float u1, float v1, float opacity = 1.0f);
+
+    /// Directly append pre-tessellated vector cache vertices with an optional translation offset.
+    void drawCachedVertices(const std::vector<Vertex2D>& vertices, float offsetX = 0.0f, float offsetY = 0.0f);
+
+    /// Extracts active uncommitted vertices into an output vector without clearing or flushing.
+    void copyActiveVertices(std::vector<Vertex2D>& outVertices) const;
 
     // --- In-Memory Texture Assets & Filmstrip Knobs/Sliders ---
     struct TextureInfo {

@@ -12,6 +12,9 @@
 #include "eatsbits/audio/graph/nodes/tb303_node.hpp"
 #include "eatsbits/audio/graph/nodes/delay_node.hpp"
 #include "eatsbits/audio/graph/nodes/gain_node.hpp"
+#include "eatsbits/ui/widgets/track_properties_panel.hpp"
+#include "eatsbits/ui/floating_window_manager.hpp"
+#include "eatsbits/project/preset_loader.hpp"
 
 #include <atomic>
 #include <new>
@@ -3531,6 +3534,238 @@ void testFullscreenDeviceModal() {
     std::cout << "  [PASS] Fullscreen Device Modal tests passed." << std::endl;
 }
 
+void testSnesInstrumentsGuiAndReadoutSelection() {
+    std::cout << "[Test] SNES Instruments SFX Type and Wavetable selection GUIs and functionality..." << std::endl;
+
+    // 1. Test PresetLoader definitions and convert/extract logic
+    auto sfxrDef = eatsbits::project::PresetLoader::createSnesSfxrPreset();
+    auto snesDef = eatsbits::project::PresetLoader::createSnesPreset();
+
+    auto sfxrKnobs = eatsbits::ui::extractKnobsFromPresetDefinition(sfxrDef);
+    bool foundSfxTypeKnob = false;
+    bool foundWaveformKnob = false;
+    for (const auto& k : sfxrKnobs) {
+        if (k.name == "SFXType") {
+            foundSfxTypeKnob = true;
+            REQUIRE(k.display == "Laser");
+        }
+        if (k.name == "Waveform") {
+            foundWaveformKnob = true;
+            REQUIRE(k.display == "Square");
+        }
+    }
+    REQUIRE(foundSfxTypeKnob);
+    REQUIRE(foundWaveformKnob);
+
+    auto sfxrPanel = eatsbits::ui::createGuiPanelFromPresetDefinition(sfxrDef);
+    REQUIRE(!sfxrPanel.rows.empty());
+    REQUIRE(!sfxrPanel.rows[0].widgets.empty());
+    bool foundSfxTypeWidget = false;
+    for (const auto& w : sfxrPanel.rows[0].widgets) {
+        if (w.param == "SFXType" || w.id == "w_sfxtype") {
+            foundSfxTypeWidget = true;
+            REQUIRE(w.type == eatsbits::ui::GuiWidgetType::ListBox);
+            REQUIRE(w.options.size() == 11);
+            REQUIRE(w.valueDisplay == "Laser");
+        }
+    }
+    REQUIRE(foundSfxTypeWidget);
+
+    // 2. Test TrackPropertiesPanel canonical sync for SNES Sfxr
+    eatsbits::ui::TrackPropertiesPanel panel;
+    eatsbits::ui::TrackPropertiesDrawerData data;
+    data.trackIndex = 0;
+    data.trackName = "SNES SFXR Track";
+    data.instrument = "SNES Sfxr";
+    data.instrumentEngine = "eats_sfxr";
+    data.r = 0.90f; data.g = 0.15f; data.b = 0.15f;
+    panel.syncGuiPanelFromTrackData(data);
+
+    const auto& guiP = panel.getGuiPanel();
+    REQUIRE(guiP.rows.size() == 2);
+    REQUIRE(guiP.rows[0].widgets.size() >= 2);
+    const auto& wType = guiP.rows[0].widgets[0];
+    const auto& wWave = guiP.rows[0].widgets[1];
+    REQUIRE(wType.id == "w_sfxtype");
+    REQUIRE(wType.type == eatsbits::ui::GuiWidgetType::ListBox);
+    REQUIRE(!wType.valueDisplay.empty());
+    REQUIRE(wType.valueDisplay == "Laser");
+    REQUIRE(wWave.id == "w_wavetable");
+    REQUIRE(wWave.type == eatsbits::ui::GuiWidgetType::ListBox);
+    REQUIRE(!wWave.valueDisplay.empty());
+    REQUIRE(wWave.valueDisplay == "Square");
+
+    // 3. Test TrackPropertiesPanel canonical sync for SNES Synth
+    eatsbits::ui::TrackPropertiesDrawerData snesData;
+    snesData.trackIndex = 1;
+    snesData.trackName = "SNES Synth Track";
+    snesData.instrument = "SNES Synth";
+    snesData.instrumentEngine = "snes_console_synth";
+    panel.syncGuiPanelFromTrackData(snesData);
+
+    const auto& snesP = panel.getGuiPanel();
+    REQUIRE(snesP.rows.size() == 2);
+    const auto& snesWave = snesP.rows[0].widgets[0];
+    const auto& snesFilter = snesP.rows[0].widgets[1];
+    REQUIRE(snesWave.id == "w_wavetable");
+    REQUIRE(snesWave.type == eatsbits::ui::GuiWidgetType::ListBox);
+    REQUIRE(snesWave.valueDisplay == "Square");
+    REQUIRE(snesFilter.id == "w_filtertype");
+    REQUIRE(snesFilter.type == eatsbits::ui::GuiWidgetType::ListBox);
+    REQUIRE(snesFilter.valueDisplay == "Off");
+
+    // 4. Test FullscreenDeviceModal canonical sync
+    eatsbits::ui::FullscreenDeviceModal modal;
+    modal.syncData(data);
+    const auto& modalP = modal.getGuiPanel();
+    REQUIRE(modalP.rows.size() == 2);
+    REQUIRE(modalP.rows[0].widgets[0].id == "w_sfxtype");
+    REQUIRE(modalP.rows[0].widgets[0].type == eatsbits::ui::GuiWidgetType::ListBox);
+    REQUIRE(modalP.rows[0].widgets[0].valueDisplay == "Laser");
+
+    // 5. Test Mouse Wheel Scroll: updates scrollOffset without auto-selecting currentVal
+    panel.syncGuiPanelFromTrackData(data);
+    panel.layout(eatsbits::ui::Rect2D{0.0f, 0.0f, 380.0f, 600.0f}, eatsbits::ui::ViewContext{});
+    auto fpBounds = panel.getFaceplateBounds();
+    if (fpBounds.w < 50.0f || fpBounds.h < 50.0f) {
+        fpBounds = eatsbits::ui::Rect2D{10.0f, 10.0f, 360.0f, 220.0f};
+    }
+    panel.getGuiPanel().layoutControls(fpBounds);
+    auto& targetListBox = panel.getGuiPanel().rows[0].widgets[0];
+    REQUIRE(targetListBox.bounds.w > 0.0f);
+    REQUIRE(targetListBox.bounds.h > 0.0f);
+    float lbX = targetListBox.bounds.x + targetListBox.bounds.w * 0.5f;
+    float lbY = targetListBox.bounds.y + targetListBox.bounds.h * 0.5f;
+
+    float initialVal = targetListBox.currentVal;
+    REQUIRE(initialVal == 0.0f); // Laser
+    float initialScroll = targetListBox.scrollOffset;
+
+    eatsbits::ui::PointerEvent scrollEv{};
+    scrollEv.action = eatsbits::ui::PointerAction::Scroll;
+    scrollEv.x = lbX;
+    scrollEv.y = lbY;
+    scrollEv.scrollY = -1.0f; // Scroll down
+    bool handledScroll = panel.handlePointer(scrollEv, data, eatsbits::ui::ViewContext{});
+    REQUIRE(handledScroll);
+    REQUIRE(targetListBox.scrollOffset > initialScroll);
+    REQUIRE(targetListBox.currentVal == initialVal); // Option was NOT auto-selected!
+
+    // 6. Test Drag-to-Navigate Gesture (Touch & Mouse Drag):
+    eatsbits::ui::PointerEvent downEv{};
+    downEv.action = eatsbits::ui::PointerAction::Down;
+    downEv.type = eatsbits::ui::PointerType::Touch;
+    downEv.x = lbX;
+    downEv.y = lbY;
+    panel.handlePointer(downEv, data, eatsbits::ui::ViewContext{});
+    REQUIRE(targetListBox.currentVal == initialVal); // Pointer Down does NOT auto-select!
+
+    eatsbits::ui::PointerEvent moveEv{};
+    moveEv.action = eatsbits::ui::PointerAction::Move;
+    moveEv.type = eatsbits::ui::PointerType::Touch;
+    moveEv.x = lbX;
+    moveEv.y = lbY - 30.0f; // Drag finger up by 30px to scroll list down
+    panel.handlePointer(moveEv, data, eatsbits::ui::ViewContext{});
+    REQUIRE(targetListBox.currentVal == initialVal); // Still NOT selected during drag!
+
+    eatsbits::ui::PointerEvent upEv{};
+    upEv.action = eatsbits::ui::PointerAction::Up;
+    upEv.type = eatsbits::ui::PointerType::Touch;
+    upEv.x = lbX;
+    upEv.y = lbY - 30.0f;
+    panel.handlePointer(upEv, data, eatsbits::ui::ViewContext{});
+    REQUIRE(targetListBox.currentVal == initialVal); // Release after drag preserves selection!
+
+    // 7. Test Tap to Select:
+    float boxY = targetListBox.bounds.y + 14.0f;
+    float boxH = std::max(24.0f, targetListBox.bounds.h - 16.0f);
+    float rowH = (boxH - 4.0f) / 4.0f;
+    float tapRow1Y = boxY + 2.0f + 1.5f * rowH; // Row 1 center ("Explosion")
+    targetListBox.scrollOffset = 0.0f; // Reset to top
+
+    eatsbits::ui::PointerEvent tapDown{};
+    tapDown.action = eatsbits::ui::PointerAction::Down;
+    tapDown.type = eatsbits::ui::PointerType::Touch;
+    tapDown.x = targetListBox.bounds.x + 20.0f;
+    tapDown.y = tapRow1Y;
+    panel.handlePointer(tapDown, data, eatsbits::ui::ViewContext{});
+
+    eatsbits::ui::PointerEvent tapUp{};
+    tapUp.action = eatsbits::ui::PointerAction::Up;
+    tapUp.type = eatsbits::ui::PointerType::Touch;
+    tapUp.x = targetListBox.bounds.x + 20.0f;
+    tapUp.y = tapRow1Y;
+    panel.handlePointer(tapUp, data, eatsbits::ui::ViewContext{});
+    REQUIRE(targetListBox.currentVal == 1.0f); // "Explosion" successfully selected!
+
+    // 8. Test Popout (Detached Native OS Window) Interaction Mode:
+    // Verify ListBox mouse wheel scrolling, click-to-select, auditioning, and Randomize button
+    eatsbits::ui::DetachedWindowInfo detachedInfo;
+    detachedInfo.trackIndex = 0;
+    detachedInfo.title = "SNES Sfxr";
+    detachedInfo.panelDef = panel.getGuiPanel();
+    detachedInfo.panelDef.layoutControls(fpBounds);
+
+    uint8_t lastAuditionNote = 0;
+    float lastAuditionVel = 0.0f;
+    uint32_t lastAuditionTrack = 999;
+    std::string lastChangedParam;
+    float lastChangedVal = -1.0f;
+
+    auto& floatMgr = eatsbits::ui::FloatingWindowManager::instance();
+    floatMgr.onAuditionNote = [&](uint32_t tIdx, uint8_t note, float vel) {
+        lastAuditionTrack = tIdx;
+        lastAuditionNote = note;
+        lastAuditionVel = vel;
+    };
+    floatMgr.onParamChanged = [&](uint32_t tIdx, const std::string& pName, float normVal) {
+        (void)tIdx;
+        lastChangedParam = pName;
+        lastChangedVal = normVal;
+    };
+
+    // 8a. Mouse wheel scroll on SFX Type ListBox: modifies scrollOffset without altering selection
+    auto& dListBox = detachedInfo.panelDef.rows[0].widgets[0];
+    dListBox.scrollOffset = 0.0f;
+    float lbDetX = dListBox.bounds.x + dListBox.bounds.w * 0.5f;
+    float lbDetY = dListBox.bounds.y + dListBox.bounds.h * 0.5f;
+
+    floatMgr.handleScroll(detachedInfo, 0.0f, -1.0f, lbDetX, lbDetY);
+    REQUIRE(dListBox.scrollOffset > 0.0f);
+    REQUIRE(dListBox.currentVal == 1.0f); // Still 1.0f ("Explosion")
+
+    // 8b. Click-to-select on row 2 ("PowerUp"):
+    dListBox.scrollOffset = 0.0f;
+    float row2Y = boxY + 2.0f + 2.5f * rowH;
+    floatMgr.handleMouseButton(detachedInfo, 0, 1 /* PRESS */, dListBox.bounds.x + 20.0f, row2Y);
+    REQUIRE(detachedInfo.isDraggingListBox);
+    floatMgr.handleMouseButton(detachedInfo, 0, 0 /* RELEASE */, dListBox.bounds.x + 20.0f, row2Y);
+    REQUIRE(dListBox.currentVal == 2.0f); // "PowerUp" selected!
+    REQUIRE(lastAuditionNote == 72); // Audition note triggered for SFX selection
+    REQUIRE(lastAuditionTrack == 0);
+
+    // 8c. Randomize Button Interaction:
+    eatsbits::ui::GuiWidgetDef* randBtn = nullptr;
+    for (auto& rw : detachedInfo.panelDef.rows) {
+        for (auto& wid : rw.widgets) {
+            if (wid.type == eatsbits::ui::GuiWidgetType::ActionButton || wid.id == "w_seed") {
+                randBtn = &wid;
+                break;
+            }
+        }
+        if (randBtn) break;
+    }
+    REQUIRE(randBtn != nullptr);
+    float randBtnX = randBtn->bounds.x + randBtn->bounds.w * 0.5f;
+    float randBtnY = randBtn->bounds.y + randBtn->bounds.h * 0.5f;
+
+    lastAuditionNote = 0;
+    floatMgr.handleMouseButton(detachedInfo, 0, 1 /* PRESS */, randBtnX, randBtnY);
+    REQUIRE(lastAuditionNote == 72); // Randomize generated new SFXR params and auditioned note
+
+    std::cout << "  [PASS] SNES Instruments SFX Type and Wavetable selection GUIs and functionality verified." << std::endl;
+}
+
 void testZeroAllocationGuiRenderLoop() {
     std::cout << "[Test] Zero heap allocations in GUI render loop (renderFrame during playback)..." << std::endl;
 
@@ -3824,6 +4059,7 @@ int main() {
     testProjectHubAndTopLeftMenu();
     testFullscreenAndLiveResize();
     testFullscreenDeviceModal();
+    testSnesInstrumentsGuiAndReadoutSelection();
     testZeroAllocationGuiRenderLoop();
     testStaticChromeFboCachingAndVisualParity();
     testTrackParameterDispatchToSynths();

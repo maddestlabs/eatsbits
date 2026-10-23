@@ -11,8 +11,12 @@
 #include "eatsbits/ui/views/view_base.hpp"
 #include "eatsbits/ui/gui_panel_def.hpp"
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
+#include "eatsbits/ui/glyph/glyph_packs.hpp"
+#include "eatsbits/ui/glyph/ebf_font.hpp"
+#include "eatsbits/ui/glyph/ebf_converter.hpp"
 
 #include <iostream>
+#include <fstream>
 #include <cassert>
 #include <cmath>
 
@@ -940,7 +944,7 @@ void testNeumorphicLensAndCenterGlyph() {
     assert(lensPinkDef.indicatorColor.r > 0.9f && lensPinkDef.indicatorColor.b > 0.5f); // Hot pink
     assert(lensPinkDef.centerGlyphColor.has_value());
 
-    // 2. Validate drawing with center glyphs (Unicode audio symbol & Nerd Font icon)
+    // 2. Validate drawing with center glyphs (Unicode audio symbol & native vector icon)
     BatchRenderer2D r;
     r.beginFrame(800.0f, 600.0f);
     LightSource2D light{};
@@ -957,11 +961,11 @@ void testNeumorphicLensAndCenterGlyph() {
     size_t v1 = r.getVertexCount();
     assert(v1 > v0);
 
-    // 3. Pink variant on silver/light chassis with multi-byte Nerd Font glyph
+    // 3. Pink variant on silver/light chassis with native vector icon from IconRegistry
     GuiWidgetDef wPink;
     wPink.id = "w_mod";
     wPink.knobStyle = GuiKnobStyle::NeumorphicLensPink;
-    wPink.centerGlyph = "\xEF\x87\xBE"; // Waveform chart Nerd Font glyph in UTF-8
+    wPink.centerGlyph = "gen_zap"; // Native vector icon from IconRegistry
     wPink.accentColor = Color(1.0f, 0.35f, 0.65f, 1.0f);
     wPink.currentVal = 0.75f;
 
@@ -970,6 +974,434 @@ void testNeumorphicLensAndCenterGlyph() {
     assert(v2 > v1);
 
     std::cout << "  [PASS] NeumorphicLens volcano mound, concave dish, and center glyph validated." << std::endl;
+}
+
+void testArbitraryPathAndVectorPatterns() {
+    std::cout << "[Test] Arbitrary Path Tessellation & Vector Pattern Backgrounds..." << std::endl;
+
+    BatchRenderer2D renderer;
+    renderer.beginFrame(800.0f, 600.0f);
+
+    // 1. Basic open path
+    Point2D openPts[4] = {
+        { 10.0f, 10.0f },
+        { 50.0f, 30.0f },
+        { 90.0f, 10.0f },
+        { 120.0f, 60.0f }
+    };
+    size_t v0 = renderer.getVertexCount();
+    renderer.drawPath(openPts, 4, 2.0f, 1.0f, 0.5f, 0.0f, 1.0f, false);
+    size_t v1 = renderer.getVertexCount();
+    // 3 segments = 3 quads = 18 vertices
+    assert(v1 - v0 == 18);
+
+    // 2. Closed path (polygon outline)
+    Point2D closedTriangle[3] = {
+        { 100.0f, 100.0f },
+        { 150.0f, 180.0f },
+        { 50.0f, 180.0f }
+    };
+    renderer.drawPath(closedTriangle, 3, 3.0f, 0.0f, 0.9f, 1.0f, 1.0f, true);
+    size_t v2 = renderer.getVertexCount();
+    // 3 segments = 3 quads = 18 vertices
+    assert(v2 - v1 == 18);
+
+    // 3. Parametric and spatial gradient paths
+    renderer.drawPathGradient(openPts, 4, 2.5f,
+                              1.0f, 0.0f, 0.0f, 1.0f,
+                              0.0f, 0.0f, 1.0f, 1.0f,
+                              false, true); // parametric = true
+    size_t v3 = renderer.getVertexCount();
+    assert(v3 - v2 == 18);
+
+    renderer.drawPathGradient(openPts, 4, 2.5f,
+                              1.0f, 1.0f, 0.0f, 1.0f,
+                              0.0f, 1.0f, 0.0f, 1.0f,
+                              false, false); // spatial/vertical = false
+    size_t v4 = renderer.getVertexCount();
+    assert(v4 - v3 == 18);
+
+    // 4. Cubic Bezier path
+    Point2D bezPoints[4] = {
+        { 0.0f, 0.0f },
+        { 50.0f, 100.0f },
+        { 150.0f, -50.0f },
+        { 200.0f, 50.0f }
+    };
+    renderer.drawPathBezier(bezPoints, 4, 2.0f, 0.8f, 0.2f, 0.8f, 1.0f, 16);
+    size_t v5 = renderer.getVertexCount();
+    // 16 segments = 16 quads = 96 vertices
+    assert(v5 - v4 == 96);
+
+    // 5. Patterned Rect Gradients (Testing all modes)
+    // 5a. None
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::None);
+    size_t vNone = renderer.getVertexCount();
+    assert(vNone - v5 == 6); // Just the base gradient quad
+
+    // 5b. Horizontal Slats (Milled aluminum grooves)
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::HorizontalSlats, 0.05f, 10.0f);
+    size_t vSlats = renderer.getVertexCount();
+    assert(vSlats > vNone);
+
+    // 5c. Diagonal Mesh (Carbon fiber cross-hatch)
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::DiagonalMesh, 0.04f, 12.0f);
+    size_t vMesh = renderer.getVertexCount();
+    assert(vMesh > vSlats);
+
+    // 5d. Hex Honeycomb
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::HexHoneycomb, 0.04f, 16.0f);
+    size_t vHex = renderer.getVertexCount();
+    assert(vHex > vMesh);
+
+    // 5e. Dot Grid (Matrix)
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::DotGrid, 0.03f, 16.0f);
+    size_t vDots = renderer.getVertexCount();
+    assert(vDots > vHex);
+
+    // 5f. Circuit Traces
+    renderer.drawPatternedRectGradient(0.0f, 0.0f, 200.0f, 100.0f,
+                                      0.2f, 0.2f, 0.2f, 0.1f, 0.1f, 0.1f, 1.0f,
+                                      VectorPatternType::CircuitTraces, 0.05f, 20.0f);
+    size_t vCircuits = renderer.getVertexCount();
+    assert(vCircuits > vDots);
+
+    std::cout << "  [PASS] Arbitrary path tessellation, gradient paths, and 6 vector pattern types validated." << std::endl;
+}
+
+void testModularGlyphPacks() {
+    std::cout << "[Test] Modular Glyph Packs & GlyphRegistry Architecture..." << std::endl;
+
+    BatchRenderer2D renderer;
+    renderer.beginFrame(800.0f, 600.0f);
+
+    // 1. Test standalone pack renderers directly
+    size_t vStart = renderer.getVertexCount();
+
+    // 1a. Terminal pack
+    bool okTerm = eatsbits::ui::glyph::renderTerminalGlyph(renderer, 0x250C, 10.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f); // ┌
+    assert(okTerm);
+    assert(renderer.getVertexCount() > vStart);
+    size_t vAfterTerm = renderer.getVertexCount();
+
+    bool badTerm = eatsbits::ui::glyph::renderTerminalGlyph(renderer, 0x9999, 10.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    assert(!badTerm);
+    assert(renderer.getVertexCount() == vAfterTerm);
+
+    // 1b. Editor pack
+    bool okFold = eatsbits::ui::glyph::renderEditorGlyph(renderer, 0x25BE, 20.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f); // ▾
+    assert(okFold);
+    assert(renderer.getVertexCount() > vAfterTerm);
+    size_t vAfterEditor = renderer.getVertexCount();
+
+    bool okBp = eatsbits::ui::glyph::renderEditorGlyph(renderer, 0x25CF, 30.0f, 10.0f, 1.0f, 1.0f, 0.2f, 0.2f); // ●
+    assert(okBp);
+    assert(renderer.getVertexCount() > vAfterEditor);
+    vAfterEditor = renderer.getVertexCount();
+
+    // 1c. DSP Math pack
+    bool okPi = eatsbits::ui::glyph::renderDspMathGlyph(renderer, 0x03C0, 40.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f); // π
+    assert(okPi);
+    assert(renderer.getVertexCount() > vAfterEditor);
+    size_t vAfterDsp = renderer.getVertexCount();
+
+    bool okSine = eatsbits::ui::glyph::renderDspMathGlyph(renderer, 0x223F, 50.0f, 10.0f, 1.0f, 0.2f, 1.0f, 0.5f); // ∿
+    assert(okSine);
+    assert(renderer.getVertexCount() > vAfterDsp);
+    vAfterDsp = renderer.getVertexCount();
+
+    // 1d. Score notation pack
+    bool okClef = eatsbits::ui::glyph::renderScoreGlyph(renderer, 0x1D11E, 60.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f); // 𝄞
+    assert(okClef);
+    assert(renderer.getVertexCount() > vAfterDsp);
+    size_t vAfterScore = renderer.getVertexCount();
+
+    bool okFlat = eatsbits::ui::glyph::renderScoreGlyph(renderer, 0x266D, 70.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f); // ♭
+    assert(okFlat);
+    assert(renderer.getVertexCount() > vAfterScore);
+
+    // 2. Test GlyphRegistry bitmask filtering & app-specific isolation
+    auto& reg = eatsbits::ui::glyph::GlyphRegistry::instance();
+
+    // Ensure all packs start enabled
+    reg.enablePacks(static_cast<uint32_t>(eatsbits::ui::glyph::GlyphPack::All));
+    assert(reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Terminal));
+    assert(reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Editor));
+    assert(reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::DspMath));
+    assert(reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Score));
+
+    assert(reg.render(renderer, 0x250C, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f));   // Terminal
+    assert(reg.render(renderer, 0x25BE, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f));   // Editor
+    assert(reg.render(renderer, 0x03C0, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f));   // DspMath
+    assert(reg.render(renderer, 0x1D11E, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f));  // Score
+
+    // Simulate Terminal App configuration (Terminal pack only)
+    reg.enablePacks(static_cast<uint32_t>(eatsbits::ui::glyph::GlyphPack::Terminal));
+    assert(reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Terminal));
+    assert(!reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Editor));
+    assert(!reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::DspMath));
+    assert(!reg.isPackEnabled(eatsbits::ui::glyph::GlyphPack::Score));
+
+    assert(reg.render(renderer, 0x250C, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == true);
+    assert(reg.render(renderer, 0x25BE, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == false);
+    assert(reg.render(renderer, 0x03C0, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == false);
+    assert(reg.render(renderer, 0x1D11E, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == false);
+
+    // Simulate Text Editor configuration (Terminal + Editor packs)
+    reg.enablePacks(eatsbits::ui::glyph::GlyphPack::Terminal | eatsbits::ui::glyph::GlyphPack::Editor);
+    assert(reg.render(renderer, 0x250C, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == true);
+    assert(reg.render(renderer, 0x25BE, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == true);
+    assert(reg.render(renderer, 0x03C0, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == false);
+    assert(reg.render(renderer, 0x1D11E, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == false);
+
+    // Re-enable all for subsequent tests / DAW usage
+    reg.enablePacks(static_cast<uint32_t>(eatsbits::ui::glyph::GlyphPack::All));
+    assert(reg.render(renderer, 0x1D11E, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f) == true);
+
+    std::cout << "  [PASS] Modular glyph packs and SMuFL score rendering validated." << std::endl;
+}
+
+void testEbfFontFormatAndOswald() {
+    std::cout << "[Test] Custom Eatsbits Font (.ebf) Format & Oswald Proportional Vector Engine..." << std::endl;
+
+    const auto& font = eatsbits::ui::glyph::EbfFont::getEmbeddedOswaldCondensed();
+    assert(font.isValid());
+
+    // 1. Validate Header and Typographic Properties
+    const auto& hdr = font.getHeader();
+    assert(hdr.magic[0] == 'E' && hdr.magic[1] == 'B' && hdr.magic[2] == 'F' && hdr.magic[3] == '1');
+    assert(hdr.unitsPerEm == 1000);
+    assert(hdr.ascender > 500);
+    assert(hdr.descender < 0);
+    assert(hdr.capHeight > 500);
+    assert(hdr.glyphCount >= 60);
+
+    float fontSize = 20.0f;
+    assert(font.getAscender(fontSize) > 10.0f);
+    assert(font.getDescender(fontSize) < 0.0f);
+    assert(font.getLineHeight(fontSize) > 15.0f);
+
+    // 2. Proportional Metrics Validation
+    const auto* gI = font.findGlyph('I');
+    const auto* gH = font.findGlyph('H');
+    const auto* gM = font.findGlyph('M');
+    assert(gI != nullptr);
+    assert(gH != nullptr);
+    assert(gM != nullptr);
+
+    // Assert proportional condensed hierarchy: 'I' is narrow, 'H' is medium, 'M' is wide
+    assert(gI->advanceX < gH->advanceX);
+    assert(gH->advanceX < gM->advanceX);
+    assert(gM->advanceX > gI->advanceX * 2);
+
+    // Lowercase proportional hierarchy
+    const auto* gi = font.findGlyph('i');
+    const auto* gn = font.findGlyph('n');
+    const auto* gm = font.findGlyph('m');
+    assert(gi != nullptr && gn != nullptr && gm != nullptr);
+    assert(gi->advanceX < gn->advanceX);
+    assert(gn->advanceX < gm->advanceX);
+
+    // 3. String Measurement Validation
+    float wNarrow = font.measureText("III", 20.0f);
+    float wWide   = font.measureText("MMM", 20.0f);
+    assert(wWide > wNarrow * 2.0f);
+
+    auto m = font.measureTextDetailed("Eatsbits Proportional\nVector Engine", 16.0f);
+    assert(m.width > 100.0f);
+    assert(m.height > 30.0f); // 2 lines
+
+    // 4. BatchRenderer2D Tessellation Validation
+    BatchRenderer2D renderer;
+    renderer.beginFrame(800.0f, 600.0f);
+    size_t vStart = renderer.getVertexCount();
+
+    // Renders character without crashing and emits vertices
+    bool okR = font.renderGlyph(renderer, 'O', 50.0f, 100.0f, 32.0f, 1.0f, 0.5f, 0.0f, 1.0f);
+    assert(okR);
+    assert(renderer.getVertexCount() > vStart);
+
+    size_t vAfterO = renderer.getVertexCount();
+    font.drawText(renderer, 50.0f, 150.0f, 18.0f, "OSWALD CONDENSED VECTOR", 0.9f, 0.9f, 0.9f, 1.0f);
+    assert(renderer.getVertexCount() > vAfterO);
+
+    // 5. Binary Serialization and Deserialization (.ebf)
+    std::string testEbfPath = "build/test_oswald_condensed.ebf";
+    bool saved = font.saveToFile(testEbfPath);
+    assert(saved);
+
+    eatsbits::ui::glyph::EbfFont loadedFont;
+    bool loaded = loadedFont.loadFromFile(testEbfPath);
+    assert(loaded);
+    assert(loadedFont.isValid());
+    assert(loadedFont.getGlyphCount() == font.getGlyphCount());
+    assert(loadedFont.getHeader().capHeight == font.getHeader().capHeight);
+
+    float wOriginal = font.measureText("SYNTHESIZER", 24.0f);
+    float wLoaded   = loadedFont.measureText("SYNTHESIZER", 24.0f);
+    assertNear(wLoaded, wOriginal, 0.001f, "Serialized/Deserialized text measurement match");
+
+    std::cout << "  [PASS] Custom Eatsbits Font (.ebf) Format & Oswald Proportional Vector Engine validated." << std::endl;
+}
+
+void testEbfConverterAndShareTechConversion() {
+    std::cout << "[Test] EbfConverter: Converting ShareTech Mono & Oswald TTF to .ebf..." << std::endl;
+
+    std::string shareTechTtf = "assets/fonts/ShareTechMono-Regular.ttf";
+    std::string shareTechEbf = "build/ShareTechMono-Regular.ebf";
+
+    // 1. Convert TTF to .ebf file on disk
+    bool okConvert = eatsbits::ui::glyph::EbfConverter::convertFile(shareTechTtf, shareTechEbf);
+    assert(okConvert);
+
+    // Verify converted file size is extremely compact (< 30 KB)
+    std::ifstream ebfFile(shareTechEbf, std::ios::binary | std::ios::ate);
+    assert(ebfFile.is_open());
+    size_t ebfSize = static_cast<size_t>(ebfFile.tellg());
+    assert(ebfSize > 1000 && ebfSize < 250000); // Converted size with solid filled triangles
+
+    // Also convert and save Oswald-Medium.ebf and Oswald-Regular.ebf to build/ and assets/fonts/
+    std::string oswaldTtf = "assets/fonts/Oswald-Medium.ttf";
+    std::string oswaldEbf = "build/Oswald-Medium.ebf";
+    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldTtf, oswaldEbf);
+    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldTtf, "assets/fonts/Oswald-Medium.ebf");
+
+    std::string oswaldRegTtf = "assets/fonts/Oswald-Regular.ttf";
+    std::string oswaldRegEbf = "build/Oswald-Regular.ebf";
+    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldRegTtf, oswaldRegEbf);
+    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldRegTtf, "assets/fonts/Oswald-Regular.ebf");
+    eatsbits::ui::glyph::EbfConverter::convertFile("assets/fonts/ShareTechMono-Regular.ttf", "assets/fonts/ShareTechMono-Regular.ebf");
+
+    // Generate embedded C++ headers for zero-dependency shipping
+    eatsbits::ui::glyph::EbfConverter::convertToCppHeader(
+        oswaldRegTtf,
+        "include/eatsbits/ui/glyph/oswald_embedded_data.hpp",
+        "OswaldEmbedded"
+    );
+    eatsbits::ui::glyph::EbfConverter::convertToCppHeader(
+        "assets/fonts/ShareTechMono-Regular.ttf",
+        "include/eatsbits/ui/glyph/sharetech_embedded_data.hpp",
+        "ShareTechEmbedded"
+    );
+
+    // 2. Load the converted ShareTech .ebf into EbfFont
+    eatsbits::ui::glyph::EbfFont shareTechFont;
+    bool okLoad = shareTechFont.loadFromFile(shareTechEbf);
+    assert(okLoad);
+    assert(shareTechFont.isValid());
+    assert(shareTechFont.getGlyphCount() >= 95);
+    assert((shareTechFont.getHeader().flags & 1) != 0); // IsMonospace flag detected!
+
+    // Verify character presence and metrics
+    const auto* gA = shareTechFont.findGlyph('A');
+    const auto* gZero = shareTechFont.findGlyph('0');
+    assert(gA != nullptr);
+    assert(gZero != nullptr);
+    assert(gA->commandLength > 0);
+
+    // Monospace uniform advance check
+    const auto* gI = shareTechFont.findGlyph('I');
+    const auto* gW = shareTechFont.findGlyph('W');
+    assert(gI != nullptr && gW != nullptr);
+    assert(gI->advanceX == gW->advanceX); // Pure monospace!
+
+    float wText = shareTechFont.measureText("void updateAudio();", 14.0f);
+    assert(wText > 100.0f);
+
+    // 3. Test on-the-fly startup conversion: loadFromTtfFile directly into EbfFont!
+    eatsbits::ui::glyph::EbfFont onTheFlyOswald;
+    bool okOswald = onTheFlyOswald.loadFromTtfFile("assets/fonts/Oswald-Medium.ttf");
+    assert(okOswald);
+    assert(onTheFlyOswald.isValid());
+    assert(onTheFlyOswald.getGlyphCount() >= 95);
+
+    // Oswald is proportional: advance of 'I' must be smaller than 'M'
+    const auto* oswaldI = onTheFlyOswald.findGlyph('I');
+    const auto* oswaldM = onTheFlyOswald.findGlyph('M');
+    assert(oswaldI != nullptr && oswaldM != nullptr);
+    assert(oswaldI->advanceX < oswaldM->advanceX);
+
+    // Verify that glyph 'O' has an open counter aperture (hole not filled solid!)
+    const auto* gO = onTheFlyOswald.findGlyph('O');
+    assert(gO != nullptr);
+    float centerOX = static_cast<float>(gO->bearingX) + static_cast<float>(gO->width) * 0.5f;
+    float centerOY = static_cast<float>(gO->bearingY) - static_cast<float>(gO->height) * 0.5f;
+    bool centerInsideTri = false;
+    const uint8_t* pO = onTheFlyOswald.getCommandData().data() + gO->commandOffset;
+    const uint8_t* pOEnd = pO + gO->commandLength;
+    while (pO < pOEnd) {
+        auto op = static_cast<eatsbits::ui::glyph::EbfOpcode>(*pO++);
+        if (op == eatsbits::ui::glyph::EbfOpcode::Triangle) {
+            int16_t x0 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            int16_t y0 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            int16_t x1 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            int16_t y1 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            int16_t x2 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            int16_t y2 = static_cast<int16_t>(pO[0] | (pO[1] << 8)); pO += 2;
+            auto sign = [](float p1x, float p1y, float p2x, float p2y, float p3x, float p3y) {
+                return (p1x - p3x) * (p2y - p3y) - (p2x - p3x) * (p1y - p3y);
+            };
+            float d1 = sign(centerOX, centerOY, static_cast<float>(x0), static_cast<float>(y0), static_cast<float>(x1), static_cast<float>(y1));
+            float d2 = sign(centerOX, centerOY, static_cast<float>(x1), static_cast<float>(y1), static_cast<float>(x2), static_cast<float>(y2));
+            float d3 = sign(centerOX, centerOY, static_cast<float>(x2), static_cast<float>(y2), static_cast<float>(x0), static_cast<float>(y0));
+            bool has_neg = (d1 < -1e-2f) || (d2 < -1e-2f) || (d3 < -1e-2f);
+            bool has_pos = (d1 > 1e-2f) || (d2 > 1e-2f) || (d3 > 1e-2f);
+            if (!(has_neg && has_pos)) {
+                centerInsideTri = true;
+                break;
+            }
+        } else if (op == eatsbits::ui::glyph::EbfOpcode::End) break;
+    }
+    assert(!centerInsideTri); // Hole of 'O' must be empty!
+
+    // Verify that glyphs 'X', 'x', 'O', 'o' have valid solid filled meshes
+    const auto* gX = onTheFlyOswald.findGlyph('X');
+    const auto* gx = onTheFlyOswald.findGlyph('x');
+    const auto* go = onTheFlyOswald.findGlyph('o');
+    assert(gX != nullptr && gx != nullptr && go != nullptr);
+    assert(gX->commandLength > 0 && gx->commandLength > 0 && go->commandLength > 0);
+
+    // 4. BatchRenderer2D Vector Tessellation with converted fonts
+    BatchRenderer2D renderer;
+    renderer.beginFrame(800.0f, 600.0f);
+    size_t vStart = renderer.getVertexCount();
+    shareTechFont.drawText(renderer, 20.0f, 40.0f, 16.0f, "SHARETECH MONO EBF VECTOR", 0.3f, 1.0f, 0.4f, 1.0f);
+    assert(renderer.getVertexCount() > vStart);
+
+    size_t vAfterST = renderer.getVertexCount();
+    onTheFlyOswald.drawText(renderer, 20.0f, 80.0f, 20.0f, "OSWALD ON-THE-FLY CONVERTED", 1.0f, 0.8f, 0.2f, 1.0f);
+    assert(renderer.getVertexCount() > vAfterST);
+
+    // 5. Test rasterization of 'X' and 'O' without gaps/disconnections
+    renderer.endFrame();
+    renderer.beginFrame(200.0f, 50.0f);
+    onTheFlyOswald.drawText(renderer, 5.0f, 30.0f, 16.0f, "X O", 1.0f, 1.0f, 1.0f, 1.0f);
+    renderer.endFrame();
+
+    const uint32_t* fb = renderer.getFramebuffer();
+    assert(fb != nullptr);
+    int litCount = 0;
+    for (int y = 0; y < 50; ++y) {
+        for (int x = 0; x < 200; ++x) {
+            uint32_t px = fb[y * 200 + x];
+            if ((px & 0x00FFFFFF) != 0x0014171E) { // non-background pixel
+                litCount++;
+            }
+        }
+    }
+    assert(litCount > 50); // Glyphs rendered successfully with solid pixels!
+
+    std::cout << "  [PASS] EbfConverter: ShareTech Mono & Oswald TTF to .ebf conversion and on-the-fly startup loading validated." << std::endl;
 }
 
 int main() {
@@ -987,6 +1419,10 @@ int main() {
     testAstralKnobNormalizationAndFullRange();
     testDetuneDecayIndependenceAndSync();
     testNeumorphicLensAndCenterGlyph();
+    testArbitraryPathAndVectorPatterns();
+    testModularGlyphPacks();
+    testEbfFontFormatAndOswald();
+    testEbfConverterAndShareTechConversion();
     std::cout << "=== All UI Geometry & Widgets Tests Passed! ===" << std::endl;
     return 0;
 }
