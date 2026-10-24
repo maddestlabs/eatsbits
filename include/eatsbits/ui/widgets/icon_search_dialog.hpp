@@ -34,7 +34,9 @@ public:
     void render(BatchRenderer2D& r, const ThemeTokens& theme);
     bool handlePointer(const PointerEvent& ev);
     bool handleKey(int key, int scancode, int action, int mods);
+    bool handleChar(char32_t codepoint);
     bool handleScroll(float deltaY);
+    void clearSearch() noexcept;
 
     void setClipboardProvider(std::function<std::string()> provider) {
         clipboardProvider_ = std::move(provider);
@@ -61,8 +63,12 @@ private:
     Rect2D dialogBounds_{0, 0, 0, 0};
     Rect2D closeBtnBounds_{0, 0, 0, 0};
     Rect2D searchBoxBounds_{0, 0, 0, 0};
+    Rect2D searchClearBtnBounds_{0, 0, 0, 0};
     Rect2D pasteBtnBounds_{0, 0, 0, 0};
+    Rect2D applyBtnBounds_{0, 0, 0, 0};
     Rect2D gridBounds_{0, 0, 0, 0};
+    std::vector<Rect2D> categoryChipBounds_;
+    bool searchFocused_{true};
 
     float scrollY_{0.0f};
     float maxScrollY_{0.0f};

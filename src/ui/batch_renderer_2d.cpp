@@ -725,89 +725,53 @@ private:
                               std::abs(q2.y - q3.y) < 0.01f && std::abs(q3.x - q0.x) < 0.01f);
 
         if (isAxisAligned) {
-            int rMinX = std::max(clipMinX, static_cast<int>(std::round(fMinX)));
-            int rMaxX = std::min(clipMaxX, static_cast<int>(std::round(fMaxX)) - 1);
-            int rMinY = std::max(clipMinY, static_cast<int>(std::round(fMinY)));
-            int rMaxY = std::min(clipMaxY, static_cast<int>(std::round(fMaxY)) - 1);
+            if (antiAliasingMode_ == 0 || q0.mode == 5) {
+                // Integer-snapped fast path for No-AA mode or un-antialiased meshes
+                int rMinX = std::max(clipMinX, static_cast<int>(std::round(fMinX)));
+                int rMaxX = std::min(clipMaxX, static_cast<int>(std::round(fMaxX)) - 1);
+                int rMinY = std::max(clipMinY, static_cast<int>(std::round(fMinY)));
+                int rMaxY = std::min(clipMaxY, static_cast<int>(std::round(fMaxY)) - 1);
 
-            if (rMinX <= rMaxX && rMinY <= rMaxY) {
-                if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
-                    // Solid Axis-Aligned Rectangle
-                    uint32_t a = (q0.color >> 24) & 0xFF;
-                    uint32_t c_r = q0.color & 0xFF;
-                    uint32_t c_g = (q0.color >> 8) & 0xFF;
-                    uint32_t c_b = (q0.color >> 16) & 0xFF;
+                if (rMinX <= rMaxX && rMinY <= rMaxY) {
+                    if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
+                        // Solid Axis-Aligned Rectangle
+                        uint32_t a = (q0.color >> 24) & 0xFF;
+                        uint32_t c_r = q0.color & 0xFF;
+                        uint32_t c_g = (q0.color >> 8) & 0xFF;
+                        uint32_t c_b = (q0.color >> 16) & 0xFF;
 
-                    if (blendMode_ == BlendMode::Normal && a >= 255) {
-                        uint32_t col = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                        if (blendMode_ == BlendMode::Normal && a >= 255) {
+                            uint32_t col = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                            int count = rMaxX - rMinX + 1;
+                            for (int y = rMinY; y <= rMaxY; ++y) {
+                                std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
+                            }
+                            return;
+                        } else if (a > 0) {
+                            for (int y = rMinY; y <= rMaxY; ++y) {
+                                uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                                for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                                    *rowDst = blendPixel(*rowDst, c_r, c_g, c_b, a);
+                                }
+                            }
+                            return;
+                        }
+                    } else if (q0.mode == 0 && q0.color == q1.color && q2.color == q3.color) {
+                        // Vertical Gradient Axis-Aligned Rectangle
+                        float c0_r = static_cast<float>(q0.color & 0xFF);
+                        float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                        float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                        float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                        float c1_r = static_cast<float>(q2.color & 0xFF);
+                        float c1_g = static_cast<float>((q2.color >> 8) & 0xFF);
+                        float c1_b = static_cast<float>((q2.color >> 16) & 0xFF);
+                        float c1_a = static_cast<float>((q2.color >> 24) & 0xFF);
+
+                        float invH = (fMaxY > fMinY) ? (1.0f / (fMaxY - fMinY)) : 1.0f;
                         int count = rMaxX - rMinX + 1;
                         for (int y = rMinY; y <= rMaxY; ++y) {
-                            std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
-                        }
-                        return;
-                    } else if (a > 0) {
-                        for (int y = rMinY; y <= rMaxY; ++y) {
-                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
-                            for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
-                                *rowDst = blendPixel(*rowDst, c_r, c_g, c_b, a);
-                            }
-                        }
-                        return;
-                    }
-                } else if (q0.mode == 0 && q0.color == q1.color && q2.color == q3.color) {
-                    // Vertical Gradient Axis-Aligned Rectangle: Fast row-by-row interpolation using FLOAT arithmetic!
-                    float c0_r = static_cast<float>(q0.color & 0xFF);
-                    float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
-                    float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
-                    float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
-
-                    float c1_r = static_cast<float>(q2.color & 0xFF);
-                    float c1_g = static_cast<float>((q2.color >> 8) & 0xFF);
-                    float c1_b = static_cast<float>((q2.color >> 16) & 0xFF);
-                    float c1_a = static_cast<float>((q2.color >> 24) & 0xFF);
-
-                    float invH = (fMaxY > fMinY) ? (1.0f / (fMaxY - fMinY)) : 1.0f;
-                    int count = rMaxX - rMinX + 1;
-                    for (int y = rMinY; y <= rMaxY; ++y) {
-                        float t = std::clamp((static_cast<float>(y) + 0.5f - fMinY) * invH, 0.0f, 1.0f);
-                        float r = c0_r + (c1_r - c0_r) * t;
-                        float g = c0_g + (c1_g - c0_g) * t;
-                        float b = c0_b + (c1_b - c0_b) * t;
-                        float a = c0_a + (c1_a - c0_a) * t;
-
-                        uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
-                        uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
-                        uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
-                        uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
-
-                        if (blendMode_ == BlendMode::Normal && ua >= 255) {
-                            uint32_t col = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
-                            std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
-                        } else if (ua > 0) {
-                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
-                            for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
-                                *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
-                            }
-                        }
-                    }
-                    return;
-                } else if (q0.mode == 0 && q0.color == q3.color && q1.color == q2.color) {
-                    // Horizontal Gradient Axis-Aligned Rectangle
-                    float c0_r = static_cast<float>(q0.color & 0xFF);
-                    float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
-                    float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
-                    float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
-
-                    float c1_r = static_cast<float>(q1.color & 0xFF);
-                    float c1_g = static_cast<float>((q1.color >> 8) & 0xFF);
-                    float c1_b = static_cast<float>((q1.color >> 16) & 0xFF);
-                    float c1_a = static_cast<float>((q1.color >> 24) & 0xFF);
-
-                    float invW = (fMaxX > fMinX) ? (1.0f / (fMaxX - fMinX)) : 1.0f;
-                    for (int y = rMinY; y <= rMaxY; ++y) {
-                        uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
-                        for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
-                            float t = std::clamp((static_cast<float>(x) + 0.5f - fMinX) * invW, 0.0f, 1.0f);
+                            float t = std::clamp((static_cast<float>(y) + 0.5f - fMinY) * invH, 0.0f, 1.0f);
                             float r = c0_r + (c1_r - c0_r) * t;
                             float g = c0_g + (c1_g - c0_g) * t;
                             float b = c0_b + (c1_b - c0_b) * t;
@@ -818,12 +782,300 @@ private:
                             uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
                             uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
 
-                            if (ua > 0) {
-                                *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
+                            if (blendMode_ == BlendMode::Normal && ua >= 255) {
+                                uint32_t col = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                                std::fill_n(&framebuffer_[y * viewportWidth_ + rMinX], count, col);
+                            } else if (ua > 0) {
+                                uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                                for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                                    *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
+                                }
                             }
                         }
+                        return;
+                    } else if (q0.mode == 0 && q0.color == q3.color && q1.color == q2.color) {
+                        // Horizontal Gradient Axis-Aligned Rectangle
+                        float c0_r = static_cast<float>(q0.color & 0xFF);
+                        float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                        float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                        float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                        float c1_r = static_cast<float>(q1.color & 0xFF);
+                        float c1_g = static_cast<float>((q1.color >> 8) & 0xFF);
+                        float c1_b = static_cast<float>((q1.color >> 16) & 0xFF);
+                        float c1_a = static_cast<float>((q1.color >> 24) & 0xFF);
+
+                        float invW = (fMaxX > fMinX) ? (1.0f / (fMaxX - fMinX)) : 1.0f;
+                        for (int y = rMinY; y <= rMaxY; ++y) {
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + rMinX];
+                            for (int x = rMinX; x <= rMaxX; ++x, ++rowDst) {
+                                float t = std::clamp((static_cast<float>(x) + 0.5f - fMinX) * invW, 0.0f, 1.0f);
+                                float r = c0_r + (c1_r - c0_r) * t;
+                                float g = c0_g + (c1_g - c0_g) * t;
+                                float b = c0_b + (c1_b - c0_b) * t;
+                                float a = c0_a + (c1_a - c0_a) * t;
+
+                                uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+                                uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+                                uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+                                uint32_t ua = static_cast<uint32_t>(std::clamp(a, 0.0f, 255.0f));
+
+                                if (ua > 0) {
+                                    *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
+                                }
+                            }
+                        }
+                        return;
                     }
-                    return;
+                }
+            } else {
+                // Analytical Subpixel Continuous Box Coverage for Anti-Aliased Rendering (antiAliasingMode_ > 0)
+                int pMinX = std::max(clipMinX, static_cast<int>(std::floor(fMinX)));
+                int pMaxX = std::min(clipMaxX, static_cast<int>(std::ceil(fMaxX)) - 1);
+                int pMinY = std::max(clipMinY, static_cast<int>(std::floor(fMinY)));
+                int pMaxY = std::min(clipMaxY, static_cast<int>(std::ceil(fMaxY)) - 1);
+
+                if (pMinX <= pMaxX && pMinY <= pMaxY) {
+                    if (q0.mode == 0 && q0.color == q1.color && q0.color == q2.color && q0.color == q3.color) {
+                        // Solid Axis-Aligned Rectangle with Analytical Subpixel Edges
+                        uint32_t a = (q0.color >> 24) & 0xFF;
+                        if (a == 0) return;
+                        uint32_t c_r = q0.color & 0xFF;
+                        uint32_t c_g = (q0.color >> 8) & 0xFF;
+                        uint32_t c_b = (q0.color >> 16) & 0xFF;
+
+                        float covX_left  = (pMinX == pMaxX) ? std::clamp(fMaxX - fMinX, 0.0f, 1.0f)
+                                                            : std::clamp(static_cast<float>(pMinX + 1) - fMinX, 0.0f, 1.0f);
+                        float covX_right = (pMinX == pMaxX) ? covX_left
+                                                            : std::clamp(fMaxX - static_cast<float>(pMaxX), 0.0f, 1.0f);
+
+                        for (int y = pMinY; y <= pMaxY; ++y) {
+                            float cy;
+                            if (pMinY == pMaxY) {
+                                cy = std::clamp(fMaxY - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMinY) {
+                                cy = std::clamp(static_cast<float>(pMinY + 1) - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMaxY) {
+                                cy = std::clamp(fMaxY - static_cast<float>(pMaxY), 0.0f, 1.0f);
+                            } else {
+                                cy = 1.0f;
+                            }
+
+                            if (cy <= 0.001f) continue;
+
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + pMinX];
+
+                            if (pMinX == pMaxX) {
+                                float cov = covX_left * cy;
+                                uint32_t effA = static_cast<uint32_t>(std::round(static_cast<float>(a) * cov));
+                                if (effA > 0) {
+                                    if (blendMode_ == BlendMode::Normal && effA >= 255) {
+                                        *rowDst = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                                    } else {
+                                        *rowDst = blendPixel(*rowDst, c_r, c_g, c_b, effA);
+                                    }
+                                }
+                            } else {
+                                // Left boundary pixel (x = pMinX)
+                                float covL = covX_left * cy;
+                                uint32_t effAL = static_cast<uint32_t>(std::round(static_cast<float>(a) * covL));
+                                if (effAL > 0) {
+                                    if (blendMode_ == BlendMode::Normal && effAL >= 255) {
+                                        rowDst[0] = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                                    } else {
+                                        rowDst[0] = blendPixel(rowDst[0], c_r, c_g, c_b, effAL);
+                                    }
+                                }
+
+                                // Interior pixels (pMinX + 1 .. pMaxX - 1)
+                                int innerCount = pMaxX - pMinX - 1;
+                                if (innerCount > 0) {
+                                    float covMid = cy; // covX is strictly 1.0f inside
+                                    uint32_t effAMid = static_cast<uint32_t>(std::round(static_cast<float>(a) * covMid));
+                                    if (effAMid > 0) {
+                                        if (blendMode_ == BlendMode::Normal && effAMid >= 255) {
+                                            uint32_t col = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                                            std::fill_n(rowDst + 1, innerCount, col);
+                                        } else {
+                                            for (int i = 1; i <= innerCount; ++i) {
+                                                rowDst[i] = blendPixel(rowDst[i], c_r, c_g, c_b, effAMid);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Right boundary pixel (x = pMaxX)
+                                float covR = covX_right * cy;
+                                uint32_t effAR = static_cast<uint32_t>(std::round(static_cast<float>(a) * covR));
+                                if (effAR > 0) {
+                                    int lastIdx = pMaxX - pMinX;
+                                    if (blendMode_ == BlendMode::Normal && effAR >= 255) {
+                                        rowDst[lastIdx] = (0xFF << 24) | (c_r << 16) | (c_g << 8) | c_b;
+                                    } else {
+                                        rowDst[lastIdx] = blendPixel(rowDst[lastIdx], c_r, c_g, c_b, effAR);
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    } else if (q0.mode == 0 && q0.color == q1.color && q2.color == q3.color) {
+                        // Vertical Gradient Axis-Aligned Rectangle with Subpixel AA
+                        float c0_r = static_cast<float>(q0.color & 0xFF);
+                        float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                        float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                        float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                        float c1_r = static_cast<float>(q2.color & 0xFF);
+                        float c1_g = static_cast<float>((q2.color >> 8) & 0xFF);
+                        float c1_b = static_cast<float>((q2.color >> 16) & 0xFF);
+                        float c1_a = static_cast<float>((q2.color >> 24) & 0xFF);
+
+                        float invH = (fMaxY > fMinY) ? (1.0f / (fMaxY - fMinY)) : 1.0f;
+
+                        float covX_left  = (pMinX == pMaxX) ? std::clamp(fMaxX - fMinX, 0.0f, 1.0f)
+                                                            : std::clamp(static_cast<float>(pMinX + 1) - fMinX, 0.0f, 1.0f);
+                        float covX_right = (pMinX == pMaxX) ? covX_left
+                                                            : std::clamp(fMaxX - static_cast<float>(pMaxX), 0.0f, 1.0f);
+
+                        for (int y = pMinY; y <= pMaxY; ++y) {
+                            float cy;
+                            if (pMinY == pMaxY) {
+                                cy = std::clamp(fMaxY - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMinY) {
+                                cy = std::clamp(static_cast<float>(pMinY + 1) - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMaxY) {
+                                cy = std::clamp(fMaxY - static_cast<float>(pMaxY), 0.0f, 1.0f);
+                            } else {
+                                cy = 1.0f;
+                            }
+                            if (cy <= 0.001f) continue;
+
+                            float t = std::clamp((static_cast<float>(y) + 0.5f - fMinY) * invH, 0.0f, 1.0f);
+                            float r = c0_r + (c1_r - c0_r) * t;
+                            float g = c0_g + (c1_g - c0_g) * t;
+                            float b = c0_b + (c1_b - c0_b) * t;
+                            float a = c0_a + (c1_a - c0_a) * t;
+
+                            uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+                            uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+                            uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+                            float rawA = std::clamp(a, 0.0f, 255.0f);
+
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + pMinX];
+
+                            if (pMinX == pMaxX) {
+                                float cov = covX_left * cy;
+                                uint32_t effA = static_cast<uint32_t>(std::round(rawA * cov));
+                                if (effA > 0) {
+                                    if (blendMode_ == BlendMode::Normal && effA >= 255) {
+                                        *rowDst = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                                    } else {
+                                        *rowDst = blendPixel(*rowDst, ur, ug, ub, effA);
+                                    }
+                                }
+                            } else {
+                                // Left boundary
+                                float covL = covX_left * cy;
+                                uint32_t effAL = static_cast<uint32_t>(std::round(rawA * covL));
+                                if (effAL > 0) {
+                                    if (blendMode_ == BlendMode::Normal && effAL >= 255) {
+                                        rowDst[0] = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                                    } else {
+                                        rowDst[0] = blendPixel(rowDst[0], ur, ug, ub, effAL);
+                                    }
+                                }
+
+                                // Interior
+                                int innerCount = pMaxX - pMinX - 1;
+                                if (innerCount > 0) {
+                                    float covMid = cy;
+                                    uint32_t effAMid = static_cast<uint32_t>(std::round(rawA * covMid));
+                                    if (effAMid > 0) {
+                                        if (blendMode_ == BlendMode::Normal && effAMid >= 255) {
+                                            uint32_t col = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                                            std::fill_n(rowDst + 1, innerCount, col);
+                                        } else {
+                                            for (int i = 1; i <= innerCount; ++i) {
+                                                rowDst[i] = blendPixel(rowDst[i], ur, ug, ub, effAMid);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Right boundary
+                                float covR = covX_right * cy;
+                                uint32_t effAR = static_cast<uint32_t>(std::round(rawA * covR));
+                                if (effAR > 0) {
+                                    int lastIdx = pMaxX - pMinX;
+                                    if (blendMode_ == BlendMode::Normal && effAR >= 255) {
+                                        rowDst[lastIdx] = (0xFF << 24) | (ur << 16) | (ug << 8) | ub;
+                                    } else {
+                                        rowDst[lastIdx] = blendPixel(rowDst[lastIdx], ur, ug, ub, effAR);
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    } else if (q0.mode == 0 && q0.color == q3.color && q1.color == q2.color) {
+                        // Horizontal Gradient Axis-Aligned Rectangle with Subpixel AA
+                        float c0_r = static_cast<float>(q0.color & 0xFF);
+                        float c0_g = static_cast<float>((q0.color >> 8) & 0xFF);
+                        float c0_b = static_cast<float>((q0.color >> 16) & 0xFF);
+                        float c0_a = static_cast<float>((q0.color >> 24) & 0xFF);
+
+                        float c1_r = static_cast<float>(q1.color & 0xFF);
+                        float c1_g = static_cast<float>((q1.color >> 8) & 0xFF);
+                        float c1_b = static_cast<float>((q1.color >> 16) & 0xFF);
+                        float c1_a = static_cast<float>((q1.color >> 24) & 0xFF);
+
+                        float invW = (fMaxX > fMinX) ? (1.0f / (fMaxX - fMinX)) : 1.0f;
+
+                        for (int y = pMinY; y <= pMaxY; ++y) {
+                            float cy;
+                            if (pMinY == pMaxY) {
+                                cy = std::clamp(fMaxY - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMinY) {
+                                cy = std::clamp(static_cast<float>(pMinY + 1) - fMinY, 0.0f, 1.0f);
+                            } else if (y == pMaxY) {
+                                cy = std::clamp(fMaxY - static_cast<float>(pMaxY), 0.0f, 1.0f);
+                            } else {
+                                cy = 1.0f;
+                            }
+                            if (cy <= 0.001f) continue;
+
+                            uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + pMinX];
+                            for (int x = pMinX; x <= pMaxX; ++x, ++rowDst) {
+                                float cx;
+                                if (pMinX == pMaxX) {
+                                    cx = std::clamp(fMaxX - fMinX, 0.0f, 1.0f);
+                                } else if (x == pMinX) {
+                                    cx = std::clamp(static_cast<float>(pMinX + 1) - fMinX, 0.0f, 1.0f);
+                                } else if (x == pMaxX) {
+                                    cx = std::clamp(fMaxX - static_cast<float>(pMaxX), 0.0f, 1.0f);
+                                } else {
+                                    cx = 1.0f;
+                                }
+
+                                float t = std::clamp((static_cast<float>(x) + 0.5f - fMinX) * invW, 0.0f, 1.0f);
+                                float r = c0_r + (c1_r - c0_r) * t;
+                                float g = c0_g + (c1_g - c0_g) * t;
+                                float b = c0_b + (c1_b - c0_b) * t;
+                                float a = c0_a + (c1_a - c0_a) * t;
+
+                                uint32_t ur = static_cast<uint32_t>(std::clamp(r, 0.0f, 255.0f));
+                                uint32_t ug = static_cast<uint32_t>(std::clamp(g, 0.0f, 255.0f));
+                                uint32_t ub = static_cast<uint32_t>(std::clamp(b, 0.0f, 255.0f));
+                                float rawA = std::clamp(a, 0.0f, 255.0f);
+
+                                float cov = cx * cy;
+                                uint32_t effA = static_cast<uint32_t>(std::round(rawA * cov));
+                                if (effA > 0) {
+                                    *rowDst = blendPixel(*rowDst, ur, ug, ub, effA);
+                                }
+                            }
+                        }
+                        return;
+                    }
                 }
             }
         }
@@ -1299,6 +1551,15 @@ public:
     }
 
     void shutdown() override {
+        if (msaaTextureView_) {
+            wgpuTextureViewRelease(msaaTextureView_);
+            msaaTextureView_ = nullptr;
+        }
+        if (msaaTexture_) {
+            wgpuTextureDestroy(msaaTexture_);
+            wgpuTextureRelease(msaaTexture_);
+            msaaTexture_ = nullptr;
+        }
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
         }
@@ -1317,10 +1578,15 @@ public:
             wgpuTextureRelease(rgbaTexture_);
             rgbaTexture_ = nullptr;
         }
-        if (bindGroup_) {
-            wgpuBindGroupRelease(bindGroup_);
-            bindGroup_ = nullptr;
+        if (bindGroup1x_) {
+            wgpuBindGroupRelease(bindGroup1x_);
+            bindGroup1x_ = nullptr;
         }
+        if (bindGroup4x_) {
+            wgpuBindGroupRelease(bindGroup4x_);
+            bindGroup4x_ = nullptr;
+        }
+        bindGroup_ = nullptr;
         if (uniformBuffer_) {
             wgpuBufferDestroy(uniformBuffer_);
             wgpuBufferRelease(uniformBuffer_);
@@ -1339,10 +1605,15 @@ public:
             wgpuTextureRelease(fontTexture_);
             fontTexture_ = nullptr;
         }
-        if (pipeline_) {
-            wgpuRenderPipelineRelease(pipeline_);
-            pipeline_ = nullptr;
+        if (pipeline1x_) {
+            wgpuRenderPipelineRelease(pipeline1x_);
+            pipeline1x_ = nullptr;
         }
+        if (pipeline4x_) {
+            wgpuRenderPipelineRelease(pipeline4x_);
+            pipeline4x_ = nullptr;
+        }
+        pipeline_ = nullptr;
         if (surface_) {
             wgpuSurfaceRelease(surface_);
             surface_ = nullptr;
@@ -1351,6 +1622,82 @@ public:
 
     uint32_t surfaceConfiguredWidth_{0};
     uint32_t surfaceConfiguredHeight_{0};
+
+    void setScissorRect(float x, float y, float w, float h) override {
+        hasScissor_ = true;
+        float rx = std::max(0.0f, x);
+        float ry = std::max(0.0f, y);
+        float rw = std::max(0.0f, w);
+        float rh = std::max(0.0f, h);
+        if (rx + rw > static_cast<float>(width_)) rw = std::max(0.0f, static_cast<float>(width_) - rx);
+        if (ry + rh > static_cast<float>(height_)) rh = std::max(0.0f, static_cast<float>(height_) - ry);
+        scissorX_ = static_cast<uint32_t>(std::round(rx));
+        scissorY_ = static_cast<uint32_t>(std::round(ry));
+        scissorW_ = static_cast<uint32_t>(std::round(rw));
+        scissorH_ = static_cast<uint32_t>(std::round(rh));
+    }
+
+    void clearScissorRect() override {
+        hasScissor_ = false;
+    }
+
+    void setAntiAliasingMode(int mode) override {
+        antiAliasingMode_ = std::clamp(mode, 0, 2);
+        uint32_t newSampleCount = (antiAliasingMode_ == 0) ? 1 : 4;
+        if (newSampleCount != sampleCount_) {
+            sampleCount_ = newSampleCount;
+            updateActivePipeline();
+            if (device_) {
+                reallocateMsaaTexture(width_, height_);
+            }
+        }
+    }
+
+    void updateActivePipeline() noexcept {
+        if (sampleCount_ > 1 && pipeline4x_ && bindGroup4x_) {
+            pipeline_ = pipeline4x_;
+            bindGroup_ = bindGroup4x_;
+        } else {
+            pipeline_ = pipeline1x_;
+            bindGroup_ = bindGroup1x_;
+            sampleCount_ = 1;
+        }
+    }
+
+    void reallocateMsaaTexture(uint32_t width, uint32_t height) {
+        if (msaaTextureView_) {
+            wgpuTextureViewRelease(msaaTextureView_);
+            msaaTextureView_ = nullptr;
+        }
+        if (msaaTexture_) {
+            wgpuTextureDestroy(msaaTexture_);
+            wgpuTextureRelease(msaaTexture_);
+            msaaTexture_ = nullptr;
+        }
+        if (sampleCount_ <= 1 || !device_ || width == 0 || height == 0) {
+            return;
+        }
+
+        WGPUTextureDescriptor msaaDesc{};
+        msaaDesc.dimension = WGPUTextureDimension_2D;
+        msaaDesc.size = WGPUExtent3D{ width, height, 1 };
+        msaaDesc.format = WGPUTextureFormat_BGRA8Unorm;
+        msaaDesc.usage = WGPUTextureUsage_RenderAttachment;
+        msaaDesc.mipLevelCount = 1;
+        msaaDesc.sampleCount = sampleCount_;
+        msaaTexture_ = wgpuDeviceCreateTexture(device_, &msaaDesc);
+        if (msaaTexture_) {
+            WGPUTextureViewDescriptor msaaViewDesc{};
+            msaaViewDesc.format = WGPUTextureFormat_BGRA8Unorm;
+            msaaViewDesc.dimension = WGPUTextureViewDimension_2D;
+            msaaViewDesc.baseMipLevel = 0;
+            msaaViewDesc.mipLevelCount = 1;
+            msaaViewDesc.baseArrayLayer = 0;
+            msaaViewDesc.arrayLayerCount = 1;
+            msaaViewDesc.aspect = WGPUTextureAspect_All;
+            msaaTextureView_ = wgpuTextureCreateView(msaaTexture_, &msaaViewDesc);
+        }
+    }
 
     void resize(uint32_t width, uint32_t height) override {
         if (width == 0 || height == 0) return;
@@ -1382,6 +1729,7 @@ public:
             config.presentMode = WGPUPresentMode_Fifo;
             wgpuSurfaceConfigure(surface_, &config);
         }
+        reallocateMsaaTexture(width, height);
     }
 
     void beginPass(float width, float height) override {
@@ -1452,7 +1800,14 @@ public:
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
 
         WGPURenderPassColorAttachment colorAttachment{};
-        colorAttachment.view = currentBackBufferView_;
+        bool useMsaa = (sampleCount_ > 1 && msaaTextureView_ != nullptr);
+        if (useMsaa) {
+            colorAttachment.view = msaaTextureView_;
+            colorAttachment.resolveTarget = currentBackBufferView_;
+        } else {
+            colorAttachment.view = currentBackBufferView_;
+            colorAttachment.resolveTarget = nullptr;
+        }
         colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
         colorAttachment.loadOp = isFirstBatchOfFrame_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
         colorAttachment.storeOp = WGPUStoreOp_Store;
@@ -1468,6 +1823,16 @@ public:
         wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
         if (bindGroup_) {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
+        }
+
+        if (hasScissor_ && scissorW_ > 0 && scissorH_ > 0) {
+            uint32_t sx = std::min(scissorX_, width_ > 0 ? width_ - 1 : 0);
+            uint32_t sy = std::min(scissorY_, height_ > 0 ? height_ - 1 : 0);
+            uint32_t sw = std::min(scissorW_, width_ - sx);
+            uint32_t sh = std::min(scissorH_, height_ - sy);
+            if (sw > 0 && sh > 0) {
+                wgpuRenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+            }
         }
 
         // Dynamic vertex upload
@@ -1713,6 +2078,11 @@ private:
         plDesc.multisample.mask = ~0u;
         plDesc.multisample.alphaToCoverageEnabled = false;
 
+        pipeline1x_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
+
+        plDesc.multisample.count = 4;
+        pipeline4x_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
+
         // 1. Create font atlas texture (1024x1024 R8Unorm)
         WGPUTextureDescriptor texDesc{};
         texDesc.dimension = WGPUTextureDimension_2D;
@@ -1765,7 +2135,6 @@ private:
         sampDesc.maxAnisotropy = 1;
         fontSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
-        pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
         wgpuShaderModuleRelease(shaderModule);
 
         // Uniform buffer for viewport dimension upload
@@ -1790,23 +2159,43 @@ private:
         entries[3].textureView = rgbaTextureView_;
 
         WGPUBindGroupDescriptor bgDesc{};
-        WGPUBindGroupLayout bgLayout = wgpuRenderPipelineGetBindGroupLayout(pipeline_, 0);
-        bgDesc.layout = bgLayout;
-        bgDesc.entryCount = 4;
-        bgDesc.entries = entries;
-        bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
-        wgpuBindGroupLayoutRelease(bgLayout);
+        if (pipeline1x_) {
+            WGPUBindGroupLayout bgLayout1x = wgpuRenderPipelineGetBindGroupLayout(pipeline1x_, 0);
+            bgDesc.layout = bgLayout1x;
+            bgDesc.entryCount = 4;
+            bgDesc.entries = entries;
+            bindGroup1x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+            wgpuBindGroupLayoutRelease(bgLayout1x);
+        }
+
+        if (pipeline4x_) {
+            WGPUBindGroupLayout bgLayout4x = wgpuRenderPipelineGetBindGroupLayout(pipeline4x_, 0);
+            bgDesc.layout = bgLayout4x;
+            bgDesc.entryCount = 4;
+            bgDesc.entries = entries;
+            bindGroup4x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+            wgpuBindGroupLayoutRelease(bgLayout4x);
+        }
+
+        updateActivePipeline();
+        reallocateMsaaTexture(width_, height_);
     }
 
     WGPUDevice device_{nullptr};
     WGPUSurface surface_{nullptr};
+    WGPURenderPipeline pipeline1x_{nullptr};
+    WGPURenderPipeline pipeline4x_{nullptr};
     WGPURenderPipeline pipeline_{nullptr};
+    WGPUTexture msaaTexture_{nullptr};
+    WGPUTextureView msaaTextureView_{nullptr};
     WGPUTexture fontTexture_{nullptr};
     WGPUTextureView fontTextureView_{nullptr};
     WGPUSampler fontSampler_{nullptr};
     WGPUTexture rgbaTexture_{nullptr};
     WGPUTextureView rgbaTextureView_{nullptr};
     WGPUBuffer uniformBuffer_{nullptr};
+    WGPUBindGroup bindGroup1x_{nullptr};
+    WGPUBindGroup bindGroup4x_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
     WGPUSurfaceTexture currentSurfaceTexture_{};
     WGPUTextureView currentBackBufferView_{nullptr};
@@ -1814,6 +2203,13 @@ private:
     bool isFirstBatchOfFrame_{true};
     uint32_t width_{1280};
     uint32_t height_{800};
+    int antiAliasingMode_{2};
+    uint32_t sampleCount_{4};
+    bool hasScissor_{false};
+    uint32_t scissorX_{0};
+    uint32_t scissorY_{0};
+    uint32_t scissorW_{0};
+    uint32_t scissorH_{0};
 };
 #endif
 
@@ -1845,19 +2241,28 @@ bool BatchRenderer2D::initialize(void* windowHandle, uint32_t width, uint32_t he
 #if defined(__EMSCRIPTEN__) && defined(EATS_ENABLE_WEBGPU)
     (void)backend;
     backend_ = std::make_unique<WebGpuBatchBackend>();
-    return backend_->initialize(windowHandle, width, height);
+    bool ok = backend_->initialize(windowHandle, width, height);
+    if (ok) {
+        backend_->setAntiAliasingMode(antiAliasingMode_);
+    }
+    return ok;
 #else
     if (backend == RenderBackendType::WebGPU) {
 #if defined(EATS_ENABLE_WEBGPU)
         backend_ = std::make_unique<WebGpuBatchBackend>();
         if (backend_->initialize(windowHandle, width, height)) {
+            backend_->setAntiAliasingMode(antiAliasingMode_);
             return true;
         }
 #endif
     }
 
     backend_ = std::make_unique<FilamentBatchBackend>();
-    return backend_->initialize(windowHandle, width, height);
+    bool ok = backend_->initialize(windowHandle, width, height);
+    if (ok) {
+        backend_->setAntiAliasingMode(antiAliasingMode_);
+    }
+    return ok;
 #endif
 }
 

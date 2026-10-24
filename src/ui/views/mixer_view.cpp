@@ -610,6 +610,7 @@ void MixerView::syncFromWindow(
         channels_[i].r = trk.r;
         channels_[i].g = trk.g;
         channels_[i].b = trk.b;
+        channels_[i].iconRef = trk.iconRef;
         if (channels_[i].instrument != trk.instrument) {
             channels_[i].instrument = trk.instrument;
         }
@@ -743,7 +744,7 @@ void MixerView::render(const ViewContext& ctx) {
     // Divider Line between Master Bus and Scrollable Track Strips
     float divX = masterBounds_.x + masterBounds_.w + 12.0f;
     drawLine(r, divX, masterBounds_.y + 4.0f, divX, masterBounds_.y + masterBounds_.h - 4.0f,
-             0.22f, 0.25f, 0.32f, 0.8f, 1.5f);
+             theme.borderSubtle, 1.5f);
 
     // 2. Horizontally Scrollable Virtualized Track Strips
     const float startX = (densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
@@ -806,6 +807,7 @@ void MixerView::render(const ViewContext& ctx) {
         drawerData_.mute = selCh.mute;
         drawerData_.solo = selCh.solo;
         drawerData_.freeze = selCh.freeze;
+        drawerData_.iconRef = selCh.iconRef;
         drawerData_.chordFollowMode = selCh.chordFollowMode;
 
         drawerData_.eqEnabled = selCh.eqEnabled;
@@ -883,84 +885,85 @@ void MixerView::renderToolbar(BatchRenderer2D& r, const ThemeTokens& theme) {
     float tw = toolbarBounds_.w;
     float th = toolbarBounds_.h;
 
-    drawRoundedRect(r, tx, ty, tw, th, 0.0f, 0.09f, 0.10f, 0.13f, 1.0f);
-    drawLine(r, tx, ty + th - 1.0f, tx + tw, ty + th - 1.0f, 0.22f, 0.26f, 0.34f, 0.9f, 1.5f);
+    drawRoundedRect(r, tx, ty, tw, th, 0.0f, theme.panelHeader);
+    drawLine(r, tx, ty + th - 1.0f, tx + tw, ty + th - 1.0f, theme.borderSubtle, 1.5f);
 
     // Title
-    drawText(r, "MIXER", tx + 12.0f, ty + 8.5f, 10.0f, 1.0f, 0.75f, 0.25f, 1.0f);
+    drawText(r, "MIXER", tx + 12.0f, ty + 8.5f, 10.0f, theme.primaryAccent);
 
     auto drawPill = [&](float x, float y, float w, float h, const char* label, bool active, Color activeColor) {
         if (active) {
-            drawRoundedRect(r, x, y, w, h, 3.0f, activeColor.r * 0.25f, activeColor.g * 0.25f, activeColor.b * 0.25f, 0.95f);
-            drawRoundedRectOutline(r, x, y, w, h, 3.0f, activeColor.r, activeColor.g, activeColor.b, 0.95f, 1.2f);
-            drawText(r, label, x + 6.0f, y + 4.5f, 8.5f, activeColor.r, activeColor.g, activeColor.b, 1.0f);
+            drawRoundedRect(r, x, y, w, h, 3.0f, activeColor.withAlpha(0.25f));
+            drawRoundedRectOutline(r, x, y, w, h, 3.0f, activeColor, 1.2f);
+            drawText(r, label, x + 6.0f, y + 4.5f, 8.5f, activeColor);
         } else {
-            drawRoundedRect(r, x, y, w, h, 3.0f, 0.13f, 0.15f, 0.19f, 0.80f);
-            drawRoundedRectOutline(r, x, y, w, h, 3.0f, 0.28f, 0.32f, 0.40f, 0.50f, 1.0f);
-            drawText(r, label, x + 6.0f, y + 4.5f, 8.5f, 0.55f, 0.60f, 0.70f, 0.85f);
+            drawRoundedRect(r, x, y, w, h, 3.0f, theme.controlBackground);
+            drawRoundedRectOutline(r, x, y, w, h, 3.0f, theme.borderSubtle, 1.0f);
+            drawText(r, label, x + 6.0f, y + 4.5f, 8.5f, theme.textSecondary);
         }
     };
 
     // Density Mode Pills
     float curX = tx + 64.0f;
-    drawPill(curX, ty + 4.0f, 76.0f, 22.0f, "COMFORT", densityMode_ == MixerDensityMode::Comfortable, Color(1.0f, 0.75f, 0.20f));
+    drawPill(curX, ty + 4.0f, 76.0f, 22.0f, "COMFORT", densityMode_ == MixerDensityMode::Comfortable, theme.primaryAccent);
     curX += 80.0f;
-    drawPill(curX, ty + 4.0f, 66.0f, 22.0f, "COMPACT", densityMode_ == MixerDensityMode::Compact, Color(0.20f, 0.75f, 1.0f));
+    drawPill(curX, ty + 4.0f, 66.0f, 22.0f, "COMPACT", densityMode_ == MixerDensityMode::Compact, theme.secondaryAccent);
     curX += 70.0f;
-    drawPill(curX, ty + 4.0f, 54.0f, 22.0f, "MICRO", densityMode_ == MixerDensityMode::Micro, Color(0.95f, 0.35f, 0.85f));
+    drawPill(curX, ty + 4.0f, 54.0f, 22.0f, "MICRO", densityMode_ == MixerDensityMode::Micro, theme.highlight);
     curX += 60.0f;
 
     // Divider
-    drawLine(r, curX, ty + 6.0f, curX, ty + th - 6.0f, 0.25f, 0.28f, 0.36f, 0.6f, 1.0f);
+    drawLine(r, curX, ty + 6.0f, curX, ty + th - 6.0f, theme.borderSubtle, 1.0f);
     curX += 8.0f;
 
     // Section Toggle Pills
-    drawPill(curX, ty + 4.0f, 56.0f, 22.0f, "METERS", showMeters_, Color(0.25f, 0.85f, 0.50f));
+    drawPill(curX, ty + 4.0f, 56.0f, 22.0f, "METERS", showMeters_, theme.highlight);
     curX += 60.0f;
-    drawPill(curX, ty + 4.0f, 62.0f, 22.0f, "ROUTING", showRouting_, Color(0.95f, 0.65f, 0.20f));
+    drawPill(curX, ty + 4.0f, 62.0f, 22.0f, "ROUTING", showRouting_, theme.secondaryAccent);
     curX += 66.0f;
-    drawPill(curX, ty + 4.0f, 42.0f, 22.0f, "PAN", showPan_, Color(0.30f, 0.70f, 1.0f));
+    drawPill(curX, ty + 4.0f, 42.0f, 22.0f, "PAN", showPan_, theme.primaryAccent);
     curX += 46.0f;
-    drawPill(curX, ty + 4.0f, 68.0f, 22.0f, "READOUT", showReadouts_, Color(0.85f, 0.85f, 0.90f));
+    drawPill(curX, ty + 4.0f, 68.0f, 22.0f, "READOUT", showReadouts_, theme.textPrimary);
     curX += 74.0f;
 
     // Master Position Pill
     std::string mPosLabel = (masterPosition_ == MixerMasterPosition::Left) ? "MST: LEFT" : "MST: RIGHT";
-    drawPill(curX, ty + 4.0f, 74.0f, 22.0f, mPosLabel.c_str(), true, Color(0.80f, 0.70f, 0.35f));
+    drawPill(curX, ty + 4.0f, 74.0f, 22.0f, mPosLabel.c_str(), true, theme.primaryAccent);
 }
 
-void MixerView::renderBacklitLcd(BatchRenderer2D& r, float x, float y, float w, float h,
+void MixerView::renderBacklitLcd(BatchRenderer2D& r, const ThemeTokens& theme, float x, float y, float w, float h,
                                  const std::string& title, const std::string& leftText, const std::string& rightText,
                                  const Color& titleColor) {
-    // Inset LCD bezel & well: #141210 / #3B3226
-    drawRoundedRect(r, x, y, w, h, 4.0f, 0.08f, 0.07f, 0.06f, 1.0f);
-    drawRoundedRectOutline(r, x, y, w, h, 4.0f, 0.23f, 0.20f, 0.15f, 0.9f, 1.4f);
+    // Inset LCD bezel & well using semantic theme tokens
+    drawRoundedRect(r, x, y, w, h, 4.0f, theme.lcdBackground);
+    drawRoundedRectOutline(r, x, y, w, h, 4.0f, theme.lcdBorder, 1.4f);
 
     // Subtle dot matrix scan lines
     for (float gy = y + 4.0f; gy < y + h - 2.0f; gy += 3.5f) {
-        drawLine(r, x + 4.0f, gy, x + w - 4.0f, gy, 0.13f, 0.11f, 0.09f, 0.4f, 1.0f);
+        drawLine(r, x + 4.0f, gy, x + w - 4.0f, gy, theme.lcdDotGrid, 1.0f);
     }
 
-    // Top centered title: Vintage amber #FFB347
+    // Top centered title
     float textW = static_cast<float>(title.length()) * 6.6f;
     float textX = x + std::max(4.0f, (w - textW) * 0.5f);
-    drawText(r, title, textX, y + 4.0f, 10.5f, 1.0f, 0.70f, 0.28f, 1.0f);
+    drawText(r, title, textX, y + 4.0f, 10.5f, titleColor);
 
     // Bottom row: Left status (pan / st-out) | Right status (vol %)
-    drawText(r, leftText, x + 6.0f, y + 20.0f, 9.0f, 1.0f, 0.70f, 0.28f, 0.85f);
+    Color subText = theme.lcdText.withAlpha(0.85f);
+    drawText(r, leftText, x + 6.0f, y + 20.0f, 9.0f, subText);
     float rw = static_cast<float>(rightText.length()) * 6.0f;
-    drawText(r, rightText, x + w - rw - 6.0f, y + 20.0f, 9.0f, 1.0f, 0.70f, 0.28f, 0.85f);
+    drawText(r, rightText, x + w - rw - 6.0f, y + 20.0f, 9.0f, subText);
 }
 
-void MixerView::renderRotaryPanKnob(BatchRenderer2D& r, float kx, float ky, float radius, float pan,
+void MixerView::renderRotaryPanKnob(BatchRenderer2D& r, const ThemeTokens& theme, float kx, float ky, float radius, float pan,
                                     const Color& accentColor) {
     // Outer shadow / well
-    drawCircle(r, kx, ky, radius + 2.0f, 0.05f, 0.06f, 0.08f, 0.6f);
+    drawCircle(r, kx, ky, radius + 2.0f, theme.controlWell.withAlpha(0.6f));
     // Dial chassis
-    drawCircle(r, kx, ky, radius, 0.13f, 0.14f, 0.17f, 1.0f);
-    drawCircleOutline(r, kx, ky, radius, 0.28f, 0.32f, 0.40f, 0.85f, 1.2f);
+    drawCircle(r, kx, ky, radius, theme.controlBackground);
+    drawCircleOutline(r, kx, ky, radius, theme.borderSubtle, 1.2f);
     // Inner bevel
-    drawCircle(r, kx, ky, radius - 3.5f, 0.09f, 0.10f, 0.12f, 1.0f);
+    drawCircle(r, kx, ky, radius - 3.5f, theme.controlWell);
 
     // Radial indicator notch (-135 to +135 deg)
     float angle = pan * 2.356f;
@@ -968,15 +971,15 @@ void MixerView::renderRotaryPanKnob(BatchRenderer2D& r, float kx, float ky, floa
     float cosA = std::cos(angle);
     drawLine(r, kx + sinA * 3.5f, ky - cosA * 3.5f,
              kx + sinA * (radius - 2.0f), ky - cosA * (radius - 2.0f),
-             accentColor.r, accentColor.g, accentColor.b, 1.0f, 2.0f);
+             accentColor, 2.0f);
 
     // Center cap
-    drawCircle(r, kx, ky, 2.0f, 0.25f, 0.28f, 0.35f, 1.0f);
+    drawCircle(r, kx, ky, 2.0f, theme.borderFocus);
 }
 
-void MixerView::renderCenterButton(BatchRenderer2D& r, float bx, float by, float bw, float bh) {
+void MixerView::renderCenterButton(BatchRenderer2D& r, const ThemeTokens& theme, float bx, float by, float bw, float bh) {
     drawButton(r, Rect2D{bx, by, bw, bh}, "C",
-               Color{0.11f, 0.12f, 0.15f, 0.95f}, Color{0.28f, 0.32f, 0.38f, 0.7f}, Color{0.80f, 0.84f, 0.90f, 0.95f},
+               theme.controlBackground, theme.borderSubtle, theme.textSecondary,
                8.5f, 3.0f, 1.0f);
 }
 
@@ -1007,12 +1010,12 @@ void MixerView::renderTooltip(BatchRenderer2D& r, const ThemeTokens& theme) {
     ty = std::clamp(ty, 58.0f, std::max(58.0f, maxDawY));
 
     // Drop shadow
-    drawRoundedRect(r, tx + 1.0f, ty + 2.0f, tw, th, 4.0f, 0.0f, 0.0f, 0.0f, 0.45f);
-    // Creamy white background
-    drawRoundedRect(r, tx, ty, tw, th, 4.0f, 0.94f, 0.95f, 0.96f, 0.98f);
-    drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, 0.60f, 0.64f, 0.70f, 0.8f, 1.0f);
-    // Crisp dark text
-    drawText(r, tooltipText_, tx + 8.0f, ty + 4.5f, 9.5f, 0.10f, 0.12f, 0.15f, 1.0f);
+    drawRoundedRect(r, tx + 1.0f, ty + 2.0f, tw, th, 4.0f, Color(0.0f, 0.0f, 0.0f, 0.45f));
+    // Panel Header background & outline
+    drawRoundedRect(r, tx, ty, tw, th, 4.0f, theme.panelHeader);
+    drawRoundedRectOutline(r, tx, ty, tw, th, 4.0f, theme.borderFocus, 1.0f);
+    // Crisp text
+    drawText(r, tooltipText_, tx + 8.0f, ty + 4.5f, 9.5f, theme.textPrimary);
 }
 
 void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, const Rect2D& b) {
@@ -1021,20 +1024,21 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     float mY = b.y;
     float stripH = b.h;
 
-    // Master Chassis with Gold/Amber Border (Eatsbeats parity)
-    drawRoundedRect(r, mX, mY, mW, stripH, 8.0f, 0.08f, 0.09f, 0.11f, 0.98f);
-    drawRoundedRectOutline(r, mX, mY, mW, stripH, 8.0f, 1.0f, 0.70f, 0.10f, isMasterSelected_ ? 1.0f : 0.75f, isMasterSelected_ ? 2.0f : 1.5f);
+    // Master Chassis with theme colors
+    drawRoundedRect(r, mX, mY, mW, stripH, 8.0f, theme.panelBackground.darken(0.04f), 0.98f);
+    Color masterBorder = isMasterSelected_ ? theme.primaryAccent : theme.primaryAccent.withAlpha(0.75f);
+    drawRoundedRectOutline(r, mX, mY, mW, stripH, 8.0f, masterBorder, isMasterSelected_ ? 2.0f : 1.5f);
 
     float lcdH = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 32.0f : 38.0f);
     int mVolPct = static_cast<int>(std::round(masterChannel_.fader * 100.0f));
 
     if (showReadouts_) {
         if (densityMode_ == MixerDensityMode::Micro) {
-            renderBacklitLcd(r, mX + 4.0f, mY + 6.0f, mW - 8.0f, lcdH, "MST", "", std::to_string(mVolPct) + "%", Color(1.0f, 0.70f, 0.28f));
+            renderBacklitLcd(r, theme, mX + 4.0f, mY + 6.0f, mW - 8.0f, lcdH, "MST", "", std::to_string(mVolPct) + "%", theme.primaryAccent);
         } else if (densityMode_ == MixerDensityMode::Compact) {
-            renderBacklitLcd(r, mX + 6.0f, mY + 6.0f, mW - 12.0f, lcdH, "MASTER", "out", std::to_string(mVolPct) + "%", Color(1.0f, 0.70f, 0.28f));
+            renderBacklitLcd(r, theme, mX + 6.0f, mY + 6.0f, mW - 12.0f, lcdH, "MASTER", "out", std::to_string(mVolPct) + "%", theme.primaryAccent);
         } else {
-            renderBacklitLcd(r, mX + 8.0f, mY + 8.0f, mW - 16.0f, lcdH, "MASTER", "st-out", std::to_string(mVolPct) + "%", Color(1.0f, 0.70f, 0.28f));
+            renderBacklitLcd(r, theme, mX + 8.0f, mY + 8.0f, mW - 16.0f, lcdH, "MASTER", "st-out", std::to_string(mVolPct) + "%", theme.primaryAccent);
         }
     }
 
@@ -1043,9 +1047,9 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     float ky = mY + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
     if (showPan_) {
         float panRadius = (densityMode_ == MixerDensityMode::Micro) ? 9.0f : ((densityMode_ == MixerDensityMode::Compact) ? 12.0f : 16.0f);
-        renderRotaryPanKnob(r, kx, ky, panRadius, masterChannel_.pan, Color(1.0f, 0.75f, 0.10f));
+        renderRotaryPanKnob(r, theme, kx, ky, panRadius, masterChannel_.pan, theme.primaryAccent);
         if (densityMode_ == MixerDensityMode::Comfortable) {
-            renderCenterButton(r, kx - 9.0f, ky + 18.0f, 18.0f, 14.0f);
+            renderCenterButton(r, theme, kx - 9.0f, ky + 18.0f, 18.0f, 14.0f);
         }
     }
 
@@ -1057,7 +1061,7 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     float fx = geom.trackX;
 
     // Master Fader Track Slot
-    drawLine(r, fx, wellTopY, fx, wellBottomY, 0.02f, 0.03f, 0.05f, 1.0f, 3.0f);
+    drawLine(r, fx, wellTopY, fx, wellBottomY, theme.controlWell, 3.0f);
 
     // Calibration dB tick marks along the fader slot (Left side of track fx)
     if (densityMode_ != MixerDensityMode::Micro) {
@@ -1066,9 +1070,9 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
             float y = wellBottomY - t * wellH;
             float tickLen = prominent ? 6.0f : 4.0f;
             float alpha = prominent ? 0.70f : 0.35f;
-            drawLine(r, fx - 16.0f, y, fx - 16.0f + tickLen, y, 0.70f, 0.74f, 0.82f, alpha, 1.0f);
+            drawLine(r, fx - 16.0f, y, fx - 16.0f + tickLen, y, theme.textMuted.withAlpha(alpha), 1.0f);
             if (label && densityMode_ == MixerDensityMode::Comfortable) {
-                drawText(r, label, fx - 34.0f, y - 3.5f, 6.5f, 0.50f, 0.54f, 0.62f, alpha);
+                drawText(r, label, fx - 34.0f, y - 3.5f, 6.5f, theme.textMuted.withAlpha(alpha));
             }
         };
         drawTick(1.5f, "+6", false);
@@ -1079,9 +1083,9 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     }
 
     float mFy = geom.thumbY;
-    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, 0.32f, 0.34f, 0.40f, 1.0f);
-    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, 0.65f, 0.70f, 0.80f, 0.9f, 1.2f);
-    drawLine(r, geom.thumb.x + 2.0f, mFy, geom.thumb.x + geom.thumb.w - 2.0f, mFy, 1.0f, 0.75f, 0.10f, 1.0f, 2.0f);
+    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.controlBackground.lighten(0.18f));
+    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.borderFocus, 1.2f);
+    drawLine(r, geom.thumb.x + 2.0f, mFy, geom.thumb.x + geom.thumb.w - 2.0f, mFy, theme.primaryAccent, 2.0f);
 
     // Master Dual Stereo Meter on Right (if showMeters_)
     if (showMeters_) {
@@ -1102,12 +1106,12 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     float stripH = b.h;
 
     // Chassis
-    Color bg = isSelected ? Color(0.10f, 0.11f, 0.14f) : Color(0.08f, 0.09f, 0.11f);
-    drawRoundedRect(r, cx, cy, stripW, stripH, 8.0f, bg.r, bg.g, bg.b, 0.98f);
+    Color bg = isSelected ? theme.panelBackground.lighten(0.04f) : theme.panelBackground;
+    drawRoundedRect(r, cx, cy, stripW, stripH, 8.0f, bg);
     if (isSelected) {
-        drawRoundedRectOutline(r, cx, cy, stripW, stripH, 8.0f, ch.r, ch.g, ch.b, 1.0f, 2.0f);
+        drawRoundedRectOutline(r, cx, cy, stripW, stripH, 8.0f, Color(ch.r, ch.g, ch.b), 2.0f);
     } else {
-        drawRoundedRectOutline(r, cx, cy, stripW, stripH, 8.0f, 0.20f, 0.22f, 0.28f, 0.45f, 1.0f);
+        drawRoundedRectOutline(r, cx, cy, stripW, stripH, 8.0f, theme.borderSubtle, 1.0f);
     }
 
     // Top Backlit LCD / Header
@@ -1119,14 +1123,14 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     if (showReadouts_) {
         if (densityMode_ == MixerDensityMode::Micro) {
             std::string shortTitle = titleStr.substr(0, std::min<size_t>(4, titleStr.length()));
-            renderBacklitLcd(r, cx + 4.0f, cy + 6.0f, stripW - 8.0f, lcdH, shortTitle, "", std::to_string(volPct) + "%", Color(ch.r, ch.g, ch.b));
+            renderBacklitLcd(r, theme, cx + 4.0f, cy + 6.0f, stripW - 8.0f, lcdH, shortTitle, "", std::to_string(volPct) + "%", Color(ch.r, ch.g, ch.b));
         } else if (densityMode_ == MixerDensityMode::Compact) {
             std::string shortTitle = titleStr.substr(0, std::min<size_t>(7, titleStr.length()));
             std::string panStr = (std::abs(ch.pan) < 0.05f) ? "C" : ((ch.pan < 0) ? ("L" + std::to_string(static_cast<int>(-ch.pan * 100))) : ("R" + std::to_string(static_cast<int>(ch.pan * 100))));
-            renderBacklitLcd(r, cx + 6.0f, cy + 6.0f, stripW - 12.0f, lcdH, shortTitle, panStr, std::to_string(volPct) + "%", Color(ch.r, ch.g, ch.b));
+            renderBacklitLcd(r, theme, cx + 6.0f, cy + 6.0f, stripW - 12.0f, lcdH, shortTitle, panStr, std::to_string(volPct) + "%", Color(ch.r, ch.g, ch.b));
         } else {
             std::string panStr = (std::abs(ch.pan) < 0.03f) ? "center" : ((ch.pan < 0) ? ("L" + std::to_string(static_cast<int>(-ch.pan * 100))) : ("R" + std::to_string(static_cast<int>(ch.pan * 100))));
-            renderBacklitLcd(r, cx + 8.0f, cy + 8.0f, stripW - 16.0f, lcdH, titleStr, panStr, std::to_string(volPct) + "%", Color(1.0f, 0.70f, 0.28f));
+            renderBacklitLcd(r, theme, cx + 8.0f, cy + 8.0f, stripW - 16.0f, lcdH, titleStr, panStr, std::to_string(volPct) + "%", Color(ch.r, ch.g, ch.b));
         }
     }
 
@@ -1135,9 +1139,9 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     float ky = cy + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
     if (showPan_) {
         float panRadius = (densityMode_ == MixerDensityMode::Micro) ? 9.0f : ((densityMode_ == MixerDensityMode::Compact) ? 12.0f : 16.0f);
-        renderRotaryPanKnob(r, kx, ky, panRadius, ch.pan, Color(ch.r, ch.g, ch.b));
+        renderRotaryPanKnob(r, theme, kx, ky, panRadius, ch.pan, Color(ch.r, ch.g, ch.b));
         if (densityMode_ == MixerDensityMode::Comfortable) {
-            renderCenterButton(r, kx - 9.0f, ky + 18.0f, 18.0f, 14.0f);
+            renderCenterButton(r, theme, kx - 9.0f, ky + 18.0f, 18.0f, 14.0f);
         }
     }
 
@@ -1149,7 +1153,7 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     float fx = geom.trackX;
 
     // 1. Vertical Console Fader
-    drawLine(r, fx, wellTopY, fx, wellBottomY, 0.02f, 0.03f, 0.05f, 1.0f, 3.0f);
+    drawLine(r, fx, wellTopY, fx, wellBottomY, theme.controlWell, 3.0f);
 
     // Calibration tick markings along the fader slot (Comfortable & Compact)
     if (densityMode_ != MixerDensityMode::Micro) {
@@ -1157,9 +1161,9 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
             float t = presenter::audio_taper::gainToTravel(gain);
             float y = wellBottomY - t * wellH;
             float alpha = prominent ? 0.65f : 0.30f;
-            drawLine(r, fx - 15.0f, y, fx - 11.0f, y, 0.70f, 0.74f, 0.82f, alpha, 1.0f);
+            drawLine(r, fx - 15.0f, y, fx - 11.0f, y, theme.textMuted.withAlpha(alpha), 1.0f);
             if (label && prominent && densityMode_ == MixerDensityMode::Comfortable) {
-                drawText(r, label, fx - 24.0f, y - 3.5f, 6.5f, 0.55f, 0.60f, 0.70f, alpha);
+                drawText(r, label, fx - 24.0f, y - 3.5f, 6.5f, theme.textMuted.withAlpha(alpha));
             }
         };
         drawChTick(1.5f, "+6", false);
@@ -1170,9 +1174,9 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     }
 
     float fy = geom.thumbY;
-    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, 0.32f, 0.34f, 0.40f, 1.0f);
-    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, 0.65f, 0.70f, 0.80f, 0.9f, 1.2f);
-    drawLine(r, geom.thumb.x + 2.0f, fy, geom.thumb.x + geom.thumb.w - 2.0f, fy, ch.r, ch.g, ch.b, 1.0f, 2.0f);
+    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.controlBackground.lighten(0.18f));
+    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.borderFocus, 1.2f);
+    drawLine(r, geom.thumb.x + 2.0f, fy, geom.thumb.x + geom.thumb.w - 2.0f, fy, Color(ch.r, ch.g, ch.b), 2.0f);
 
     // 2. Inset Glass Dual Stereo Meter (Right of fader)
     if (showMeters_) {
@@ -1186,46 +1190,64 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
 
     // 3. Compact Hardware Buttons Column (Far Right: M, S, *)
     if (showButtons_) {
+        Color muteActiveBg = theme.muteActive;
+        Color muteActiveFg = Color{1.0f, 1.0f, 1.0f, 1.0f};
+        Color muteInactiveBg = theme.controlBackground;
+        Color muteInactiveBorder = theme.muteActive.withAlpha(0.65f);
+        Color muteInactiveFg = theme.muteActive;
+
+        Color soloActiveBg = theme.soloActive;
+        Color soloActiveFg = Color{0.10f, 0.10f, 0.10f, 1.0f};
+        Color soloInactiveBg = theme.controlBackground;
+        Color soloInactiveBorder = theme.soloActive.withAlpha(0.65f);
+        Color soloInactiveFg = theme.soloActive;
+
+        Color freezeActiveBg = theme.secondaryAccent;
+        Color freezeActiveFg = Color{0.05f, 0.10f, 0.15f, 1.0f};
+        Color freezeInactiveBg = theme.controlBackground;
+        Color freezeInactiveBorder = theme.secondaryAccent.withAlpha(0.65f);
+        Color freezeInactiveFg = theme.secondaryAccent;
+
         if (densityMode_ == MixerDensityMode::Micro) {
             float mbx = cx + 4.0f;
             float mby = wellTopY - 16.0f;
             float mbw = 18.0f;
             float mbh = 14.0f;
-            drawButton(r, Rect2D{mbx, mby, mbw, mbh}, "M", ch.mute ? Color{0.92f, 0.15f, 0.20f, 1.0f} : Color{0.12f, 0.14f, 0.18f, 0.95f},
-                       Color{0.85f, 0.20f, 0.25f, 0.65f}, Color{1.0f, 1.0f, 1.0f, 1.0f}, 7.5f, 2.0f, ch.mute ? 0.0f : 1.0f);
-            drawButton(r, Rect2D{mbx + 20.0f, mby, mbw, mbh}, "S", ch.solo ? Color{1.0f, 0.80f, 0.10f, 1.0f} : Color{0.12f, 0.14f, 0.18f, 0.95f},
-                       Color{0.95f, 0.78f, 0.10f, 0.65f}, ch.solo ? Color{0.1f, 0.1f, 0.1f, 1.0f} : Color{0.95f, 0.78f, 0.10f, 1.0f}, 7.5f, 2.0f, ch.solo ? 0.0f : 1.0f);
+            drawButton(r, Rect2D{mbx, mby, mbw, mbh}, "M", ch.mute ? muteActiveBg : muteInactiveBg,
+                       muteInactiveBorder, ch.mute ? muteActiveFg : muteInactiveFg, 7.5f, 2.0f, ch.mute ? 0.0f : 1.0f);
+            drawButton(r, Rect2D{mbx + 20.0f, mby, mbw, mbh}, "S", ch.solo ? soloActiveBg : soloInactiveBg,
+                       soloInactiveBorder, ch.solo ? soloActiveFg : soloInactiveFg, 7.5f, 2.0f, ch.solo ? 0.0f : 1.0f);
         } else if (densityMode_ == MixerDensityMode::Compact) {
             float bx = cx + 58.0f;
             float by = wellTopY + 2.0f;
             float bw = 16.0f;
             float bh = 20.0f;
-            drawButton(r, Rect2D{bx, by, bw, bh}, "M", ch.mute ? Color{0.92f, 0.15f, 0.20f, 1.0f} : Color{0.12f, 0.14f, 0.18f, 0.95f},
-                       Color{0.85f, 0.20f, 0.25f, 0.65f}, Color{1.0f, 1.0f, 1.0f, 1.0f}, 8.5f, 2.0f, ch.mute ? 0.0f : 1.0f);
+            drawButton(r, Rect2D{bx, by, bw, bh}, "M", ch.mute ? muteActiveBg : muteInactiveBg,
+                       muteInactiveBorder, ch.mute ? muteActiveFg : muteInactiveFg, 8.5f, 2.0f, ch.mute ? 0.0f : 1.0f);
             float sy = by + bh + 4.0f;
-            drawButton(r, Rect2D{bx, sy, bw, bh}, "S", ch.solo ? Color{1.0f, 0.80f, 0.10f, 1.0f} : Color{0.12f, 0.14f, 0.18f, 0.95f},
-                       Color{0.95f, 0.78f, 0.10f, 0.65f}, ch.solo ? Color{0.1f, 0.1f, 0.1f, 1.0f} : Color{0.95f, 0.78f, 0.10f, 1.0f}, 8.5f, 2.0f, ch.solo ? 0.0f : 1.0f);
+            drawButton(r, Rect2D{bx, sy, bw, bh}, "S", ch.solo ? soloActiveBg : soloInactiveBg,
+                       soloInactiveBorder, ch.solo ? soloActiveFg : soloInactiveFg, 8.5f, 2.0f, ch.solo ? 0.0f : 1.0f);
         } else {
             float bx = cx + 96.0f;
             float by = wellTopY + 2.0f;
             float bw = 26.0f;
             float bh = 24.0f;
             if (ch.mute) {
-                drawButton(r, Rect2D{bx, by, bw, bh}, "M", Color{0.92f, 0.15f, 0.20f, 1.0f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, Color{1.0f, 1.0f, 1.0f, 1.0f}, 10.5f, 3.0f, 0.0f);
+                drawButton(r, Rect2D{bx, by, bw, bh}, "M", muteActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, muteActiveFg, 10.5f, 3.0f, 0.0f);
             } else {
-                drawButton(r, Rect2D{bx, by, bw, bh}, "M", Color{0.12f, 0.14f, 0.18f, 0.95f}, Color{0.85f, 0.20f, 0.25f, 0.65f}, Color{0.90f, 0.22f, 0.28f, 1.0f}, 10.5f, 3.0f, 1.2f);
+                drawButton(r, Rect2D{bx, by, bw, bh}, "M", muteInactiveBg, muteInactiveBorder, muteInactiveFg, 10.5f, 3.0f, 1.2f);
             }
             float sy = by + bh + 4.0f;
             if (ch.solo) {
-                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", Color{1.0f, 0.80f, 0.10f, 1.0f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, Color{0.10f, 0.10f, 0.10f, 1.0f}, 10.5f, 3.0f, 0.0f);
+                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", soloActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, soloActiveFg, 10.5f, 3.0f, 0.0f);
             } else {
-                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", Color{0.12f, 0.14f, 0.18f, 0.95f}, Color{0.95f, 0.78f, 0.10f, 0.65f}, Color{0.95f, 0.78f, 0.10f, 1.0f}, 10.5f, 3.0f, 1.2f);
+                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", soloInactiveBg, soloInactiveBorder, soloInactiveFg, 10.5f, 3.0f, 1.2f);
             }
             float fzy = sy + bh + 4.0f;
             if (ch.freeze) {
-                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", Color{0.13f, 0.96f, 0.91f, 1.0f}, Color{0.0f, 0.0f, 0.0f, 0.0f}, Color{0.05f, 0.10f, 0.15f, 1.0f}, 11.5f, 3.0f, 0.0f);
+                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", freezeActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, freezeActiveFg, 11.5f, 3.0f, 0.0f);
             } else {
-                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", Color{0.12f, 0.14f, 0.18f, 0.95f}, Color{0.13f, 0.96f, 0.91f, 0.65f}, Color{0.13f, 0.96f, 0.91f, 1.0f}, 11.5f, 3.0f, 1.2f);
+                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", freezeInactiveBg, freezeInactiveBorder, freezeInactiveFg, 11.5f, 3.0f, 1.2f);
             }
         }
     }
@@ -1233,9 +1255,9 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
 
 void MixerView::renderLedMeter(BatchRenderer2D& r, const ThemeTokens& theme, float mx, float my, float mw, float mh,
                               float levelL, float levelR, float holdL, float holdR) {
-    // Inset glass dark well
-    drawRoundedRect(r, mx, my, mw, mh, 4.0f, 0.04f, 0.05f, 0.07f, 1.0f);
-    drawRoundedRectOutline(r, mx, my, mw, mh, 4.0f, 0.18f, 0.20f, 0.27f, 0.9f, 1.4f);
+    // Inset glass dark well using theme
+    drawRoundedRect(r, mx, my, mw, mh, 4.0f, theme.controlWell);
+    drawRoundedRectOutline(r, mx, my, mw, mh, 4.0f, theme.borderSubtle, 1.4f);
 
     // Centered printed dB scale markings (Eatsbeats parity)
     static const char* dbLabels[11] = {
@@ -1247,7 +1269,7 @@ void MixerView::renderLedMeter(BatchRenderer2D& r, const ThemeTokens& theme, flo
         float lblY = my + 6.0f + frac * (mh - 16.0f);
         const char* lbl = dbLabels[i];
         float lw = static_cast<float>(std::strlen(lbl)) * 4.8f;
-        drawText(r, lbl, mx + (mw - lw) * 0.5f, lblY - 3.5f, 7.0f, 0.48f, 0.52f, 0.61f, 0.85f);
+        drawText(r, lbl, mx + (mw - lw) * 0.5f, lblY - 3.5f, 7.0f, theme.textMuted);
     }
 
     // Dual LED columns

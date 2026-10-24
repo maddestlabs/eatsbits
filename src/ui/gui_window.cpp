@@ -6174,6 +6174,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             if (idx < mixerStrips_.size()) {
                 mixerStrips_[idx].iconRef = iconRef;
             }
+            if (modularMixerView_ && idx < modularMixerView_->getChannels().size()) {
+                modularMixerView_->getChannels()[idx].iconRef = iconRef;
+            }
             if (valueEditDialog_.isOpen()) {
                 valueEditDialog_.setIconRef(iconRef);
             }
@@ -6908,9 +6911,18 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             setStatusMessage("Track renamed: " + newName);
         };
         modularMixerView_->onChooseTrackIcon = [this](uint32_t idx) {
-            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
-                const auto& trk = modularArrangerView_->getTracks()[idx];
-                modularArrangerView_->getIconSearchDialog().open(trk.name, idx, trk.iconRef);
+            if (modularArrangerView_) {
+                std::string trkName = "Track " + std::to_string(idx + 1);
+                std::string iconRef = "";
+                if (idx < modularArrangerView_->getTracks().size()) {
+                    trkName = modularArrangerView_->getTracks()[idx].name;
+                    iconRef = modularArrangerView_->getTracks()[idx].iconRef;
+                } else if (idx < modularMixerView_->getChannels().size()) {
+                    trkName = modularMixerView_->getChannels()[idx].name;
+                    iconRef = modularMixerView_->getChannels()[idx].iconRef;
+                }
+                modularArrangerView_->getIconSearchDialog().open(trkName, idx, iconRef);
+                markNeedsRedraw();
             }
         };
         modularMixerView_->onAudioFxChanged = [this](uint32_t idx) {
@@ -9242,8 +9254,8 @@ void GuiWindow::renderFrame() {
             }
         }
 
-        // 6a. STACKED ICON SEARCH MODAL DIALOG (stacked above value edit dialog)
-        if (valueEditDialog_.isOpen() && modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        // 6a. ICON SEARCH MODAL DIALOG (stacked above value edit dialog or standalone)
+        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
             modularArrangerView_->getIconSearchDialog().layout(static_cast<float>(width_), static_cast<float>(height_));
             if (batchRenderer_) {
                 modularArrangerView_->getIconSearchDialog().render(*batchRenderer_, theme);
@@ -15126,23 +15138,24 @@ void GuiWindow::onMouseMove(float x, float y) {
         return;
     }
 
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        mouseX_ = x;
+        mouseY_ = y;
+        modularArrangerView_->getIconSearchDialog().handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Move;
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            pev.dx = x - mouseX_;
-            pev.dy = y - mouseY_;
-            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) {
-                mouseX_ = x;
-                mouseY_ = y;
-                return;
-            }
-        }
 
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -15760,18 +15773,21 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         if (commandPaletteDialog_.handlePointer(pev)) return;
     }
 
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        modularArrangerView_->getIconSearchDialog().handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Down;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
-        }
 
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -17666,18 +17682,21 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         return;
     }
 
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        modularArrangerView_->getIconSearchDialog().handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
     if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            PointerEvent pev;
-            pev.type = PointerType::Mouse;
-            pev.action = PointerAction::Up;
-            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-            pev.x = x;
-            pev.y = y;
-            pev.rawX = x;
-            pev.rawY = y;
-            if (modularArrangerView_->getIconSearchDialog().handlePointer(pev)) return;
-        }
 
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -17954,10 +17973,12 @@ void GuiWindow::onMouseScroll(double xoffset, double yoffset) {
         commandPaletteDialog_.handlePointer(pev);
         return;
     }
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        modularArrangerView_->getIconSearchDialog().handleScroll(static_cast<float>(yoffset));
+        markNeedsRedraw();
+        return;
+    }
     if (valueEditDialog_.isOpen()) {
-        if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
-            modularArrangerView_->getIconSearchDialog().handleScroll(static_cast<float>(yoffset));
-        }
         return;
     }
     if (audioToMidiDialog_.isOpen()) {
@@ -18151,6 +18172,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
     bool modalOrTerminalActive = projectHubOpen_ ||
                                  (activeColorPicker && activeColorPicker->isOpen()) ||
                                  valueEditDialog_.isOpen() ||
+                                 (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) ||
                                  commandPaletteDialog_.isOpen() ||
                                  audioToMidiDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
@@ -18232,11 +18254,14 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
-    // Intercept keyboard input if Stacked Icon Search Modal Dialog is open
-    if (valueEditDialog_.isOpen() && modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+    // Intercept keyboard input if Icon Search Modal Dialog is open
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
         if (modularArrangerView_->getIconSearchDialog().handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
             return;
         }
+        markNeedsRedraw();
+        return;
     }
 
     // Intercept keyboard input if Reusable Value Edit Modal Dialog is open
@@ -18797,6 +18822,13 @@ void GuiWindow::onChar(unsigned int codepoint) {
         }
         if (isEditingAuthor_ && codepoint >= 32) {
             authorName_ += static_cast<char>(codepoint);
+            markNeedsRedraw();
+            return;
+        }
+        return;
+    }
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        if (modularArrangerView_->getIconSearchDialog().handleChar(static_cast<char32_t>(codepoint))) {
             markNeedsRedraw();
             return;
         }

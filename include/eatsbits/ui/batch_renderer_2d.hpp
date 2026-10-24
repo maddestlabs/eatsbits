@@ -387,9 +387,10 @@ public:
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
     void setDirectPresent(bool enable) noexcept { if (backend_) backend_->setDirectPresent(enable); }
     void setAntiAliasingMode(int mode) noexcept {
-        if (antiAliasingMode_ == mode) return;
-        flush();
-        antiAliasingMode_ = mode;
+        if (antiAliasingMode_ != mode) {
+            flush();
+            antiAliasingMode_ = mode;
+        }
         if (backend_) backend_->setAntiAliasingMode(mode);
     }
     [[nodiscard]] int getAntiAliasingMode() const noexcept { return antiAliasingMode_; }

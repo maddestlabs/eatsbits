@@ -33,16 +33,67 @@ struct CrtUniforms {
 @group(0) @binding(2) var<uniform> u: CrtUniforms;
 @group(0) @binding(3) var reflectionTexture: texture_2d<f32>;
 
-// Multi-tap frosted blur sampling of realistic background room reflection
+// Multi-tap frosted blur sampling with realistic specular glass bloom
+// Uses 1:1 aspect ratio scale-to-fill (cover) so the vector room texture fills the display area without anamorphic stretching
 fn sampleFrostedReflection(uv: vec2<f32>) -> vec3<f32> {
-    let clampedUV = clamp(uv, vec2<f32>(0.002), vec2<f32>(0.998));
-    let blur = vec2<f32>(2.4 / 426.0, 2.4 / 240.0);
-    var col = textureSampleLevel(reflectionTexture, dawSampler, clampedUV, 0.0).rgb * 0.32;
-    col += textureSampleLevel(reflectionTexture, dawSampler, clampedUV + vec2<f32>( blur.x,  0.0), 0.0).rgb * 0.17;
-    col += textureSampleLevel(reflectionTexture, dawSampler, clampedUV - vec2<f32>( blur.x,  0.0), 0.0).rgb * 0.17;
-    col += textureSampleLevel(reflectionTexture, dawSampler, clampedUV + vec2<f32>( 0.0,  blur.y), 0.0).rgb * 0.17;
-    col += textureSampleLevel(reflectionTexture, dawSampler, clampedUV - vec2<f32>( 0.0,  blur.y), 0.0).rgb * 0.17;
-    return col;
+    // 1. Calculate physical CRT tube aperture aspect ratio & texture aspect ratio
+    let frameWidthX = 28.0;
+    let frameHeightY = 22.0;
+    let topCut = u.topBarFraction;
+    let bottomCut = 1.0 - u.bottomBarFraction;
+    let span = max(bottomCut - topCut, 0.1);
+
+    let tubeW = max(u.resolution.x - 2.0 * frameWidthX, 1.0);
+    let tubeH = max(u.resolution.y * span - 2.0 * frameHeightY, 1.0);
+    let tubeAspect = tubeW / tubeH;
+
+    let texDim = vec2<f32>(textureDimensions(reflectionTexture));
+    let texW = select(426.0, texDim.x, texDim.x > 1.0);
+    let texH = select(240.0, texDim.y, texDim.y > 1.0);
+    let texAspect = texW / texH;
+
+    // 2. 1:1 Aspect ratio scale-to-fill (cover mode):
+    // Preserves exact Euclidean 1:1 pixel proportions and centers the room texture
+    var scale = vec2<f32>(1.0, 1.0);
+    if (tubeAspect > texAspect) {
+        // Tube is wider than texture -> width fills tube, height scaled proportionally
+        scale = vec2<f32>(1.0, texAspect / tubeAspect);
+    } else {
+        // Tube is taller than texture -> height fills tube, width scaled proportionally
+        scale = vec2<f32>(tubeAspect / texAspect, 1.0);
+    }
+
+    let aspectUV = (uv - vec2<f32>(0.5)) * scale + vec2<f32>(0.5);
+    let uv0 = clamp(aspectUV, vec2<f32>(0.002), vec2<f32>(0.998));
+
+    // 3. Realistic Frosted Glass Blur (9-tap isotropic Gaussian disc)
+    let blurRadius = 3.6;
+    let blur = vec2<f32>(blurRadius / texW, blurRadius / texH);
+    let diag = blur * 0.7071;
+
+    var baseCol = textureSampleLevel(reflectionTexture, dawSampler, uv0, 0.0).rgb * 0.24;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>( blur.x,   0.0), 0.0).rgb * 0.13;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 - vec2<f32>( blur.x,   0.0), 0.0).rgb * 0.13;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>( 0.0,   blur.y), 0.0).rgb * 0.13;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 - vec2<f32>( 0.0,   blur.y), 0.0).rgb * 0.13;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 + diag, 0.0).rgb * 0.06;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 - diag, 0.0).rgb * 0.06;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>(-diag.x,  diag.y), 0.0).rgb * 0.06;
+    baseCol += textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>( diag.x, -diag.y), 0.0).rgb * 0.06;
+
+    // 4. Luminous Glass Bloom (soft glare dispersion on bright specular light sources)
+    let bloomRadius = blur * 2.8;
+    var bloomSample = textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>( bloomRadius.x,  0.0), 0.0).rgb;
+    bloomSample += textureSampleLevel(reflectionTexture, dawSampler, uv0 - vec2<f32>( bloomRadius.x,  0.0), 0.0).rgb;
+    bloomSample += textureSampleLevel(reflectionTexture, dawSampler, uv0 + vec2<f32>( 0.0,  bloomRadius.y), 0.0).rgb;
+    bloomSample += textureSampleLevel(reflectionTexture, dawSampler, uv0 - vec2<f32>( 0.0,  bloomRadius.y), 0.0).rgb;
+    bloomSample *= 0.25;
+
+    // Extract high-luminance specular threshold (windows, lamps, monitors)
+    let lum = dot(bloomSample, vec3<f32>(0.299, 0.587, 0.114));
+    let bloomGlow = max(bloomSample - vec3<f32>(0.22), vec3<f32>(0.0)) * smoothstep(0.20, 0.65, lum) * 1.6;
+
+    return baseCol + bloomGlow;
 }
 
 struct VertexOutput {

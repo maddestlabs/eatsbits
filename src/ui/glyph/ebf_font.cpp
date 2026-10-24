@@ -256,8 +256,8 @@ bool EbfFont::renderGlyph(BatchRenderer2D& r, uint32_t codepoint, float x, float
     // Optical stroke thickness: calibrated for outline contours vs. skeleton strokes
     bool isOutlineFont = (header_.flags & 2) != 0 || (g->flags & 2) != 0;
     float stemW = isOutlineFont ? std::max(1.0f, std::min(1.5f, fontSize * 0.075f))
-                                : std::max(1.15f, std::round(fontSize * 0.115f));
-    float barH  = std::max(1.05f, std::round(fontSize * 0.088f));
+                                : std::max(1.15f, fontSize * 0.115f);
+    float barH  = std::max(1.05f, fontSize * 0.088f);
 
     const uint8_t* p = commandData_.data() + g->commandOffset;
     const uint8_t* pEnd = p + g->commandLength;

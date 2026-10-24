@@ -1224,12 +1224,9 @@ void ArrangerView::render(const ViewContext& ctx) {
     }
 
     // 8. Reusable Contextual Dialogs (Rendered on top if open)
-    // Note: pluginDialog_ is rendered at the top-level overlay pass in GuiWindow for full-screen backdrop coverage
+    // Note: pluginDialog_ and iconDialog_ are rendered at the top-level overlay pass in GuiWindow for full-screen backdrop coverage
     if (circleOfFifthsDialog_.isOpen()) {
         circleOfFifthsDialog_.render(r, theme);
-    }
-    if (iconDialog_.isOpen()) {
-        iconDialog_.render(r, theme);
     }
 }
 
