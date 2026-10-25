@@ -265,26 +265,45 @@ static int executeExport(const std::string& filePath, const std::string& format,
 
     std::string incDir = "include";
     std::string clapDir = "third_party/clap/include";
+    std::string srcPrefix = "";
     if (!std::filesystem::exists(incDir)) {
         if (std::filesystem::exists("../include")) {
             incDir = "../include";
             clapDir = "../third_party/clap/include";
+            srcPrefix = "../";
         }
     }
+
+    std::string guiSrcs = "\"" + srcPrefix + "src/export/clap/gui/software_canvas.cpp\" \"" 
+                        + srcPrefix + "src/export/clap/gui/instrument_faceplate.cpp\" \"" 
+                        + srcPrefix + "src/export/clap/gui/pugl_bridge.cpp\"";
 
     std::string includeFlag = "/I\"" + incDir + "\" /I\"" + clapDir + "\"";
 
     if (!vcvarsPath.empty()) {
         compileCmd = "call \"" + vcvarsPath + "\" >nul 2>&1 && cl /nologo /O2 /LD /std:c++20 /EHsc " 
-                   + includeFlag + " \"" + tempCpp + "\" /Fe:\"" + resolvedOutput + "\" /link /INCREMENTAL:NO >nul 2>&1";
+                   + includeFlag + " \"" + tempCpp + "\" " + guiSrcs + " /Fe:\"" + resolvedOutput + "\" gdi32.lib user32.lib /link /INCREMENTAL:NO >nul 2>&1";
         compilerFound = true;
     } else {
-        compileCmd = "cl /nologo /O2 /LD /std:c++20 /EHsc " + includeFlag + " \"" + tempCpp + "\" /Fe:\"" + resolvedOutput + "\" >nul 2>&1";
+        compileCmd = "cl /nologo /O2 /LD /std:c++20 /EHsc " + includeFlag + " \"" + tempCpp + "\" " + guiSrcs + " /Fe:\"" + resolvedOutput + "\" gdi32.lib user32.lib >nul 2>&1";
         compilerFound = true;
     }
 #else
-    std::string includeFlag = "-Iinclude -Ithird_party/clap/include";
-    compileCmd = "clang++ -O3 -shared -fPIC -std=c++20 " + includeFlag + " \"" + tempCpp + "\" -o \"" + resolvedOutput + "\" 2>/dev/null";
+    std::string incDir = "include";
+    std::string clapDir = "third_party/clap/include";
+    std::string srcPrefix = "";
+    if (!std::filesystem::exists(incDir)) {
+        if (std::filesystem::exists("../include")) {
+            incDir = "../include";
+            clapDir = "../third_party/clap/include";
+            srcPrefix = "../";
+        }
+    }
+    std::string guiSrcs = "\"" + srcPrefix + "src/export/clap/gui/software_canvas.cpp\" \"" 
+                        + srcPrefix + "src/export/clap/gui/instrument_faceplate.cpp\" \"" 
+                        + srcPrefix + "src/export/clap/gui/pugl_bridge.cpp\"";
+    std::string includeFlag = "-I\"" + incDir + "\" -I\"" + clapDir + "\"";
+    compileCmd = "clang++ -O3 -shared -fPIC -std=c++20 " + includeFlag + " \"" + tempCpp + "\" " + guiSrcs + " -o \"" + resolvedOutput + "\" 2>/dev/null";
     compilerFound = true;
 #endif
 

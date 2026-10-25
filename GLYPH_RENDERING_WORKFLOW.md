@@ -110,14 +110,13 @@ Make changes in:
 - `src/ui/glyph/ebf_converter.cpp` (C++ engine converter)
 - `tools/generate_ebf_fonts.py` (Offline Python converter)
 
-### Step 5: Regenerate Binary `.ebf` Files
-Run the offline converter from the repository root:
+### Step 5: On-the-Fly TTF Conversion & Optional Offline .ebf Generation
+Eatsbits boots directly from bundled TrueType (.ttf) files (`assets/fonts/Oswald-Medium.ttf`, `assets/fonts/ShareTechMono-Regular.ttf`) using `EbfConverter` on-the-fly at startup (< 5 ms), keeping distribution size minimal without duplicating large pre-tessellated mesh files.
+
+If pre-compiled `.ebf` files are needed for standalone offline environments, run:
 ```bash
 python tools/generate_ebf_fonts.py
 ```
-Verify the output sizes and glyph counts:
-- `assets/fonts/Oswald-Regular.ebf` (~200 KB, 190 glyphs)
-- `assets/fonts/ShareTechMono-Regular.ebf` (~160 KB, 191 glyphs)
 
 ### Step 6: Compile the Target
 Compile `eatsbits_gui` without executing it:
@@ -134,4 +133,4 @@ Launch `eatsbits_gui.exe` (or `.\build.ps1 -Target eatsbits_gui -Run`) and confi
 
 1. **NO AUTOMATED TESTS:** Never run test suites (`-Test`, `ctest`, `ninja test`, `test_*.exe`). Testing is strictly manual by the user.
 2. **NO GPU/AUDIO SUBPROCESSES:** Never launch `eatsbits_gui.exe` or `eatsbits_cli.exe` from background agent subshells. Hardware graphics and audio thread initialization will hang the subshell and lock Windows device contexts.
-3. **KEEP `.ebf` TRACKED IN GIT:** Binary `.ebf` files are core repository assets. Commit pre-generated `.ebf` files so users and downstream apps have instant zero-dependency vector typography out-of-the-box.
+3. **TTF-FIRST PACKAGING:** TrueType (.ttf) fonts are bundled in `assets/fonts/` and converted dynamically at startup, saving ~240 KB of disk footprint over pre-tessellated `.ebf` files while delivering identical vector rendering performance.

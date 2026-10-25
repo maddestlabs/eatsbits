@@ -4,6 +4,7 @@
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/project/preset_loader.hpp"
 #include "eatsbits/project/eats_builtin_presets.hpp"
+#include "eatsbits/eatscript/transpiler.hpp"
 #include "eatsbits/ui/clay/clay_context.hpp"
 #include "clay.h"
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <iomanip>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <unordered_set>
 
 namespace eatsbits::ui {
@@ -1908,6 +1910,64 @@ void DesignView::compileCurrentScript(const ViewContext& ctx) {
     }
 }
 
+void DesignView::exportCurrentInstrumentToClap(const ViewContext& ctx) {
+    if (onExportClap) {
+        onExportClap(getActiveTarget().id, currentScriptCode_);
+        return;
+    }
+
+    try {
+        std::filesystem::create_directories("exports");
+        std::string safeId = getActiveTarget().id;
+        if (safeId.empty()) safeId = "eats_instrument";
+        for (char& c : safeId) {
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') c = '_';
+        }
+
+        eatscript::Transpiler transpiler;
+        std::string cppCode = transpiler.transpileClap(currentScriptCode_);
+
+        std::string cppPath = "exports/" + safeId + "_bundle.cpp";
+        std::ofstream out(cppPath);
+        if (out.is_open()) {
+            out << cppCode;
+            out.close();
+        }
+
+        std::string clapPath = "exports/" + safeId + ".clap";
+
+#if defined(_WIN32)
+        std::string cmd = "cl /nologo /O2 /LD /std:c++20 /EHsc /Iinclude /Ithird_party/clap/include "
+                          + cppPath + " src/export/clap/gui/software_canvas.cpp "
+                          + "src/export/clap/gui/instrument_faceplate.cpp src/export/clap/gui/pugl_bridge.cpp "
+                          + "/Fe:\"" + clapPath + "\" gdi32.lib user32.lib /link /INCREMENTAL:NO >nul 2>&1";
+#else
+        std::string cmd = "clang++ -O3 -shared -fPIC -std=c++20 -Iinclude -Ithird_party/clap/include "
+                          + cppPath + " src/export/clap/gui/software_canvas.cpp "
+                          + "src/export/clap/gui/instrument_faceplate.cpp src/export/clap/gui/pugl_bridge.cpp "
+                          + "-o \"" + clapPath + "\" 2>/dev/null";
+#endif
+        int ret = std::system(cmd.c_str());
+
+        if (ret == 0 && std::filesystem::exists(clapPath)) {
+            statusMsg_ = "Exported CLAP plugin: " + clapPath;
+            if (ctx.onShowNotification) {
+                ctx.onShowNotification("Exported " + safeId + ".clap successfully to exports/");
+            }
+        } else {
+            statusMsg_ = "Exported C++ bundle: " + cppPath;
+            if (ctx.onShowNotification) {
+                ctx.onShowNotification("Exported " + safeId + " C++ bundle to " + cppPath);
+            }
+        }
+    } catch (const std::exception& e) {
+        errorMsg_ = "Export Error: " + std::string(e.what());
+        if (ctx.onShowNotification) {
+            ctx.onShowNotification("Export Error: " + std::string(e.what()));
+        }
+    }
+}
+
 void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     bounds_ = bounds;
 
@@ -1921,9 +1981,10 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
     // Header element sizing based on available width
     float availW = headerBounds_.w;
-    float compileW = (availW < 900.0f) ? 80.0f : (ctx.isMobile ? 75.0f : 96.0f);
-    float modeBtnW = (availW < 900.0f) ? 56.0f : (availW < 1100.0f ? 66.0f : (ctx.isMobile ? 48.0f : 76.0f));
-    float targetDropdownW = (availW < 900.0f) ? 140.0f : (availW < 1100.0f ? 180.0f : (ctx.isMobile ? 140.0f : 240.0f));
+    float compileW = (availW < 900.0f) ? 72.0f : (ctx.isMobile ? 68.0f : 86.0f);
+    float exportW = (availW < 900.0f) ? 88.0f : (ctx.isMobile ? 80.0f : 108.0f);
+    float modeBtnW = (availW < 900.0f) ? 50.0f : (availW < 1100.0f ? 58.0f : (ctx.isMobile ? 44.0f : 68.0f));
+    float targetDropdownW = (availW < 900.0f) ? 120.0f : (availW < 1100.0f ? 150.0f : (ctx.isMobile ? 120.0f : 200.0f));
 
     // Project Sidebar Unified Drawer Layout
     projectDrawer_.layout(contentBounds_, 0.0f);
@@ -1982,6 +2043,9 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
                 }) {}
                 CLAY(CLAY_ID("BtnCompile"), {
                     .layout = { .sizing = { CLAY_SIZING_FIXED(compileW), CLAY_SIZING_FIXED(btnH) } }
+                }) {}
+                CLAY(CLAY_ID("BtnExportClap"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(exportW), CLAY_SIZING_FIXED(btnH) } }
                 }) {}
             }
 
@@ -2080,6 +2144,11 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
             btnCompile_ = Rect2D(bounds_.x + cmpData.boundingBox.x, bounds_.y + cmpData.boundingBox.y,
                                  cmpData.boundingBox.width, cmpData.boundingBox.height);
         }
+        auto expData = clayContext_->getElementData(CLAY_ID("BtnExportClap"));
+        if (expData.found) {
+            btnExportClap_ = Rect2D(bounds_.x + expData.boundingBox.x, bounds_.y + expData.boundingBox.y,
+                                    expData.boundingBox.width, expData.boundingBox.height);
+        }
         auto bodyData = clayContext_->getElementData(CLAY_ID("StudioBody"));
         if (bodyData.found) {
             studioBodyBounds_ = Rect2D(bounds_.x + bodyData.boundingBox.x, bounds_.y + bodyData.boundingBox.y,
@@ -2096,7 +2165,8 @@ void DesignView::layout(const Rect2D& bounds, const ViewContext& ctx) {
         targetDropdownMenuBounds_ = Rect2D(curX, btnY + btnH + 4.0f, targetDropdownW + 80.0f, 260.0f);
 
         float rightMargin = headerBounds_.x + headerBounds_.w - 12.0f;
-        btnCompile_ = Rect2D(rightMargin - compileW, btnY, compileW, btnH);
+        btnExportClap_ = Rect2D(rightMargin - exportW, btnY, exportW, btnH);
+        btnCompile_ = Rect2D(btnExportClap_.x - compileW - 4.0f, btnY, compileW, btnH);
         btnGui_ = Rect2D(btnCompile_.x - modeBtnW - 6.0f, btnY, modeBtnW, btnH);
         btnSplit_ = Rect2D(btnGui_.x - modeBtnW - 4.0f, btnY, modeBtnW, btnH);
         btnModular_ = Rect2D(btnSplit_.x - (modeBtnW + 8.0f) - 4.0f, btnY, modeBtnW + 8.0f, btnH);
@@ -2341,6 +2411,9 @@ void DesignView::renderSubNavHeader(const ViewContext& ctx) {
 
     drawButton(r, btnCompile_, "▶ APPLY",
                theme.playActive.withAlpha(0.85f), theme.playActive, theme.isLight ? Color{1.0f, 1.0f, 1.0f, 1.0f} : theme.textPrimary,
+               10.5f, 4.0f, 1.2f);
+    drawButton(r, btnExportClap_, "⤓ EXPORT CLAP",
+               Color{0.10f, 0.42f, 0.88f, 0.90f}, Color{0.25f, 0.65f, 1.0f, 1.0f}, Color{1.0f, 1.0f, 1.0f, 1.0f},
                10.5f, 4.0f, 1.2f);
 }
 
@@ -3781,6 +3854,12 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         // COMPILE & RUN
         if (btnCompile_.contains(ev.x, ev.y)) {
             compileCurrentScript(ctx);
+            return true;
+        }
+
+        // EXPORT CLAP
+        if (btnExportClap_.contains(ev.x, ev.y)) {
+            exportCurrentInstrumentToClap(ctx);
             return true;
         }
 

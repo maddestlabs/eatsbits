@@ -319,6 +319,73 @@
             statusText.innerText = 'WebGPU is not supported in this browser. Please use a WebGPU-compatible browser (e.g. Chrome, Edge) with hardware acceleration enabled.';
         }
 
+        // Full Multi-Touch pointer bridge for mobile & tablet browsers (iOS/iPadOS/Android)
+        function setupMultiTouchBridge() {
+            var canvas = document.getElementById('canvas');
+            if (!canvas || canvas._eatsMultiTouchInitialized) return;
+            canvas._eatsMultiTouchInitialized = true;
+
+            function dispatchTouch(e, action) {
+                if (typeof Module !== 'undefined' && Module._eats_on_web_touch_event) {
+                    var rect = canvas.getBoundingClientRect();
+                    var clientX = e.clientX - rect.left;
+                    var clientY = e.clientY - rect.top;
+                    var pressure = (typeof e.pressure === 'number' && e.pressure > 0) ? e.pressure : 1.0;
+                    Module._eats_on_web_touch_event(e.pointerId, action, clientX, clientY, pressure);
+                }
+            }
+
+            canvas.addEventListener('pointerdown', function(e) {
+                if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                    window.eatsbitsLastPointerIsTouch = true;
+                    try {
+                        canvas.setPointerCapture(e.pointerId);
+                    } catch (err) {}
+                    dispatchTouch(e, 0); // 0 = Down
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                } else {
+                    window.eatsbitsLastPointerIsTouch = false;
+                }
+            }, { passive: false, capture: true });
+
+            canvas.addEventListener('pointermove', function(e) {
+                if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                    dispatchTouch(e, 1); // 1 = Move
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            }, { passive: false, capture: true });
+
+            canvas.addEventListener('pointerup', function(e) {
+                if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                    try {
+                        canvas.releasePointerCapture(e.pointerId);
+                    } catch (err) {}
+                    dispatchTouch(e, 2); // 2 = Up
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            }, { passive: false, capture: true });
+
+            canvas.addEventListener('pointercancel', function(e) {
+                if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                    try {
+                        canvas.releasePointerCapture(e.pointerId);
+                    } catch (err) {}
+                    dispatchTouch(e, 3); // 3 = Cancel
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            }, { passive: false, capture: true });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupMultiTouchBridge);
+        } else {
+            setupMultiTouchBridge();
+        }
+
         var Module = {
             preRun: [
                 function() {
@@ -343,6 +410,7 @@
                 // Immediately unlock audio and dismiss the loading screen without user button press
                 unlockAudio();
                 window.hideAppLoadingScreen();
+                setupMultiTouchBridge();
             }],
             print: function(text) {
                 console.log('[Eatsbits WASM]', text);

@@ -52,11 +52,119 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <windowsx.h>
 #include <commdlg.h>
 #include <shellapi.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#endif
+
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+static WNDPROC g_originalGlfwWndProc = nullptr;
+
+#ifndef WM_POINTERDOWN
+#define WM_POINTERDOWN 0x0246
+#endif
+#ifndef WM_POINTERUP
+#define WM_POINTERUP 0x0247
+#endif
+#ifndef WM_POINTERUPDATE
+#define WM_POINTERUPDATE 0x0245
+#endif
+#ifndef WM_POINTERCAPTURECHANGED
+#define WM_POINTERCAPTURECHANGED 0x024C
+#endif
+
+#ifndef GET_POINTERID_WPARAM
+#define GET_POINTERID_WPARAM(wParam) (LOWORD(wParam))
+#endif
+
+#ifndef PT_TOUCH
+typedef DWORD POINTER_INPUT_TYPE;
+#define PT_POINTER 0x00000001
+#define PT_TOUCH   0x00000002
+#define PT_PEN     0x00000003
+#define PT_MOUSE   0x00000004
+#endif
+
+static LRESULT CALLBACK EatsbitsTouchWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    auto* gui = reinterpret_cast<eatsbits::ui::GuiWindow*>(GetPropA(hwnd, "EatsbitsGuiWindow"));
+    if (gui) {
+        switch (uMsg) {
+            case WM_POINTERDOWN: {
+                int pointerId = static_cast<int>(GET_POINTERID_WPARAM(wParam));
+                POINTER_INPUT_TYPE ptType = PT_POINTER;
+                if (GetPointerType(pointerId, &ptType) && ptType != PT_TOUCH && ptType != PT_PEN) {
+                    break;
+                }
+                POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &pt);
+                float logX = gui->windowToLogicalX(static_cast<float>(pt.x));
+                float logY = gui->windowToLogicalY(static_cast<float>(pt.y));
+                if (gui->is3dConsoleEnabled()) {
+                    gui->transform3dMouseCoords(logX, logY, logX, logY);
+                }
+                gui->remapCrtMouseCoords(logX, logY, logX, logY);
+                gui->onTouchDown(pointerId, logX, logY);
+                return 0;
+            }
+            case WM_POINTERUPDATE: {
+                int pointerId = static_cast<int>(GET_POINTERID_WPARAM(wParam));
+                POINTER_INPUT_TYPE ptType = PT_POINTER;
+                if (GetPointerType(pointerId, &ptType) && ptType != PT_TOUCH && ptType != PT_PEN) {
+                    break;
+                }
+                POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &pt);
+                float logX = gui->windowToLogicalX(static_cast<float>(pt.x));
+                float logY = gui->windowToLogicalY(static_cast<float>(pt.y));
+                if (gui->is3dConsoleEnabled()) {
+                    gui->transform3dMouseCoords(logX, logY, logX, logY);
+                }
+                gui->remapCrtMouseCoords(logX, logY, logX, logY);
+                gui->onTouchMove(pointerId, logX, logY);
+                return 0;
+            }
+            case WM_POINTERUP: {
+                int pointerId = static_cast<int>(GET_POINTERID_WPARAM(wParam));
+                POINTER_INPUT_TYPE ptType = PT_POINTER;
+                if (GetPointerType(pointerId, &ptType) && ptType != PT_TOUCH && ptType != PT_PEN) {
+                    break;
+                }
+                POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &pt);
+                float logX = gui->windowToLogicalX(static_cast<float>(pt.x));
+                float logY = gui->windowToLogicalY(static_cast<float>(pt.y));
+                if (gui->is3dConsoleEnabled()) {
+                    gui->transform3dMouseCoords(logX, logY, logX, logY);
+                }
+                gui->remapCrtMouseCoords(logX, logY, logX, logY);
+                gui->onTouchUp(pointerId, logX, logY);
+                return 0;
+            }
+            case WM_POINTERCAPTURECHANGED: {
+                int pointerId = static_cast<int>(GET_POINTERID_WPARAM(wParam));
+                POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &pt);
+                float logX = gui->windowToLogicalX(static_cast<float>(pt.x));
+                float logY = gui->windowToLogicalY(static_cast<float>(pt.y));
+                if (gui->is3dConsoleEnabled()) {
+                    gui->transform3dMouseCoords(logX, logY, logX, logY);
+                }
+                gui->remapCrtMouseCoords(logX, logY, logX, logY);
+                gui->onTouchCancel(pointerId, logX, logY);
+                return 0;
+            }
+            default:
+                break;
+        }
+    }
+    if (g_originalGlfwWndProc) {
+        return CallWindowProcA(g_originalGlfwWndProc, hwnd, uMsg, wParam, lParam);
+    }
+    return DefWindowProcA(hwnd, uMsg, wParam, lParam);
+}
 #endif
 
 namespace eatsbits::ui {
@@ -209,6 +317,27 @@ void eats_on_file_dropped_web(const char* virtualPath, float clientX, float clie
     }
     g_activeGuiWindowForWeb->remapCrtMouseCoords(logX, logY, logX, logY);
     g_activeGuiWindowForWeb->onFilesDropped({std::string(virtualPath)}, logX, logY);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void eats_on_web_touch_event(int id, int action, float clientX, float clientY, float pressure) {
+    if (!g_activeGuiWindowForWeb) return;
+    float logX = g_activeGuiWindowForWeb->windowToLogicalX(clientX);
+    float logY = g_activeGuiWindowForWeb->windowToLogicalY(clientY);
+    if (g_activeGuiWindowForWeb->is3dConsoleEnabled()) {
+        g_activeGuiWindowForWeb->transform3dMouseCoords(logX, logY, logX, logY);
+    }
+    g_activeGuiWindowForWeb->remapCrtMouseCoords(logX, logY, logX, logY);
+
+    if (action == 0) {
+        g_activeGuiWindowForWeb->onTouchDown(id, logX, logY, pressure);
+    } else if (action == 1) {
+        g_activeGuiWindowForWeb->onTouchMove(id, logX, logY, pressure);
+    } else if (action == 2) {
+        g_activeGuiWindowForWeb->onTouchUp(id, logX, logY);
+    } else if (action == 3) {
+        g_activeGuiWindowForWeb->onTouchCancel(id, logX, logY);
+    }
 }
 #endif
 
@@ -2343,6 +2472,17 @@ GuiWindow::GuiWindow(uint32_t width, uint32_t height, const std::string& title)
 }
 
 GuiWindow::~GuiWindow() {
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    if (window_) {
+        HWND hwnd = glfwGetWin32Window(window_);
+        if (hwnd) {
+            RemovePropA(hwnd, "EatsbitsGuiWindow");
+            if (g_originalGlfwWndProc) {
+                SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)g_originalGlfwWndProc);
+            }
+        }
+    }
+#endif
 #if defined(__EMSCRIPTEN__)
     if (g_activeGuiWindowForWeb == this) {
         g_activeGuiWindowForWeb = nullptr;
@@ -5986,6 +6126,16 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::Action, "Ctrl+E", [this]() { bounceMasterToWav(projectName_ + ".wav"); }
     });
     commandPaletteDialog_.registerCommand({
+        "action.export_instrument_clap", "Export Instrument as CLAP (.clap)...", "Export active instrument directly to native CLAP plugin",
+        CommandCategory::Action, "Ctrl+Shift+E", [this]() {
+            if (modularDesignView_) {
+                ViewContext ctx;
+                ctx.onShowNotification = [this](const std::string& msg) { setStatusMessage(msg); };
+                modularDesignView_->exportCurrentInstrumentToClap(ctx);
+            }
+        }
+    });
+    commandPaletteDialog_.registerCommand({
         "action.audio_to_midi", "Audio to MIDI Converter", "Transcribe audio recording or sample into MIDI clip",
         CommandCategory::Action, "Ctrl+M", [this]() { openAudioToMidiConverter(); }
     });
@@ -6876,6 +7026,36 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             mixerPropertiesExpanded_ = exp;
             mixerPropertiesWidth_ = w;
         };
+        modularMixerView_->onSectionTogglesChanged = [this](bool routing, bool pan, bool buttons, bool meters, bool readouts) {
+            showMixerRouting_ = routing;
+            showMixerPan_ = pan;
+            showMixerButtons_ = buttons;
+            showMixerMeters_ = meters;
+            showMixerReadouts_ = readouts;
+        };
+        modularMixerView_->onColorChanged = [this](uint32_t idx, float r, float g, float b) {
+            if (idx < arrangerTracks_.size()) {
+                arrangerTracks_[idx].r = r;
+                arrangerTracks_[idx].g = g;
+                arrangerTracks_[idx].b = b;
+                for (auto& clp : arrangerTracks_[idx].clips) {
+                    clp.r = r; clp.g = g; clp.b = b;
+                }
+                recordProjectHistory("Change Accent Color on Track " + std::to_string(idx + 1), "TRACK");
+            }
+            if (modularArrangerView_ && idx < modularArrangerView_->getTracks().size()) {
+                modularArrangerView_->getTracks()[idx].r = r;
+                modularArrangerView_->getTracks()[idx].g = g;
+                modularArrangerView_->getTracks()[idx].b = b;
+                for (auto& clp : modularArrangerView_->getTracks()[idx].clips) {
+                    clp.r = r; clp.g = g; clp.b = b;
+                }
+            }
+            markNeedsRedraw();
+        };
+        modularMixerView_->onScrollChanged = [this](float sY) {
+            trackInspectorScrollY_ = sY;
+        };
         modularMixerView_->onParamChanged = [this](uint32_t idx, const std::string& paramName, float normVal) {
             if (idx != selectedTrackIndex_) {
                 setSelectedTrackIndex(idx);
@@ -7275,6 +7455,14 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     glfwGetWindowSize(window_, &windowWidth_, &windowHeight_);
     glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    HWND hwnd = glfwGetWin32Window(window_);
+    if (hwnd) {
+        RegisterTouchWindow(hwnd, TWF_WANTPALM);
+        SetPropA(hwnd, "EatsbitsGuiWindow", this);
+        g_originalGlfwWndProc = (WNDPROC)SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)EatsbitsTouchWndProc);
+    }
+#endif
 #if defined(__EMSCRIPTEN__)
     g_activeGuiWindowForWeb = this;
     double initDpr = EM_ASM_DOUBLE({ return window.devicePixelRatio || 1.0; });
@@ -9423,8 +9611,11 @@ void GuiWindow::initFontRenderer() {
     fontRenderer_ = std::make_unique<FontRendererState>();
     g_activeFontRenderer = fontRenderer_.get();
 
-    // 1. Initialize EbfFont Oswald for zero-dependency vector UI typography (pre-converted EBF format)
+    // 1. Initialize EbfFont Oswald for zero-dependency vector UI typography (pre-converted EBF format or dynamic TTF conversion)
     const std::vector<std::string> oswaldEbfPaths = {
+        "assets/fonts/Oswald-Medium.ebf",
+        "../assets/fonts/Oswald-Medium.ebf",
+        "../../assets/fonts/Oswald-Medium.ebf",
         "assets/fonts/Oswald-Regular.ebf",
         "../assets/fonts/Oswald-Regular.ebf",
         "../../assets/fonts/Oswald-Regular.ebf",
@@ -9438,8 +9629,30 @@ void GuiWindow::initFontRenderer() {
             break;
         }
     }
+    // If no .ebf found, convert and load on-the-fly directly from TrueType (.ttf) font
+    if (!g_ebfOswald.isValid()) {
+        std::vector<std::string> oswaldTtfPaths;
+        if (!pendingFontPath_.empty()) {
+            oswaldTtfPaths.push_back(pendingFontPath_);
+        }
+        oswaldTtfPaths.push_back("assets/fonts/Oswald-Medium.ttf");
+        oswaldTtfPaths.push_back("assets/fonts/Oswald-Regular.ttf");
+        oswaldTtfPaths.push_back("../assets/fonts/Oswald-Medium.ttf");
+        oswaldTtfPaths.push_back("../assets/fonts/Oswald-Regular.ttf");
+        oswaldTtfPaths.push_back("../../assets/fonts/Oswald-Medium.ttf");
+        oswaldTtfPaths.push_back("../../assets/fonts/Oswald-Regular.ttf");
+        oswaldTtfPaths.push_back("c:/git/eatsbits/assets/fonts/Oswald-Medium.ttf");
+        oswaldTtfPaths.push_back("c:/git/eatsbits/assets/fonts/Oswald-Regular.ttf");
 
-    // 2. Initialize EbfFont ShareTech Mono for code editor and digital readouts (pre-converted EBF format)
+        for (const auto& tp : oswaldTtfPaths) {
+            if (std::filesystem::exists(tp) && g_ebfOswald.loadFromTtfFile(tp)) {
+                std::cout << "[GuiWindow] Converted and loaded Oswald EbfFont from TTF: " << tp << " (" << g_ebfOswald.getGlyphCount() << " glyphs)\n";
+                break;
+            }
+        }
+    }
+
+    // 2. Initialize EbfFont ShareTech Mono for code editor and digital readouts (pre-converted EBF format or dynamic TTF conversion)
     const std::vector<std::string> shareTechEbfPaths = {
         "assets/fonts/ShareTechMono-Regular.ebf",
         "../assets/fonts/ShareTechMono-Regular.ebf",
@@ -9452,6 +9665,24 @@ void GuiWindow::initFontRenderer() {
         if (std::filesystem::exists(sp) && g_ebfShareTech.loadFromFile(sp)) {
             std::cout << "[GuiWindow] Loaded ShareTech Mono EbfFont from " << sp << " (" << g_ebfShareTech.getGlyphCount() << " glyphs)\n";
             break;
+        }
+    }
+    // If no .ebf found, convert and load on-the-fly directly from TrueType (.ttf) font
+    if (!g_ebfShareTech.isValid()) {
+        std::vector<std::string> shareTechTtfPaths;
+        if (!pendingMonoFontPath_.empty()) {
+            shareTechTtfPaths.push_back(pendingMonoFontPath_);
+        }
+        shareTechTtfPaths.push_back("assets/fonts/ShareTechMono-Regular.ttf");
+        shareTechTtfPaths.push_back("../assets/fonts/ShareTechMono-Regular.ttf");
+        shareTechTtfPaths.push_back("../../assets/fonts/ShareTechMono-Regular.ttf");
+        shareTechTtfPaths.push_back("c:/git/eatsbits/assets/fonts/ShareTechMono-Regular.ttf");
+
+        for (const auto& tp : shareTechTtfPaths) {
+            if (std::filesystem::exists(tp) && g_ebfShareTech.loadFromTtfFile(tp)) {
+                std::cout << "[GuiWindow] Converted and loaded ShareTech Mono EbfFont from TTF: " << tp << " (" << g_ebfShareTech.getGlyphCount() << " glyphs)\n";
+                break;
+            }
         }
     }
 
@@ -9556,6 +9787,12 @@ bool GuiWindow::loadFont(const std::string& fontPath, const std::string& fontNam
     if (fontRenderer_->fontMono != eatsbits::text::kInvalidFontId) {
         fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, fontRenderer_->fontNormal);
     }
+
+    // Synchronize EbfFont vector typography engine from user-specified TTF/OTF/EBF font
+    if (g_ebfOswald.loadFromTtfFile(fontPath)) {
+        std::cout << "[GuiWindow] Synchronized Oswald vector font from custom font: " << fontPath << " (" << g_ebfOswald.getGlyphCount() << " glyphs)\n";
+    }
+
     std::cout << "[GuiWindow] Successfully loaded font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
 }
@@ -9586,6 +9823,12 @@ bool GuiWindow::loadMonoFont(const std::string& fontPath, const std::string& fon
     if (fontRenderer_->fontNormal != eatsbits::text::kInvalidFontId) {
         fontRenderer_->fontMgr.setFallbackFont(fontRenderer_->fontMono, fontRenderer_->fontNormal);
     }
+
+    // Synchronize EbfFont monospace vector typography engine from user-specified TTF/OTF/EBF font
+    if (g_ebfShareTech.loadFromTtfFile(fontPath)) {
+        std::cout << "[GuiWindow] Synchronized ShareTech Mono vector font from custom font: " << fontPath << " (" << g_ebfShareTech.getGlyphCount() << " glyphs)\n";
+    }
+
     std::cout << "[GuiWindow] Successfully loaded mono font '" << fontName << "' (" << fontPath << ")" << std::endl;
     return true;
 }
@@ -15354,7 +15597,16 @@ void GuiWindow::onMouseMove(float x, float y) {
         pev.rawY = y;
         pev.dx = x - mouseX_;
         pev.dy = y - mouseY_;
-        modularMixerView_->handlePointer(pev, ctx);
+        pev.mods.shift = isShiftPressed();
+        pev.mods.ctrl = isCtrlPressed();
+        pev.mods.alt = isAltPressed();
+        if (modularMixerView_->handlePointer(pev, ctx)) {
+            mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+            mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
         mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
         mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
     }
@@ -16793,6 +17045,30 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         }
 
         if (activeView_ == WorkspaceView::Mixer) {
+            const float topY = 56.0f;
+            const float bottomY = static_cast<float>(height_) - 48.0f - 6.0f;
+            if (modularMixerView_) {
+                ViewContext ctx = createViewContext();
+                modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+                PointerEvent pev;
+                pev.type = PointerType::Mouse;
+                pev.action = PointerAction::Down;
+                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+                pev.x = x;
+                pev.y = y;
+                pev.rawX = x;
+                pev.rawY = y;
+                pev.mods.shift = isShiftPressed();
+                pev.mods.ctrl = isCtrlPressed();
+                pev.mods.alt = isAltPressed();
+                if (modularMixerView_->handlePointer(pev, ctx)) {
+                    mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+                    mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
+                    setSelectedTrackIndex(modularMixerView_->getSelectedChannel());
+                    return;
+                }
+            }
+
             auto mixerHit = hitTestMixer(x, y);
             if (mixerHit.hit) {
                 // Toolbar Presets & Toggles
@@ -16854,8 +17130,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             const float rightBoundary = w - drawerTotalW - browserOffset;
             const float pullTabX = rightBoundary;
             const float propX = pullTabX + pullTabW;
-            const float topY = 56.0f;
-            const float bottomY = static_cast<float>(height_) - 48.0f - 6.0f;
 
             if (mixerPropertiesExpanded_ && x >= pullTabX && x <= propX + propW && y >= topY && y <= bottomY) {
                 if (mixerHit.isPullTab) {
@@ -16908,48 +17182,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     return;
                 }
             }
-
-            if (modularMixerView_) {
-                ViewContext ctx = createViewContext();
-                modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
-                PointerEvent pev;
-                pev.type = PointerType::Mouse;
-                pev.action = PointerAction::Down;
-                pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
-                pev.x = x;
-                pev.y = y;
-                pev.rawX = x;
-                pev.rawY = y;
-                if (modularMixerView_->handlePointer(pev, ctx)) {
-                    mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
-                    mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
-                    if (modularMixerView_->getActivePanIndex() == -1) {
-                        dragMode_ = DragMode::MasterPan;
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = masterPan_;
-                    } else if (modularMixerView_->getActiveFaderIndex() == -1) {
-                        dragMode_ = DragMode::MasterFader;
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = masterVolume_;
-                    } else if (modularMixerView_->getActivePanIndex() >= 0) {
-                        dragMode_ = DragMode::MixerPan;
-                        activeMixerChannel_ = static_cast<size_t>(modularMixerView_->getActivePanIndex());
-                        dragStartY_ = y;
-                        if (activeMixerChannel_ < mixerStrips_.size()) {
-                            dragStartValGeneric_ = mixerStrips_[activeMixerChannel_].pan;
-                        }
-                    } else if (modularMixerView_->getActiveFaderIndex() >= 0) {
-                        dragMode_ = DragMode::MixerFader;
-                        activeMixerChannel_ = static_cast<size_t>(modularMixerView_->getActiveFaderIndex());
-                        dragStartY_ = y;
-                        if (activeMixerChannel_ < mixerStrips_.size()) {
-                            dragStartValGeneric_ = mixerStrips_[activeMixerChannel_].volume;
-                        }
-                    }
-                    return;
-                }
-                return;
-            }
+            return;
         }
 
         if (activeView_ == WorkspaceView::Tracker || activeView_ == WorkspaceView::Edit) {
@@ -17826,6 +18059,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
+        pev.mods.shift = isShiftPressed();
+        pev.mods.ctrl = isCtrlPressed();
+        pev.mods.alt = isAltPressed();
         modularMixerView_->handlePointer(pev, ctx);
         mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
         mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
@@ -18152,6 +18388,173 @@ void GuiWindow::onFilesDropped(const std::vector<std::string>& filePaths, float 
                 setStatusMessage("Loaded Eatscript: " + fp.filename().string());
                 return;
             }
+        }
+    }
+}
+
+void GuiWindow::onTouchDown(int id, float x, float y, float pressure) {
+    ActiveTouchContact contact{id, x, y, x, y, pressure};
+    activeTouchContacts_[id] = contact;
+
+    PointerEvent pev{};
+    pev.id = id;
+    pev.type = PointerType::Touch;
+    pev.action = PointerAction::Down;
+    pev.button = PointerButton::Left;
+    pev.x = x;
+    pev.y = y;
+    pev.rawX = x;
+    pev.rawY = y;
+    pev.dx = 0.0f;
+    pev.dy = 0.0f;
+    pev.pressure = pressure;
+    pev.mods.shift = isShiftPressed();
+    pev.mods.ctrl = isCtrlPressed();
+    pev.mods.alt = isAltPressed();
+
+    onPointerEvent(pev);
+}
+
+void GuiWindow::onTouchMove(int id, float x, float y, float pressure) {
+    float prevX = x;
+    float prevY = y;
+    auto it = activeTouchContacts_.find(id);
+    if (it != activeTouchContacts_.end()) {
+        prevX = it->second.x;
+        prevY = it->second.y;
+        it->second.prevX = prevX;
+        it->second.prevY = prevY;
+        it->second.x = x;
+        it->second.y = y;
+        it->second.pressure = pressure;
+    } else {
+        activeTouchContacts_[id] = {id, x, y, x, y, pressure};
+    }
+
+    PointerEvent pev{};
+    pev.id = id;
+    pev.type = PointerType::Touch;
+    pev.action = PointerAction::Move;
+    pev.button = PointerButton::Left;
+    pev.x = x;
+    pev.y = y;
+    pev.rawX = x;
+    pev.rawY = y;
+    pev.dx = x - prevX;
+    pev.dy = y - prevY;
+    pev.pressure = pressure;
+    pev.mods.shift = isShiftPressed();
+    pev.mods.ctrl = isCtrlPressed();
+    pev.mods.alt = isAltPressed();
+
+    onPointerEvent(pev);
+}
+
+void GuiWindow::onTouchUp(int id, float x, float y) {
+    float prevX = x;
+    float prevY = y;
+    auto it = activeTouchContacts_.find(id);
+    if (it != activeTouchContacts_.end()) {
+        prevX = it->second.x;
+        prevY = it->second.y;
+        activeTouchContacts_.erase(it);
+    }
+
+    PointerEvent pev{};
+    pev.id = id;
+    pev.type = PointerType::Touch;
+    pev.action = PointerAction::Up;
+    pev.button = PointerButton::Left;
+    pev.x = x;
+    pev.y = y;
+    pev.rawX = x;
+    pev.rawY = y;
+    pev.dx = x - prevX;
+    pev.dy = y - prevY;
+    pev.pressure = 0.0f;
+    pev.mods.shift = isShiftPressed();
+    pev.mods.ctrl = isCtrlPressed();
+    pev.mods.alt = isAltPressed();
+
+    onPointerEvent(pev);
+}
+
+void GuiWindow::onTouchCancel(int id, float x, float y) {
+    auto it = activeTouchContacts_.find(id);
+    if (it != activeTouchContacts_.end()) {
+        activeTouchContacts_.erase(it);
+    }
+
+    PointerEvent pev{};
+    pev.id = id;
+    pev.type = PointerType::Touch;
+    pev.action = PointerAction::Cancel;
+    pev.button = PointerButton::Left;
+    pev.x = x;
+    pev.y = y;
+    pev.rawX = x;
+    pev.rawY = y;
+    pev.dx = 0.0f;
+    pev.dy = 0.0f;
+    pev.pressure = 0.0f;
+    pev.mods.shift = isShiftPressed();
+    pev.mods.ctrl = isCtrlPressed();
+    pev.mods.alt = isAltPressed();
+
+    onPointerEvent(pev);
+}
+
+void GuiWindow::onPointerEvent(const PointerEvent& pev) {
+    // 1. Mixer View pointer routing (Full Multi-Touch for multi-fader and multi-pan mixing)
+    if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
+        const float topY = 56.0f;
+        const float bottomY = static_cast<float>(height_) - 48.0f - 6.0f;
+        ViewContext ctx = createViewContext();
+        modularMixerView_->layout(Rect2D{0.0f, topY, static_cast<float>(width_), bottomY - topY}, ctx);
+        if (modularMixerView_->handlePointer(pev, ctx)) {
+            mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+            mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
+            if (pev.action == PointerAction::Down) {
+                setSelectedTrackIndex(modularMixerView_->getSelectedChannel());
+            }
+            return;
+        }
+        mixerPropertiesExpanded_ = modularMixerView_->isPropertiesExpanded();
+        mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
+    }
+
+    // 2. Modular Design View routing
+    if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
+        ViewContext ctx = createViewContext();
+        if (modularDesignView_->handlePointer(pev, ctx)) {
+            return;
+        }
+    }
+
+    // 3. Arranger View routing
+    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
+        ViewContext ctx = createViewContext();
+        if (modularArrangerView_->handlePointer(pev, ctx)) {
+            return;
+        }
+    }
+
+    // 4. Edit / Tracker View routing
+    if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
+        ViewContext ctx = createViewContext();
+        if (modularEditView_->handlePointer(pev, ctx)) {
+            return;
+        }
+    }
+
+    // 5. Fallback for single-touch on legacy views/controls
+    if (activeTouchContacts_.size() <= 1) {
+        if (pev.action == PointerAction::Down) {
+            onMouseDown(0, pev.x, pev.y);
+        } else if (pev.action == PointerAction::Move) {
+            onMouseMove(pev.x, pev.y);
+        } else if (pev.action == PointerAction::Up) {
+            onMouseUp(0, pev.x, pev.y);
         }
     }
 }

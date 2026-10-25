@@ -123,6 +123,12 @@ public:
     [[nodiscard]] int getActiveFaderIndex() const noexcept { return activeFaderIndex_; }
     [[nodiscard]] int getActivePanIndex() const noexcept { return activePanIndex_; }
 
+    [[nodiscard]] bool isFaderDragging(int index) const noexcept;
+    [[nodiscard]] bool isPanDragging(int index) const noexcept;
+    [[nodiscard]] bool isAnyFaderDragging() const noexcept { return activeFaderIndex_ != -2 || !activeFaderSessions_.empty(); }
+    [[nodiscard]] bool isAnyPanDragging() const noexcept { return activePanIndex_ != -2 || !activePanSessions_.empty(); }
+    void resetSessions() noexcept;
+
     // Master Bus Controls
     [[nodiscard]] const Rect2D& getMasterBounds() const noexcept { return masterBounds_; }
     [[nodiscard]] const MixerChannelStrip& getMasterChannel() const noexcept { return masterChannel_; }
@@ -205,6 +211,9 @@ public:
     std::function<void(float pan)> onMasterPanChanged;
     std::function<void(bool mute)> onMasterMuteToggled;
     std::function<void(bool expanded, float width)> onPropertiesDrawerStateChanged;
+    std::function<void(float scrollY)> onScrollChanged;
+    std::function<void(uint32_t channelIdx, float r, float g, float b)> onColorChanged;
+    std::function<void(bool routing, bool pan, bool buttons, bool meters, bool readouts)> onSectionTogglesChanged;
     std::function<void(uint32_t channelIdx)> onTrackSelected;
     std::function<void(uint32_t channelIdx, const std::string& newName)> onTrackRename;
     std::function<void(uint32_t channelIdx, const std::string& instrumentId, const std::string& instrumentName)> onInstrumentChanged;
@@ -280,6 +289,7 @@ public:
         bool showAutomation, bool showReadouts, bool browserOpen, float scrollY);
 
 private:
+    void syncDrawerData();
     void renderToolbar(BatchRenderer2D& r, const ThemeTokens& theme);
     void renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, const Rect2D& b);
     void renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme, MixerChannelStrip& ch,
@@ -344,7 +354,7 @@ private:
     bool showToolbar_{true};
     Rect2D optionsPillBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
-    // Active drag interaction tracking (Multi-Touch Multi-Fader Mixing)
+    // Active drag interaction tracking (Multi-Touch Multi-Pan & Multi-Fader Mixing)
     struct ActiveFaderSession {
         int faderIndex{-2}; // -1 = Master, >= 0 = Channel
         float dragStartY{0.0f};
@@ -352,6 +362,17 @@ private:
         float initialTravel{0.75f};
     };
     std::unordered_map<int, ActiveFaderSession> activeFaderSessions_; // pointerId -> ActiveFaderSession
+
+    struct ActivePanSession {
+        int panIndex{-2}; // -1 = Master, >= 0 = Channel
+        float dragStartX{0.0f};
+        float dragStartY{0.0f};
+        float initialPanVal{0.0f};
+    };
+    std::unordered_map<int, ActivePanSession> activePanSessions_; // pointerId -> ActivePanSession
+
+    [[nodiscard]] const std::unordered_map<int, ActiveFaderSession>& getActiveFaderSessions() const noexcept { return activeFaderSessions_; }
+    [[nodiscard]] const std::unordered_map<int, ActivePanSession>& getActivePanSessions() const noexcept { return activePanSessions_; }
 
     int activeFaderIndex_{-2}; // Legacy fallback / single-pointer query
     float dragStartY_{0.0f};

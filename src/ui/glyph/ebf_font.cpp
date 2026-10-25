@@ -534,14 +534,32 @@ void EbfFont::drawText(BatchRenderer2D& r, float x, float y, float fontSize,
 const EbfFont& EbfFont::getEmbeddedOswaldCondensed() {
     static const std::unique_ptr<EbfFont> s_oswald = []() {
         auto f = std::make_unique<EbfFont>();
-        const std::vector<std::string> paths = {
+        // 1. Check for pre-compiled .ebf if present
+        const std::vector<std::string> ebfPaths = {
+            "assets/fonts/Oswald-Medium.ebf",
+            "../assets/fonts/Oswald-Medium.ebf",
+            "../../assets/fonts/Oswald-Medium.ebf",
             "assets/fonts/Oswald-Regular.ebf",
             "../assets/fonts/Oswald-Regular.ebf",
             "../../assets/fonts/Oswald-Regular.ebf",
             "c:/git/eatsbits/assets/fonts/Oswald-Regular.ebf"
         };
-        for (const auto& p : paths) {
-            if (f->loadFromFile(p)) break;
+        for (const auto& p : ebfPaths) {
+            if (f->loadFromFile(p)) return f;
+        }
+        // 2. On-the-fly conversion from bundled TrueType font
+        const std::vector<std::string> ttfPaths = {
+            "assets/fonts/Oswald-Medium.ttf",
+            "../assets/fonts/Oswald-Medium.ttf",
+            "../../assets/fonts/Oswald-Medium.ttf",
+            "assets/fonts/Oswald-Regular.ttf",
+            "../assets/fonts/Oswald-Regular.ttf",
+            "../../assets/fonts/Oswald-Regular.ttf",
+            "c:/git/eatsbits/assets/fonts/Oswald-Medium.ttf",
+            "c:/git/eatsbits/assets/fonts/Oswald-Regular.ttf"
+        };
+        for (const auto& p : ttfPaths) {
+            if (f->loadFromTtfFile(p)) return f;
         }
         return f;
     }();
@@ -551,14 +569,25 @@ const EbfFont& EbfFont::getEmbeddedOswaldCondensed() {
 const EbfFont& EbfFont::getEmbeddedShareTechMono() {
     static const std::unique_ptr<EbfFont> s_shareTech = []() {
         auto f = std::make_unique<EbfFont>();
-        const std::vector<std::string> paths = {
+        // 1. Check for pre-compiled .ebf if present
+        const std::vector<std::string> ebfPaths = {
             "assets/fonts/ShareTechMono-Regular.ebf",
             "../assets/fonts/ShareTechMono-Regular.ebf",
             "../../assets/fonts/ShareTechMono-Regular.ebf",
             "c:/git/eatsbits/assets/fonts/ShareTechMono-Regular.ebf"
         };
-        for (const auto& p : paths) {
-            if (f->loadFromFile(p)) break;
+        for (const auto& p : ebfPaths) {
+            if (f->loadFromFile(p)) return f;
+        }
+        // 2. On-the-fly conversion from bundled TrueType font
+        const std::vector<std::string> ttfPaths = {
+            "assets/fonts/ShareTechMono-Regular.ttf",
+            "../assets/fonts/ShareTechMono-Regular.ttf",
+            "../../assets/fonts/ShareTechMono-Regular.ttf",
+            "c:/git/eatsbits/assets/fonts/ShareTechMono-Regular.ttf"
+        };
+        for (const auto& p : ttfPaths) {
+            if (f->loadFromTtfFile(p)) return f;
         }
         return f;
     }();

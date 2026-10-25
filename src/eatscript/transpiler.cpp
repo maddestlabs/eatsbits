@@ -383,6 +383,8 @@ std::string Transpiler::emitClapPluginEntry(const Program& program, const Depend
     ss << "// ==============================================================================\n\n";
 
     ss << "#include \"eatsbits/export/clap/clap_plugin_shell.hpp\"\n";
+    ss << "#include \"eatsbits/export/clap/gui/pugl_bridge.hpp\"\n";
+    ss << "#include \"eatsbits/export/clap/gui/instrument_gui_desc.hpp\"\n";
     ss << "#include <cmath>\n";
     ss << "#include <numbers>\n";
     ss << "#include <algorithm>\n";
@@ -462,6 +464,70 @@ std::string Transpiler::emitClapPluginEntry(const Program& program, const Depend
         ss << "        return (index < s_defs.size()) ? s_defs[index] : s_defs[0];\n";
         ss << "    }\n\n";
     }
+
+    // Custom GUI descriptor & factory
+    ss << "    [[nodiscard]] static constexpr bool hasCustomGui() noexcept {\n";
+    ss << "        return true;\n";
+    ss << "    }\n\n";
+
+    ss << "    static eatsbits::export_clap::gui::InstrumentGuiDesc getGuiDesc() noexcept {\n";
+    ss << "        eatsbits::export_clap::gui::InstrumentGuiDesc d;\n";
+    ss << "        d.title = \"" << (scanResult.metadata.name.empty() ? "EATSBITS INSTRUMENT" : scanResult.metadata.name) << "\";\n";
+    ss << "        d.subtitle = \"" << scanResult.metadata.description << "\";\n";
+    ss << "        d.background = \"minimal_white\";\n\n";
+
+    if (scanResult.dispatchTarget == NativeDispatchTarget::TB303) {
+        ss << "        eatsbits::export_clap::gui::RowDesc r1;\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 0, \"Waveform\", \"WAVEFORM\", eatsbits::export_clap::gui::KnobStyle::Selector, 0.0, 1.0, 0.0, true, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Divider, 0, \"\", \"\", eatsbits::export_clap::gui::KnobStyle::Standard, 0.0, 1.0, 0.0, false, 0.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 1, \"Pitch\", \"PITCH\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, -12.0, 12.0, 0.0, true, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 2, \"Cutoff\", \"CUTOFF\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, 200.0, 4500.0, 1400.0, false, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 3, \"Resonance\", \"RESONANCE\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, 0.5, 16.0, 9.2, false, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 4, \"EnvMod\", \"ENV MOD\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, 0.0, 1.0, 0.75, false, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 5, \"Decay\", \"DECAY\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, 0.05, 1.2, 0.28, false, 44.0f});\n";
+        ss << "        r1.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 6, \"Accent\", \"ACCENT\", eatsbits::export_clap::gui::KnobStyle::Potentiometer, 0.0, 1.0, 0.78, false, 44.0f});\n";
+        ss << "        d.rows.push_back(std::move(r1));\n\n";
+
+        ss << "        eatsbits::export_clap::gui::RowDesc r2;\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 7, \"Octave\", \"OCTAVE\", eatsbits::export_clap::gui::KnobStyle::Selector, -2.0, 0.0, 0.0, true, 44.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Divider, 0, \"\", \"\", eatsbits::export_clap::gui::KnobStyle::Standard, 0.0, 1.0, 0.0, false, 0.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Switch, 8, \"SubWaveform\", \"SUB OSC\", eatsbits::export_clap::gui::KnobStyle::Standard, 0.0, 1.0, 0.0, true, 44.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 9, \"SubVolume\", \"SUB VOL\", eatsbits::export_clap::gui::KnobStyle::CreamFluted, 0.0, 1.0, 0.0, false, 44.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Divider, 0, \"\", \"\", eatsbits::export_clap::gui::KnobStyle::Standard, 0.0, 1.0, 0.0, false, 0.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 11, \"GlideCurve\", \"GLIDE CURVE\", eatsbits::export_clap::gui::KnobStyle::CreamFluted, 0.0, 2.0, 0.0, true, 44.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Divider, 0, \"\", \"\", eatsbits::export_clap::gui::KnobStyle::Standard, 0.0, 1.0, 0.0, false, 0.0f});\n";
+        ss << "        r2.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, 10, \"Drive\", \"DRIVE\", eatsbits::export_clap::gui::KnobStyle::CreamFluted, 0.0, 1.0, 0.25, false, 44.0f});\n";
+        ss << "        d.rows.push_back(std::move(r2));\n";
+    } else {
+        size_t currentInRow = 0;
+        bool hasRow = false;
+        for (const auto& p : clapParams) {
+            if (currentInRow == 0) {
+                ss << "        {\n            eatsbits::export_clap::gui::RowDesc r;\n";
+                hasRow = true;
+            }
+            constexpr uint32_t kParamStepped = (1 << 0);
+            std::string kStyle = (p.flags & kParamStepped) ? "eatsbits::export_clap::gui::KnobStyle::Selector" : "eatsbits::export_clap::gui::KnobStyle::Potentiometer";
+            bool isStepped = (p.flags & kParamStepped) != 0;
+            ss << "            r.widgets.push_back({eatsbits::export_clap::gui::WidgetType::Knob, " << p.id << ", \"" << p.name << "\", \"" << p.name << "\", " << kStyle << ", " << p.minValue << ", " << p.maxValue << ", " << p.defaultValue << ", " << (isStepped ? "true" : "false") << ", 44.0f});\n";
+            currentInRow++;
+            if (currentInRow >= 6) {
+                ss << "            d.rows.push_back(std::move(r));\n        }\n";
+                currentInRow = 0;
+                hasRow = false;
+            }
+        }
+        if (hasRow) {
+            ss << "            d.rows.push_back(std::move(r));\n        }\n";
+        }
+    }
+
+    ss << "        return d;\n";
+    ss << "    }\n\n";
+
+    ss << "    [[nodiscard]] std::unique_ptr<eatsbits::export_clap::gui::IPluginGui> createGui(const clap_host* host) noexcept {\n";
+    ss << "        return std::make_unique<eatsbits::export_clap::gui::PuglBridge>(this, host, getGuiDesc(), 800, 360);\n";
+    ss << "    }\n\n";
 
     // Lifecycle
     ss << "    " << adapterClassName << "() noexcept {\n";

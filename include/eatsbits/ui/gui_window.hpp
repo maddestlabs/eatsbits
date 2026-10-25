@@ -557,6 +557,13 @@ public:
     void onMouseScroll(double xoffset, double yoffset);
     void onFilesDropped(const std::vector<std::string>& filePaths, float x, float y);
 
+    // Multi-Touch & Unified Pointer Event Routing (Cross-Platform Web, Win32, Mobile)
+    void onTouchDown(int id, float x, float y, float pressure = 1.0f);
+    void onTouchMove(int id, float x, float y, float pressure = 1.0f);
+    void onTouchUp(int id, float x, float y);
+    void onTouchCancel(int id, float x, float y);
+    void onPointerEvent(const PointerEvent& pev);
+
     std::function<void(const std::vector<std::string>&, float, float)> onExternalFilesDropped;
 
     // Window Dimensions, DPI, Resizing & Global UI Scale Factor
@@ -1391,6 +1398,16 @@ private:
     GestureRecognizer gestureRecognizer_;
     bool isDeletingTrack_{false};
     bool isDuplicatingTrack_{false};
+
+    struct ActiveTouchContact {
+        int id{0};
+        float x{0.0f};
+        float y{0.0f};
+        float prevX{0.0f};
+        float prevY{0.0f};
+        float pressure{1.0f};
+    };
+    std::unordered_map<int, ActiveTouchContact> activeTouchContacts_;
 };
 
 } // namespace eatsbits::ui

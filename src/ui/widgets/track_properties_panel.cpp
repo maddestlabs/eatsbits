@@ -1557,6 +1557,8 @@ void TrackPropertiesPanel::render(BatchRenderer2D& r, const ThemeTokens& theme, 
             eqCardBounds_ = Rect2D(contentX, curCardY, contentW, 138.0f);
             renderEqCard(r, theme, data, eqCardBounds_.x, eqCardBounds_.y, eqCardBounds_.w);
             curCardY += 138.0f + 8.0f;
+        } else {
+            eqCardBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
         }
 
         float faceplateH = data.instrumentExpanded ? (isWide ? 280.0f : 240.0f) : 38.0f;
@@ -2863,7 +2865,76 @@ std::string TrackPropertiesPanel::getTooltip(float mx, float my, const TrackProp
         case TrackPropertiesHitArea::CustomColorPicker:
             return "Open Color Selection Dialog";
         case TrackPropertiesHitArea::EqToggle:
-            return "Toggle 3-Band Parametric EQ";
+            return data.eqEnabled ? "Bypass 3-Band Parametric EQ" : "Activate 3-Band Parametric EQ";
+        case TrackPropertiesHitArea::EqHpf: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "HPF Cut: %d Hz", static_cast<int>(data.eqHpf));
+            return buf;
+        }
+        case TrackPropertiesHitArea::EqLowGain: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Low Gain: %s%d dB", data.eqLowGain >= 0 ? "+" : "", static_cast<int>(data.eqLowGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::EqHighGain: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "High Gain: %s%d dB", data.eqHighGain >= 0 ? "+" : "", static_cast<int>(data.eqHighGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::EqMidFreq: {
+            static char buf[32];
+            if (data.eqMidFreq >= 1000.0f) {
+                std::snprintf(buf, sizeof(buf), "Mid Freq: %.1f kHz", data.eqMidFreq / 1000.0f);
+            } else {
+                std::snprintf(buf, sizeof(buf), "Mid Freq: %d Hz", static_cast<int>(data.eqMidFreq));
+            }
+            return buf;
+        }
+        case TrackPropertiesHitArea::EqMidGain: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Mid Gain: %s%d dB", data.eqMidGain >= 0 ? "+" : "", static_cast<int>(data.eqMidGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::EqMidQ: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Mid Q: %.1f", data.eqMidQ);
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterEqSubCut: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master Sub Cut: %d Hz", static_cast<int>(data.masterSubCut));
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterEqLow: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master Low Gain: %s%d dB", data.masterLowGain >= 0 ? "+" : "", static_cast<int>(data.masterLowGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterEqMid: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master Mid Gain: %s%d dB", data.masterMidGain >= 0 ? "+" : "", static_cast<int>(data.masterMidGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterEqHigh: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master High Gain: %s%d dB", data.masterHighGain >= 0 ? "+" : "", static_cast<int>(data.masterHighGain));
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterCeiling: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master Ceiling: %.1f dB", data.masterCeilingDbfs);
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterDrive: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Master Drive: +%d dB", static_cast<int>(data.masterLimiterDrive));
+            return buf;
+        }
+        case TrackPropertiesHitArea::MasterLufs: {
+            static char buf[32];
+            std::snprintf(buf, sizeof(buf), "Target LUFS: %d LUFS", static_cast<int>(data.masterTargetLufs));
+            return buf;
+        }
         case TrackPropertiesHitArea::MuteButton:
             return data.mute ? "Unmute Track (M)" : "Mute Track (M)";
         case TrackPropertiesHitArea::SoloButton:
@@ -2927,6 +2998,74 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
                 return res;
             }
         }
+    }
+
+    // Master Console Mode Hits
+    if (data.isMasterSelected || data.tab == TrackPropertiesTab::Master) {
+        float padding = (bounds_.w >= 560.0f) ? 14.0f : 8.0f;
+        float cx = bounds_.x + padding;
+        float cw = bounds_.w - (padding * 2.0f);
+        float curY = bounds_.y + 8.0f - scrollY_;
+        curY += 50.0f + 8.0f; // Header card
+
+        // Master EQ Card
+        float kw4 = cw / 4.0f;
+        float eqRowY = curY + 44.0f;
+        float k1x = cx + kw4 * 0.5f;
+        if (std::hypot(mx - k1x, my - eqRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterEqSubCut;
+            res.normVal = (data.masterSubCut - 20.0f) / 25.0f;
+            return res;
+        }
+        float k2x = cx + kw4 * 1.5f;
+        if (std::hypot(mx - k2x, my - eqRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterEqLow;
+            res.normVal = (data.masterLowGain + 12.0f) / 24.0f;
+            return res;
+        }
+        float k3x = cx + kw4 * 2.5f;
+        if (std::hypot(mx - k3x, my - eqRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterEqMid;
+            res.normVal = (data.masterMidGain + 12.0f) / 24.0f;
+            return res;
+        }
+        float k4x = cx + kw4 * 3.5f;
+        if (std::hypot(mx - k4x, my - eqRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterEqHigh;
+            res.normVal = (data.masterHighGain + 12.0f) / 24.0f;
+            return res;
+        }
+        curY += 100.0f + 8.0f;
+
+        // Master Limiter Card
+        float limRowY = curY + 48.0f;
+        float kw3 = cw / 3.0f;
+        float l1x = cx + kw3 * 0.5f;
+        if (std::hypot(mx - l1x, my - limRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterCeiling;
+            res.normVal = (data.masterCeilingDbfs + 2.0f) / 2.0f;
+            return res;
+        }
+        float l2x = cx + kw3 * 1.5f;
+        if (std::hypot(mx - l2x, my - limRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterDrive;
+            res.normVal = data.masterLimiterDrive / 12.0f;
+            return res;
+        }
+        float l3x = cx + kw3 * 2.5f;
+        if (std::hypot(mx - l3x, my - limRowY) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::MasterLufs;
+            res.normVal = (data.masterTargetLufs + 24.0f) / 18.0f;
+            return res;
+        }
+        return res;
     }
 
     // Clip Mode Hits
@@ -3046,6 +3185,72 @@ TrackPropertiesHitResult TrackPropertiesPanel::hitTest(float mx, float my, const
         if (std::hypot(mx - plusX, my - scy) <= 12.0f) {
             res.hit = true;
             res.area = TrackPropertiesHitArea::CustomColorPicker;
+            return res;
+        }
+    }
+
+    // EQ Card Hits (Channel 3-Band Parametric EQ)
+    if (data.isMixerMode && !data.isMasterSelected && eqCardBounds_.w > 0.0f && eqCardBounds_.contains(mx, my)) {
+        float cx = eqCardBounds_.x;
+        float cy = eqCardBounds_.y;
+        float cw = eqCardBounds_.w;
+
+        // Toggle ACTIVE / BYPASS button at top right
+        float eqTglW = 60.0f;
+        float eqTglX = cx + cw - eqTglW - 10.0f;
+        if (mx >= eqTglX && mx <= eqTglX + eqTglW && my >= cy + 4.0f && my <= cy + 28.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqToggle;
+            return res;
+        }
+
+        float kw3 = cw / 3.0f;
+        float eqRow1Y = cy + 45.0f;
+        float eqRow2Y = cy + 98.0f;
+
+        // Row 1: HPF CUT, LOW GAIN, HIGH GAIN
+        float k1x = cx + kw3 * 0.5f;
+        if (std::hypot(mx - k1x, my - eqRow1Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqHpf;
+            res.normVal = std::clamp((data.eqHpf - 20.0f) / 480.0f, 0.0f, 1.0f);
+            return res;
+        }
+        float k2x = cx + kw3 * 1.5f;
+        if (std::hypot(mx - k2x, my - eqRow1Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqLowGain;
+            res.normVal = std::clamp((data.eqLowGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+            return res;
+        }
+        float k3x = cx + kw3 * 2.5f;
+        if (std::hypot(mx - k3x, my - eqRow1Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqHighGain;
+            res.normVal = std::clamp((data.eqHighGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+            return res;
+        }
+
+        // Row 2: MID FREQ, MID GAIN, MID Q
+        float k4x = cx + kw3 * 0.5f;
+        if (std::hypot(mx - k4x, my - eqRow2Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqMidFreq;
+            res.normVal = std::clamp((data.eqMidFreq - 200.0f) / 7800.0f, 0.0f, 1.0f);
+            return res;
+        }
+        float k5x = cx + kw3 * 1.5f;
+        if (std::hypot(mx - k5x, my - eqRow2Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqMidGain;
+            res.normVal = std::clamp((data.eqMidGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+            return res;
+        }
+        float k6x = cx + kw3 * 2.5f;
+        if (std::hypot(mx - k6x, my - eqRow2Y) <= 18.0f) {
+            res.hit = true;
+            res.area = TrackPropertiesHitArea::EqMidQ;
+            res.normVal = std::clamp((data.eqMidQ - 0.3f) / 9.7f, 0.0f, 1.0f);
             return res;
         }
     }
@@ -3591,6 +3796,12 @@ bool TrackPropertiesPanel::executeHitAction(const TrackPropertiesHitResult& hit,
 
     if (hit.area == TrackPropertiesHitArea::CustomColorPicker) {
         colorPickerDialog_.open(Color(data.r, data.g, data.b), "SELECT TRACK COLOR", data.trackIndex);
+        return true;
+    }
+
+    if (hit.area == TrackPropertiesHitArea::EqToggle) {
+        data.eqEnabled = !data.eqEnabled;
+        if (onParamChanged) onParamChanged(data.trackIndex, "eqEnabled", data.eqEnabled ? 1.0f : 0.0f);
         return true;
     }
 
@@ -4398,19 +4609,19 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                     return true;
                 } else if (hit.area == TrackPropertiesHitArea::EqHpf) {
                     data.eqHpf = 20.0f;
-                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHpf", 20.0f);
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHpf", 0.0f);
                     return true;
                 } else if (hit.area == TrackPropertiesHitArea::EqLowGain) {
                     data.eqLowGain = 0.0f;
-                    if (onParamChanged) onParamChanged(data.trackIndex, "eqLow", 0.0f);
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqLowGain", 0.5f);
                     return true;
                 } else if (hit.area == TrackPropertiesHitArea::EqMidGain) {
                     data.eqMidGain = 0.0f;
-                    if (onParamChanged) onParamChanged(data.trackIndex, "eqMid", 0.0f);
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqMidGain", 0.5f);
                     return true;
                 } else if (hit.area == TrackPropertiesHitArea::EqHighGain) {
                     data.eqHighGain = 0.0f;
-                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHigh", 0.0f);
+                    if (onParamChanged) onParamChanged(data.trackIndex, "eqHighGain", 0.5f);
                     return true;
                 } else if (hit.area == TrackPropertiesHitArea::InstrumentKnob && hit.index >= 0 && hit.index < static_cast<int>(data.knobs.size())) {
                     data.knobs[hit.index].value = 0.5f;
@@ -4461,6 +4672,64 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                 dragMode_ = DragMode::PanKnob;
                 dragStartY_ = ev.y;
                 dragStartVal_ = data.pan;
+                return true;
+            }
+
+            if (hit.area == TrackPropertiesHitArea::EqHpf ||
+                hit.area == TrackPropertiesHitArea::EqLowGain ||
+                hit.area == TrackPropertiesHitArea::EqHighGain ||
+                hit.area == TrackPropertiesHitArea::EqMidFreq ||
+                hit.area == TrackPropertiesHitArea::EqMidGain ||
+                hit.area == TrackPropertiesHitArea::EqMidQ ||
+                hit.area == TrackPropertiesHitArea::MasterEqSubCut ||
+                hit.area == TrackPropertiesHitArea::MasterEqLow ||
+                hit.area == TrackPropertiesHitArea::MasterEqMid ||
+                hit.area == TrackPropertiesHitArea::MasterEqHigh ||
+                hit.area == TrackPropertiesHitArea::MasterCeiling ||
+                hit.area == TrackPropertiesHitArea::MasterDrive ||
+                hit.area == TrackPropertiesHitArea::MasterLufs) {
+                dragMode_ = DragMode::EqKnob;
+                dragStartY_ = ev.y;
+                if (hit.area == TrackPropertiesHitArea::EqHpf) {
+                    activeParamName_ = "eqHpf";
+                    dragStartVal_ = std::clamp((data.eqHpf - 20.0f) / 480.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::EqLowGain) {
+                    activeParamName_ = "eqLowGain";
+                    dragStartVal_ = std::clamp((data.eqLowGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::EqHighGain) {
+                    activeParamName_ = "eqHighGain";
+                    dragStartVal_ = std::clamp((data.eqHighGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::EqMidFreq) {
+                    activeParamName_ = "eqMidFreq";
+                    dragStartVal_ = std::clamp((data.eqMidFreq - 200.0f) / 7800.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::EqMidGain) {
+                    activeParamName_ = "eqMidGain";
+                    dragStartVal_ = std::clamp((data.eqMidGain + 18.0f) / 36.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::EqMidQ) {
+                    activeParamName_ = "eqMidQ";
+                    dragStartVal_ = std::clamp((data.eqMidQ - 0.3f) / 9.7f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterEqSubCut) {
+                    activeParamName_ = "masterSubCut";
+                    dragStartVal_ = std::clamp((data.masterSubCut - 20.0f) / 25.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterEqLow) {
+                    activeParamName_ = "masterLow";
+                    dragStartVal_ = std::clamp((data.masterLowGain + 12.0f) / 24.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterEqMid) {
+                    activeParamName_ = "masterMid";
+                    dragStartVal_ = std::clamp((data.masterMidGain + 12.0f) / 24.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterEqHigh) {
+                    activeParamName_ = "masterHigh";
+                    dragStartVal_ = std::clamp((data.masterHighGain + 12.0f) / 24.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterCeiling) {
+                    activeParamName_ = "masterCeiling";
+                    dragStartVal_ = std::clamp((data.masterCeilingDbfs + 2.0f) / 2.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterDrive) {
+                    activeParamName_ = "masterDrive";
+                    dragStartVal_ = std::clamp(data.masterLimiterDrive / 12.0f, 0.0f, 1.0f);
+                } else if (hit.area == TrackPropertiesHitArea::MasterLufs) {
+                    activeParamName_ = "masterLufs";
+                    dragStartVal_ = std::clamp((data.masterTargetLufs + 24.0f) / 18.0f, 0.0f, 1.0f);
+                }
                 return true;
             }
 
@@ -4643,11 +4912,11 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                     draggingRow_ = rIdx;
                     draggingWidget_ = wIdx;
                 } else {
-                    dragStartVal_ = (activeKnobIndex_ < static_cast<int>(data.knobs.size()))
+                    dragStartVal_ = (activeKnobIndex_ >= 0 && activeKnobIndex_ < static_cast<int>(data.knobs.size()))
                                         ? data.knobs[activeKnobIndex_].value
                                         : 0.5f;
-                    draggingRow_ = activeKnobIndex_ / 6;
-                    draggingWidget_ = activeKnobIndex_ % 6;
+                    draggingRow_ = -1;
+                    draggingWidget_ = -1;
                 }
                 return true;
             }
@@ -4823,6 +5092,8 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
                     w.currentVal = newVal;
                 }
                 pName = w.param;
+            } else if (activeKnobIndex_ >= 0 && activeKnobIndex_ < static_cast<int>(data.knobs.size())) {
+                pName = data.knobs[activeKnobIndex_].name;
             }
 
             bool updated = false;
@@ -4855,6 +5126,53 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             }
             if (onParamChanged && !pName.empty()) {
                 onParamChanged(data.trackIndex, pName, newVal);
+            }
+            return true;
+        }
+
+        if (dragMode_ == DragMode::EqKnob) {
+            float dy = dragStartY_ - ev.y;
+            float sens = ev.mods.shift ? 0.10f : 1.0f;
+            float newVal = std::clamp(dragStartVal_ + (dy / 120.0f) * sens, 0.0f, 1.0f);
+            if (activeParamName_ == "eqHpf") {
+                data.eqHpf = 20.0f + newVal * 480.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqHpf", newVal);
+            } else if (activeParamName_ == "eqLow" || activeParamName_ == "eqLowGain") {
+                data.eqLowGain = -18.0f + newVal * 36.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqLowGain", newVal);
+            } else if (activeParamName_ == "eqHigh" || activeParamName_ == "eqHighGain") {
+                data.eqHighGain = -18.0f + newVal * 36.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqHighGain", newVal);
+            } else if (activeParamName_ == "eqMidFreq") {
+                data.eqMidFreq = 200.0f + newVal * 7800.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqMidFreq", newVal);
+            } else if (activeParamName_ == "eqMidGain") {
+                data.eqMidGain = -18.0f + newVal * 36.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqMidGain", newVal);
+            } else if (activeParamName_ == "eqMidQ") {
+                data.eqMidQ = 0.3f + newVal * 9.7f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "eqMidQ", newVal);
+            } else if (activeParamName_ == "masterSubCut") {
+                data.masterSubCut = 20.0f + newVal * 25.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterSubCut", newVal);
+            } else if (activeParamName_ == "masterLow" || activeParamName_ == "masterLowGain") {
+                data.masterLowGain = -12.0f + newVal * 24.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterLowGain", newVal);
+            } else if (activeParamName_ == "masterMid" || activeParamName_ == "masterMidGain") {
+                data.masterMidGain = -12.0f + newVal * 24.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterMidGain", newVal);
+            } else if (activeParamName_ == "masterHigh" || activeParamName_ == "masterHighGain") {
+                data.masterHighGain = -12.0f + newVal * 24.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterHighGain", newVal);
+            } else if (activeParamName_ == "masterCeiling" || activeParamName_ == "masterCeilingDbfs") {
+                data.masterCeilingDbfs = -2.0f + newVal * 2.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterCeilingDbfs", newVal);
+            } else if (activeParamName_ == "masterDrive" || activeParamName_ == "masterLimiterDrive") {
+                data.masterLimiterDrive = newVal * 12.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterLimiterDrive", newVal);
+            } else if (activeParamName_ == "masterLufs" || activeParamName_ == "masterTargetLufs") {
+                data.masterTargetLufs = -24.0f + newVal * 18.0f;
+                if (onParamChanged) onParamChanged(data.trackIndex, "masterTargetLufs", newVal);
             }
             return true;
         }

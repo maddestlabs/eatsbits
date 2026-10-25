@@ -176,7 +176,10 @@ public:
     // Callbacks to host window/engine
     std::function<void(const std::string& targetId, const std::string& paramName, float val)> onParamChanged;
     std::function<void(const std::string& targetId, const std::string& code)> onCompileScript;
+    std::function<void(const std::string& targetId, const std::string& code)> onExportClap;
     std::function<void(const std::string& text)> onCopyToClipboard;
+
+    void exportCurrentInstrumentToClap(const ViewContext& ctx);
 
     void setAudioScopeBuffer([[maybe_unused]] const float* buffer, [[maybe_unused]] size_t count) {}
     void setAudioScopeBuffer([[maybe_unused]] std::span<const float> buffer) {}
@@ -217,6 +220,7 @@ private:
     Rect2D btnSplit_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnGui_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnCompile_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnExportClap_{0.0f, 0.0f, 0.0f, 0.0f};
 
     Rect2D contentBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D explorerBounds_{0.0f, 0.0f, 0.0f, 0.0f};

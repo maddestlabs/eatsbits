@@ -30,8 +30,17 @@ MixerView::MixerView() {
     // Default standalone properties drawer is closed
     propertiesDrawer_.setExpanded(false);
 
+    propertiesDrawer_.onScrollChanged = [this](float sy) {
+        if (onScrollChanged) onScrollChanged(sy);
+    };
+
     // Shared TrackPropertiesDrawer callbacks across Arranger and Mixer
     propertiesDrawer_.onVolumeChanged = [this](uint32_t trackIdx, float vol) {
+        if (isMasterSelected_) {
+            masterChannel_.fader = vol;
+            if (onMasterVolumeChanged) onMasterVolumeChanged(vol);
+            return;
+        }
         if (trackIdx < channels_.size()) {
             channels_[trackIdx].fader = vol;
         }
@@ -40,6 +49,11 @@ MixerView::MixerView() {
         }
     };
     propertiesDrawer_.onPanChanged = [this](uint32_t trackIdx, float pan) {
+        if (isMasterSelected_) {
+            masterChannel_.pan = pan;
+            if (onMasterPanChanged) onMasterPanChanged(pan);
+            return;
+        }
         if (trackIdx < channels_.size()) {
             channels_[trackIdx].pan = pan;
         }
@@ -48,6 +62,11 @@ MixerView::MixerView() {
         }
     };
     propertiesDrawer_.onMuteToggled = [this](uint32_t trackIdx, bool mute) {
+        if (isMasterSelected_) {
+            masterChannel_.mute = mute;
+            if (onMasterMuteToggled) onMasterMuteToggled(mute);
+            return;
+        }
         if (trackIdx < channels_.size()) {
             channels_[trackIdx].mute = mute;
         }
@@ -64,26 +83,64 @@ MixerView::MixerView() {
         }
     };
     propertiesDrawer_.onParamChanged = [this](uint32_t trackIdx, const std::string& paramName, float normVal) {
+        if (isMasterSelected_) {
+            if (paramName == "masterEqEnabled") masterEqEnabled_ = (normVal > 0.5f);
+            else if (paramName == "masterSubCut") masterSubCut_ = 20.0f + normVal * 25.0f;
+            else if (paramName == "masterLowGain") masterLowGain_ = -12.0f + normVal * 24.0f;
+            else if (paramName == "masterMidGain") masterMidGain_ = -12.0f + normVal * 24.0f;
+            else if (paramName == "masterHighGain") masterHighGain_ = -12.0f + normVal * 24.0f;
+            else if (paramName == "masterLimiterEnabled") masterLimiterEnabled_ = (normVal > 0.5f);
+            else if (paramName == "masterCeilingDbfs") masterCeilingDbfs_ = -2.0f + normVal * 2.0f;
+            else if (paramName == "masterLimiterDrive") masterLimiterDrive_ = normVal * 12.0f;
+            else if (paramName == "masterTargetLufs") masterTargetLufs_ = -24.0f + normVal * 18.0f;
+            syncDrawerData();
+            return;
+        }
+
         if (trackIdx < channels_.size()) {
             auto& ch = channels_[trackIdx];
-            ch.setKnobValue(paramName, normVal);
-            drawerData_.setKnobValue(paramName, normVal);
+            bool isEqParam = (paramName.rfind("eq", 0) == 0);
+            if (!isEqParam) {
+                ch.setKnobValue(paramName, normVal);
+                drawerData_.setKnobValue(paramName, normVal);
 
-            std::string lowerParam = paramName;
-            for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                std::string lowerParam = paramName;
+                for (char& c : lowerParam) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-            if (lowerParam == "cutoff" || lowerParam == "tone" || lowerParam == "param1") {
-                ch.knob1 = normVal;
-            } else if (lowerParam == "resonance" || lowerParam == "snappy" || lowerParam == "punch" || lowerParam == "param2") {
-                ch.knob2 = normVal;
-            } else if (lowerParam == "decay" || lowerParam == "tune" || lowerParam == "bright" || lowerParam == "param3") {
-                ch.knob3 = normVal;
-            } else if (lowerParam == "accent" || lowerParam == "tuning" || lowerParam == "crack" || lowerParam == "detune" || lowerParam == "param4") {
-                ch.knob4 = normVal;
+                if (lowerParam == "cutoff" || lowerParam == "tone" || lowerParam == "param1") {
+                    ch.knob1 = normVal;
+                } else if (lowerParam == "resonance" || lowerParam == "snappy" || lowerParam == "punch" || lowerParam == "param2") {
+                    ch.knob2 = normVal;
+                } else if (lowerParam == "decay" || lowerParam == "tune" || lowerParam == "bright" || lowerParam == "param3") {
+                    ch.knob3 = normVal;
+                } else if (lowerParam == "accent" || lowerParam == "tuning" || lowerParam == "crack" || lowerParam == "detune" || lowerParam == "param4") {
+                    ch.knob4 = normVal;
+                }
+            } else {
+                if (paramName == "eqEnabled") ch.eqEnabled = (normVal > 0.5f);
+                else if (paramName == "eqHpf") ch.eqHpf = 20.0f + normVal * 480.0f;
+                else if (paramName == "eqLowGain") ch.eqLowGain = -18.0f + normVal * 36.0f;
+                else if (paramName == "eqMidFreq") ch.eqMidFreq = 200.0f + normVal * 7800.0f;
+                else if (paramName == "eqMidGain") ch.eqMidGain = -18.0f + normVal * 36.0f;
+                else if (paramName == "eqMidQ") ch.eqMidQ = 0.3f + normVal * 9.7f;
+                else if (paramName == "eqHighGain") ch.eqHighGain = -18.0f + normVal * 36.0f;
             }
         }
         if (onParamChanged) {
             onParamChanged(trackIdx, paramName, normVal);
+        }
+    };
+    propertiesDrawer_.onColorChanged = [this](uint32_t trackIdx, float r, float g, float b) {
+        if (trackIdx < channels_.size()) {
+            channels_[trackIdx].r = r;
+            channels_[trackIdx].g = g;
+            channels_[trackIdx].b = b;
+            drawerData_.r = r;
+            drawerData_.g = g;
+            drawerData_.b = b;
+        }
+        if (onColorChanged) {
+            onColorChanged(trackIdx, r, g, b);
         }
     };
     propertiesDrawer_.onChooseTrackIcon = [this](uint32_t trackIdx) {
@@ -486,7 +543,7 @@ MixerView::FaderGeometry MixerView::getMasterFaderGeometry() const noexcept {
     float mY = masterBounds_.y;
     float stripH = masterBounds_.h;
     float lcdH = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 32.0f : 38.0f);
-    float ky = mY + 8.0f + lcdH + 16.0f;
+    float ky = mY + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
     geom.wellTopY = ky + (showPan_ ? 38.0f : 10.0f);
     geom.wellBottomY = mY + stripH - 12.0f;
     geom.wellH = std::max(60.0f, geom.wellBottomY - geom.wellTopY);
@@ -495,8 +552,8 @@ MixerView::FaderGeometry MixerView::getMasterFaderGeometry() const noexcept {
 
     float norm = presenter::audio_taper::gainToTravel(masterChannel_.fader);
     geom.thumbY = geom.wellBottomY - norm * geom.wellH;
-    float thumbW = (densityMode_ == MixerDensityMode::Micro) ? 26.0f : ((densityMode_ == MixerDensityMode::Compact) ? 30.0f : 36.0f);
-    float thumbH = (densityMode_ == MixerDensityMode::Micro) ? 14.0f : ((densityMode_ == MixerDensityMode::Compact) ? 16.0f : 18.0f);
+    float thumbW = (densityMode_ == MixerDensityMode::Micro) ? 14.0f : ((densityMode_ == MixerDensityMode::Compact) ? 18.0f : 22.0f);
+    float thumbH = (densityMode_ == MixerDensityMode::Micro) ? 20.0f : ((densityMode_ == MixerDensityMode::Compact) ? 26.0f : 34.0f);
     geom.well = Rect2D(geom.trackX - thumbW * 0.5f, geom.wellTopY, thumbW, geom.wellH);
     geom.thumb = Rect2D(geom.trackX - thumbW * 0.5f, geom.thumbY - thumbH * 0.5f, thumbW, thumbH);
     return geom;
@@ -507,7 +564,7 @@ MixerView::FaderGeometry MixerView::getChannelFaderGeometry(size_t index, float 
     float cy = masterBounds_.y;
     float stripH = masterBounds_.h;
     float lcdH = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 32.0f : 38.0f);
-    float ky = cy + 8.0f + lcdH + 16.0f;
+    float ky = cy + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
     geom.wellTopY = ky + (showPan_ ? 38.0f : 10.0f);
     geom.wellBottomY = cy + stripH - 12.0f;
     geom.wellH = std::max(60.0f, geom.wellBottomY - geom.wellTopY);
@@ -517,8 +574,8 @@ MixerView::FaderGeometry MixerView::getChannelFaderGeometry(size_t index, float 
     float faderVal = (index < channels_.size()) ? channels_[index].fader : 1.0f;
     float norm = presenter::audio_taper::gainToTravel(faderVal);
     geom.thumbY = geom.wellBottomY - norm * geom.wellH;
-    float thumbW = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 28.0f : 34.0f);
-    float thumbH = (densityMode_ == MixerDensityMode::Micro) ? 14.0f : ((densityMode_ == MixerDensityMode::Compact) ? 16.0f : 18.0f);
+    float thumbW = (densityMode_ == MixerDensityMode::Micro) ? 12.0f : ((densityMode_ == MixerDensityMode::Compact) ? 16.0f : 20.0f);
+    float thumbH = (densityMode_ == MixerDensityMode::Micro) ? 20.0f : ((densityMode_ == MixerDensityMode::Compact) ? 26.0f : 34.0f);
     geom.well = Rect2D(geom.trackX - thumbW * 0.5f, geom.wellTopY, thumbW, geom.wellH);
     geom.thumb = Rect2D(geom.trackX - thumbW * 0.5f, geom.thumbY - thumbH * 0.5f, thumbW, thumbH);
     return geom;
@@ -526,22 +583,42 @@ MixerView::FaderGeometry MixerView::getChannelFaderGeometry(size_t index, float 
 
 bool MixerView::hitTestMasterFader(float x, float y) const noexcept {
     auto geom = getMasterFaderGeometry();
-    float mX = (masterBounds_.x == 0.0f) ? 12.0f : masterBounds_.x;
     Rect2D grabThumb(geom.thumb.x - 8.0f, geom.thumb.y - 8.0f, geom.thumb.w + 16.0f, geom.thumb.h + 16.0f);
-    Rect2D grabWell(geom.well.x - 8.0f, geom.well.y, geom.well.w + 16.0f, geom.well.h);
+    Rect2D grabWell(geom.well.x - 8.0f, geom.well.y - 4.0f, geom.well.w + 16.0f, geom.well.h + 8.0f);
     return grabThumb.contains(x, y) || grabWell.contains(x, y) ||
-           (x >= mX + 10.0f && x <= mX + 60.0f && y >= geom.wellTopY && y <= geom.wellBottomY) ||
-           (x >= 60.0f && x <= 115.0f && y >= 260.0f) ||
-           (x >= 30.0f && x <= 65.0f && y >= 250.0f && y <= 600.0f);
+           (x >= geom.trackX - 16.0f && x <= geom.trackX + 16.0f && y >= geom.wellTopY - 4.0f && y <= geom.wellBottomY + 4.0f);
 }
 
 bool MixerView::hitTestChannelFader(size_t index, float cx, float x, float y) const noexcept {
     auto geom = getChannelFaderGeometry(index, cx);
     Rect2D grabThumb(geom.thumb.x - 8.0f, geom.thumb.y - 8.0f, geom.thumb.w + 16.0f, geom.thumb.h + 16.0f);
-    Rect2D grabWell(geom.well.x - 8.0f, geom.well.y, geom.well.w + 16.0f, geom.well.h);
+    Rect2D grabWell(geom.well.x - 8.0f, geom.well.y - 4.0f, geom.well.w + 16.0f, geom.well.h + 8.0f);
     return grabThumb.contains(x, y) || grabWell.contains(x, y) ||
-           (x >= cx + 4.0f && x <= cx + 46.0f && y >= geom.wellTopY && y <= geom.wellBottomY) ||
-           (x >= cx + 10.0f && x <= cx + 75.0f && y >= 260.0f);
+           (x >= geom.trackX - 14.0f && x <= geom.trackX + 14.0f && y >= geom.wellTopY - 4.0f && y <= geom.wellBottomY + 4.0f);
+}
+
+bool MixerView::isFaderDragging(int index) const noexcept {
+    if (activeFaderIndex_ == index) return true;
+    for (const auto& [id, sess] : activeFaderSessions_) {
+        if (sess.faderIndex == index) return true;
+    }
+    return false;
+}
+
+bool MixerView::isPanDragging(int index) const noexcept {
+    if (activePanIndex_ == index) return true;
+    for (const auto& [id, sess] : activePanSessions_) {
+        if (sess.panIndex == index) return true;
+    }
+    return false;
+}
+
+void MixerView::resetSessions() noexcept {
+    activeFaderSessions_.clear();
+    activePanSessions_.clear();
+    activeFaderIndex_ = -2;
+    activePanIndex_ = -2;
+    showTooltip_ = false;
 }
 
 void MixerView::syncFromWindow(
@@ -554,10 +631,7 @@ void MixerView::syncFromWindow(
     bool showRouting, bool showPan, bool showButtons, bool showMeters,
     bool showAutomation, bool showReadouts, bool browserOpen, float scrollY) {
 
-    bool isMasterDragging = (activeFaderIndex_ == -1 || activePanIndex_ == -1);
-    for (const auto& [id, sess] : activeFaderSessions_) {
-        if (sess.faderIndex == -1) isMasterDragging = true;
-    }
+    bool isMasterDragging = isFaderDragging(-1) || isPanDragging(-1);
     if (!isMasterDragging) {
         masterChannel_.fader = masterVol;
         masterChannel_.pan = masterPanVal;
@@ -573,8 +647,8 @@ void MixerView::syncFromWindow(
     if (!propertiesDrawer_.isDragging()) {
         propertiesDrawer_.setExpanded(propertiesExpanded);
         propertiesDrawer_.setWidth(propertiesWidth);
+        propertiesDrawer_.setScrollY(scrollY);
     }
-    propertiesDrawer_.setScrollY(scrollY);
 
     showRouting_ = showRouting;
     showPan_ = showPan;
@@ -596,10 +670,7 @@ void MixerView::syncFromWindow(
         if (channels_[i].name != trk.name) {
             channels_[i].name = trk.name;
         }
-        bool isChDragging = (activeFaderIndex_ == static_cast<int>(i) || activePanIndex_ == static_cast<int>(i));
-        for (const auto& [id, sess] : activeFaderSessions_) {
-            if (sess.faderIndex == static_cast<int>(i)) isChDragging = true;
-        }
+        bool isChDragging = isFaderDragging(static_cast<int>(i)) || isPanDragging(static_cast<int>(i));
         if (!isChDragging) {
             channels_[i].fader = trk.volume;
             channels_[i].pan = trk.pan;
@@ -662,10 +733,7 @@ void MixerView::syncFromWindow(
     bool showRouting, bool showPan, bool showButtons, bool showMeters,
     bool showAutomation, bool showReadouts, bool browserOpen, float scrollY) {
 
-    bool isMasterDragging = (activeFaderIndex_ == -1 || activePanIndex_ == -1);
-    for (const auto& [id, sess] : activeFaderSessions_) {
-        if (sess.faderIndex == -1) isMasterDragging = true;
-    }
+    bool isMasterDragging = isFaderDragging(-1) || isPanDragging(-1);
     if (!isMasterDragging) {
         masterChannel_.fader = masterVol;
         masterChannel_.pan = masterPanVal;
@@ -681,8 +749,8 @@ void MixerView::syncFromWindow(
     if (!propertiesDrawer_.isDragging()) {
         propertiesDrawer_.setExpanded(propertiesExpanded);
         propertiesDrawer_.setWidth(propertiesWidth);
+        propertiesDrawer_.setScrollY(scrollY);
     }
-    propertiesDrawer_.setScrollY(scrollY);
 
     showRouting_ = showRouting;
     showPan_ = showPan;
@@ -701,10 +769,7 @@ void MixerView::syncFromWindow(
 
     for (size_t i = 0; i < count; ++i) {
         if (i < trackNames.size()) channels_[i].name = trackNames[i];
-        bool isChDragging = (activeFaderIndex_ == static_cast<int>(i) || activePanIndex_ == static_cast<int>(i));
-        for (const auto& [id, sess] : activeFaderSessions_) {
-            if (sess.faderIndex == static_cast<int>(i)) isChDragging = true;
-        }
+        bool isChDragging = isFaderDragging(static_cast<int>(i)) || isPanDragging(static_cast<int>(i));
         if (!isChDragging) {
             if (i < trackVols.size()) channels_[i].fader = trackVols[i];
             if (i < trackPans.size()) channels_[i].pan = trackPans[i];
@@ -728,6 +793,70 @@ void MixerView::syncFromWindow(
     }
 }
 
+void MixerView::syncDrawerData() {
+    drawerData_.isMixerMode = true;
+    drawerData_.isMasterSelected = isMasterSelected_;
+
+    drawerData_.masterEqEnabled = masterEqEnabled_;
+    drawerData_.masterSubCut = masterSubCut_;
+    drawerData_.masterLowGain = masterLowGain_;
+    drawerData_.masterMidGain = masterMidGain_;
+    drawerData_.masterHighGain = masterHighGain_;
+
+    drawerData_.masterLimiterEnabled = masterLimiterEnabled_;
+    drawerData_.masterCeilingDbfs = masterCeilingDbfs_;
+    drawerData_.masterLimiterDrive = masterLimiterDrive_;
+    drawerData_.masterTargetLufs = masterTargetLufs_;
+    drawerData_.masterAudioFx = masterAudioFx_;
+
+    drawerData_.totalTracks = static_cast<uint32_t>(channels_.size());
+
+    if (isMasterSelected_) {
+        drawerData_.trackIndex = 0;
+        drawerData_.trackName = "Master Bus";
+        drawerData_.trackType = "MASTER";
+        drawerData_.volume = masterChannel_.fader;
+        drawerData_.pan = masterChannel_.pan;
+        drawerData_.mute = masterChannel_.mute;
+        drawerData_.solo = false;
+        drawerData_.freeze = false;
+        drawerData_.r = 1.0f;
+        drawerData_.g = 0.70f;
+        drawerData_.b = 0.10f;
+        drawerData_.audioFx = masterAudioFx_;
+    } else if (selectedChannel_ >= 0 && selectedChannel_ < static_cast<int>(channels_.size())) {
+        const auto& ch = channels_[selectedChannel_];
+        drawerData_.trackIndex = static_cast<uint32_t>(selectedChannel_);
+        drawerData_.trackName = ch.name;
+        drawerData_.trackType = ch.instrument.empty() ? "AUDIO" : "INSTRUMENT";
+        drawerData_.iconRef = ch.iconRef;
+        drawerData_.volume = ch.fader;
+        drawerData_.pan = ch.pan;
+        drawerData_.mute = ch.mute;
+        drawerData_.solo = ch.solo;
+        drawerData_.freeze = ch.freeze;
+        drawerData_.r = ch.r;
+        drawerData_.g = ch.g;
+        drawerData_.b = ch.b;
+        drawerData_.instrument = ch.instrument;
+        drawerData_.chordFollowMode = ch.chordFollowMode;
+
+        // Channel EQ
+        drawerData_.eqEnabled = ch.eqEnabled;
+        drawerData_.eqHpf = ch.eqHpf;
+        drawerData_.eqLowGain = ch.eqLowGain;
+        drawerData_.eqMidFreq = ch.eqMidFreq;
+        drawerData_.eqMidGain = ch.eqMidGain;
+        drawerData_.eqMidQ = ch.eqMidQ;
+        drawerData_.eqHighGain = ch.eqHighGain;
+
+        drawerData_.knobs = ch.knobs;
+        drawerData_.syncKnobsIfEmpty();
+        drawerData_.midiFx = ch.midiFx;
+        drawerData_.audioFx = ch.audioFx;
+    }
+}
+
 void MixerView::render(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
@@ -738,18 +867,26 @@ void MixerView::render(const ViewContext& ctx) {
 
     // 0. Meter ballistics and peaks are updated from TelemetryPresenter via syncFromWindow
 
-    // 1. Pinned Master Bus Strip (Always in view on the left, Eatsbeats parity)
+    // 1. Pinned Master Bus Strip
     renderMasterStrip(r, theme, masterBounds_);
 
     // Divider Line between Master Bus and Scrollable Track Strips
-    float divX = masterBounds_.x + masterBounds_.w + 12.0f;
-    drawLine(r, divX, masterBounds_.y + 4.0f, divX, masterBounds_.y + masterBounds_.h - 4.0f,
-             theme.borderSubtle, 1.5f);
+    if (masterPosition_ == MixerMasterPosition::Right) {
+        float divX = masterBounds_.x - 12.0f;
+        drawLine(r, divX, masterBounds_.y + 4.0f, divX, masterBounds_.y + masterBounds_.h - 4.0f,
+                 theme.borderSubtle, 1.5f);
+    } else {
+        float divX = masterBounds_.x + masterBounds_.w + 12.0f;
+        drawLine(r, divX, masterBounds_.y + 4.0f, divX, masterBounds_.y + masterBounds_.h - 4.0f,
+                 theme.borderSubtle, 1.5f);
+    }
 
     // 2. Horizontally Scrollable Virtualized Track Strips
-    const float startX = (densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
+    const float startX = (masterPosition_ == MixerMasterPosition::Right) ?
+                         (bounds_.x + 12.0f) :
+                         ((densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
                          ((densityMode_ == MixerDensityMode::Compact) ? (masterBounds_.x + masterStripWidth_ + 20.0f) :
-                                                                        (masterBounds_.x + masterStripWidth_ + 14.0f));
+                                                                        (masterBounds_.x + masterStripWidth_ + 14.0f)));
     const float stripW = channelStripWidth_;
     const float gap = channelGap_;
 
@@ -757,11 +894,18 @@ void MixerView::render(const ViewContext& ctx) {
     if (rightBound <= 0.0f) {
         rightBound = bounds_.x + bounds_.w - ctx.browserOffset;
     }
+    if (masterPosition_ == MixerMasterPosition::Right) {
+        rightBound = std::min(rightBound, masterBounds_.x - 14.0f);
+    }
 
     for (size_t i = 0; i < channels_.size(); ++i) {
         float cx = startX + static_cast<float>(i) * (stripW + gap) - scrollX_;
-        if (cx + stripW < 185.0f && densityMode_ == MixerDensityMode::Comfortable) continue;
-        if (cx + stripW < masterBounds_.x + masterStripWidth_ + 10.0f) continue;
+        if (masterPosition_ != MixerMasterPosition::Right) {
+            if (cx + stripW < 185.0f && densityMode_ == MixerDensityMode::Comfortable) continue;
+            if (cx + stripW < masterBounds_.x + masterStripWidth_ + 10.0f) continue;
+        } else {
+            if (cx + stripW < bounds_.x) continue;
+        }
         if (cx > rightBound) break;
 
         Rect2D stripRect(cx, masterBounds_.y, stripW, masterBounds_.h);
@@ -771,107 +915,8 @@ void MixerView::render(const ViewContext& ctx) {
     // 3. Top Options Toolbar (Always visible, renders crisp above channel strips)
     renderToolbar(r, theme);
 
-    // 3. Sliding Track Properties Drawer (Reusing Decoupled Drawer)
-    drawerData_.isMixerMode = true;
-    drawerData_.isMasterSelected = isMasterSelected_;
-    drawerData_.tab = TrackPropertiesTab::Track;
-
-    if (isMasterSelected_) {
-        drawerData_.masterEqEnabled = masterEqEnabled_;
-        drawerData_.masterSubCut = masterSubCut_;
-        drawerData_.masterLowGain = masterLowGain_;
-        drawerData_.masterMidGain = masterMidGain_;
-        drawerData_.masterHighGain = masterHighGain_;
-        drawerData_.masterLimiterEnabled = masterLimiterEnabled_;
-        drawerData_.masterCeilingDbfs = masterCeilingDbfs_;
-        drawerData_.masterLimiterDrive = masterLimiterDrive_;
-        drawerData_.masterTargetLufs = masterTargetLufs_;
-        if (drawerData_.masterAudioFx.size() != masterAudioFx_.size()) {
-            drawerData_.masterAudioFx = masterAudioFx_;
-        }
-    } else {
-        size_t chIdx = (selectedChannel_ >= 0 && static_cast<size_t>(selectedChannel_) < channels_.size())
-            ? static_cast<size_t>(selectedChannel_) : 0;
-        const auto& selCh = channels_[chIdx];
-        bool chChanged = (drawerData_.trackIndex != static_cast<uint32_t>(chIdx) ||
-                          drawerData_.instrument != selCh.instrument);
-        drawerData_.trackIndex = static_cast<uint32_t>(chIdx);
-        drawerData_.totalTracks = static_cast<uint32_t>(channels_.size());
-        if (drawerData_.trackName != selCh.name) drawerData_.trackName = selCh.name;
-        if (drawerData_.trackType != selCh.type) drawerData_.trackType = selCh.type;
-        drawerData_.r = selCh.r;
-        drawerData_.g = selCh.g;
-        drawerData_.b = selCh.b;
-        drawerData_.volume = selCh.fader;
-        drawerData_.pan = selCh.pan;
-        drawerData_.mute = selCh.mute;
-        drawerData_.solo = selCh.solo;
-        drawerData_.freeze = selCh.freeze;
-        drawerData_.iconRef = selCh.iconRef;
-        drawerData_.chordFollowMode = selCh.chordFollowMode;
-
-        drawerData_.eqEnabled = selCh.eqEnabled;
-        drawerData_.eqHpf = selCh.eqHpf;
-        drawerData_.eqLowGain = selCh.eqLowGain;
-        drawerData_.eqMidFreq = selCh.eqMidFreq;
-        drawerData_.eqMidGain = selCh.eqMidGain;
-        drawerData_.eqMidQ = selCh.eqMidQ;
-        drawerData_.eqHighGain = selCh.eqHighGain;
-
-        std::string_view newEngine = "synth";
-        if (selCh.instrument.find("303") != std::string::npos || selCh.name.find("303") != std::string::npos) newEngine = "tb303";
-        else if (selCh.instrument.find("808") != std::string::npos || selCh.name.find("808") != std::string::npos) newEngine = "tr808";
-        else if (selCh.instrument.find("909") != std::string::npos || selCh.name.find("909") != std::string::npos) newEngine = "tr909";
-        else if (selCh.instrument.find("DX7") != std::string::npos || selCh.name.find("DX7") != std::string::npos ||
-                 selCh.instrument.find("DXVII") != std::string::npos || selCh.name.find("DXVII") != std::string::npos) newEngine = "dx7";
-        else if (selCh.instrument.find("Piano") != std::string::npos || selCh.name.find("Piano") != std::string::npos || selCh.name.find("Grand") != std::string::npos) newEngine = "piano";
-
-        if (drawerData_.instrumentEngine != newEngine) {
-            chChanged = true;
-            drawerData_.instrumentEngine = newEngine;
-        }
-        if (chChanged) {
-            drawerData_.knobs.clear();
-        }
-
-        if (drawerData_.instrument != selCh.instrument) drawerData_.instrument = selCh.instrument;
-        std::string_view desiredTitle = selCh.instrument.empty() ? std::string_view(selCh.name) : std::string_view(selCh.instrument);
-        if (drawerData_.presetTitle != desiredTitle) drawerData_.presetTitle = desiredTitle;
-
-        std::string_view chInst = selCh.instrument.empty() ? std::string_view("Channel") : std::string_view(selCh.instrument);
-        std::string_view sep = " • ";
-        size_t neededSubLen = selCh.name.size() + sep.size() + chInst.size();
-        bool subMatches = (drawerData_.presetSubtitle.size() == neededSubLen) &&
-                          (drawerData_.presetSubtitle.compare(0, selCh.name.size(), selCh.name) == 0) &&
-                          (drawerData_.presetSubtitle.compare(selCh.name.size(), sep.size(), sep) == 0) &&
-                          (drawerData_.presetSubtitle.compare(selCh.name.size() + sep.size(), chInst.size(), chInst) == 0);
-        if (!subMatches) {
-            drawerData_.presetSubtitle.clear();
-            drawerData_.presetSubtitle.reserve(neededSubLen);
-            drawerData_.presetSubtitle.append(selCh.name);
-            drawerData_.presetSubtitle.append(sep);
-            drawerData_.presetSubtitle.append(chInst);
-        }
-
-        drawerData_.knob1 = selCh.knob1;
-        drawerData_.knob2 = selCh.knob2;
-        drawerData_.knob3 = selCh.knob3;
-        drawerData_.knob4 = selCh.knob4;
-        drawerData_.knob1Name = selCh.knob1Name;
-        drawerData_.knob2Name = selCh.knob2Name;
-        drawerData_.knob3Name = selCh.knob3Name;
-        drawerData_.knob4Name = selCh.knob4Name;
-
-        if (drawerData_.midiFx.size() != selCh.midiFx.size()) {
-            drawerData_.midiFx = selCh.midiFx;
-        }
-        if (drawerData_.audioFx.size() != selCh.audioFx.size()) {
-            drawerData_.audioFx = selCh.audioFx;
-        }
-
-        drawerData_.syncKnobsIfEmpty();
-    }
-
+    // 4. Sliding Track Properties Drawer (Reusing Decoupled Drawer)
+    syncDrawerData();
     propertiesDrawer_.render(r, theme, drawerData_, ctx.mouseX, ctx.mouseY);
 
     // 4. Floating tactile tooltip badge on top
@@ -938,6 +983,10 @@ void MixerView::renderBacklitLcd(BatchRenderer2D& r, const ThemeTokens& theme, f
     drawRoundedRect(r, x, y, w, h, 4.0f, theme.lcdBackground);
     drawRoundedRectOutline(r, x, y, w, h, 4.0f, theme.lcdBorder, 1.4f);
 
+    // Inner bevel shadow (top and left inset shadow from ambient light)
+    drawLine(r, x + 1.0f, y + 1.0f, x + w - 1.0f, y + 1.0f, 0.0f, 0.0f, 0.0f, 0.45f, 1.0f);
+    drawLine(r, x + 1.0f, y + 2.0f, x + 1.0f, y + h - 1.0f, 0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
+
     // Subtle dot matrix scan lines
     for (float gy = y + 4.0f; gy < y + h - 2.0f; gy += 3.5f) {
         drawLine(r, x + 4.0f, gy, x + w - 4.0f, gy, theme.lcdDotGrid, 1.0f);
@@ -953,34 +1002,170 @@ void MixerView::renderBacklitLcd(BatchRenderer2D& r, const ThemeTokens& theme, f
     drawText(r, leftText, x + 6.0f, y + 20.0f, 9.0f, subText);
     float rw = static_cast<float>(rightText.length()) * 6.0f;
     drawText(r, rightText, x + w - rw - 6.0f, y + 20.0f, 9.0f, subText);
+
+    // Realistic smooth glass reflection sheen across upper glass half
+    float sheenH = std::max(4.0f, (h - 4.0f) * 0.45f);
+    drawRoundedRect(r, x + 2.0f, y + 2.0f, w - 4.0f, sheenH, 3.0f, Color(1.0f, 1.0f, 1.0f, 0.045f));
+    // Soft top-edge light catch on glass
+    drawLine(r, x + 3.0f, y + 2.5f, x + w - 3.0f, y + 2.5f, 1.0f, 1.0f, 1.0f, 0.14f, 1.0f);
+    // Subtle bottom-right inner specular bounce highlight
+    drawLine(r, x + 2.0f, y + h - 1.2f, x + w - 2.0f, y + h - 1.2f, 1.0f, 1.0f, 1.0f, 0.08f, 1.0f);
 }
 
 void MixerView::renderRotaryPanKnob(BatchRenderer2D& r, const ThemeTokens& theme, float kx, float ky, float radius, float pan,
                                     const Color& accentColor) {
-    // Outer shadow / well
-    drawCircle(r, kx, ky, radius + 2.0f, theme.controlWell.withAlpha(0.6f));
-    // Dial chassis
-    drawCircle(r, kx, ky, radius, theme.controlBackground);
-    drawCircleOutline(r, kx, ky, radius, theme.borderSubtle, 1.2f);
-    // Inner bevel
-    drawCircle(r, kx, ky, radius - 3.5f, theme.controlWell);
+    // If user explicitly forced minimalist mode, keep the lightweight flat vector dial
+    if (theme.controlMode == ControlAestheticMode::ForceMinimal) {
+        drawCircle(r, kx, ky, radius + 2.0f, theme.controlWell.withAlpha(0.6f));
+        drawCircle(r, kx, ky, radius, theme.controlBackground);
+        drawCircleOutline(r, kx, ky, radius, theme.borderSubtle, 1.2f);
+        float angle = pan * 2.35619449f;
+        float sinA = std::sin(angle), cosA = std::cos(angle);
+        drawLine(r, kx + sinA * 3.5f, ky - cosA * 3.5f,
+                 kx + sinA * (radius - 2.0f), ky - cosA * (radius - 2.0f),
+                 accentColor, 2.0f);
+        drawCircle(r, kx, ky, 2.0f, theme.borderFocus);
+        return;
+    }
 
-    // Radial indicator notch (-135 to +135 deg)
-    float angle = pan * 2.356f;
-    float sinA = std::sin(angle);
-    float cosA = std::cos(angle);
-    drawLine(r, kx + sinA * 3.5f, ky - cosA * 3.5f,
-             kx + sinA * (radius - 2.0f), ky - cosA * (radius - 2.0f),
-             accentColor, 2.0f);
+    const LightSource2D& light = theme.globalLight;
+    Point lDir = light.getLightDirection(kx, ky);
+    float lightAngle = std::atan2(lDir.y, lDir.x);
+    bool isLightChassis = theme.isLight;
 
-    // Center cap
-    drawCircle(r, kx, ky, 2.0f, theme.borderFocus);
+    // 1. Analytical Parallax Drop Shadow onto Faceplate
+    // Computes contextual shadow offset based on position relative to overhead light
+    r.drawCircleDropShadow(kx, ky, radius * 1.05f, 5.5f, light, isLightChassis ? 0.35f : 0.48f);
+
+    // 2. Recessed Sunken Faceplate Mounting Gutter / Trench Well
+    float trenchR = radius + 2.2f;
+    Color wellDark = theme.controlWell.darken(0.35f);
+    r.drawCircle(kx, ky, trenchR, wellDark.r, wellDark.g, wellDark.b, 0.95f, 32);
+    r.drawCircleOutline(kx, ky, trenchR, 0.02f, 0.03f, 0.04f, 0.90f, 1.2f, 32);
+    // Subtle chamfer highlight arc on trench shoulder facing away from light
+    r.drawArc(kx, ky, trenchR, lightAngle + 1.8f, lightAngle + 4.2f,
+              1.0f, 1.0f, 1.0f, isLightChassis ? 0.40f : 0.20f, 1.0f, 24);
+
+    // 3. Calibration Dial Ticks & Numerical Graduations (e.g. 25, 50, 75, 100)
+    constexpr float minAngle = -2.35619449f; // -135 degrees
+    constexpr float maxAngle =  2.35619449f; // +135 degrees
+    float currentAngle = pan * 2.35619449f; // clamped in [-135, +135]
+
+    float trackR = radius + 2.0f;
+    float tickR0 = trackR + 1.2f;
+    float tickLen = (densityMode_ == MixerDensityMode::Comfortable) ? 3.8f : 2.5f;
+    float majorTickLen = (densityMode_ == MixerDensityMode::Comfortable) ? 5.8f : 3.8f;
+    Color tickCol = isLightChassis ? Color(0.20f, 0.22f, 0.26f, 0.85f) : Color(0.68f, 0.72f, 0.78f, 0.75f);
+
+    const int numTicks = 8;
+    for (int t = 0; t <= numTicks; ++t) {
+        float normT = static_cast<float>(t) / static_cast<float>(numTicks);
+        float a = minAngle + normT * (maxAngle - minAngle);
+        float sa = std::sin(a), ca = std::cos(a);
+        bool isCenter = (t == numTicks / 2);
+        bool isMajor = (t == 0 || t == numTicks || isCenter || t == 2 || t == 6);
+
+        if (isCenter) {
+            // Bold center detent calibration block at 12 o'clock
+            drawLine(r, kx, ky - tickR0, kx, ky - (tickR0 + majorTickLen + 1.5f),
+                     accentColor.r, accentColor.g, accentColor.b, 0.90f, 2.2f);
+        } else {
+            float tLen = isMajor ? majorTickLen : tickLen;
+            float tWidth = isMajor ? 1.4f : 1.0f;
+            drawLine(r, kx + sa * tickR0, ky - ca * tickR0,
+                     kx + sa * (tickR0 + tLen), ky - ca * (tickR0 + tLen),
+                     tickCol.r, tickCol.g, tickCol.b, tickCol.a, tWidth);
+        }
+    }
+
+    // Dial numeric labels in Comfortable density mode (100, 50 | 50, 100)
+    if (densityMode_ == MixerDensityMode::Comfortable && radius >= 14.0f) {
+        float labelR = tickR0 + majorTickLen + 5.0f;
+        Color lblCol = isLightChassis ? Color(0.25f, 0.28f, 0.32f, 0.80f) : Color(0.60f, 0.65f, 0.72f, 0.80f);
+
+        auto drawDialLabel = [&](float ang, const char* txt) {
+            float lx = kx + std::sin(ang) * labelR;
+            float ly = ky - std::cos(ang) * labelR;
+            drawCenteredText(r, txt, lx - 12.0f, ly - 5.0f, 24.0f, 10.0f, 6.5f, lblCol);
+        };
+        drawDialLabel(minAngle, "100");
+        drawDialLabel(minAngle * 0.5f, "50");
+        drawDialLabel(maxAngle * 0.5f, "50");
+        drawDialLabel(maxAngle, "100");
+    }
+
+    // 4. Directional Knurled / Fluted Rotor Rim
+    float capR = radius * 0.72f;
+    Color bodyBase = isLightChassis ? Color(0.72f, 0.74f, 0.78f, 1.0f) : Color(0.14f, 0.15f, 0.18f, 1.0f);
+    Color bodyHl   = bodyBase.lighten(isLightChassis ? 0.20f : 0.35f);
+    Color bodySh   = bodyBase.darken(isLightChassis ? 0.25f : 0.45f);
+
+    r.drawFlutedRing(kx, ky, capR, radius, 22, 0.12f, 0.0f, light,
+                     bodyBase.r, bodyBase.g, bodyBase.b,
+                     bodyHl.r, bodyHl.g, bodyHl.b,
+                     bodySh.r, bodySh.g, bodySh.b);
+    r.drawCircleOutline(kx, ky, radius, bodySh.r * 0.8f, bodySh.g * 0.8f, bodySh.b * 0.8f, 0.85f, 1.0f, 32);
+
+    // 5. Specular Highlight Glint facing the virtual overhead light
+    r.drawArc(kx, ky, radius - 0.5f, lightAngle - 1.25f, lightAngle + 1.25f,
+              1.0f, 1.0f, 1.0f, isLightChassis ? 0.65f : 0.35f, 1.2f, 24);
+
+    // 6. Concave Inset Dish Center Cap with directional inverted depth
+    Color capBase = isLightChassis ? Color(0.82f, 0.84f, 0.88f, 1.0f) : Color(0.10f, 0.11f, 0.13f, 1.0f);
+    Color capHl   = capBase.lighten(isLightChassis ? 0.15f : 0.28f);
+    Color capSh   = capBase.darken(isLightChassis ? 0.20f : 0.35f);
+
+    r.drawCircleRadial3StopGradient(kx, ky, capR,
+                                    capHl.r, capHl.g, capHl.b, 1.0f,
+                                    capBase.r, capBase.g, capBase.b, 1.0f,
+                                    capSh.r, capSh.g, capSh.b, 1.0f,
+                                    lDir.x * capR * 0.28f, lDir.y * capR * 0.28f, 0.50f, 28);
+    // Beveled rim separating knurled body and cap
+    r.drawCircleOutline(kx, ky, capR,
+                        isLightChassis ? 0.45f : 0.04f,
+                        isLightChassis ? 0.47f : 0.05f,
+                        isLightChassis ? 0.52f : 0.06f,
+                        0.95f, 1.2f, 28);
+
+    // 7. Subtle Active Bipolar Halo Arc (glow from center to current value)
+    if (std::abs(pan) > 0.015f) {
+        float centerA = 0.0f;
+        float a0 = std::min(centerA, currentAngle);
+        float a1 = std::max(centerA, currentAngle);
+        r.drawArc(kx, ky, capR - 1.2f, a0, a1,
+                  accentColor.r, accentColor.g, accentColor.b, 0.60f, 1.8f);
+    }
+
+    // 8. Illuminated Indicator Pip & Notch
+    float sinA = std::sin(currentAngle);
+    float cosA = std::cos(currentAngle);
+
+    // Radial etched indicator groove extending across cap and knurl rim
+    drawLine(r, kx + sinA * (capR * 0.35f), ky - cosA * (capR * 0.35f),
+             kx + sinA * (radius - 1.2f),   ky - cosA * (radius - 1.2f),
+             accentColor.r, accentColor.g, accentColor.b, 0.95f, 2.0f);
+
+    // Glowing jewel pip near cap perimeter
+    float pipDist = capR * 0.72f;
+    float pipX = kx + sinA * pipDist;
+    float pipY = ky - cosA * pipDist;
+    r.drawCircle(pipX, pipY, 2.0f, accentColor.r, accentColor.g, accentColor.b, 1.0f);
+    r.drawCircle(pipX, pipY, 0.9f, 1.0f, 1.0f, 1.0f, 0.90f); // Bright center specular dot
+
+    // Center jewel screw/rivet
+    r.drawCircle(kx, ky, 2.2f, capSh.r, capSh.g, capSh.b, 1.0f);
+    r.drawCircleOutline(kx, ky, 2.2f, 0.02f, 0.03f, 0.04f, 0.85f, 1.0f);
 }
 
 void MixerView::renderCenterButton(BatchRenderer2D& r, const ThemeTokens& theme, float bx, float by, float bw, float bh) {
-    drawButton(r, Rect2D{bx, by, bw, bh}, "C",
-               theme.controlBackground, theme.borderSubtle, theme.textSecondary,
-               8.5f, 3.0f, 1.0f);
+    const LightSource2D& light = theme.globalLight;
+    r.drawRectDropShadow(bx, by, bw, bh, 2.5f, 2.0f, light, theme.isLight ? 0.25f : 0.35f);
+    Color bg = theme.controlBackground;
+    drawRoundedRect(r, bx, by, bw, bh, 2.5f, bg);
+    drawRoundedRectOutline(r, bx, by, bw, bh, 2.5f, theme.borderSubtle, 1.0f);
+    // Bevel highlight
+    drawLine(r, bx + 1.5f, by + 1.0f, bx + bw - 1.5f, by + 1.0f, 1.0f, 1.0f, 1.0f, theme.isLight ? 0.50f : 0.18f, 1.0f);
+    drawCenteredText(r, "C", bx, by + 1.0f, bw, bh, 8.5f, theme.textSecondary);
 }
 
 void MixerView::renderTooltip(BatchRenderer2D& r, const ThemeTokens& theme) {
@@ -1060,8 +1245,17 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     float wellH = geom.wellH;
     float fx = geom.trackX;
 
-    // Master Fader Track Slot
-    drawLine(r, fx, wellTopY, fx, wellBottomY, theme.controlWell, 3.0f);
+    // Master Fader Track Slot (Recessed Trench with Chamfer Edge)
+    float slotW = (densityMode_ == MixerDensityMode::Micro) ? 3.0f : 4.5f;
+    float slotX = fx - slotW * 0.5f;
+    r.drawRoundedRect(slotX, wellTopY, slotW, wellH, 1.5f,
+                      theme.controlWell.r * 0.45f, theme.controlWell.g * 0.45f, theme.controlWell.b * 0.45f, 1.0f);
+    // Left inner shadow
+    r.drawLine(slotX, wellTopY, slotX, wellBottomY, 0.0f, 0.0f, 0.0f, 0.65f, 1.0f);
+    // Right bevel highlight
+    r.drawLine(slotX + slotW, wellTopY, slotX + slotW, wellBottomY, 1.0f, 1.0f, 1.0f, theme.isLight ? 0.35f : 0.15f, 1.0f);
+    // Center guide rail
+    r.drawLine(fx, wellTopY, fx, wellBottomY, 0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
 
     // Calibration dB tick marks along the fader slot (Left side of track fx)
     if (densityMode_ != MixerDensityMode::Micro) {
@@ -1083,9 +1277,60 @@ void MixerView::renderMasterStrip(BatchRenderer2D& r, const ThemeTokens& theme, 
     }
 
     float mFy = geom.thumbY;
-    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.controlBackground.lighten(0.18f));
-    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.borderFocus, 1.2f);
-    drawLine(r, geom.thumb.x + 2.0f, mFy, geom.thumb.x + geom.thumb.w - 2.0f, mFy, theme.primaryAccent, 2.0f);
+    bool isLight = theme.isLight;
+    float tx = geom.thumb.x;
+    float ty = geom.thumb.y;
+    float tw = geom.thumb.w;
+    float th = geom.thumb.h;
+
+    // Tactile Drop Shadow cast by vertical hardware fader cap onto chassis and well
+    r.drawRectDropShadow(tx, ty, tw, th, 4.0f, 6.0f, theme.globalLight, isLight ? 0.35f : 0.50f);
+
+    // Multi-tier Elevation Base (Upper ramp, Center plateau, Lower ramp)
+    Color rampTop = isLight ? Color(0.92f, 0.94f, 0.96f, 1.0f) : Color(0.36f, 0.38f, 0.42f, 1.0f);
+    Color rampMid = isLight ? Color(0.78f, 0.80f, 0.84f, 1.0f) : Color(0.22f, 0.24f, 0.27f, 1.0f);
+    Color rampBot = isLight ? Color(0.60f, 0.62f, 0.66f, 1.0f) : Color(0.10f, 0.11f, 0.13f, 1.0f);
+
+    float halfH = th * 0.5f;
+    // Top elevated slope
+    r.drawRectGradient(tx, ty, tw, halfH, rampTop.r, rampTop.g, rampTop.b, rampMid.r, rampMid.g, rampMid.b, 1.0f);
+    // Bottom elevated slope
+    r.drawRectGradient(tx, ty + halfH, tw, halfH, rampMid.r, rampMid.g, rampMid.b, rampBot.r, rampBot.g, rampBot.b, 1.0f);
+
+    // Center finger-well depression (subtle recessed trough)
+    float fWellH = th * 0.38f;
+    float fWellY = mFy - fWellH * 0.5f;
+    r.drawRect(tx + 2.0f, fWellY, tw - 4.0f, fWellH, 0.0f, 0.0f, 0.0f, isLight ? 0.08f : 0.22f);
+
+    // Bevel outlines
+    r.drawRoundedRectOutline(tx, ty, tw, th, 2.5f,
+                             isLight ? 0.38f : 0.06f, isLight ? 0.40f : 0.06f, isLight ? 0.44f : 0.07f, 0.90f, 1.0f);
+
+    // Top specular edge highlight
+    r.drawLine(tx + 1.0f, ty + 0.8f, tx + tw - 1.0f, ty + 0.8f, 1.0f, 1.0f, 1.0f, isLight ? 0.85f : 0.55f, 1.0f);
+    // Left edge light highlight
+    r.drawLine(tx + 0.8f, ty + 2.0f, tx + 0.8f, ty + th - 2.0f, 1.0f, 1.0f, 1.0f, isLight ? 0.45f : 0.25f, 1.0f);
+    // Right edge bevel shadow
+    r.drawLine(tx + tw - 0.8f, ty + 2.0f, tx + tw - 0.8f, ty + th - 2.0f, 0.0f, 0.0f, 0.0f, 0.45f, 1.0f);
+    // Bottom shadow edge
+    r.drawLine(tx + 1.0f, ty + th - 0.8f, tx + tw - 1.0f, ty + th - 0.8f, 0.0f, 0.0f, 0.0f, 0.70f, 1.0f);
+
+    // Horizontal milled tactile anti-slip grip ridges
+    for (float off : {-7.0f, -4.0f, 4.0f, 7.0f}) {
+        float gy = mFy + off;
+        if (gy > ty + 3.0f && gy < ty + th - 3.0f) {
+            r.drawLine(tx + 3.0f, gy, tx + tw - 3.0f, gy,
+                       0.0f, 0.0f, 0.0f, isLight ? 0.35f : 0.75f, 1.0f);
+            r.drawLine(tx + 3.0f, gy + 0.8f, tx + tw - 3.0f, gy + 0.8f,
+                       1.0f, 1.0f, 1.0f, isLight ? 0.40f : 0.18f, 0.8f);
+        }
+    }
+
+    // Prominent Glowing Center Indicator Stripe (Accent color + white core)
+    r.drawLine(tx + 1.5f, mFy, tx + tw - 1.5f, mFy,
+               theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f, 2.2f);
+    r.drawLine(tx + 3.0f, mFy, tx + tw - 3.0f, mFy,
+               1.0f, 1.0f, 1.0f, 0.95f, 1.0f);
 
     // Master Dual Stereo Meter on Right (if showMeters_)
     if (showMeters_) {
@@ -1152,8 +1397,17 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     float wellH = geom.wellH;
     float fx = geom.trackX;
 
-    // 1. Vertical Console Fader
-    drawLine(r, fx, wellTopY, fx, wellBottomY, theme.controlWell, 3.0f);
+    // 1. Vertical Console Fader (Recessed Trench with Chamfer Edge)
+    float slotW = (densityMode_ == MixerDensityMode::Micro) ? 3.0f : 4.5f;
+    float slotX = fx - slotW * 0.5f;
+    r.drawRoundedRect(slotX, wellTopY, slotW, wellH, 1.5f,
+                      theme.controlWell.r * 0.45f, theme.controlWell.g * 0.45f, theme.controlWell.b * 0.45f, 1.0f);
+    // Left inner shadow
+    r.drawLine(slotX, wellTopY, slotX, wellBottomY, 0.0f, 0.0f, 0.0f, 0.65f, 1.0f);
+    // Right bevel highlight
+    r.drawLine(slotX + slotW, wellTopY, slotX + slotW, wellBottomY, 1.0f, 1.0f, 1.0f, theme.isLight ? 0.35f : 0.15f, 1.0f);
+    // Center guide rail
+    r.drawLine(fx, wellTopY, fx, wellBottomY, 0.0f, 0.0f, 0.0f, 0.35f, 1.0f);
 
     // Calibration tick markings along the fader slot (Comfortable & Compact)
     if (densityMode_ != MixerDensityMode::Micro) {
@@ -1174,9 +1428,60 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
     }
 
     float fy = geom.thumbY;
-    drawRoundedRect(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.controlBackground.lighten(0.18f));
-    drawRoundedRectOutline(r, geom.thumb.x, geom.thumb.y, geom.thumb.w, geom.thumb.h, 3.0f, theme.borderFocus, 1.2f);
-    drawLine(r, geom.thumb.x + 2.0f, fy, geom.thumb.x + geom.thumb.w - 2.0f, fy, Color(ch.r, ch.g, ch.b), 2.0f);
+    bool isLight = theme.isLight;
+    float tx = geom.thumb.x;
+    float ty = geom.thumb.y;
+    float tw = geom.thumb.w;
+    float th = geom.thumb.h;
+
+    // Tactile Drop Shadow cast by vertical fader cap onto chassis and slot
+    r.drawRectDropShadow(tx, ty, tw, th, 4.0f, 6.0f, theme.globalLight, isLight ? 0.35f : 0.50f);
+
+    // Multi-tier Elevation Base (Upper ramp, Center plateau, Lower ramp)
+    Color rampTop = isLight ? Color(0.92f, 0.94f, 0.96f, 1.0f) : Color(0.36f, 0.38f, 0.42f, 1.0f);
+    Color rampMid = isLight ? Color(0.78f, 0.80f, 0.84f, 1.0f) : Color(0.22f, 0.24f, 0.27f, 1.0f);
+    Color rampBot = isLight ? Color(0.60f, 0.62f, 0.66f, 1.0f) : Color(0.10f, 0.11f, 0.13f, 1.0f);
+
+    float halfH = th * 0.5f;
+    // Top elevated slope
+    r.drawRectGradient(tx, ty, tw, halfH, rampTop.r, rampTop.g, rampTop.b, rampMid.r, rampMid.g, rampMid.b, 1.0f);
+    // Bottom elevated slope
+    r.drawRectGradient(tx, ty + halfH, tw, halfH, rampMid.r, rampMid.g, rampMid.b, rampBot.r, rampBot.g, rampBot.b, 1.0f);
+
+    // Center finger-well depression (subtle recessed trough)
+    float fWellH = th * 0.38f;
+    float fWellY = fy - fWellH * 0.5f;
+    r.drawRect(tx + 2.0f, fWellY, tw - 4.0f, fWellH, 0.0f, 0.0f, 0.0f, isLight ? 0.08f : 0.22f);
+
+    // Bevel outlines
+    r.drawRoundedRectOutline(tx, ty, tw, th, 2.5f,
+                             isLight ? 0.38f : 0.06f, isLight ? 0.40f : 0.06f, isLight ? 0.44f : 0.07f, 0.90f, 1.0f);
+
+    // Top specular edge highlight
+    r.drawLine(tx + 1.0f, ty + 0.8f, tx + tw - 1.0f, ty + 0.8f, 1.0f, 1.0f, 1.0f, isLight ? 0.85f : 0.55f, 1.0f);
+    // Left edge light highlight
+    r.drawLine(tx + 0.8f, ty + 2.0f, tx + 0.8f, ty + th - 2.0f, 1.0f, 1.0f, 1.0f, isLight ? 0.45f : 0.25f, 1.0f);
+    // Right edge bevel shadow
+    r.drawLine(tx + tw - 0.8f, ty + 2.0f, tx + tw - 0.8f, ty + th - 2.0f, 0.0f, 0.0f, 0.0f, 0.45f, 1.0f);
+    // Bottom shadow edge
+    r.drawLine(tx + 1.0f, ty + th - 0.8f, tx + tw - 1.0f, ty + th - 0.8f, 0.0f, 0.0f, 0.0f, 0.70f, 1.0f);
+
+    // Horizontal milled tactile anti-slip grip ridges
+    for (float off : {-7.0f, -4.0f, 4.0f, 7.0f}) {
+        float gy = fy + off;
+        if (gy > ty + 3.0f && gy < ty + th - 3.0f) {
+            r.drawLine(tx + 3.0f, gy, tx + tw - 3.0f, gy,
+                       0.0f, 0.0f, 0.0f, isLight ? 0.35f : 0.75f, 1.0f);
+            r.drawLine(tx + 3.0f, gy + 0.8f, tx + tw - 3.0f, gy + 0.8f,
+                       1.0f, 1.0f, 1.0f, isLight ? 0.40f : 0.18f, 0.8f);
+        }
+    }
+
+    // Glowing center indicator stripe in channel accent color
+    r.drawLine(tx + 1.5f, fy, tx + tw - 1.5f, fy,
+               ch.r, ch.g, ch.b, 1.0f, 2.2f);
+    r.drawLine(tx + 3.0f, fy, tx + tw - 3.0f, fy,
+               1.0f, 1.0f, 1.0f, 0.95f, 1.0f);
 
     // 2. Inset Glass Dual Stereo Meter (Right of fader)
     if (showMeters_) {
@@ -1222,32 +1527,76 @@ void MixerView::renderChannelStrip(BatchRenderer2D& r, const ThemeTokens& theme,
             float by = wellTopY + 2.0f;
             float bw = 16.0f;
             float bh = 20.0f;
-            drawButton(r, Rect2D{bx, by, bw, bh}, "M", ch.mute ? muteActiveBg : muteInactiveBg,
-                       muteInactiveBorder, ch.mute ? muteActiveFg : muteInactiveFg, 8.5f, 2.0f, ch.mute ? 0.0f : 1.0f);
+            if (ch.mute) {
+                drawRoundedRect(r, bx, by, bw, bh, 2.5f, muteActiveBg);
+                drawRoundedRectOutline(r, bx, by, bw, bh, 2.5f, muteActiveBg.lighten(0.3f), 1.2f);
+                drawCenteredText(r, "M", bx, by + 1.0f, bw, bh, 8.5f, muteActiveFg);
+            } else {
+                r.drawRectDropShadow(bx, by, bw, bh, 2.0f, 2.0f, theme.globalLight, isLight ? 0.20f : 0.35f);
+                drawRoundedRect(r, bx, by, bw, bh, 2.5f, muteInactiveBg);
+                drawRoundedRectOutline(r, bx, by, bw, bh, 2.5f, muteInactiveBorder, 1.0f);
+                drawLine(r, bx + 1.0f, by + 0.8f, bx + bw - 1.0f, by + 0.8f, 1.0f, 1.0f, 1.0f, isLight ? 0.45f : 0.18f, 1.0f);
+                drawCenteredText(r, "M", bx, by + 1.0f, bw, bh, 8.5f, muteInactiveFg);
+            }
+
             float sy = by + bh + 4.0f;
-            drawButton(r, Rect2D{bx, sy, bw, bh}, "S", ch.solo ? soloActiveBg : soloInactiveBg,
-                       soloInactiveBorder, ch.solo ? soloActiveFg : soloInactiveFg, 8.5f, 2.0f, ch.solo ? 0.0f : 1.0f);
+            if (ch.solo) {
+                drawRoundedRect(r, bx, sy, bw, bh, 2.5f, soloActiveBg);
+                drawRoundedRectOutline(r, bx, sy, bw, bh, 2.5f, soloActiveBg.lighten(0.3f), 1.2f);
+                drawCenteredText(r, "S", bx, sy + 1.0f, bw, bh, 8.5f, soloActiveFg);
+            } else {
+                r.drawRectDropShadow(bx, sy, bw, bh, 2.0f, 2.0f, theme.globalLight, isLight ? 0.20f : 0.35f);
+                drawRoundedRect(r, bx, sy, bw, bh, 2.5f, soloInactiveBg);
+                drawRoundedRectOutline(r, bx, sy, bw, bh, 2.5f, soloInactiveBorder, 1.0f);
+                drawLine(r, bx + 1.0f, sy + 0.8f, bx + bw - 1.0f, sy + 0.8f, 1.0f, 1.0f, 1.0f, isLight ? 0.45f : 0.18f, 1.0f);
+                drawCenteredText(r, "S", bx, sy + 1.0f, bw, bh, 8.5f, soloInactiveFg);
+            }
         } else {
             float bx = cx + 96.0f;
             float by = wellTopY + 2.0f;
             float bw = 26.0f;
             float bh = 24.0f;
             if (ch.mute) {
-                drawButton(r, Rect2D{bx, by, bw, bh}, "M", muteActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, muteActiveFg, 10.5f, 3.0f, 0.0f);
+                // Tactile depressed illuminated yellow/gold button
+                drawRoundedRect(r, bx, by, bw, bh, 3.0f, muteActiveBg);
+                drawRoundedRectOutline(r, bx, by, bw, bh, 3.0f, muteActiveBg.lighten(0.3f), 1.2f);
+                drawLine(r, bx + 1.0f, by + 1.0f, bx + bw - 1.0f, by + 1.0f, 0.0f, 0.0f, 0.0f, 0.40f, 1.0f);
+                drawCenteredText(r, "M", bx, by + 2.0f, bw, bh, 10.5f, muteActiveFg);
             } else {
-                drawButton(r, Rect2D{bx, by, bw, bh}, "M", muteInactiveBg, muteInactiveBorder, muteInactiveFg, 10.5f, 3.0f, 1.2f);
+                r.drawRectDropShadow(bx, by, bw, bh, 3.0f, 2.5f, theme.globalLight, isLight ? 0.20f : 0.35f);
+                drawRoundedRect(r, bx, by, bw, bh, 3.0f, muteInactiveBg);
+                drawRoundedRectOutline(r, bx, by, bw, bh, 3.0f, muteInactiveBorder, 1.2f);
+                drawLine(r, bx + 1.5f, by + 1.0f, bx + bw - 1.5f, by + 1.0f, 1.0f, 1.0f, 1.0f, isLight ? 0.50f : 0.20f, 1.0f);
+                drawCenteredText(r, "M", bx, by + 1.0f, bw, bh, 10.5f, muteInactiveFg);
             }
+
             float sy = by + bh + 4.0f;
             if (ch.solo) {
-                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", soloActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, soloActiveFg, 10.5f, 3.0f, 0.0f);
+                // Tactile illuminated emerald green button
+                drawRoundedRect(r, bx, sy, bw, bh, 3.0f, soloActiveBg);
+                drawRoundedRectOutline(r, bx, sy, bw, bh, 3.0f, soloActiveBg.lighten(0.3f), 1.2f);
+                drawLine(r, bx + 1.0f, sy + 1.0f, bx + bw - 1.0f, sy + 1.0f, 0.0f, 0.0f, 0.0f, 0.40f, 1.0f);
+                drawCenteredText(r, "S", bx, sy + 2.0f, bw, bh, 10.5f, soloActiveFg);
             } else {
-                drawButton(r, Rect2D{bx, sy, bw, bh}, "S", soloInactiveBg, soloInactiveBorder, soloInactiveFg, 10.5f, 3.0f, 1.2f);
+                r.drawRectDropShadow(bx, sy, bw, bh, 3.0f, 2.5f, theme.globalLight, isLight ? 0.20f : 0.35f);
+                drawRoundedRect(r, bx, sy, bw, bh, 3.0f, soloInactiveBg);
+                drawRoundedRectOutline(r, bx, sy, bw, bh, 3.0f, soloInactiveBorder, 1.2f);
+                drawLine(r, bx + 1.5f, sy + 1.0f, bx + bw - 1.5f, sy + 1.0f, 1.0f, 1.0f, 1.0f, isLight ? 0.50f : 0.20f, 1.0f);
+                drawCenteredText(r, "S", bx, sy + 1.0f, bw, bh, 10.5f, soloInactiveFg);
             }
+
             float fzy = sy + bh + 4.0f;
             if (ch.freeze) {
-                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", freezeActiveBg, Color{0.0f, 0.0f, 0.0f, 0.0f}, freezeActiveFg, 11.5f, 3.0f, 0.0f);
+                drawRoundedRect(r, bx, fzy, bw, bh, 3.0f, freezeActiveBg);
+                drawRoundedRectOutline(r, bx, fzy, bw, bh, 3.0f, freezeActiveBg.lighten(0.3f), 1.2f);
+                drawLine(r, bx + 1.0f, fzy + 1.0f, bx + bw - 1.0f, fzy + 1.0f, 0.0f, 0.0f, 0.0f, 0.40f, 1.0f);
+                drawCenteredText(r, "*", bx, fzy + 2.0f, bw, bh, 11.5f, freezeActiveFg);
             } else {
-                drawButton(r, Rect2D{bx, fzy, bw, bh}, "*", freezeInactiveBg, freezeInactiveBorder, freezeInactiveFg, 11.5f, 3.0f, 1.2f);
+                r.drawRectDropShadow(bx, fzy, bw, bh, 3.0f, 2.5f, theme.globalLight, isLight ? 0.20f : 0.35f);
+                drawRoundedRect(r, bx, fzy, bw, bh, 3.0f, freezeInactiveBg);
+                drawRoundedRectOutline(r, bx, fzy, bw, bh, 3.0f, freezeInactiveBorder, 1.2f);
+                drawLine(r, bx + 1.5f, fzy + 1.0f, bx + bw - 1.5f, fzy + 1.0f, 1.0f, 1.0f, 1.0f, isLight ? 0.50f : 0.20f, 1.0f);
+                drawCenteredText(r, "*", bx, fzy + 1.0f, bw, bh, 11.5f, freezeInactiveFg);
             }
         }
     }
@@ -1313,12 +1662,22 @@ void MixerView::renderLedMeter(BatchRenderer2D& r, const ThemeTokens& theme, flo
         drawRect(r, rightX, my + 1.0f, ledW, 2.5f, 1.0f, 0.0f, 0.33f, 1.0f);
     }
 
-    // Diagonal Glass Glare Reflection Overlay
-    drawRect(r, mx + 2.0f, my + 2.0f, mw - 4.0f, (mh - 4.0f) * 0.35f, 1.0f, 1.0f, 1.0f, 0.04f);
-    drawLine(r, mx + 2.0f, my + (mh - 4.0f) * 0.35f, mx + mw - 2.0f, my + 2.0f, 1.0f, 1.0f, 1.0f, 0.12f, 1.0f);
+    // Inset Glass Lighting: Top and left inner shadows from chassis rim
+    drawLine(r, mx + 1.0f, my + 1.0f, mx + mw - 1.0f, my + 1.0f, 0.0f, 0.0f, 0.0f, 0.50f, 1.0f);
+    drawLine(r, mx + 1.0f, my + 2.0f, mx + 1.0f, my + mh - 1.0f, 0.0f, 0.0f, 0.0f, 0.40f, 1.0f);
+
+    // Realistic horizontal glass sheen reflection across upper portion (No diagonal line)
+    float glossH = std::max(6.0f, (mh - 4.0f) * 0.28f);
+    drawRoundedRect(r, mx + 2.0f, my + 2.0f, mw - 4.0f, glossH, 2.5f, Color(1.0f, 1.0f, 1.0f, 0.05f));
+    // Crisp top-edge light catch on glass
+    drawLine(r, mx + 3.0f, my + 2.5f, mx + mw - 3.0f, my + 2.5f, 1.0f, 1.0f, 1.0f, 0.16f, 1.0f);
+    // Subtle bottom inner reflection bounce
+    drawLine(r, mx + 2.0f, my + mh - 1.2f, mx + mw - 2.0f, my + mh - 1.2f, 1.0f, 1.0f, 1.0f, 0.07f, 1.0f);
 }
 
 bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
+    syncDrawerData();
+
     // 0. Top Collapsible Options Toolbar clicks
     // 0a. Disallow mixer interactions in Project Browser area
     if (ctx.browserOffset > 0.0f && ev.x >= bounds_.x + bounds_.w - ctx.browserOffset) {
@@ -1355,21 +1714,25 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             // METERS [tx + 276, ty + 4, 56, 22]
             if (ev.x >= tx + 276.0f && ev.x <= tx + 332.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
                 showMeters_ = !showMeters_;
+                if (onSectionTogglesChanged) onSectionTogglesChanged(showRouting_, showPan_, showButtons_, showMeters_, showReadouts_);
                 return true;
             }
             // ROUTING [tx + 336, ty + 4, 62, 22]
             if (ev.x >= tx + 336.0f && ev.x <= tx + 398.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
                 showRouting_ = !showRouting_;
+                if (onSectionTogglesChanged) onSectionTogglesChanged(showRouting_, showPan_, showButtons_, showMeters_, showReadouts_);
                 return true;
             }
             // PAN [tx + 402, ty + 4, 42, 22]
             if (ev.x >= tx + 402.0f && ev.x <= tx + 444.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
                 showPan_ = !showPan_;
+                if (onSectionTogglesChanged) onSectionTogglesChanged(showRouting_, showPan_, showButtons_, showMeters_, showReadouts_);
                 return true;
             }
             // READOUT [tx + 448, ty + 4, 68, 22]
             if (ev.x >= tx + 448.0f && ev.x <= tx + 516.0f && ev.y >= ty + 4.0f && ev.y <= ty + 26.0f) {
                 showReadouts_ = !showReadouts_;
+                if (onSectionTogglesChanged) onSectionTogglesChanged(showRouting_, showPan_, showButtons_, showMeters_, showReadouts_);
                 return true;
             }
             // MASTER POS [tx + 522, ty + 4, 74, 22]
@@ -1393,9 +1756,110 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         return true;
     }
 
+    // 1b. Multi-Touch Fast Session Dispatch for Move
+    if (ev.action == PointerAction::Move) {
+        auto itFader = activeFaderSessions_.find(ev.id);
+        if (itFader != activeFaderSessions_.end()) {
+            if (itFader->second.faderIndex == -1) {
+                // Master Fader
+                auto geom = getMasterFaderGeometry();
+                float dy = itFader->second.dragStartY - ev.y;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float deltaTravel = (dy / geom.wellH) * fineScale;
+                float newTravel = std::clamp(itFader->second.initialTravel + deltaTravel, 0.0f, 1.0f);
+                float newFader = presenter::audio_taper::travelToGain(newTravel);
+
+                masterChannel_.fader = newFader;
+                if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(newFader);
+                if (onMasterVolumeChanged) onMasterVolumeChanged(newFader);
+
+                int pct = static_cast<int>(std::round(newFader * 100.0f));
+                tooltipText_ = "Master: " + presenter::audio_taper::formatDb(newFader) + " (" + std::to_string(pct) + "%)";
+                tooltipX_ = ((masterBounds_.x == 0.0f) ? 12.0f : masterBounds_.x) + 60.0f;
+                tooltipY_ = ev.y;
+                showTooltip_ = true;
+                return true;
+            } else if (itFader->second.faderIndex >= 0 && itFader->second.faderIndex < static_cast<int>(channels_.size())) {
+                size_t idx = static_cast<size_t>(itFader->second.faderIndex);
+                const float startX = (masterPosition_ == MixerMasterPosition::Right) ?
+                                     (bounds_.x + 12.0f) :
+                                     ((densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
+                                     ((densityMode_ == MixerDensityMode::Compact) ? (masterBounds_.x + masterStripWidth_ + 20.0f) :
+                                                                                    (masterBounds_.x + masterStripWidth_ + 14.0f)));
+                float cx = startX + static_cast<float>(idx) * (channelStripWidth_ + channelGap_) - scrollX_;
+                auto geom = getChannelFaderGeometry(idx, cx);
+                float dy = itFader->second.dragStartY - ev.y;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float deltaTravel = (dy / geom.wellH) * fineScale;
+                float newTravel = std::clamp(itFader->second.initialTravel + deltaTravel, 0.0f, 1.0f);
+                float newFader = presenter::audio_taper::travelToGain(newTravel);
+
+                channels_[idx].fader = newFader;
+                if (ctx.audioEngine) ctx.audioEngine->setTrackVolume(static_cast<uint32_t>(idx), newFader);
+                if (onVolumeChanged) onVolumeChanged(static_cast<uint32_t>(idx), newFader);
+
+                int pct = static_cast<int>(std::round(newFader * 100.0f));
+                tooltipText_ = channels_[idx].name + ": " + presenter::audio_taper::formatDb(newFader) + " (" + std::to_string(pct) + "%)";
+                tooltipX_ = cx + 45.0f;
+                tooltipY_ = ev.y;
+                showTooltip_ = true;
+                return true;
+            }
+        }
+
+        auto itPan = activePanSessions_.find(ev.id);
+        if (itPan != activePanSessions_.end()) {
+            if (itPan->second.panIndex == -1) {
+                // Master Pan
+                float dy = itPan->second.dragStartY - ev.y;
+                float dx = ev.x - itPan->second.dragStartX;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
+                masterChannel_.pan = std::clamp(itPan->second.initialPanVal + delta, -1.0f, 1.0f);
+                if (onMasterPanChanged) onMasterPanChanged(masterChannel_.pan);
+                return true;
+            } else if (itPan->second.panIndex >= 0 && itPan->second.panIndex < static_cast<int>(channels_.size())) {
+                size_t idx = static_cast<size_t>(itPan->second.panIndex);
+                float dy = itPan->second.dragStartY - ev.y;
+                float dx = ev.x - itPan->second.dragStartX;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
+                channels_[idx].pan = std::clamp(itPan->second.initialPanVal + delta, -1.0f, 1.0f);
+                if (onPanChanged) onPanChanged(static_cast<uint32_t>(idx), channels_[idx].pan);
+                return true;
+            }
+        }
+    }
+
+    // 1c. Multi-Touch Fast Session Dispatch for Up / Cancel
+    if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        bool handled = false;
+        auto itFader = activeFaderSessions_.find(ev.id);
+        if (itFader != activeFaderSessions_.end()) {
+            activeFaderSessions_.erase(itFader);
+            if (activeFaderSessions_.empty()) {
+                activeFaderIndex_ = -2;
+                showTooltip_ = false;
+            }
+            handled = true;
+        }
+        auto itPan = activePanSessions_.find(ev.id);
+        if (itPan != activePanSessions_.end()) {
+            activePanSessions_.erase(itPan);
+            if (activePanSessions_.empty()) {
+                activePanIndex_ = -2;
+            }
+            handled = true;
+        }
+        if (handled) return true;
+    }
+
     float rightBound = propertiesDrawer_.getPullTabBounds().x;
     if (rightBound <= 0.0f) {
         rightBound = (bounds_.w > 0.0f) ? (bounds_.x + bounds_.w - ctx.browserOffset - 24.0f) : 1256.0f;
+    }
+    if (masterPosition_ == MixerMasterPosition::Right) {
+        rightBound = std::min(rightBound, masterBounds_.x - 14.0f);
     }
 
     // 2. Master Strip Pointer Events
@@ -1408,14 +1872,40 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     for (const auto& [id, sess] : activeFaderSessions_) {
         if (sess.faderIndex == -1) isMasterDragging = true;
     }
+    for (const auto& [id, sess] : activePanSessions_) {
+        if (sess.panIndex == -1) isMasterDragging = true;
+    }
 
     if (isMasterDragging || (masterBounds_.contains(ev.x, ev.y) && ev.x < rightBound)) {
+        float lcdH = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 32.0f : 38.0f);
         float kx = mX + mW * 0.5f;
-        float ky = mY + 8.0f + 38.0f + 16.0f;
+        float ky = mY + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
+        float panRadius = (densityMode_ == MixerDensityMode::Micro) ? 9.0f : ((densityMode_ == MixerDensityMode::Compact) ? 12.0f : 16.0f);
 
         if (ev.action == PointerAction::Down) {
             // Right-click manual value edit dialog
             if (ev.button == PointerButton::Right) {
+                // Master Pan knob
+                if (showPan_ && std::hypot(ev.x - kx, ev.y - ky) <= (panRadius + 4.0f)) {
+                    if (ctx.onOpenValueEdit) {
+                        ValueEditRequest req;
+                        req.title = "MASTER PAN";
+                        req.paramName = "Master Pan";
+                        req.currentValue = masterChannel_.pan;
+                        req.minValue = -1.0f;
+                        req.maxValue = 1.0f;
+                        req.defaultValue = 0.0f;
+                        req.hasDefault = true;
+                        req.allowPercentage = false;
+                        req.accentColor = ctx.theme ? ctx.theme->primaryAccent : Color(1.0f, 0.70f, 0.10f);
+                        req.onCommit = [this](float val) {
+                            masterChannel_.pan = val;
+                            if (onMasterPanChanged) onMasterPanChanged(val);
+                        };
+                        ctx.onOpenValueEdit(req);
+                    }
+                    return true;
+                }
                 // Master Fader slot / cap
                 if (hitTestMasterFader(ev.x, ev.y)) {
                     if (ctx.onOpenValueEdit) {
@@ -1438,75 +1928,12 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     }
                     return true;
                 }
-                // Master Pan knob
-                if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - 107.0f, ev.y - 215.0f) <= 18.0f) {
-                    if (ctx.onOpenValueEdit) {
-                        ValueEditRequest req;
-                        req.title = "MASTER PAN";
-                        req.paramName = "Master Pan";
-                        req.currentValue = masterChannel_.pan;
-                        req.minValue = -1.0f;
-                        req.maxValue = 1.0f;
-                        req.defaultValue = 0.0f;
-                        req.hasDefault = true;
-                        req.allowPercentage = false;
-                        req.accentColor = ctx.theme ? ctx.theme->primaryAccent : Color(1.0f, 0.70f, 0.10f);
-                        req.onCommit = [this](float val) {
-                            masterChannel_.pan = val;
-                            if (onMasterPanChanged) onMasterPanChanged(val);
-                        };
-                        ctx.onOpenValueEdit(req);
-                    }
-                    return true;
-                }
             }
 
-            // Left-click on LCD Volume % readout -> Open manual edit dialog
-            if (ev.x >= mX + mW - 50.0f && ev.x <= mX + mW - 8.0f && ev.y >= mY + 8.0f && ev.y <= mY + 46.0f) {
-                if (ctx.onOpenValueEdit) {
-                    ValueEditRequest req;
-                    req.title = "MASTER VOLUME";
-                    req.paramName = "Master Volume";
-                    req.currentValue = masterChannel_.fader;
-                    req.minValue = 0.0f;
-                    req.maxValue = 1.5f;
-                    req.defaultValue = 1.0f;
-                    req.hasDefault = true;
-                    req.allowPercentage = true;
-                    req.accentColor = ctx.theme ? ctx.theme->primaryAccent : Color(1.0f, 0.70f, 0.10f);
-                    req.onCommit = [this, ctx](float val) {
-                        masterChannel_.fader = val;
-                        if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(val);
-                        if (onMasterVolumeChanged) onMasterVolumeChanged(val);
-                    };
-                    ctx.onOpenValueEdit(req);
-                }
-                return true;
-            }
+            // Left-click / Touch Down:
 
-            // LCD Screen tap -> Select Master & Expand Sidebar
-            if ((ev.x >= mX + 8.0f && ev.x <= mX + mW - 8.0f && ev.y >= mY + 8.0f && ev.y <= mY + 46.0f) ||
-                (ev.x >= 48.0f && ev.x <= 167.0f && ev.y >= 116.0f && ev.y <= 150.0f)) {
-                isMasterSelected_ = true;
-                propertiesDrawer_.setExpanded(true);
-                if (onPropertiesDrawerStateChanged) onPropertiesDrawerStateChanged(true, propertiesDrawer_.getWidth());
-                return true;
-            }
-            // "C" button tap -> Center Pan
-            if (ev.x >= kx - 12.0f && ev.x <= kx + 12.0f && ev.y >= ky + 16.0f && ev.y <= ky + 34.0f) {
-                masterChannel_.pan = 0.0f;
-                if (onMasterPanChanged) onMasterPanChanged(0.0f);
-                return true;
-            }
-            // Mute button (legacy test support)
-            if (ev.x >= 54.0f && ev.x <= 104.0f && ev.y >= 152.0f && ev.y <= 176.0f) {
-                masterChannel_.mute = !masterChannel_.mute;
-                if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(masterChannel_.mute ? 0.0f : masterChannel_.fader);
-                if (onMasterMuteToggled) onMasterMuteToggled(masterChannel_.mute);
-                return true;
-            }
-            // Pan knob tap
-            if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - 107.0f, ev.y - 215.0f) <= 18.0f) {
+            // 1. Master Pan knob (tested first so nothing intercepts it!)
+            if (showPan_ && std::hypot(ev.x - kx, ev.y - ky) <= (panRadius + 4.0f)) {
                 if (ev.mods.ctrl || ev.mods.meta) {
                     masterChannel_.pan = 0.0f;
                     if (onMasterPanChanged) onMasterPanChanged(0.0f);
@@ -1516,9 +1943,19 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 dragStartX_ = ev.x;
                 dragStartY_ = ev.y;
                 initialPanVal_ = masterChannel_.pan;
+                activePanSessions_[ev.id] = {-1, ev.x, ev.y, masterChannel_.pan};
                 return true;
             }
-            // Master Fader tap
+
+            // 2. "C" button tap -> Center Pan (Comfortable mode)
+            if (showPan_ && densityMode_ == MixerDensityMode::Comfortable &&
+                ev.x >= kx - 11.0f && ev.x <= kx + 11.0f && ev.y >= ky + 16.0f && ev.y <= ky + 34.0f) {
+                masterChannel_.pan = 0.0f;
+                if (onMasterPanChanged) onMasterPanChanged(0.0f);
+                return true;
+            }
+
+            // 3. Master Fader tap
             if (hitTestMasterFader(ev.x, ev.y)) {
                 if (ev.mods.ctrl || ev.mods.meta) {
                     masterChannel_.fader = 1.0f;
@@ -1553,6 +1990,39 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 tooltipX_ = mX + 60.0f;
                 tooltipY_ = ev.y;
                 showTooltip_ = true;
+                return true;
+            }
+
+            // 4. Left-click on LCD Volume % readout -> Open manual edit dialog
+            if (showReadouts_ && ev.x >= mX + mW - 50.0f && ev.x <= mX + mW - 6.0f &&
+                ev.y >= mY + 6.0f && ev.y <= mY + 6.0f + lcdH) {
+                if (ctx.onOpenValueEdit) {
+                    ValueEditRequest req;
+                    req.title = "MASTER VOLUME";
+                    req.paramName = "Master Volume";
+                    req.currentValue = masterChannel_.fader;
+                    req.minValue = 0.0f;
+                    req.maxValue = 1.5f;
+                    req.defaultValue = 1.0f;
+                    req.hasDefault = true;
+                    req.allowPercentage = true;
+                    req.accentColor = ctx.theme ? ctx.theme->primaryAccent : Color(1.0f, 0.70f, 0.10f);
+                    req.onCommit = [this, ctx](float val) {
+                        masterChannel_.fader = val;
+                        if (ctx.audioEngine) ctx.audioEngine->setMasterVolume(val);
+                        if (onMasterVolumeChanged) onMasterVolumeChanged(val);
+                    };
+                    ctx.onOpenValueEdit(req);
+                }
+                return true;
+            }
+
+            // 5. LCD Screen tap or Chassis tap -> Select Master & Expand Sidebar
+            if (ev.x >= mX && ev.x <= mX + mW && ev.y >= mY && ev.y <= mY + stripH) {
+                isMasterSelected_ = true;
+                syncDrawerData();
+                propertiesDrawer_.setExpanded(true);
+                if (onPropertiesDrawerStateChanged) onPropertiesDrawerStateChanged(true, propertiesDrawer_.getWidth());
                 return true;
             }
         } else if (ev.action == PointerAction::Move) {
@@ -1595,6 +2065,16 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 showTooltip_ = true;
                 return true;
             }
+            auto panIt = activePanSessions_.find(ev.id);
+            if (panIt != activePanSessions_.end() && panIt->second.panIndex == -1) {
+                float dy = panIt->second.dragStartY - ev.y;
+                float dx = ev.x - panIt->second.dragStartX;
+                float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
+                masterChannel_.pan = std::clamp(panIt->second.initialPanVal + delta, -1.0f, 1.0f);
+                if (onMasterPanChanged) onMasterPanChanged(masterChannel_.pan);
+                return true;
+            }
             if (activePanIndex_ == -1) {
                 float dy = dragStartY_ - ev.y;
                 float dx = ev.x - dragStartX_;
@@ -1608,39 +2088,72 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     }
 
     // 3. Channel Strips Pointer Events
-    const float startX = (densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
+    const float startX = (masterPosition_ == MixerMasterPosition::Right) ?
+                         (bounds_.x + 12.0f) :
+                         ((densityMode_ == MixerDensityMode::Comfortable) ? (masterBounds_.x + 195.0f) :
                          ((densityMode_ == MixerDensityMode::Compact) ? (masterBounds_.x + masterStripWidth_ + 20.0f) :
-                                                                        (masterBounds_.x + masterStripWidth_ + 14.0f));
+                                                                        (masterBounds_.x + masterStripWidth_ + 14.0f)));
     const float stripW = channelStripWidth_;
     const float gap = channelGap_;
 
     for (size_t i = 0; i < channels_.size(); ++i) {
         float cx = startX + static_cast<float>(i) * (stripW + gap) - scrollX_;
-        if (cx + stripW < 185.0f && densityMode_ == MixerDensityMode::Comfortable) continue;
-        if (cx + stripW < masterBounds_.x + masterStripWidth_ + 10.0f) continue;
+        if (masterPosition_ != MixerMasterPosition::Right) {
+            if (cx + stripW < 185.0f && densityMode_ == MixerDensityMode::Comfortable) continue;
+            if (cx + stripW < masterBounds_.x + masterStripWidth_ + 10.0f) continue;
+        } else {
+            if (cx + stripW < bounds_.x) continue;
+        }
         if (cx > rightBound) break;
 
         Rect2D stripRect(cx, masterBounds_.y, stripW, masterBounds_.h);
 
+        float lcdH = (densityMode_ == MixerDensityMode::Micro) ? 24.0f : ((densityMode_ == MixerDensityMode::Compact) ? 32.0f : 38.0f);
         float kx = cx + stripW * 0.5f;
-        float ky = masterBounds_.y + 8.0f + 38.0f + 16.0f;
-        float wellTopY = ky + 38.0f;
-        float bx = cx + 96.0f;
-        float by = wellTopY + 2.0f;
+        float ky = masterBounds_.y + 8.0f + (showReadouts_ ? lcdH : 0.0f) + 16.0f;
+        float panRadius = (densityMode_ == MixerDensityMode::Micro) ? 9.0f : ((densityMode_ == MixerDensityMode::Compact) ? 12.0f : 16.0f);
+
+        auto geom = getChannelFaderGeometry(i, cx);
+        float wellTopY = geom.wellTopY;
 
         bool isDraggingThis = (activeFaderIndex_ == static_cast<int>(i) || activePanIndex_ == static_cast<int>(i));
         for (const auto& [id, sess] : activeFaderSessions_) {
             if (sess.faderIndex == static_cast<int>(i)) isDraggingThis = true;
+        }
+        for (const auto& [id, sess] : activePanSessions_) {
+            if (sess.panIndex == static_cast<int>(i)) isDraggingThis = true;
         }
 
         if (isDraggingThis || (stripRect.contains(ev.x, ev.y) && ev.x < rightBound)) {
             if (ev.action == PointerAction::Down) {
                 selectedChannel_ = static_cast<int>(i);
                 isMasterSelected_ = false;
+                syncDrawerData();
                 if (onTrackSelected) onTrackSelected(static_cast<uint32_t>(i));
 
                 // Right-click manual value edit dialog
                 if (ev.button == PointerButton::Right) {
+                    // Channel Pan knob
+                    if (showPan_ && std::hypot(ev.x - kx, ev.y - ky) <= (panRadius + 4.0f)) {
+                        if (ctx.onOpenValueEdit) {
+                            ValueEditRequest req;
+                            req.title = channels_[i].name + " PAN";
+                            req.paramName = channels_[i].name + " Pan";
+                            req.currentValue = channels_[i].pan;
+                            req.minValue = -1.0f;
+                            req.maxValue = 1.0f;
+                            req.defaultValue = 0.0f;
+                            req.hasDefault = true;
+                            req.allowPercentage = false;
+                            req.accentColor = Color(channels_[i].r, channels_[i].g, channels_[i].b, 1.0f);
+                            req.onCommit = [this, i](float val) {
+                                channels_[i].pan = val;
+                                if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), val);
+                            };
+                            ctx.onOpenValueEdit(req);
+                        }
+                        return true;
+                    }
                     // Channel Fader slot / cap
                     if (hitTestChannelFader(i, cx, ev.x, ev.y)) {
                         if (ctx.onOpenValueEdit) {
@@ -1662,104 +2175,12 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                         }
                         return true;
                     }
-                    // Channel Pan knob
-                    if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - (cx + 65.0f), ev.y - 215.0f) <= 18.0f) {
-                        if (ctx.onOpenValueEdit) {
-                            ValueEditRequest req;
-                            req.title = channels_[i].name + " PAN";
-                            req.paramName = channels_[i].name + " Pan";
-                            req.currentValue = channels_[i].pan;
-                            req.minValue = -1.0f;
-                            req.maxValue = 1.0f;
-                            req.defaultValue = 0.0f;
-                            req.hasDefault = true;
-                            req.allowPercentage = false;
-                            req.accentColor = Color(channels_[i].r, channels_[i].g, channels_[i].b, 1.0f);
-                            req.onCommit = [this, i](float val) {
-                                channels_[i].pan = val;
-                                if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), val);
-                            };
-                            ctx.onOpenValueEdit(req);
-                        }
-                        return true;
-                    }
                 }
 
-                // Left-click on Channel LCD Volume % readout
-                if (ev.x >= cx + stripW - 50.0f && ev.x <= cx + stripW - 8.0f && ev.y >= masterBounds_.y + 8.0f && ev.y <= masterBounds_.y + 46.0f) {
-                    if (ctx.onOpenValueEdit) {
-                        ValueEditRequest req;
-                        req.title = channels_[i].name + " VOLUME";
-                        req.paramName = channels_[i].name + " Volume";
-                        req.currentValue = channels_[i].fader;
-                        req.minValue = 0.0f;
-                        req.maxValue = 1.5f;
-                        req.defaultValue = 1.0f;
-                        req.hasDefault = true;
-                        req.allowPercentage = true;
-                        req.accentColor = Color(channels_[i].r, channels_[i].g, channels_[i].b, 1.0f);
-                        req.onCommit = [this, i](float val) {
-                            channels_[i].fader = val;
-                            if (onVolumeChanged) onVolumeChanged(static_cast<uint32_t>(i), val);
-                        };
-                        ctx.onOpenValueEdit(req);
-                    }
-                    return true;
-                }
+                // Left-click / Touch Down:
 
-                // Card click or Backlit LCD click -> Select track & open sidebar (NO Edit view!)
-                if ((ev.x >= cx + 8.0f && ev.x <= cx + stripW - 8.0f && ev.y >= masterBounds_.y + 8.0f && ev.y <= masterBounds_.y + 46.0f) ||
-                    (ev.x >= cx + 8.0f && ev.x <= cx + stripW - 8.0f && ev.y >= 116.0f && ev.y <= 150.0f)) {
-                    propertiesDrawer_.setExpanded(true);
-                    if (onPropertiesDrawerStateChanged) onPropertiesDrawerStateChanged(true, propertiesDrawer_.getWidth());
-                    return true;
-                }
-                // "C" button tap -> Center Pan
-                if (ev.x >= kx - 12.0f && ev.x <= kx + 12.0f && ev.y >= ky + 16.0f && ev.y <= ky + 34.0f) {
-                    channels_[i].pan = 0.0f;
-                    if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), 0.0f);
-                    return true;
-                }
-                // Mute button: Micro [cx+4, wellTopY-16, 18, 14], Compact [cx+58, wellTopY+2, 16, 20], Comfortable [bx, by, 26, 24] or legacy [cx + 12, 152, 50, 24]
-                bool hitMute = false;
-                if (densityMode_ == MixerDensityMode::Micro) {
-                    hitMute = (ev.x >= cx + 4.0f && ev.x <= cx + 22.0f && ev.y >= wellTopY - 16.0f && ev.y <= wellTopY - 2.0f);
-                } else if (densityMode_ == MixerDensityMode::Compact) {
-                    hitMute = (ev.x >= cx + 58.0f && ev.x <= cx + 74.0f && ev.y >= wellTopY + 2.0f && ev.y <= wellTopY + 22.0f);
-                } else {
-                    hitMute = (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by && ev.y <= by + 26.0f);
-                }
-                if (!hitMute) {
-                    hitMute = (ev.x >= cx + 12.0f && ev.x <= cx + 62.0f && ev.y >= 152.0f && ev.y <= 176.0f) ||
-                              (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by && ev.y <= by + 26.0f);
-                }
-                if (hitMute) {
-                    channels_[i].mute = !channels_[i].mute;
-                    if (onMuteToggled) onMuteToggled(static_cast<uint32_t>(i), channels_[i].mute);
-                    if (ctx.audioEngine) ctx.audioEngine->setTrackMute(static_cast<uint32_t>(i), channels_[i].mute);
-                    return true;
-                }
-                // Solo button: Micro [cx+24, wellTopY-16, 18, 14], Compact [cx+58, wellTopY+26, 16, 20], Comfortable [bx, by + 26, 26, 24] or legacy [cx + 68, 152, 50, 24]
-                bool hitSolo = false;
-                if (densityMode_ == MixerDensityMode::Micro) {
-                    hitSolo = (ev.x >= cx + 24.0f && ev.x <= cx + 42.0f && ev.y >= wellTopY - 16.0f && ev.y <= wellTopY - 2.0f);
-                } else if (densityMode_ == MixerDensityMode::Compact) {
-                    hitSolo = (ev.x >= cx + 58.0f && ev.x <= cx + 74.0f && ev.y >= wellTopY + 26.0f && ev.y <= wellTopY + 46.0f);
-                } else {
-                    hitSolo = (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by + 26.0f && ev.y <= by + 52.0f);
-                }
-                if (!hitSolo) {
-                    hitSolo = (ev.x >= cx + 68.0f && ev.x <= cx + 118.0f && ev.y >= 152.0f && ev.y <= 176.0f) ||
-                              (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by + 26.0f && ev.y <= by + 52.0f);
-                }
-                if (hitSolo) {
-                    channels_[i].solo = !channels_[i].solo;
-                    if (onSoloToggled) onSoloToggled(static_cast<uint32_t>(i), channels_[i].solo);
-                    if (ctx.audioEngine) ctx.audioEngine->setTrackSolo(static_cast<uint32_t>(i), channels_[i].solo);
-                    return true;
-                }
-                // Pan knob tap
-                if (std::hypot(ev.x - kx, ev.y - ky) <= 18.0f || std::hypot(ev.x - (cx + 65.0f), ev.y - 215.0f) <= 18.0f) {
+                // 1. Channel Pan knob tap (tested first so buttons/card don't steal clicks!)
+                if (showPan_ && std::hypot(ev.x - kx, ev.y - ky) <= (panRadius + 4.0f)) {
                     if (ev.mods.ctrl || ev.mods.meta) {
                         channels_[i].pan = 0.0f;
                         if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), 0.0f);
@@ -1769,23 +2190,71 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     dragStartX_ = ev.x;
                     dragStartY_ = ev.y;
                     initialPanVal_ = channels_[i].pan;
+                    activePanSessions_[ev.id] = {static_cast<int>(i), ev.x, ev.y, channels_[i].pan};
                     return true;
                 }
-                // Freeze button: [bx, by + 52, 26, 24] or [cx + 80, 321, 26, 20]
-                bool hitFreeze = false;
-                if (densityMode_ == MixerDensityMode::Comfortable) {
-                    hitFreeze = (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by + 52.0f && ev.y <= by + 78.0f);
-                }
-                if (!hitFreeze) {
-                    hitFreeze = (ev.x >= bx && ev.x <= bx + 28.0f && ev.y >= by + 52.0f && ev.y <= by + 78.0f) ||
-                                (ev.x >= cx + 80.0f && ev.x <= cx + 106.0f && ev.y >= 321.0f && ev.y <= 341.0f);
-                }
-                if (hitFreeze) {
-                    channels_[i].freeze = !channels_[i].freeze;
-                    if (onFreezeToggled) onFreezeToggled(static_cast<uint32_t>(i), channels_[i].freeze);
+
+                // 2. "C" button tap -> Center Pan (Comfortable mode)
+                if (showPan_ && densityMode_ == MixerDensityMode::Comfortable &&
+                    ev.x >= kx - 11.0f && ev.x <= kx + 11.0f && ev.y >= ky + 16.0f && ev.y <= ky + 34.0f) {
+                    channels_[i].pan = 0.0f;
+                    if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), 0.0f);
                     return true;
                 }
-                // Fader slot tap
+
+                // 3. Compact Hardware Buttons (Mute, Solo, Freeze) - EXACT geometric coordinates
+                if (showButtons_) {
+                    bool hitMute = false;
+                    bool hitSolo = false;
+                    bool hitFreeze = false;
+
+                    if (densityMode_ == MixerDensityMode::Micro) {
+                        float mbx = cx + 4.0f;
+                        float mby = wellTopY - 16.0f;
+                        float mbw = 18.0f;
+                        float mbh = 14.0f;
+                        hitMute = (ev.x >= mbx && ev.x <= mbx + mbw && ev.y >= mby && ev.y <= mby + mbh);
+                        hitSolo = (ev.x >= mbx + 20.0f && ev.x <= mbx + 20.0f + mbw && ev.y >= mby && ev.y <= mby + mbh);
+                    } else if (densityMode_ == MixerDensityMode::Compact) {
+                        float bx = cx + 58.0f;
+                        float by = wellTopY + 2.0f;
+                        float bw = 16.0f;
+                        float bh = 20.0f;
+                        hitMute = (ev.x >= bx && ev.x <= bx + bw && ev.y >= by && ev.y <= by + bh);
+                        float sy = by + bh + 4.0f;
+                        hitSolo = (ev.x >= bx && ev.x <= bx + bw && ev.y >= sy && ev.y <= sy + bh);
+                    } else { // Comfortable mode
+                        float bx = cx + 96.0f;
+                        float by = wellTopY + 2.0f;
+                        float bw = 26.0f;
+                        float bh = 24.0f;
+                        hitMute = (ev.x >= bx && ev.x <= bx + bw && ev.y >= by && ev.y <= by + bh);
+                        float sy = by + bh + 4.0f;
+                        hitSolo = (ev.x >= bx && ev.x <= bx + bw && ev.y >= sy && ev.y <= sy + bh);
+                        float fzy = sy + bh + 4.0f;
+                        hitFreeze = (ev.x >= bx && ev.x <= bx + bw && ev.y >= fzy && ev.y <= fzy + bh);
+                    }
+
+                    if (hitMute) {
+                        channels_[i].mute = !channels_[i].mute;
+                        if (onMuteToggled) onMuteToggled(static_cast<uint32_t>(i), channels_[i].mute);
+                        if (ctx.audioEngine) ctx.audioEngine->setTrackMute(static_cast<uint32_t>(i), channels_[i].mute);
+                        return true;
+                    }
+                    if (hitSolo) {
+                        channels_[i].solo = !channels_[i].solo;
+                        if (onSoloToggled) onSoloToggled(static_cast<uint32_t>(i), channels_[i].solo);
+                        if (ctx.audioEngine) ctx.audioEngine->setTrackSolo(static_cast<uint32_t>(i), channels_[i].solo);
+                        return true;
+                    }
+                    if (hitFreeze) {
+                        channels_[i].freeze = !channels_[i].freeze;
+                        if (onFreezeToggled) onFreezeToggled(static_cast<uint32_t>(i), channels_[i].freeze);
+                        return true;
+                    }
+                }
+
+                // 4. Fader slot tap
                 if (hitTestChannelFader(i, cx, ev.x, ev.y)) {
                     if (ev.mods.ctrl || ev.mods.meta) {
                         channels_[i].fader = 1.0f;
@@ -1823,14 +2292,38 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     return true;
                 }
 
-                // General card tap -> Select track & open sidebar
-                propertiesDrawer_.setExpanded(true);
-                if (onPropertiesDrawerStateChanged) onPropertiesDrawerStateChanged(true, propertiesDrawer_.getWidth());
-                return true;
+                // 5. Left-click on Channel LCD Volume % readout
+                if (showReadouts_ && ev.x >= cx + stripW - 48.0f && ev.x <= cx + stripW - 4.0f &&
+                    ev.y >= masterBounds_.y + 6.0f && ev.y <= masterBounds_.y + 6.0f + lcdH) {
+                    if (ctx.onOpenValueEdit) {
+                        ValueEditRequest req;
+                        req.title = channels_[i].name + " VOLUME";
+                        req.paramName = channels_[i].name + " Volume";
+                        req.currentValue = channels_[i].fader;
+                        req.minValue = 0.0f;
+                        req.maxValue = 1.5f;
+                        req.defaultValue = 1.0f;
+                        req.hasDefault = true;
+                        req.allowPercentage = true;
+                        req.accentColor = Color(channels_[i].r, channels_[i].g, channels_[i].b, 1.0f);
+                        req.onCommit = [this, i](float val) {
+                            channels_[i].fader = val;
+                            if (onVolumeChanged) onVolumeChanged(static_cast<uint32_t>(i), val);
+                        };
+                        ctx.onOpenValueEdit(req);
+                    }
+                    return true;
+                }
+
+                // 6. General card / Backlit LCD tap -> Select track & open sidebar
+                if (stripRect.contains(ev.x, ev.y)) {
+                    propertiesDrawer_.setExpanded(true);
+                    if (onPropertiesDrawerStateChanged) onPropertiesDrawerStateChanged(true, propertiesDrawer_.getWidth());
+                    return true;
+                }
             } else if (ev.action == PointerAction::Move) {
                 auto sessionIt = activeFaderSessions_.find(ev.id);
                 if (sessionIt != activeFaderSessions_.end() && sessionIt->second.faderIndex == static_cast<int>(i)) {
-                    auto geom = getChannelFaderGeometry(i, cx);
                     float dy = sessionIt->second.dragStartY - ev.y;
                     float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                     float deltaTravel = (dy / geom.wellH) * fineScale;
@@ -1849,7 +2342,6 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     return true;
                 }
                 if (activeFaderIndex_ == static_cast<int>(i)) {
-                    auto geom = getChannelFaderGeometry(i, cx);
                     float dy = dragStartY_ - ev.y;
                     float fineScale = ev.mods.shift ? 0.10f : 1.0f;
                     float deltaTravel = (dy / geom.wellH) * fineScale;
@@ -1867,6 +2359,16 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     showTooltip_ = true;
                     return true;
                 }
+                auto panSessionIt = activePanSessions_.find(ev.id);
+                if (panSessionIt != activePanSessions_.end() && panSessionIt->second.panIndex == static_cast<int>(i)) {
+                    float dy = panSessionIt->second.dragStartY - ev.y;
+                    float dx = ev.x - panSessionIt->second.dragStartX;
+                    float fineScale = ev.mods.shift ? 0.10f : 1.0f;
+                    float delta = ((std::abs(dy) > std::abs(dx)) ? (dy / 100.0f) : (dx / 100.0f)) * fineScale;
+                    channels_[i].pan = std::clamp(panSessionIt->second.initialPanVal + delta, -1.0f, 1.0f);
+                    if (onPanChanged) onPanChanged(static_cast<uint32_t>(i), channels_[i].pan);
+                    return true;
+                }
                 if (activePanIndex_ == static_cast<int>(i)) {
                     float dy = dragStartY_ - ev.y;
                     float dx = ev.x - dragStartX_;
@@ -1881,6 +2383,7 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     }
 
     if (ev.action == PointerAction::Up || ev.action == PointerAction::Cancel) {
+        bool handled = false;
         auto it = activeFaderSessions_.find(ev.id);
         if (it != activeFaderSessions_.end()) {
             activeFaderSessions_.erase(it);
@@ -1888,13 +2391,23 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 activeFaderIndex_ = -2;
                 showTooltip_ = false;
             }
-            return true;
+            handled = true;
         }
+        auto itPan = activePanSessions_.find(ev.id);
+        if (itPan != activePanSessions_.end()) {
+            activePanSessions_.erase(itPan);
+            if (activePanSessions_.empty()) {
+                activePanIndex_ = -2;
+            }
+            handled = true;
+        }
+        if (handled) return true;
         if (activeFaderIndex_ != -2 || activePanIndex_ != -2 || showTooltip_) {
             activeFaderIndex_ = -2;
             activePanIndex_ = -2;
             showTooltip_ = false;
             activeFaderSessions_.clear();
+            activePanSessions_.clear();
             return true;
         }
     }

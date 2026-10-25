@@ -8,7 +8,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <new>
+#include "gui/plugin_gui.hpp"
 
 namespace eatsbits::export_clap {
 
@@ -177,7 +179,11 @@ public:
         }
     }
 
-    void onMainThread() noexcept {}
+    void onMainThread() noexcept {
+        if (gui_) {
+            gui_->onTimer();
+        }
+    }
 
     // --- Extension Dispatcher ---
 
@@ -203,6 +209,11 @@ public:
             return &remoteControlsExt_;
         }
         if (std::strcmp(id, CLAP_EXT_GUI) == 0) {
+            if constexpr (requires { dsp_.hasCustomGui(); }) {
+                if (!dsp_.hasCustomGui()) return nullptr;
+            } else {
+                return nullptr;
+            }
             return &guiExt_;
         }
         return nullptr;
@@ -218,10 +229,7 @@ public:
                 case CLAP_EVENT_NOTE_ON: {
                     const auto* ev = reinterpret_cast<const clap_event_note_t*>(hdr);
                     if (ev->key >= 0 && ev->key <= 127) {
-                        bool isSlide = false;
-                        if constexpr (requires { dsp_.isActive(); }) {
-                            isSlide = dsp_.isActive();
-                        }
+                        constexpr bool isSlide = false;
                         const bool isAccent = (ev->velocity > 0.75);
                         if constexpr (requires { dsp_.noteOn(static_cast<uint8_t>(ev->key), static_cast<float>(ev->velocity), isSlide, isAccent); }) {
                             dsp_.noteOn(static_cast<uint8_t>(ev->key), static_cast<float>(ev->velocity), isSlide, isAccent);
@@ -261,10 +269,7 @@ public:
         const uint8_t cmd = status & 0xF0;
         if (cmd == 0x90 && data2 > 0) { // Note On
             const float vel = static_cast<float>(data2) / 127.0f;
-            bool isSlide = false;
-            if constexpr (requires { dsp_.isActive(); }) {
-                isSlide = dsp_.isActive();
-            }
+            constexpr bool isSlide = false;
             const bool isAccent = (vel > 0.75f);
             if constexpr (requires { dsp_.noteOn(data1, vel, isSlide, isAccent); }) {
                 dsp_.noteOn(data1, vel, isSlide, isAccent);
@@ -519,73 +524,109 @@ private:
         };
 
         // GUI Extension (Uniform vector canvas scaling)
-        guiExt_.is_api_supported = [](const clap_plugin* /*p*/, const char* api, bool /*is_floating*/) -> bool {
+        guiExt_.is_api_supported = [](const clap_plugin* p, const char* api, bool is_floating) -> bool {
             if (!api) return false;
-#if defined(_WIN32)
-            return std::strcmp(api, CLAP_WINDOW_API_WIN32) == 0;
-#elif defined(__APPLE__)
-            return std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
-#else
-            return std::strcmp(api, CLAP_WINDOW_API_X11) == 0;
-#endif
+            auto* self = fromPlugin(p);
+            if (self->gui_) return self->gui_->isApiSupported(api, is_floating);
+            if constexpr (requires { self->dsp_.createGui(self->host_); }) {
+                std::unique_ptr<gui::IPluginGui> temp = self->dsp_.createGui(self->host_);
+                if (temp) return temp->isApiSupported(api, is_floating);
+            }
+            return false;
         };
-        guiExt_.get_preferred_api = [](const clap_plugin* /*p*/, const char** api, bool* is_floating) -> bool {
+        guiExt_.get_preferred_api = [](const clap_plugin* p, const char** api, bool* is_floating) -> bool {
             if (!api || !is_floating) return false;
-#if defined(_WIN32)
-            *api = CLAP_WINDOW_API_WIN32;
-#elif defined(__APPLE__)
-            *api = CLAP_WINDOW_API_COCOA;
-#else
-            *api = CLAP_WINDOW_API_X11;
-#endif
-            *is_floating = false;
-            return true;
+            auto* self = fromPlugin(p);
+            if (self->gui_) {
+                *api = self->gui_->getPreferredApi();
+                *is_floating = false;
+                return true;
+            }
+            if constexpr (requires { self->dsp_.createGui(self->host_); }) {
+                std::unique_ptr<gui::IPluginGui> temp = self->dsp_.createGui(self->host_);
+                if (temp) {
+                    *api = temp->getPreferredApi();
+                    *is_floating = false;
+                    return true;
+                }
+            }
+            return false;
         };
-        guiExt_.create = [](const clap_plugin* /*p*/, const char* /*api*/, bool /*is_floating*/) -> bool {
-            return true;
+        guiExt_.create = [](const clap_plugin* p, const char* api, bool is_floating) -> bool {
+            auto* self = fromPlugin(p);
+            if (!self->gui_) {
+                if constexpr (requires { self->dsp_.createGui(self->host_); }) {
+                    self->gui_ = self->dsp_.createGui(self->host_);
+                }
+            }
+            return self->gui_ ? self->gui_->create(api, is_floating) : false;
         };
-        guiExt_.destroy = [](const clap_plugin* /*p*/) {};
-        guiExt_.set_scale = [](const clap_plugin* /*p*/, double /*scale*/) -> bool {
-            return true;
+        guiExt_.destroy = [](const clap_plugin* p) {
+            auto* self = fromPlugin(p);
+            if (self->gui_) {
+                self->gui_->destroy();
+                self->gui_.reset();
+            }
         };
-        guiExt_.get_size = [](const clap_plugin* /*p*/, uint32_t* width, uint32_t* height) -> bool {
-            if (!width || !height) return false;
-            *width = 800;
-            *height = 480;
-            return true;
+        guiExt_.set_scale = [](const clap_plugin* p, double scale) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->setScale(scale) : false;
         };
-        guiExt_.can_resize = [](const clap_plugin* /*p*/) -> bool {
-            return true;
+        guiExt_.get_size = [](const clap_plugin* p, uint32_t* width, uint32_t* height) -> bool {
+            auto* self = fromPlugin(p);
+            if (self->gui_) {
+                return self->gui_->getSize(width, height);
+            }
+            if (width && height) {
+                *width = 800;
+                *height = 480;
+                return true;
+            }
+            return false;
         };
-        guiExt_.get_resize_hints = [](const clap_plugin* /*p*/, clap_gui_resize_hints_t* hints) -> bool {
-            if (!hints) return false;
-            hints->can_resize_horizontally = true;
-            hints->can_resize_vertically = true;
-            hints->preserve_aspect_ratio = true;
-            hints->aspect_ratio_width = 800;
-            hints->aspect_ratio_height = 480;
-            return true;
+        guiExt_.can_resize = [](const clap_plugin* p) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->canResize() : true;
         };
-        guiExt_.adjust_size = [](const clap_plugin* /*p*/, uint32_t* width, uint32_t* height) -> bool {
-            return (width && height);
+        guiExt_.get_resize_hints = [](const clap_plugin* p, clap_gui_resize_hints_t* hints) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->getResizeHints(hints) : false;
         };
-        guiExt_.set_size = [](const clap_plugin* /*p*/, uint32_t /*width*/, uint32_t /*height*/) -> bool {
-            return true;
+        guiExt_.adjust_size = [](const clap_plugin* p, uint32_t* width, uint32_t* height) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->adjustSize(width, height) : (width && height);
         };
-        guiExt_.set_parent = [](const clap_plugin* /*p*/, const clap_window_t* /*window*/) -> bool {
-            return true;
+        guiExt_.set_size = [](const clap_plugin* p, uint32_t width, uint32_t height) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->setSize(width, height) : false;
+        };
+        guiExt_.set_parent = [](const clap_plugin* p, const clap_window_t* window) -> bool {
+            auto* self = fromPlugin(p);
+            if (!self->gui_) {
+                if constexpr (requires { self->dsp_.createGui(self->host_); }) {
+                    self->gui_ = self->dsp_.createGui(self->host_);
+                }
+            }
+            return self->gui_ ? self->gui_->setParent(window) : false;
         };
         guiExt_.set_transient = [](const clap_plugin* /*p*/, const clap_window_t* /*window*/) -> bool {
-            return true;
+            return false;
         };
         guiExt_.suggest_title = [](const clap_plugin* /*p*/, const char* /*title*/) {};
-        guiExt_.show = [](const clap_plugin* /*p*/) -> bool { return true; };
-        guiExt_.hide = [](const clap_plugin* /*p*/) -> bool { return true; };
+        guiExt_.show = [](const clap_plugin* p) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->show() : false;
+        };
+        guiExt_.hide = [](const clap_plugin* p) -> bool {
+            auto* self = fromPlugin(p);
+            return self->gui_ ? self->gui_->hide() : false;
+        };
     }
 
     clap_plugin_t plugin_{};
     const clap_host_t* host_{nullptr};
     TDspAdapter dsp_{};
+    std::unique_ptr<gui::IPluginGui> gui_{nullptr};
 
     double sampleRate_{48000.0};
     uint32_t minFrames_{32};

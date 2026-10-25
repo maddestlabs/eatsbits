@@ -29,6 +29,7 @@ TrackPropertiesDrawer::TrackPropertiesDrawer() {
     panel_.onTrackRename = [this](uint32_t idx) { if (onTrackRename) onTrackRename(idx); };
     panel_.onTrackRenameWithText = [this](uint32_t idx, const std::string& name) { if (onTrackRenameWithText) onTrackRenameWithText(idx, name); };
     panel_.onChooseTrackIcon = [this](uint32_t idx) { if (onChooseTrackIcon) onChooseTrackIcon(idx); };
+    panel_.onScrollChanged = [this](float sy) { if (onScrollChanged) onScrollChanged(sy); };
     panel_.onVolumeChanged = [this](uint32_t idx, float vol) { if (onVolumeChanged) onVolumeChanged(idx, vol); };
     panel_.onPanChanged = [this](uint32_t idx, float pan) { if (onPanChanged) onPanChanged(idx, pan); };
     panel_.onMuteToggled = [this](uint32_t idx, bool mute) { if (onMuteToggled) onMuteToggled(idx, mute); };

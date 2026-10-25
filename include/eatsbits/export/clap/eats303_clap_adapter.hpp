@@ -1,0 +1,6 @@
+#ifndef EATS_EATS303_CLAP_ADAPTER_HPP
+#define EATS_EATS303_CLAP_ADAPTER_HPP
+
+#include "tb303_clap_adapter.hpp"
+
+#endif // EATS_EATS303_CLAP_ADAPTER_HPP

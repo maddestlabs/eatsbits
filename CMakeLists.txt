@@ -483,6 +483,9 @@ endif()
 if(NOT EMSCRIPTEN)
     add_library(eatsbits_tb303 MODULE
         src/export/clap/tb303_clap_plugin.cpp
+        src/export/clap/gui/software_canvas.cpp
+        src/export/clap/gui/instrument_faceplate.cpp
+        src/export/clap/gui/pugl_bridge.cpp
     )
     target_include_directories(eatsbits_tb303 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -491,6 +494,23 @@ if(NOT EMSCRIPTEN)
     set_target_properties(eatsbits_tb303 PROPERTIES
         PREFIX ""
         SUFFIX ".clap"
+    )
+    if(WIN32)
+        target_link_libraries(eatsbits_tb303 PRIVATE gdi32 user32)
+    elseif(APPLE)
+        target_link_libraries(eatsbits_tb303 PRIVATE "-framework Cocoa -framework CoreGraphics")
+    else()
+        find_package(X11)
+        if(X11_FOUND)
+            target_link_libraries(eatsbits_tb303 PRIVATE ${X11_LIBRARIES})
+        endif()
+    endif()
+
+    # Post-build copy to eatsbits_eats303.clap (Eats-303 naming)
+    add_custom_command(TARGET eatsbits_tb303 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:eatsbits_tb303>"
+        "$<TARGET_FILE_DIR:eatsbits_tb303>/eatsbits_eats303.clap"
     )
 endif()
 

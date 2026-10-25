@@ -1270,17 +1270,14 @@ void testEbfConverterAndShareTechConversion() {
     size_t ebfSize = static_cast<size_t>(ebfFile.tellg());
     assert(ebfSize > 1000 && ebfSize < 250000); // Converted size with solid filled triangles
 
-    // Also convert and save Oswald-Medium.ebf and Oswald-Regular.ebf to build/ and assets/fonts/
+    // Also convert and save Oswald-Medium.ebf and Oswald-Regular.ebf to build/
     std::string oswaldTtf = "assets/fonts/Oswald-Medium.ttf";
     std::string oswaldEbf = "build/Oswald-Medium.ebf";
     eatsbits::ui::glyph::EbfConverter::convertFile(oswaldTtf, oswaldEbf);
-    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldTtf, "assets/fonts/Oswald-Medium.ebf");
 
     std::string oswaldRegTtf = "assets/fonts/Oswald-Regular.ttf";
     std::string oswaldRegEbf = "build/Oswald-Regular.ebf";
     eatsbits::ui::glyph::EbfConverter::convertFile(oswaldRegTtf, oswaldRegEbf);
-    eatsbits::ui::glyph::EbfConverter::convertFile(oswaldRegTtf, "assets/fonts/Oswald-Regular.ebf");
-    eatsbits::ui::glyph::EbfConverter::convertFile("assets/fonts/ShareTechMono-Regular.ttf", "assets/fonts/ShareTechMono-Regular.ebf");
 
     // Generate embedded C++ headers for zero-dependency shipping
     eatsbits::ui::glyph::EbfConverter::convertToCppHeader(

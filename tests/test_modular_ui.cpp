@@ -4181,6 +4181,176 @@ void testUnifiedInternalScriptGuiAndFullscreenConsistency() {
     std::cout << "  [PASS] Unified Internal Script GUI, Fullscreen Modal, and Design View Consistency validated." << std::endl;
 }
 
+void testMultiTouchMixer() {
+    std::cout << "[Test 33/33] Multi-Touch Multi-Fader & Multi-Pan Architecture..." << std::endl;
+
+    MixerView mixer;
+    std::vector<ArrangerTrackData> tracks;
+    ArrangerTrackData trk0;
+    trk0.name = "Lead";
+    trk0.volume = 0.5f;
+    trk0.pan = 0.0f;
+    tracks.push_back(trk0);
+
+    ArrangerTrackData trk1;
+    trk1.name = "Bass";
+    trk1.volume = 0.5f;
+    trk1.pan = 0.0f;
+    tracks.push_back(trk1);
+
+    mixer.syncFromWindow(tracks, 0, 1.0f, 0.0f, false, 0.0f, 0.0f, nullptr, nullptr, 0, false, 240.0f,
+                         true, true, true, true, false, true, false, 0.0f);
+
+    ViewContext ctx;
+    ctx.isMobile = false;
+    mixer.layout(Rect2D(0.0f, 56.0f, 1280.0f, 696.0f), ctx);
+
+    // Initial check
+    assert(!mixer.isAnyFaderDragging());
+    assert(!mixer.isAnyPanDragging());
+    assert(!mixer.isFaderDragging(0));
+    assert(!mixer.isFaderDragging(1));
+    assert(!mixer.isPanDragging(0));
+
+    // Get geometries
+    auto ch0Geom = mixer.getChannelFaderGeometry(0, 195.0f);
+    auto ch1Geom = mixer.getChannelFaderGeometry(1, 195.0f + 140.0f + 10.0f);
+
+    // 1. Simultaneous Two-Finger Touch on Faders (id=10 on Ch0, id=20 on Ch1)
+    PointerEvent touch1Down;
+    touch1Down.id = 10;
+    touch1Down.type = PointerType::Touch;
+    touch1Down.action = PointerAction::Down;
+    touch1Down.button = PointerButton::Left;
+    touch1Down.x = ch0Geom.trackX;
+    touch1Down.y = ch0Geom.thumbY;
+
+    PointerEvent touch2Down;
+    touch2Down.id = 20;
+    touch2Down.type = PointerType::Touch;
+    touch2Down.action = PointerAction::Down;
+    touch2Down.button = PointerButton::Left;
+    touch2Down.x = ch1Geom.trackX;
+    touch2Down.y = ch1Geom.thumbY;
+
+    bool h1 = mixer.handlePointer(touch1Down, ctx);
+    bool h2 = mixer.handlePointer(touch2Down, ctx);
+    assert(h1 && h2);
+    assert(mixer.isFaderDragging(0));
+    assert(mixer.isFaderDragging(1));
+    assert(mixer.isAnyFaderDragging());
+
+    // Move touch 1 UP (increases volume) and touch 2 DOWN (decreases volume)
+    PointerEvent touch1Move = touch1Down;
+    touch1Move.action = PointerAction::Move;
+    touch1Move.y = ch0Geom.thumbY - 30.0f;
+
+    PointerEvent touch2Move = touch2Down;
+    touch2Move.action = PointerAction::Move;
+    touch2Move.y = ch1Geom.thumbY + 30.0f;
+
+    mixer.handlePointer(touch1Move, ctx);
+    mixer.handlePointer(touch2Move, ctx);
+
+    float vol0 = mixer.getChannels()[0].fader;
+    float vol1 = mixer.getChannels()[1].fader;
+    assert(vol0 > 0.5f);
+    assert(vol1 < 0.5f);
+
+    // Engine sync test: Ensure syncFromWindow does NOT overwrite dragging faders!
+    mixer.syncFromWindow(tracks, 0, 1.0f, 0.0f, false, 0.0f, 0.0f, nullptr, nullptr, 0, false, 240.0f,
+                         true, true, true, true, false, true, false, 0.0f);
+    assertNear(mixer.getChannels()[0].fader, vol0);
+    assertNear(mixer.getChannels()[1].fader, vol1);
+
+    // Release finger 1; finger 2 should remain active and continue dragging
+    PointerEvent touch1Up = touch1Move;
+    touch1Up.action = PointerAction::Up;
+    mixer.handlePointer(touch1Up, ctx);
+    assert(!mixer.isFaderDragging(0));
+    assert(mixer.isFaderDragging(1));
+
+    PointerEvent touch2Move2 = touch2Move;
+    touch2Move2.y = ch1Geom.thumbY + 50.0f;
+    mixer.handlePointer(touch2Move2, ctx);
+    assert(mixer.getChannels()[1].fader < vol1);
+
+    PointerEvent touch2Up = touch2Move2;
+    touch2Up.action = PointerAction::Up;
+    mixer.handlePointer(touch2Up, ctx);
+    assert(!mixer.isFaderDragging(1));
+    assert(!mixer.isAnyFaderDragging());
+
+    // 2. Simultaneous Multi-Touch Pan Knobs (id=30 on Ch0 Pan, id=40 on Master Pan)
+    float masterStripW = mixer.getMasterStripWidth();
+    float masterPanX = mixer.getMasterBounds().x + masterStripW * 0.5f;
+    float masterPanY = mixer.getMasterBounds().y + 8.0f + 38.0f + 16.0f;
+
+    float ch0PanX = 195.0f + mixer.getChannelStripWidth() * 0.5f;
+    float ch0PanY = masterPanY;
+
+    PointerEvent touch3Down;
+    touch3Down.id = 30;
+    touch3Down.type = PointerType::Touch;
+    touch3Down.action = PointerAction::Down;
+    touch3Down.button = PointerButton::Left;
+    touch3Down.x = ch0PanX;
+    touch3Down.y = ch0PanY;
+
+    PointerEvent touch4Down;
+    touch4Down.id = 40;
+    touch4Down.type = PointerType::Touch;
+    touch4Down.action = PointerAction::Down;
+    touch4Down.button = PointerButton::Left;
+    touch4Down.x = masterPanX;
+    touch4Down.y = masterPanY;
+
+    bool h3 = mixer.handlePointer(touch3Down, ctx);
+    bool h4 = mixer.handlePointer(touch4Down, ctx);
+    assert(h3 && h4);
+    assert(mixer.isPanDragging(0));
+    assert(mixer.isPanDragging(-1));
+    assert(mixer.isAnyPanDragging());
+
+    // Move Ch0 Pan right (+pan) and Master Pan left (-pan)
+    PointerEvent touch3Move = touch3Down;
+    touch3Move.action = PointerAction::Move;
+    touch3Move.x = ch0PanX + 25.0f;
+
+    PointerEvent touch4Move = touch4Down;
+    touch4Move.action = PointerAction::Move;
+    touch4Move.x = masterPanX - 25.0f;
+
+    mixer.handlePointer(touch3Move, ctx);
+    mixer.handlePointer(touch4Move, ctx);
+
+    float pan0 = mixer.getChannels()[0].pan;
+    float panM = mixer.getMasterChannel().pan;
+    assert(pan0 > 0.0f);
+    assert(panM < 0.0f);
+
+    // Engine sync test: Ensure syncFromWindow does NOT overwrite dragging pans!
+    mixer.syncFromWindow(tracks, 0, 1.0f, 0.0f, false, 0.0f, 0.0f, nullptr, nullptr, 0, false, 240.0f,
+                         true, true, true, true, false, true, false, 0.0f);
+    assertNear(mixer.getChannels()[0].pan, pan0);
+    assertNear(mixer.getMasterChannel().pan, panM);
+
+    // Release pan touches
+    PointerEvent touch3Up = touch3Move;
+    touch3Up.action = PointerAction::Up;
+    mixer.handlePointer(touch3Up, ctx);
+    assert(!mixer.isPanDragging(0));
+    assert(mixer.isPanDragging(-1));
+
+    PointerEvent touch4Up = touch4Move;
+    touch4Up.action = PointerAction::Up;
+    mixer.handlePointer(touch4Up, ctx);
+    assert(!mixer.isPanDragging(-1));
+    assert(!mixer.isAnyPanDragging());
+
+    std::cout << "  [PASS] Multi-touch simultaneous multi-fader and multi-pan operations validated." << std::endl;
+}
+
 int main() {
     std::cout << "=====================================================" << std::endl;
     std::cout << "   Eatsbits Modular UI/UX Architecture Test Suite   " << std::endl;
@@ -4218,8 +4388,9 @@ int main() {
     testProjectBrowserAndPluginDialogOptimizations();
     testTrackScriptConsistencyOnDeleteAndReorder();
     testUnifiedInternalScriptGuiAndFullscreenConsistency();
+    testMultiTouchMixer();
 
-    std::cout << "\n>>> ALL 32 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
+    std::cout << "\n>>> ALL 33 MODULAR UI/UX TEST SUITES PASSED CLEANLY! <<<\n" << std::endl;
     return 0;
 }
 

@@ -78,6 +78,7 @@ public:
     std::function<void(uint32_t trackIndex)> onTrackRename;
     std::function<void(uint32_t trackIndex, const std::string& newName)> onTrackRenameWithText;
     std::function<void(uint32_t trackIndex)> onChooseTrackIcon;
+    std::function<void(float scrollY)> onScrollChanged;
     std::function<void(uint32_t trackIndex, float volume)> onVolumeChanged;
     std::function<void(uint32_t trackIndex, float pan)> onPanChanged;
     std::function<void(uint32_t trackIndex, bool mute)> onMuteToggled;

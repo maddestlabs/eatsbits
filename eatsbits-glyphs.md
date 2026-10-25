@@ -458,9 +458,9 @@ The entire live user interface and script editor are now wired to the high-perfo
 
 ### 1. Three-Tier Typography Architecture
 At startup, `GuiWindow::initFontRenderer()` initializes both `g_ebfOswald` (proportional UI) and `g_ebfShareTech` (monospace script editor & telemetry) using a resilient 3-tier loading hierarchy:
-1. **Tier 1 (Instant Binary `.ebf`)**: Attempts to load pre-compiled `.ebf` files (`ShareTechMono-Regular.ebf`, `Oswald-Medium.ebf`) directly from disk in $< 0.1\,\text{ms}$ with zero rasterization overhead.
-2. **Tier 2 (On-the-Fly TTF Conversion)**: If `.ebf` files are not pre-generated, `EbfConverter::loadTtfIntoFont` automatically parses the bundled TrueType/OpenType files (`ShareTechMono-Regular.ttf`, `Oswald-Medium.ttf`) on-the-fly at boot ($< 3\,\text{ms}$) and generates exact Bézier contour streams.
-3. **Tier 3 (Zero-Dependency Embedded ROM)**: If no font files exist on disk, `getEffectiveOswaldFont()` and `getEffectiveShareTechFont()` transparently fall back to `EbfFont::getEmbeddedOswaldCondensed()` and `EbfFont::getEmbeddedShareTechMono()`.
+1. **Tier 1 (Bundled TrueType On-the-Fly Conversion - Default)**: Automatically parses bundled TTF files (`ShareTechMono-Regular.ttf`, `Oswald-Medium.ttf`, or user-specified custom fonts) on-the-fly at boot ($< 3\,\text{ms}$) via `EbfConverter::loadTtfIntoFont`, yielding zero-dependency vector geometry without shipping heavy pre-tessellated mesh files.
+2. **Tier 2 (Pre-Compiled Binary `.ebf`)**: If pre-compiled `.ebf` files are provided by user or build cache, loads them in $< 0.1\,\text{ms}$.
+3. **Tier 3 (Zero-Dependency Embedded Fallback)**: If no font files exist on disk, `getEffectiveOswaldFont()` and `getEffectiveShareTechFont()` transparently fall back to `EbfFont::getEmbeddedOswaldCondensed()` and `EbfFont::getEmbeddedShareTechMono()`.
 
 ### 2. Live Rendering Routes
 - **Script Editor (`TextEditorWidget`)**: The monospace cell hook configured via [batchRenderer_->setMonospaceGlyphHook](file:///c:/git/eatsbits/src/ui/gui_window.cpp#L7340) directly resolves character codepoints through `g_ebfShareTech.findGlyph()`. Every character typed in the script editor renders using authentic converted ShareTech Mono vector contours aligned precisely to the cell baseline ($y + h \times 0.78$) and centered horizontally.

@@ -24,6 +24,18 @@ To execute items automatically, run in Antigravity:
 
 <!-- Keep the 5 most recent completed items here for immediate agent context; older items are archived in TODO-ARCHIVE.md -->
 
+- [x] **Cross-Platform Multi-Touch Architecture for Web and Desktop (Simultaneous Multi-Fader & Multi-Pan)** (2026-10-24)
+  - **Context/Files**: [include/eatsbits/ui/views/mixer_view.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/views/mixer_view.hpp), [src/ui/views/mixer_view.cpp](file:///c:/git/eatsbits/src/ui/views/mixer_view.cpp), [include/eatsbits/ui/gui_window.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/gui_window.hpp), [src/ui/gui_window.cpp](file:///c:/git/eatsbits/src/ui/gui_window.cpp), [web/index.html](file:///c:/git/eatsbits/web/index.html), [tests/test_modular_ui.cpp](file:///c:/git/eatsbits/tests/test_modular_ui.cpp)
+  - **Summary**:
+    1. **Web Multi-Touch Bridge (`web/index.html`)**: Added `setupMultiTouchBridge()` capturing W3C `PointerEvent`s (`pointerdown`, `pointermove`, `pointerup`, `pointercancel`) with `setPointerCapture`, `stopImmediatePropagation` (preventing Emscripten GLFW from collapsing multi-touch into a single jumping mouse cursor), and dispatching directly to WASM export `eats_on_web_touch_event`.
+    2. **MixerView Multi-Touch Engine (`mixer_view.hpp` / `.cpp`)**:
+       - Replaced single `activePanIndex_` with `activePanSessions_` (`std::unordered_map<int, ActivePanSession>`) matching `activeFaderSessions_`.
+       - Updated both `syncFromWindow` overloads to check `isFaderDragging(i)` and `isPanDragging(i)`, preventing active touches from being overwritten during audio engine parameter sync.
+       - Implemented independent per-pointer session movement and release for channel faders, master fader, channel pan knobs, and master pan knob.
+    3. **Desktop Windows Touch Engine (`gui_window.cpp`)**: Subclassed GLFW's Win32 `HWND` with `RegisterTouchWindow(hwnd, TWF_WANTPALM)` and `EatsbitsTouchWndProc` intercepting `WM_POINTERDOWN`, `WM_POINTERUPDATE`, `WM_POINTERUP`, and `WM_POINTERCAPTURECHANGED` for touch/pen input while leaving mouse clicks on GLFW's WndProc.
+    4. **GUI Window Multi-Touch Routing (`gui_window.hpp` / `.cpp`)**: Implemented `onTouchDown`, `onTouchMove`, `onTouchUp`, `onTouchCancel`, and unified `onPointerEvent` routing directly into `MixerView`, removing legacy single-drag overrides.
+    5. **Verification**: Added `testMultiTouchMixer` in `tests/test_modular_ui.cpp` testing simultaneous multi-fader and multi-pan operations across multiple tracks without crosstalk. Compiled cleanly via `./build.ps1 -NoRun`.
+
 - [x] **Implement Eatscript Declarative Clay UI DSL & In-Memory Embedded Asset System** (2026-10-17)
   - **Context/Files**: [eatscript-ui-blueprint.md](file:///c:/git/eatsbits/eatscript-ui-blueprint.md), [include/eatsbits/ui/base64.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/base64.hpp), [src/ui/base64.cpp](file:///c:/git/eatsbits/src/ui/base64.cpp), [include/eatsbits/ui/batch_renderer_2d.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/batch_renderer_2d.hpp), [src/ui/batch_renderer_2d.cpp](file:///c:/git/eatsbits/src/ui/batch_renderer_2d.cpp), [include/eatsbits/ui/clay/eatscript_clay_bridge.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/clay/eatscript_clay_bridge.hpp), [src/ui/clay/eatscript_clay_bridge.cpp](file:///c:/git/eatsbits/src/ui/clay/eatscript_clay_bridge.cpp), [include/eatsbits/ui/widgets/text_editor_widget.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/text_editor_widget.hpp), [src/ui/widgets/text_editor_widget.cpp](file:///c:/git/eatsbits/src/ui/widgets/text_editor_widget.cpp), [tests/test_clay_layout.cpp](file:///c:/git/eatsbits/tests/test_clay_layout.cpp)
   - **Summary**:
@@ -69,3 +81,16 @@ To execute items automatically, run in Antigravity:
   - Implement `ClapAudioNode` for loading 3rd-party instruments/FX into track mixer channels.
   - Connect to `PluginSearchDialog` and support floating native OS windows and generic parameter inspector.
   - Verified Cardinal & DPF plugin GUI lifecycle, Win32 embedded container docking, UI timer dispatch, and crash-resilient SEH wrappers.
+- [x] **Phase 5: Cross-Platform CLAP GUI Export & Micro-Runtime Faceplate (See CLAP-EXPORT.md)**
+  - Implemented `IPluginGui` interface and `PuglBridge` in `include/eatsbits/export/clap/gui/pugl_bridge.hpp` and `src/export/clap/gui/pugl_bridge.cpp` with native child window embedding (`WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN`), off-window mouse capture, high-DPI scaling, and Cocoa/X11 hooks.
+  - Implemented `SoftwareCanvas` (`software_canvas.hpp`/`.cpp`) for analytical vector rasterization with sub-pixel antialiasing, brushed aluminum procedural chassis, knurled fluted rotors, and embedded silkscreen typography.
+  - Implemented universal `InstrumentFaceplate` (`instrument_faceplate.hpp`/`.cpp`) and `InstrumentGuiDesc` (`instrument_gui_desc.hpp`) faithfully replicating Eatsbits' `def gui()` hardware layout (panel title, subtitle, rows, potentiometer knobs, selectors, switches, and dividers).
+  - Configured `Eats303ClapAdapter` (`eats303_clap_adapter.hpp`) exposing all 12 parameters matching `presets/instruments/eats_303.eats` 1:1, under official plugin identifier `com.maddestlabs.eatsbits.eats303`.
+  - Fixed audio note sliding bug in `ClapPluginShell`: eradicated false `isSlide = isActive()` checks that caused trailing notes to bend without retriggering envelopes, restoring clean, punchy acid attacks for every note.
+  - Integrated bi-directional parameter automation and lock-free thread safety with `std::atomic<float>` in `Eats303ClapAdapter`, UI `request_flush()` dispatch, and 60 Hz UI timer sync.
+  - Verified standalone compilation: builds razor-sharp 80 KB self-contained `.clap` dynamic module `build/Release/eatsbits_eats303.clap` (and `eatsbits_tb303.clap`) with zero external runtime dependencies.
+- [x] **Phase 6: AOT GUI Transpilation & In-DAW Export Pipeline**
+  - Updated `Transpiler::emitClapPluginEntry` and `Transpiler::transpileClap` to emit `InstrumentGuiDesc`, `hasCustomGui()`, and `createGui()` for any Eatscript instrument (2-row authentic Eats-303 layout and auto-grouped rows for generic patches).
+  - Updated `eatscript_cli export --format=clap` to automatically compile vector GUI sources (`software_canvas.cpp`, `instrument_faceplate.cpp`, `pugl_bridge.cpp`) and link system OS windowing (`user32 gdi32`).
+  - Added an in-DAW **`[EXPORT CLAP]`** button directly into the `DesignView` workbench header alongside `[APPLY]`, triggering `DesignView::exportCurrentInstrumentToClap()`.
+  - Registered Command Palette shortcut (`Ctrl+Shift+E` / `"action.export_instrument_clap"`) for one-click native plugin export directly inside the DAW.
