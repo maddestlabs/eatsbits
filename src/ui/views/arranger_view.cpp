@@ -2061,6 +2061,12 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return false;
     }
 
+    // Disallow interactions outside arranger bounds when not actively dragging
+    const bool isDragging = (dragMode_ != ClipDragMode::None) || propertiesDrawer_.isDragging() || mixerDrawer_.isDragging();
+    if (!isDragging && !bounds_.contains(ev.x, ev.y)) {
+        return false;
+    }
+
     // 0a. Properties Drawer (Active Drag, Pull-Tab, or expanded sidebar interaction & scroll)
     if (propertiesDrawer_.isDragging() ||
         propertiesDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||

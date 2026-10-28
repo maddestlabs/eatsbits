@@ -3803,6 +3803,12 @@ bool DesignView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         return true;
     }
 
+    const bool isInteracting = isPanningCanvas_ || isDraggingCord_ || isPinchZooming_ || (draggingModuleIdx_ != -1) ||
+                               isDraggingDirtNoiseSlider_ || isDraggingBgOpacitySlider_ || projectDrawer_.isDragging();
+    if (!isInteracting && !bounds_.contains(ev.x, ev.y)) {
+        return false;
+    }
+
     if (ev.action == PointerAction::Down) {
         // 1. Check Sub-Nav Header clicks
         if (explorerToggleBtn_.contains(ev.x, ev.y)) {

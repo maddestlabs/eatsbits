@@ -1684,6 +1684,11 @@ bool MixerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         return false;
     }
 
+    const bool isDragging = isAnyFaderDragging() || isAnyPanDragging() || propertiesDrawer_.isDragging();
+    if (!isDragging && !bounds_.contains(ev.x, ev.y)) {
+        return false;
+    }
+
     // 0b. Top Options Toolbar
     if (toolbarBounds_.contains(ev.x, ev.y)) {
         if (ev.action == PointerAction::Down) {

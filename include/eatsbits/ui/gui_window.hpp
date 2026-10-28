@@ -760,8 +760,10 @@ public:
 
     // Hit-Testing logic
     [[nodiscard]] HitTestTransportResult hitTestTransport(float x, float y) const noexcept;
+    void executeTransportAction(TransportAction action, float x = 0.0f, float y = 0.0f);
     [[nodiscard]] std::string getTransportTooltip(float x, float y) const noexcept;
     [[nodiscard]] HitTestBottomNavResult hitTestBottomNav(float x, float y) const noexcept;
+    void executeBottomNavAction(BottomNavAction action);
     [[nodiscard]] HitTestJackResult hitTestJack(float x, float y) const noexcept;
     [[nodiscard]] HitTestKnobResult hitTestKnob(float x, float y) const noexcept;
     [[nodiscard]] HitTestHardwareKnobResult hitTestHardwareKnob(float x, float y, float faceplateX = 40.0f, float faceplateY = 98.0f, float scale = 1.0f) const noexcept;

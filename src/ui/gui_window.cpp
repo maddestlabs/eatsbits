@@ -8793,7 +8793,7 @@ void GuiWindow::drawTopTransportBar() {
     // --- POD 1: BPM READOUT CAPSULE (Center-Left) ---
     const float bpmPodX = tX + clusterW + 14.0f; // ~182px
     const float bpmPodY = 10.0f;
-    const float bpmPodW = 112.0f;
+    const float bpmPodW = (r >= 540.0f) ? 112.0f : std::clamp((r - 128.0f) - bpmPodX, 60.0f, 112.0f);
     const float bpmPodH = 36.0f;
 
     // 1. Base substrate
@@ -8830,49 +8830,51 @@ void GuiWindow::drawTopTransportBar() {
     // 4. Glass reflection gradient rendered IN FRONT of content
     drawReadoutPodGlassOverlay(bpmPodX, bpmPodY, bpmPodW, bpmPodH);
 
-    // --- POD 2: SECONDARY TIMECODE / BAR:BEAT:DIV READOUT (Right side) ---
-    int curStep = engine_ ? static_cast<int>(engine_->getSequencer().getTransport().getCurrentStep()) : 0;
-    int barNum = (curStep / 16) + 1;
-    int beatNum = ((curStep % 16) / 4) + 1;
-    int subBeat = (curStep % 4) + 1;
+    // --- POD 2: SECONDARY TIMECODE / BAR:BEAT:DIV READOUT (Right side, wide viewports r >= 600) ---
+    if (r >= 600.0f) {
+        int curStep = engine_ ? static_cast<int>(engine_->getSequencer().getTransport().getCurrentStep()) : 0;
+        int barNum = (curStep / 16) + 1;
+        int beatNum = ((curStep % 16) / 4) + 1;
+        int subBeat = (curStep % 4) + 1;
 
-    char timeBuf[32];
-    std::snprintf(timeBuf, sizeof(timeBuf), "%02d:%d:%d", barNum, beatNum, subBeat);
+        char timeBuf[32];
+        std::snprintf(timeBuf, sizeof(timeBuf), "%02d:%d:%d", barNum, beatNum, subBeat);
 
-    const float timePodW = 96.0f;
-    const float timePodH = 36.0f;
-    const float timePodX = r - 228.0f;
-    const float timePodY = 10.0f;
+        const float timePodW = 96.0f;
+        const float timePodH = 36.0f;
+        const float timePodX = r - 228.0f;
+        const float timePodY = 10.0f;
 
-    // 1. Base substrate
-    drawReadoutPodBase(timePodX, timePodY, timePodW, timePodH);
+        // 1. Base substrate
+        drawReadoutPodBase(timePodX, timePodY, timePodW, timePodH);
 
-    float timeTextX = timePodX + (timePodW - 6.0f * 10.5f) * 0.5f;
-    float timeTextY = timePodY + 8.5f;
+        float timeTextX = timePodX + (timePodW - 6.0f * 10.5f) * 0.5f;
+        float timeTextY = timePodY + 8.5f;
 
-    // 2. Soft, delicate ambient bloom behind digits
-    float timeCx = timePodX + timePodW * 0.5f;
-    float timeCy = timePodY + timePodH * 0.5f;
-    drawRoundedRect(timeCx - 26.0f, timeCy - 9.0f, 52.0f, 18.0f, 5.0f,
-                    Color(glowColor.r, glowColor.g, glowColor.b, 0.045f));
-    drawRoundedRect(timeCx - 15.0f, timeCy - 6.0f, 30.0f, 12.0f, 4.0f,
-                    Color(glowColor.r, glowColor.g, glowColor.b, 0.065f));
+        // 2. Soft, delicate ambient bloom behind digits
+        float timeCx = timePodX + timePodW * 0.5f;
+        float timeCy = timePodY + timePodH * 0.5f;
+        drawRoundedRect(timeCx - 26.0f, timeCy - 9.0f, 52.0f, 18.0f, 5.0f,
+                        Color(glowColor.r, glowColor.g, glowColor.b, 0.045f));
+        drawRoundedRect(timeCx - 15.0f, timeCy - 6.0f, 30.0f, 12.0f, 4.0f,
+                        Color(glowColor.r, glowColor.g, glowColor.b, 0.065f));
 
-    // 3. Unlit ghost segment mask
-    Color ghostCol = textColor.withAlpha(0.12f);
-    drawMonoString("88:8:8", timeTextX, timeTextY, 1.05f, ghostCol.r, ghostCol.g, ghostCol.b, ghostCol.a);
+        // 3. Unlit ghost segment mask
+        Color ghostCol = textColor.withAlpha(0.12f);
+        drawMonoString("88:8:8", timeTextX, timeTextY, 1.05f, ghostCol.r, ghostCol.g, ghostCol.b, ghostCol.a);
 
-    // 4. Active illuminated digits with subtle, softened bloom
-    drawMonoString(timeBuf, timeTextX - 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
-    drawMonoString(timeBuf, timeTextX + 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
-    drawMonoString(timeBuf, timeTextX, timeTextY - 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
-    drawMonoString(timeBuf, timeTextX, timeTextY + 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
-    drawMonoString(timeBuf, timeTextX - 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
-    drawMonoString(timeBuf, timeTextX + 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
-    drawMonoString(timeBuf, timeTextX, timeTextY, 1.05f, textColor.r, textColor.g, textColor.b, 0.98f);
+        // 4. Active illuminated digits with subtle, softened bloom
+        drawMonoString(timeBuf, timeTextX - 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+        drawMonoString(timeBuf, timeTextX + 1.2f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+        drawMonoString(timeBuf, timeTextX, timeTextY - 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+        drawMonoString(timeBuf, timeTextX, timeTextY + 1.0f, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.07f);
+        drawMonoString(timeBuf, timeTextX - 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+        drawMonoString(timeBuf, timeTextX + 0.6f, timeTextY, 1.05f, glowColor.r, glowColor.g, glowColor.b, 0.16f);
+        drawMonoString(timeBuf, timeTextX, timeTextY, 1.05f, textColor.r, textColor.g, textColor.b, 0.98f);
 
-    // 5. Glass reflection gradient rendered IN FRONT of content
-    drawReadoutPodGlassOverlay(timePodX, timePodY, timePodW, timePodH);
+        // 5. Glass reflection gradient rendered IN FRONT of content
+        drawReadoutPodGlassOverlay(timePodX, timePodY, timePodW, timePodH);
+    }
 
     // =========================================================================
     // 5. RIGHT TACTILE HARDWARE BUTTONS (Lock, Search, Folder)
@@ -10403,18 +10405,7 @@ std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
         return "Toggle Recording (R)";
     }
 
-    // 2. Minimal Recessed BPM Display Capsule [176 to 296]
-    if (x >= 176.0f && x <= 296.0f && y >= 8.0f && y <= 48.0f) {
-        int bpmVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getBpm())) : 120;
-        return "Project Tempo: " + std::to_string(bpmVal) + " BPM (Click to Edit)";
-    }
-
-    // Secondary Timecode / Bar:Beat:Div Readout [r - 228 to r - 132]
-    if (x >= (r - 228.0f) && x < (r - 132.0f) && y >= 8.0f && y <= 48.0f) {
-        return "Song Position (Bar : Beat : 16th)";
-    }
-
-    // 3. Right-Side Tactile Pushbuttons:
+    // 2. Right-Side Tactile Pushbuttons:
     // Command Palette Button [r - 122 to r - 83]
     if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
         return commandPaletteDialog_.isOpen() ? "Close Command Palette (Ctrl+P)" : "Command Palette (Ctrl+P / Ctrl+K)";
@@ -10430,24 +10421,39 @@ std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
         return browserOpen_ ? "Close Preset & Sample Browser (B)" : "Preset & Sample Browser (B)";
     }
 
-    // Snap Selector Box [695, 11, 65, 34]
-    if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
-        return "Timeline Grid Snap (1/16)";
+    // 3. Recessed BPM Display Capsule
+    const float bpmRight = (r >= 540.0f) ? 296.0f : std::clamp(r - 124.0f, 176.0f + 60.0f, 296.0f);
+    if (x >= 176.0f && x <= bpmRight && y >= 8.0f && y <= 48.0f) {
+        int bpmVal = engine_ ? static_cast<int>(std::round(engine_->getSequencer().getTransport().getBpm())) : 120;
+        return "Project Tempo: " + std::to_string(bpmVal) + " BPM (Click to Edit)";
     }
 
-    // Scale Selector Box [r - 345, 11, 72, 34]
-    if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
-        return "Musical Scale & Key Selector";
+    // Secondary Timecode / Bar:Beat:Div Readout [r - 228 to r - 132] (Wide screens r >= 600)
+    if (r >= 600.0f && x >= (r - 228.0f) && x < (r - 132.0f) && y >= 8.0f && y <= 48.0f) {
+        return "Song Position (Bar : Beat : 16th)";
     }
 
-    // Metronome Toggle [r - 265, 11, 75, 34]
-    if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
-        return "Metronome Click (C)";
-    }
+    // 4. Desktop-only Selector Boxes (only on wide screens r >= 1000 to prevent collisions on mobile)
+    if (r >= 1000.0f) {
+        // Snap Selector Box [695, 11, 65, 34]
+        if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
+            return "Timeline Grid Snap (1/16)";
+        }
 
-    // Loop Toggle [r - 180, 11, 65, 34]
-    if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
-        return "Loop Playback (L)";
+        // Scale Selector Box [r - 345, 11, 72, 34]
+        if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
+            return "Musical Scale & Key Selector";
+        }
+
+        // Metronome Toggle [r - 265, 11, 75, 34]
+        if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
+            return "Metronome Click (C)";
+        }
+
+        // Loop Toggle [r - 180, 11, 65, 34]
+        if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
+            return "Loop Playback (L)";
+        }
     }
 
     return "";
@@ -10461,8 +10467,8 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
 
     const float r = static_cast<float>(width_);
 
-    // 0. Top-Left Eatsbits Brand Logo (opens Project Hub / Settings dialog) [10 to 46]
-    if (x >= 10.0f && x <= 46.0f && y >= 8.0f && y <= 48.0f) {
+    // 0. Top-Left Eatsbits Brand Logo (opens Project Hub / Settings dialog) [8 to 50]
+    if (x >= 8.0f && x <= 50.0f && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::ProjectHubToggle;
         return res;
@@ -10485,18 +10491,11 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
         return res;
     }
 
-    // 2. Minimal Recessed BPM Display Capsule [178 to 294]
-    if (x >= 176.0f && x <= 296.0f && y >= 8.0f && y <= 48.0f) {
+    // 2. Right-Side Tactile Pushbuttons:
+    // Folder / Preset Library Button [r - 43 to r - 4]
+    if (x >= (r - 43.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
-        res.action = TransportAction::Bpm;
-        return res;
-    }
-
-    // 3. Right-Side Tactile Pushbuttons:
-    // Command Palette Button [r - 122 to r - 83]
-    if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
-        res.hit = true;
-        res.action = TransportAction::SearchToggle;
+        res.action = TransportAction::BrowserToggle;
         return res;
     }
 
@@ -10507,78 +10506,82 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
         return res;
     }
 
-    // Folder / Preset Library Button [r - 43 to r - 4]
-    if (x >= (r - 43.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
+    // Command Palette Button [r - 122 to r - 83]
+    if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
-        res.action = TransportAction::BrowserToggle;
+        res.action = TransportAction::SearchToggle;
         return res;
     }
 
-    // Snap Selector Box [695, 11, 65, 34]
-    if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
+    // 3. Minimal Recessed BPM Display Capsule [176 to responsive right boundary]
+    const float bpmRight = (r >= 540.0f) ? 296.0f : std::clamp(r - 124.0f, 176.0f + 60.0f, 296.0f);
+    if (x >= 176.0f && x <= bpmRight && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
-        res.action = TransportAction::SnapToggle;
+        res.action = TransportAction::Bpm;
         return res;
     }
 
-    // Scale Selector Box [r - 345, 11, 72, 34]
-    if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
-        res.hit = true;
-        res.action = TransportAction::ScaleToggle;
-        return res;
-    }
+    // 4. Desktop-only Selector Boxes (only on wide screens r >= 1000 to prevent collisions on mobile)
+    if (r >= 1000.0f) {
+        // Snap Selector Box [695, 11, 65, 34]
+        if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
+            res.hit = true;
+            res.action = TransportAction::SnapToggle;
+            return res;
+        }
 
-    // Metronome Toggle [r - 265, 11, 75, 34]
-    if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
-        res.hit = true;
-        res.action = TransportAction::MetronomeToggle;
-        return res;
-    }
+        // Scale Selector Box [r - 345, 11, 72, 34]
+        if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
+            res.hit = true;
+            res.action = TransportAction::ScaleToggle;
+            return res;
+        }
 
-    // Loop Toggle [r - 180, 11, 65, 34]
-    if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
-        res.hit = true;
-        res.action = TransportAction::LoopToggle;
-        return res;
-    }
+        // Metronome Toggle [r - 265, 11, 75, 34]
+        if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
+            res.hit = true;
+            res.action = TransportAction::MetronomeToggle;
+            return res;
+        }
 
-    // Project Browser Button [r - 105, 11, 85, 34]
-    if (x >= (r - 105.0f) && x <= (r - 20.0f) && y >= 11.0f && y <= 45.0f) {
-        res.hit = true;
-        res.action = TransportAction::BrowserToggle;
-        return res;
-    }
+        // Loop Toggle [r - 180, 11, 65, 34]
+        if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
+            res.hit = true;
+            res.action = TransportAction::LoopToggle;
+            return res;
+        }
 
-    // Legacy tab positions (for backwards compatibility if invoked directly):
-    // Tab Rack [r - 430, 12, 68, 32]
-    if (x >= (r - 430.0f) && x <= (r - 362.0f) && y >= 12.0f && y <= 44.0f) {
-        res.hit = true;
-        res.action = TransportAction::TabRack;
-        return res;
-    }
-    // Tab Hardware Panel [r - 355, 12, 75, 32]
-    if (x >= (r - 355.0f) && x <= (r - 280.0f) && y >= 12.0f && y <= 44.0f) {
-        res.hit = true;
-        res.action = TransportAction::TabHardware;
-        return res;
-    }
-    // Tab Tracker [r - 274, 12, 80, 32]
-    if (x >= (r - 274.0f) && x <= (r - 194.0f) && y >= 12.0f && y <= 44.0f) {
-        res.hit = true;
-        res.action = TransportAction::TabTracker;
-        return res;
-    }
-    // Tab Mixer [r - 188, 12, 75, 32]
-    if (x >= (r - 188.0f) && x <= (r - 113.0f) && y >= 12.0f && y <= 44.0f) {
-        res.hit = true;
-        res.action = TransportAction::TabMixer;
-        return res;
-    }
-    // Tab Script [r - 106, 12, 75, 32]
-    if (x >= (r - 106.0f) && x <= (r - 31.0f) && y >= 12.0f && y <= 44.0f) {
-        res.hit = true;
-        res.action = TransportAction::TabEatscript;
-        return res;
+        // Legacy tab positions (for wide displays backwards compatibility if invoked directly):
+        // Tab Rack [r - 430, 12, 68, 32]
+        if (x >= (r - 430.0f) && x <= (r - 362.0f) && y >= 12.0f && y <= 44.0f) {
+            res.hit = true;
+            res.action = TransportAction::TabRack;
+            return res;
+        }
+        // Tab Hardware Panel [r - 355, 12, 75, 32]
+        if (x >= (r - 355.0f) && x <= (r - 280.0f) && y >= 12.0f && y <= 44.0f) {
+            res.hit = true;
+            res.action = TransportAction::TabHardware;
+            return res;
+        }
+        // Tab Tracker [r - 274, 12, 80, 32]
+        if (x >= (r - 274.0f) && x <= (r - 194.0f) && y >= 12.0f && y <= 44.0f) {
+            res.hit = true;
+            res.action = TransportAction::TabTracker;
+            return res;
+        }
+        // Tab Mixer [r - 188, 12, 75, 32]
+        if (x >= (r - 188.0f) && x <= (r - 113.0f) && y >= 12.0f && y <= 44.0f) {
+            res.hit = true;
+            res.action = TransportAction::TabMixer;
+            return res;
+        }
+        // Tab Script [r - 106, 12, 75, 32]
+        if (x >= (r - 106.0f) && x <= (r - 31.0f) && y >= 12.0f && y <= 44.0f) {
+            res.hit = true;
+            res.action = TransportAction::TabEatscript;
+            return res;
+        }
     }
 
     // Preset switcher buttons (when activeView_ == HardwarePanel / Track):
@@ -10625,6 +10628,192 @@ HitTestBottomNavResult GuiWindow::hitTestBottomNav(float x, float y) const noexc
         }
     }
     return res;
+}
+
+void GuiWindow::executeTransportAction(TransportAction action, float x, float y) {
+    switch (action) {
+        case TransportAction::ProjectHubToggle:
+            projectHubOpen_ = !projectHubOpen_;
+            if (projectHubOpen_) browserOpen_ = false;
+            break;
+        case TransportAction::PlayPause:
+            if (engine_) {
+                if (engine_->getSequencer().isPlaying()) {
+                    engine_->stopPlayback();
+                } else {
+                    engine_->getSequencer().start();
+                }
+            }
+            break;
+        case TransportAction::Stop:
+            if (engine_) {
+                auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                if ((nowMs - lastStopClickTimeMs_) < 400) {
+                    engine_->panic();
+                    setStatusMessage("[PANIC] Full Audio Stop: All buffers flushed & voices killed");
+                } else {
+                    engine_->stopPlayback();
+                }
+                lastStopClickTimeMs_ = nowMs;
+            }
+            break;
+        case TransportAction::Record:
+            break;
+        case TransportAction::Bpm:
+            if (engine_) {
+                if (isCtrlPressed()) {
+                    engine_->getSequencer().setBpm(120.0f);
+                    setStatusMessage("Tempo reset: 120.0 BPM");
+                } else {
+                    dragStartY_ = y;
+                    dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getBpm());
+                    presenter::ScalarDragConfig cfg{};
+                    cfg.dragMode = DragMode::BpmScrubber;
+                    cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                    cfg.minValue = 40.0f;
+                    cfg.maxValue = 300.0f;
+                    cfg.defaultValue = 120.0f;
+                    cfg.sensitivity = 0.5f;
+                    cfg.relativeMode = true;
+                    cfg.captureMouse = true;
+                    scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
+                        [this](float bpm) {
+                            if (engine_) {
+                                engine_->getSequencer().setBpm(bpm);
+                                char buf[64];
+                                std::snprintf(buf, sizeof(buf), "Tempo: %.1f BPM", bpm);
+                                setStatusMessage(buf);
+                            }
+                        });
+                    activeDragHandler_ = &scalarDragPresenter_;
+                    dragMode_ = DragMode::BpmScrubber;
+                }
+            }
+            break;
+        case TransportAction::Swing:
+            if (engine_) {
+                if (isCtrlPressed()) {
+                    engine_->getSequencer().setSwing(0.0f);
+                    break;
+                }
+                dragStartY_ = y;
+                dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getSwing());
+                presenter::ScalarDragConfig cfg{};
+                cfg.dragMode = DragMode::SwingScrubber;
+                cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+                cfg.minValue = 0.0f;
+                cfg.maxValue = 0.75f;
+                cfg.defaultValue = 0.0f;
+                cfg.sensitivity = 0.005f;
+                cfg.relativeMode = true;
+                cfg.captureMouse = true;
+                scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
+                    [this](float sw) {
+                        if (engine_) engine_->getSequencer().setSwing(sw);
+                    });
+                activeDragHandler_ = &scalarDragPresenter_;
+                dragMode_ = DragMode::SwingScrubber;
+            }
+            break;
+        case TransportAction::MasterVol: {
+            if (isCtrlPressed()) {
+                setMasterVolume(1.0f);
+                break;
+            }
+            dragStartY_ = y;
+            dragStartValGeneric_ = masterVolume_;
+            presenter::ScalarDragConfig cfg{};
+            cfg.dragMode = DragMode::MasterVolume;
+            cfg.direction = presenter::DragDirection::VerticalUpIncreases;
+            cfg.minValue = 0.0f;
+            cfg.maxValue = 1.5f;
+            cfg.defaultValue = 1.0f;
+            cfg.sensitivity = 1.5f / 280.0f;
+            cfg.relativeMode = true;
+            cfg.captureMouse = true;
+            scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
+                [this](float v) { setMasterVolume(v); });
+            activeDragHandler_ = &scalarDragPresenter_;
+            dragMode_ = DragMode::MasterVolume;
+            break;
+        }
+        case TransportAction::BrowserToggle:
+            toggleBrowser();
+            if (browserOpen_) projectHubOpen_ = false;
+            break;
+        case TransportAction::FullscreenToggle:
+            toggleFullscreen();
+            break;
+        case TransportAction::SearchToggle:
+            toggleCommandPalette();
+            break;
+        case TransportAction::SnapToggle:
+            break;
+        case TransportAction::ScaleToggle:
+            if (uiScale_ < 0.80f) setUiScale(0.85f);
+            else if (uiScale_ < 0.95f) setUiScale(1.0f);
+            else if (uiScale_ < 1.15f) setUiScale(1.25f);
+            else if (uiScale_ < 1.40f) setUiScale(1.50f);
+            else setUiScale(0.75f);
+            break;
+        case TransportAction::TabRack:
+            setActiveView(WorkspaceView::ModularRack);
+            break;
+        case TransportAction::TabHardware:
+            syncTrackToPreset(selectedTrackIndex_);
+            setActiveView(WorkspaceView::HardwarePanel);
+            break;
+        case TransportAction::TabTracker:
+            setActiveView(WorkspaceView::Tracker);
+            break;
+        case TransportAction::TabMixer:
+            setActiveView(WorkspaceView::Mixer);
+            break;
+        case TransportAction::TabEatscript:
+            setActiveView(WorkspaceView::Edit);
+            setEditSubView(EditSubView::Script);
+            break;
+        case TransportAction::PresetPrev:
+            prevPreset();
+            break;
+        case TransportAction::PresetNext:
+            nextPreset();
+            break;
+        default:
+            break;
+    }
+    markNeedsRedraw();
+}
+
+void GuiWindow::executeBottomNavAction(BottomNavAction action) {
+    switch (action) {
+        case BottomNavAction::Arranger:
+            setActiveView(WorkspaceView::Arranger);
+            break;
+        case BottomNavAction::Edit:
+            setActiveView(WorkspaceView::Edit);
+            break;
+        case BottomNavAction::Track:
+            if (modularArrangerView_) {
+                selectedTrackIndex_ = modularArrangerView_->getActiveTrackIndex();
+                modularArrangerView_->syncDrawerDataForTrack(selectedTrackIndex_);
+                if (modularTrackInspectorView_) {
+                    modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
+                }
+            }
+            setActiveView(WorkspaceView::Track);
+            break;
+        case BottomNavAction::Mixer:
+            setActiveView(WorkspaceView::Mixer);
+            break;
+        case BottomNavAction::Design:
+            setActiveView(WorkspaceView::Design);
+            break;
+        default:
+            break;
+    }
+    markNeedsRedraw();
 }
 
 HitTestMixerResult GuiWindow::hitTestMixer(float x, float y) const noexcept {
@@ -16029,6 +16218,14 @@ void GuiWindow::onMouseMove(float x, float y) {
         }
     }
 
+    // Top transport header bar and bottom navigation bar absorb mouse moves when not dragging
+    const float bPanelY = static_cast<float>(height_) - 48.0f;
+    if (dragMode_ == DragMode::None && (y <= 56.0f || y >= bPanelY)) {
+        mouseX_ = x;
+        mouseY_ = y;
+        return;
+    }
+
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         ViewContext ctx = createViewContext();
         PointerEvent pev;
@@ -16526,7 +16723,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (commandPaletteDialog_.handlePointer(pev)) return;
+        commandPaletteDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
@@ -16544,7 +16743,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
     }
 
     if (valueEditDialog_.isOpen()) {
-
         PointerEvent pev;
         pev.type = PointerType::Mouse;
         pev.action = PointerAction::Down;
@@ -16553,7 +16751,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (valueEditDialog_.handlePointer(pev)) return;
+        valueEditDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (audioToMidiDialog_.isOpen()) {
@@ -16565,7 +16765,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (audioToMidiDialog_.handlePointer(pev)) return;
+        audioToMidiDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (macroRunnerDialog_.isOpen()) {
@@ -16577,10 +16779,9 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (macroRunnerDialog_.handlePointer(pev)) {
-            markNeedsRedraw();
-            return;
-        }
+        macroRunnerDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     // Intercept if Dedicated Full-Display Device GUI is open
@@ -17037,185 +17238,21 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             }
         }
 
-        // 1. Check Top Transport Header Hit
-        auto transportHit = hitTestTransport(x, y);
-        if (transportHit.hit) {
-            switch (transportHit.action) {
-                case TransportAction::ProjectHubToggle:
-                    projectHubOpen_ = !projectHubOpen_;
-                    if (projectHubOpen_) browserOpen_ = false;
-                    break;
-                case TransportAction::PlayPause:
-                    if (engine_) {
-                        if (engine_->getSequencer().isPlaying()) {
-                            engine_->stopPlayback();
-                        } else {
-                            engine_->getSequencer().start();
-                        }
-                    }
-                    break;
-                case TransportAction::Stop:
-                    if (engine_) {
-                        auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch()).count();
-                        if ((nowMs - lastStopClickTimeMs_) < 400) {
-                            engine_->panic();
-                            setStatusMessage("[PANIC] Full Audio Stop: All buffers flushed & voices killed");
-                        } else {
-                            engine_->stopPlayback();
-                        }
-                        lastStopClickTimeMs_ = nowMs;
-                    }
-                    break;
-                case TransportAction::Record:
-                    break;
-                case TransportAction::Bpm:
-                    if (engine_) {
-                        if (isCtrlPressed()) {
-                            engine_->getSequencer().setBpm(120.0f);
-                            break;
-                        }
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getBpm());
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::BpmScrubber;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = 40.0f;
-                        cfg.maxValue = 300.0f;
-                        cfg.defaultValue = 120.0f;
-                        cfg.sensitivity = 0.5f;
-                        cfg.relativeMode = true;
-                        cfg.captureMouse = true;
-                        scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
-                            [this](float bpm) {
-                                if (engine_) engine_->getSequencer().setBpm(bpm);
-                            });
-                        activeDragHandler_ = &scalarDragPresenter_;
-                        dragMode_ = DragMode::BpmScrubber;
-                    }
-                    break;
-                case TransportAction::Swing:
-                    if (engine_) {
-                        if (isCtrlPressed()) {
-                            engine_->getSequencer().setSwing(0.0f);
-                            break;
-                        }
-                        dragStartY_ = y;
-                        dragStartValGeneric_ = static_cast<float>(engine_->getSequencer().getSwing());
-                        presenter::ScalarDragConfig cfg{};
-                        cfg.dragMode = DragMode::SwingScrubber;
-                        cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                        cfg.minValue = 0.0f;
-                        cfg.maxValue = 0.75f;
-                        cfg.defaultValue = 0.0f;
-                        cfg.sensitivity = 0.005f;
-                        cfg.relativeMode = true;
-                        cfg.captureMouse = true;
-                        scalarDragPresenter_.startDrag(x, y, dragStartValGeneric_, cfg,
-                            [this](float sw) {
-                                if (engine_) engine_->getSequencer().setSwing(sw);
-                            });
-                        activeDragHandler_ = &scalarDragPresenter_;
-                        dragMode_ = DragMode::SwingScrubber;
-                    }
-                    break;
-                case TransportAction::MasterVol: {
-                    if (isCtrlPressed()) {
-                        setMasterVolume(1.0f);
-                        break;
-                    }
-                    dragStartY_ = y;
-                    dragStartValGeneric_ = masterVolume_;
-                    presenter::ScalarDragConfig cfg{};
-                    cfg.dragMode = DragMode::MasterVolume;
-                    cfg.direction = presenter::DragDirection::VerticalUpIncreases;
-                    cfg.minValue = 0.0f;
-                    cfg.maxValue = 1.5f;
-                    cfg.defaultValue = 1.0f;
-                    cfg.sensitivity = 1.5f / 280.0f;
-                    cfg.relativeMode = true;
-                    cfg.captureMouse = true;
-                    scalarDragPresenter_.startDrag(x, y, masterVolume_, cfg,
-                        [this](float v) { setMasterVolume(v); });
-                    activeDragHandler_ = &scalarDragPresenter_;
-                    dragMode_ = DragMode::MasterVolume;
-                    break;
-                }
-                case TransportAction::LoopToggle:
-                    toggleLoop();
-                    break;
-                case TransportAction::MetronomeToggle:
-                    toggleMetronome();
-                    break;
-                case TransportAction::BrowserToggle:
-                    toggleBrowser();
-                    if (browserOpen_) projectHubOpen_ = false;
-                    break;
-                case TransportAction::FullscreenToggle:
-                    toggleFullscreen();
-                    break;
-                case TransportAction::SearchToggle:
-                    toggleCommandPalette();
-                    break;
-                case TransportAction::SnapToggle:
-                    break;
-                case TransportAction::ScaleToggle:
-                    if (uiScale_ < 0.80f) setUiScale(0.85f);
-                    else if (uiScale_ < 0.95f) setUiScale(1.0f);
-                    else if (uiScale_ < 1.15f) setUiScale(1.25f);
-                    else if (uiScale_ < 1.40f) setUiScale(1.50f);
-                    else setUiScale(0.75f);
-                    break;
-                case TransportAction::TabRack:
-                    setActiveView(WorkspaceView::ModularRack);
-                    break;
-                case TransportAction::TabHardware:
-                    syncTrackToPreset(selectedTrackIndex_);
-                    setActiveView(WorkspaceView::HardwarePanel);
-                    break;
-                case TransportAction::PresetPrev:
-                    prevPreset();
-                    break;
-                case TransportAction::PresetNext:
-                    nextPreset();
-                    break;
-                case TransportAction::Toggle3dConsole:
-                case TransportAction::ToggleCameraFocus:
-                    break;
-                default:
-                    break;
+        // 1. Check Top Transport Header Hit (Height = 56px) - Always absorbs hits to prevent fallthrough
+        if (y >= 0.0f && y <= 56.0f) {
+            auto transportHit = hitTestTransport(x, y);
+            if (transportHit.hit) {
+                executeTransportAction(transportHit.action, x, y);
             }
             return;
         }
 
-        // 2. Check Bottom Navigation Control Strip Hit
-        auto navHit = hitTestBottomNav(x, y);
-        if (navHit.hit) {
-            switch (navHit.action) {
-                case BottomNavAction::Arranger:
-                    setActiveView(WorkspaceView::Arranger);
-                    break;
-                case BottomNavAction::Edit:
-                    setActiveView(WorkspaceView::Edit);
-                    break;
-                case BottomNavAction::Track:
-                    if (modularArrangerView_) {
-                        selectedTrackIndex_ = modularArrangerView_->getActiveTrackIndex();
-                        modularArrangerView_->syncDrawerDataForTrack(selectedTrackIndex_);
-                        if (modularTrackInspectorView_) {
-                            modularTrackInspectorView_->syncFromDrawerData(modularArrangerView_->getDrawerData());
-                        }
-                    }
-                    setActiveView(WorkspaceView::Track);
-                    break;
-                case BottomNavAction::Mixer:
-                    setActiveView(WorkspaceView::Mixer);
-                    break;
-                case BottomNavAction::Design:
-                    setActiveView(WorkspaceView::Design);
-                    break;
-                default:
-                    break;
+        // 2. Check Bottom Navigation Control Strip Hit (Height = 48px) - Always absorbs hits to prevent fallthrough
+        const float bPanelY = static_cast<float>(height_) - 48.0f;
+        if (y >= bPanelY && y <= static_cast<float>(height_)) {
+            auto navHit = hitTestBottomNav(x, y);
+            if (navHit.hit) {
+                executeBottomNavAction(navHit.action);
             }
             return;
         }
@@ -17714,7 +17751,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
 
             // 0. Check Note Selection Sidebar Hit first
             if (activeTrk && activeTrk->hasSelectedNotes()) {
-                const float bPanelY = static_cast<float>(height_) - 48.0f;
                 const float sbW = 265.0f;
                 const float sbX = static_cast<float>(width_) - sbW - 10.0f;
                 const float sbY = 98.0f;
@@ -18473,7 +18509,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (commandPaletteDialog_.handlePointer(pev)) return;
+        commandPaletteDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (audioToMidiDialog_.isOpen()) {
@@ -18485,7 +18523,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (audioToMidiDialog_.handlePointer(pev)) return;
+        audioToMidiDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (macroRunnerDialog_.isOpen()) {
@@ -18497,10 +18537,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (macroRunnerDialog_.handlePointer(pev)) {
-            markNeedsRedraw();
-            return;
-        }
+        macroRunnerDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (themeBrowserDialog_.isOpen()) {
@@ -18527,7 +18566,9 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.y = y;
         pev.rawX = x;
         pev.rawY = y;
-        if (activePluginDialog->handlePointer(pev)) return;
+        activePluginDialog->handlePointer(pev);
+        markNeedsRedraw();
+        return;
     }
 
     if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
@@ -18540,6 +18581,7 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        markNeedsRedraw();
         return;
     }
 
@@ -18560,6 +18602,12 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(x, y)) {
             return;
         }
+    }
+
+    // Top transport header bar and bottom navigation bar absorb mouse releases when not dragging
+    const float bPanelY = static_cast<float>(height_) - 48.0f;
+    if (dragMode_ == DragMode::None && (y <= 56.0f || y >= bPanelY)) {
+        return;
     }
 
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
@@ -18949,6 +18997,9 @@ void GuiWindow::onTouchDown(int id, float x, float y, float pressure) {
     pev.mods.ctrl = isCtrlPressed();
     pev.mods.alt = isAltPressed();
 
+    mouseX_ = x;
+    mouseY_ = y;
+
     onPointerEvent(pev);
 }
 
@@ -18984,6 +19035,9 @@ void GuiWindow::onTouchMove(int id, float x, float y, float pressure) {
     pev.mods.ctrl = isCtrlPressed();
     pev.mods.alt = isAltPressed();
 
+    mouseX_ = x;
+    mouseY_ = y;
+
     onPointerEvent(pev);
 }
 
@@ -19012,6 +19066,9 @@ void GuiWindow::onTouchUp(int id, float x, float y) {
     pev.mods.shift = isShiftPressed();
     pev.mods.ctrl = isCtrlPressed();
     pev.mods.alt = isAltPressed();
+
+    mouseX_ = x;
+    mouseY_ = y;
 
     onPointerEvent(pev);
 }
@@ -19042,7 +19099,173 @@ void GuiWindow::onTouchCancel(int id, float x, float y) {
 }
 
 void GuiWindow::onPointerEvent(const PointerEvent& pev) {
-    // 1. Mixer View pointer routing (Full Multi-Touch for multi-fader and multi-pan mixing)
+    // 0. Update cursor tracking for tooltips and hover state
+    mouseX_ = pev.x;
+    mouseY_ = pev.y;
+
+    // 1. Modals (highest Z-order): Always absorb events to prevent background fallthrough
+    ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
+    if (activeColorPicker && activeColorPicker->isOpen()) {
+        activeColorPicker->handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (commandPaletteDialog_.isOpen()) {
+        commandPaletteDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) {
+        modularArrangerView_->getIconSearchDialog().handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (valueEditDialog_.isOpen()) {
+        valueEditDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (audioToMidiDialog_.isOpen()) {
+        audioToMidiDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (macroRunnerDialog_.isOpen()) {
+        macroRunnerDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (fullscreenDeviceModal_.isOpen()) {
+        fullscreenDeviceModal_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (themeBrowserDialog_.isOpen()) {
+        themeBrowserDialog_.handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
+    if (activePluginDialog && activePluginDialog->isOpen()) {
+        activePluginDialog->handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
+        modularArrangerView_->getCircleOfFifthsDialog().handlePointer(pev);
+        markNeedsRedraw();
+        return;
+    }
+
+    if (projectHubOpen_) {
+        if (pev.action == PointerAction::Down) {
+            auto hubHit = hitTestProjectHub(pev.x, pev.y);
+            if (hubHit.hit) {
+                onMouseDown(0, pev.x, pev.y);
+            } else {
+                projectHubOpen_ = false;
+                isEditingTitle_ = false;
+                isEditingAuthor_ = false;
+            }
+        } else if (pev.action == PointerAction::Move) {
+            onMouseMove(pev.x, pev.y);
+        } else if (pev.action == PointerAction::Up) {
+            onMouseUp(0, pev.x, pev.y);
+        }
+        markNeedsRedraw();
+        return;
+    }
+
+    // 2. Sliding Drawers & Sidebars
+    if (browserOpen_ && projectBrowserDrawerWidget_) {
+        bool handled = projectBrowserDrawerWidget_->handlePointer(pev);
+        if (handled || projectBrowserDrawerWidget_->getDrawerBounds().contains(pev.x, pev.y)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
+
+    // 3. Top Machined Faceplate Transport Header (y <= 56px) - Always absorbs hits
+    if (pev.y >= 0.0f && pev.y <= 56.0f) {
+        if (pev.action == PointerAction::Down) {
+            auto transportHit = hitTestTransport(pev.x, pev.y);
+            if (transportHit.hit) {
+                executeTransportAction(transportHit.action, pev.x, pev.y);
+            }
+        } else if (pev.action == PointerAction::Move) {
+            if (dragMode_ == DragMode::BpmScrubber || dragMode_ == DragMode::SwingScrubber || dragMode_ == DragMode::MasterVolume) {
+                onMouseMove(pev.x, pev.y);
+            }
+        } else if (pev.action == PointerAction::Up) {
+            if (dragMode_ == DragMode::BpmScrubber || dragMode_ == DragMode::SwingScrubber || dragMode_ == DragMode::MasterVolume) {
+                onMouseUp(0, pev.x, pev.y);
+            }
+        }
+        markNeedsRedraw();
+        return;
+    }
+
+    // 4. Bottom Hardware Navigation Control Strip (y >= height - 48px) - Always absorbs hits
+    const float bPanelY = static_cast<float>(height_) - 48.0f;
+    if (pev.y >= bPanelY && pev.y <= static_cast<float>(height_)) {
+        if (pev.action == PointerAction::Down) {
+            auto navHit = hitTestBottomNav(pev.x, pev.y);
+            if (navHit.hit) {
+                executeBottomNavAction(navHit.action);
+            }
+        }
+        markNeedsRedraw();
+        return;
+    }
+
+    // 5. Virtual Keyboard Drawer (if open)
+    auto drawerHit = hitTestVirtualKeyboardDrawer(pev.x, pev.y);
+    if (drawerHit.hit) {
+        if (pev.action == PointerAction::Down) {
+            if (drawerHit.isPullTab) {
+                toggleVirtualKeyboardDrawer();
+                return;
+            }
+            if (drawerHit.isOctaveDown) {
+                setVirtualKeyboardBaseOctave(virtualKeyboardBaseOctave_ - 1);
+                return;
+            }
+            if (drawerHit.isOctaveUp) {
+                setVirtualKeyboardBaseOctave(virtualKeyboardBaseOctave_ + 1);
+                return;
+            }
+            if (drawerHit.isKey) {
+                virtualKeyboardActivePitch_ = drawerHit.pitch;
+                previewingPitch_ = drawerHit.pitch;
+                previewingVelocity_ = drawerHit.velocity;
+                if (engine_) {
+                    engine_->postNoteOn(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
+                }
+                return;
+            }
+        } else if (pev.action == PointerAction::Up) {
+            if (virtualKeyboardActivePitch_ != -1) {
+                if (engine_) {
+                    engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_), false);
+                }
+                virtualKeyboardActivePitch_ = -1;
+                previewingPitch_ = -1;
+            }
+            return;
+        }
+        return;
+    }
+
+    // 6. Active Workspace Views (Mixer, Design, Arranger, Edit/Tracker, HardwarePanel)
     if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
         const float topY = 56.0f;
         const float bottomY = static_cast<float>(height_) - 48.0f - 6.0f;
@@ -19060,7 +19283,6 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
         mixerPropertiesWidth_ = modularMixerView_->getPropertiesWidth();
     }
 
-    // 2. Modular Design View routing
     if ((activeView_ == WorkspaceView::Design || activeView_ == WorkspaceView::ModularRack) && modularDesignView_) {
         ViewContext ctx = createViewContext();
         if (modularDesignView_->handlePointer(pev, ctx)) {
@@ -19068,7 +19290,6 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
         }
     }
 
-    // 3. Arranger View routing
     if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
         ViewContext ctx = createViewContext();
         if (modularArrangerView_->handlePointer(pev, ctx)) {
@@ -19076,7 +19297,6 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
         }
     }
 
-    // 4. Edit / Tracker View routing
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
         ViewContext ctx = createViewContext();
         if (selectedTrackIndex_ < arrangerTracks_.size()) {
@@ -19088,7 +19308,14 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
         }
     }
 
-    // 5. Fallback for single-touch on legacy views/controls
+    if ((activeView_ == WorkspaceView::Track || activeView_ == WorkspaceView::HardwarePanel) && modularTrackInspectorView_) {
+        ViewContext ctx = createViewContext();
+        if (modularTrackInspectorView_->handlePointer(pev, ctx)) {
+            return;
+        }
+    }
+
+    // 7. Fallback for single-touch on legacy views/controls
     if (activeTouchContacts_.size() <= 1) {
         if (pev.action == PointerAction::Down) {
             onMouseDown(0, pev.x, pev.y);

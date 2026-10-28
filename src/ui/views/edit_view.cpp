@@ -2294,6 +2294,11 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         return true;
     }
 
+    const bool isDragging = (dragMode_ != DragMode::None);
+    if (!isDragging && !bounds_.contains(ev.x, ev.y)) {
+        return false;
+    }
+
     if (ev.action == PointerAction::Down) {
         // Clear text editor focus if clicking outside the script editor or in a non-script subview
         if (subView_ != EditSubViewMode::Script || !scriptEditorBounds_.contains(ev.x, ev.y)) {
