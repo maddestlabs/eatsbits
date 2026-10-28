@@ -113,7 +113,7 @@ void MacroRunnerDialog::layout(float screenW, float screenH) {
     macroPillBounds_.clear();
     const float pillGap = 6.0f;
     const size_t pillCount = macros.size();
-    const float pillW = std::min(130.0f, (w - 48.0f - (pillCount - 1) * pillGap) / std::max(1ULL, pillCount));
+    const float pillW = std::min(130.0f, (w - 48.0f - (pillCount - 1) * pillGap) / std::max<size_t>(1, pillCount));
     for (size_t i = 0; i < pillCount; ++i) {
         macroPillBounds_.push_back(Rect2D(x + 24.0f + i * (pillW + pillGap), macroBarY, pillW, 26.0f));
     }
