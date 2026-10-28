@@ -18,6 +18,7 @@ struct ArrangerClip {
     bool isReversed{false};
     float gainDb{0.0f};
     float r{0.0f}, g{0.9f}, b{1.0f};
+    std::string eatscriptCode{""};
 };
 
 struct ArrangerTrackData {

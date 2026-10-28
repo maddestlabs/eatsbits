@@ -1,13 +1,17 @@
 # @id: seq_eighth_hats
-# @name: Eighth Hats
+# @name: 8th-Note Closed Hats
 # @category: midiSeq
-# @description: Driving 8th-note hi-hat groove hitting on the beat and between beats with dynamic accents.
+# @description: Driving 8th-note closed hi-hat groove with dynamic accents on the downbeats.
+# @tags: hihat, hats, drums, groove, 8th
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "8th-Note Closed Hats" | Events: 8
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "F#2", step = 0.0, dur = 0.75, vel = 0.90, accent = true }
+{ pitch = "F#2", step = 2.0, dur = 0.75, vel = 0.65 }
+{ pitch = "F#2", step = 4.0, dur = 0.75, vel = 0.85, accent = true }
+{ pitch = "F#2", step = 6.0, dur = 0.75, vel = 0.65 }
+{ pitch = "F#2", step = 8.0, dur = 0.75, vel = 0.90, accent = true }
+{ pitch = "F#2", step = 10.0, dur = 0.75, vel = 0.65 }
+{ pitch = "F#2", step = 12.0, dur = 0.75, vel = 0.85, accent = true }
+{ pitch = "F#2", step = 14.0, dur = 0.75, vel = 0.70 }

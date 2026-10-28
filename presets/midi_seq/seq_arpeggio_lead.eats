@@ -1,0 +1,25 @@
+# @id: seq_arpeggio_lead
+# @name: Synth Arpeggio Run
+# @category: midiSeq
+# @description: 16th-note ascending and descending synthesizer arpeggio line over C minor pentatonic.
+# @tags: arp, arpeggio, lead, synth, melodic
+
+-- Clip: "Synth Arpeggio Run" | Events: 16
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
+
+{ pitch = "C4", step = 0.0, dur = 0.8, vel = 0.90, accent = true }
+{ pitch = "D#4", step = 1.0, dur = 0.8, vel = 0.75 }
+{ pitch = "G4", step = 2.0, dur = 0.8, vel = 0.80 }
+{ pitch = "A#4", step = 3.0, dur = 0.8, vel = 0.85 }
+{ pitch = "C5", step = 4.0, dur = 0.8, vel = 0.90, accent = true }
+{ pitch = "A#4", step = 5.0, dur = 0.8, vel = 0.80 }
+{ pitch = "G4", step = 6.0, dur = 0.8, vel = 0.75 }
+{ pitch = "D#4", step = 7.0, dur = 0.8, vel = 0.70 }
+{ pitch = "C4", step = 8.0, dur = 0.8, vel = 0.90, accent = true }
+{ pitch = "D#4", step = 9.0, dur = 0.8, vel = 0.75 }
+{ pitch = "F4", step = 10.0, dur = 0.8, vel = 0.80 }
+{ pitch = "G4", step = 11.0, dur = 0.8, vel = 0.85 }
+{ pitch = "A#4", step = 12.0, dur = 0.8, vel = 0.90, accent = true }
+{ pitch = "G4", step = 13.0, dur = 0.8, vel = 0.80 }
+{ pitch = "F4", step = 14.0, dur = 0.8, vel = 0.75 }
+{ pitch = "D#4", step = 15.0, dur = 0.8, vel = 0.70 }

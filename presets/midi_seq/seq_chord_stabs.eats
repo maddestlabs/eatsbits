@@ -1,13 +1,28 @@
 # @id: seq_chord_stabs
-# @name: Chord Stabs (Chord Track Follow)
+# @name: Chord Stabs
 # @category: midiSeq
-# @description: Dynamic polyphonic chord stabs automatically voiced to the active project Chord Track progression.
+# @description: Dynamic polyphonic C minor chord stabs hitting on offbeats for classic house & dub vibes.
+# @tags: chords, stabs, polyphonic, house, dub
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Chord Stabs" | Events: 12
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+-- Beat 1 offbeat
+{ pitch = "C4", step = 2.0, dur = 1.0, vel = 0.85, accent = true }
+{ pitch = "D#4", step = 2.0, dur = 1.0, vel = 0.80, lane = 1 }
+{ pitch = "G4", step = 2.0, dur = 1.0, vel = 0.82, lane = 2 }
+
+-- Beat 2 offbeat
+{ pitch = "C4", step = 6.0, dur = 0.8, vel = 0.75 }
+{ pitch = "D#4", step = 6.0, dur = 0.8, vel = 0.70, lane = 1 }
+{ pitch = "G4", step = 6.0, dur = 0.8, vel = 0.72, lane = 2 }
+
+-- Beat 3 offbeat
+{ pitch = "C4", step = 10.0, dur = 1.0, vel = 0.85, accent = true }
+{ pitch = "D#4", step = 10.0, dur = 1.0, vel = 0.80, lane = 1 }
+{ pitch = "G4", step = 10.0, dur = 1.0, vel = 0.82, lane = 2 }
+
+-- Beat 4 offbeat
+{ pitch = "C4", step = 14.0, dur = 0.8, vel = 0.78 }
+{ pitch = "D#4", step = 14.0, dur = 0.8, vel = 0.72, lane = 1 }
+{ pitch = "G4", step = 14.0, dur = 0.8, vel = 0.75, lane = 2 }

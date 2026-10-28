@@ -185,18 +185,36 @@ void testCuratedEatsbeatsPresets() {
     assert(catppuccin.name == "Catppuccino");
     assert(!catppuccin.isLight);
 
-    // Check Dark Roast (Monochrome)
-    Theme::setPreset(Theme::Preset::DarkRoast);
-    const ThemeTokens& darkRoast = Theme::current();
-    assert(darkRoast.name == "Dark Roast");
-    assert(!darkRoast.isLight);
+    // Check Mono Plain (Monochrome)
+    Theme::setPreset(Theme::Preset::MonoPlain);
+    const ThemeTokens& monoPlain = Theme::current();
+    assert(monoPlain.name == "Mono Plain");
+    assert(!monoPlain.isLight);
 
-    // Check Sea & Salt (DuoTone)
-    Theme::setPreset(Theme::Preset::SeaAndSalt);
-    const ThemeTokens& seaAndSalt = Theme::current();
-    assert(seaAndSalt.name == "Sea & Salt");
-    assert(!seaAndSalt.isLight);
-    assertNear(seaAndSalt.syntaxKeyword.r, 255.0f / 255.0f, 0.05f); // Amber gold
+    // Check DuoTone Dark Sea
+    Theme::setPreset(Theme::Preset::DuoToneSea);
+    const ThemeTokens& sea = Theme::current();
+    assert(sea.name == "DuoTone Dark Sea");
+    assert(!sea.isLight);
+
+    // Check Mono Aquamarine
+    Theme::setPreset(Theme::Preset::MonoAquamarine);
+    const ThemeTokens& monoAqua = Theme::current();
+    assert(monoAqua.name == "Mono Aquamarine");
+    assertNear(monoAqua.primaryAccent.g, 230.0f / 255.0f, 0.05f);
+
+    // Check Monokai
+    Theme::setPreset(Theme::Preset::Monokai);
+    const ThemeTokens& monokai = Theme::current();
+    assert(monokai.name == "Monokai");
+    assertNear(monokai.primaryAccent.r, 249.0f / 255.0f, 0.05f);
+
+    // Check Gruvbox Dark
+    Theme::setPreset(Theme::Preset::Gruvbox);
+    const ThemeTokens& gruvbox = Theme::current();
+    assert(gruvbox.name == "Gruvbox Dark");
+    assert(!gruvbox.isLight);
+    assertNear(gruvbox.primaryAccent.r, 254.0f / 255.0f, 0.05f); // Orange
 
     // Verify catalog count
     const auto& catalog = Theme::getPresetCatalog();
@@ -207,7 +225,7 @@ void testCuratedEatsbeatsPresets() {
     Theme::setPreset(Theme::Preset::AteTrack);
     assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack);
 
-    std::cout << "  [PASS] All 10 curated presets & syntax tokens verified." << std::endl;
+    std::cout << "  [PASS] All 21 curated presets & syntax tokens verified." << std::endl;
 }
 
 void testThemeBrowserDialog() {
@@ -220,21 +238,21 @@ void testThemeBrowserDialog() {
     assert(dialog.isOpen());
     dialog.layout(1280.0f, 800.0f);
 
-    // Initial state: ALL category should show all 10 presets
+    // Initial state: ALL category should show all 21 presets
     assert(dialog.getFilteredCount() == Theme::kPresetCount);
 
     // 1. Category filter checks
     dialog.setSelectedCategoryIndex(1); // DARK
-    assert(dialog.getFilteredCount() >= 6);
+    assert(dialog.getFilteredCount() >= 17);
 
     dialog.setSelectedCategoryIndex(2); // LIGHT
     assert(dialog.getFilteredCount() == 2); // Light Snack, Breakfast
 
     dialog.setSelectedCategoryIndex(3); // SYNTAX PORTS
-    assert(dialog.getFilteredCount() == 5); // Breakfast, Dinner, Count's Bite, Nordic Frost, Catppuccino
+    assert(dialog.getFilteredCount() == 7); // Breakfast, Dinner, Count's Bite, Nordic Frost, Catppuccino, Monokai, Gruvbox
 
     dialog.setSelectedCategoryIndex(4); // MINIMAL / DUOTONE
-    assert(dialog.getFilteredCount() == 2); // Dark Roast, Sea & Salt
+    assert(dialog.getFilteredCount() == 11); // Mono Plain, Aquamarine, Cyan, Yellow, Magenta, Amber, DuoTone Sea, Space, Forest, Sky, Earth
 
     dialog.setSelectedCategoryIndex(0); // ALL
     assert(dialog.getFilteredCount() == Theme::kPresetCount);
@@ -252,16 +270,16 @@ void testThemeBrowserDialog() {
     dialog.clearSearch();
     assert(dialog.getFilteredCount() == Theme::kPresetCount);
 
-    // 3. Live Preview & Cancel Revert test
+    // 3. Live Preview & Auto-Apply test
     Theme::setPreset(Theme::Preset::AteTrack);
     dialog.open();
     dialog.setSelectedItemIndex(5); // Count's Bite (Dracula)
     assert(Theme::getCurrentPreset() == Theme::Preset::CountsBite); // Instant live preview!
 
-    // Escape key press reverts back to AteTrack
+    // Escape closes modal while keeping current selection
     dialog.handleKey(256, 0, 1, 0); // GLFW_KEY_ESCAPE
     assert(!dialog.isOpen());
-    assert(Theme::getCurrentPreset() == Theme::Preset::AteTrack); // Restored!
+    assert(Theme::getCurrentPreset() == Theme::Preset::CountsBite); // Kept!
 
     // 4. Confirm & Apply test
     dialog.open();

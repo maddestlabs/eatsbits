@@ -1,0 +1,27 @@
+# @id: seq_trap_hats
+# @name: 16th Trap Hat Roll
+# @category: midiSeq
+# @description: Trap-style 16th-note closed hi-hat sequence with velocity rolling and a 32nd-note burst.
+# @tags: trap, hihat, roll, hiphop, 16th
+
+-- Clip: "16th Trap Hat Roll" | Events: 18
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
+
+{ pitch = "F#2", step = 0.0, dur = 0.5, vel = 0.85, accent = true }
+{ pitch = "F#2", step = 1.0, dur = 0.5, vel = 0.60 }
+{ pitch = "F#2", step = 2.0, dur = 0.5, vel = 0.75 }
+{ pitch = "F#2", step = 3.0, dur = 0.5, vel = 0.60 }
+{ pitch = "F#2", step = 4.0, dur = 0.5, vel = 0.80, accent = true }
+{ pitch = "F#2", step = 5.0, dur = 0.5, vel = 0.65 }
+{ pitch = "F#2", step = 6.0, dur = 0.5, vel = 0.70 }
+{ pitch = "F#2", step = 7.0, dur = 0.5, vel = 0.60 }
+{ pitch = "F#2", step = 8.0, dur = 0.5, vel = 0.85, accent = true }
+{ pitch = "F#2", step = 9.0, dur = 0.5, vel = 0.65 }
+{ pitch = "F#2", step = 10.0, dur = 0.5, vel = 0.75 }
+{ pitch = "F#2", step = 11.0, dur = 0.5, vel = 0.60 }
+{ pitch = "F#2", step = 12.0, dur = 0.5, vel = 0.80, accent = true }
+{ pitch = "F#2", step = 13.0, dur = 0.5, vel = 0.70 }
+{ pitch = "F#2", step = 14.0, dur = 0.25, vel = 0.90 }
+{ pitch = "F#2", step = 14.5, dur = 0.25, vel = 0.80 }
+{ pitch = "F#2", step = 15.0, dur = 0.25, vel = 0.85 }
+{ pitch = "F#2", step = 15.5, dur = 0.25, vel = 0.75 }

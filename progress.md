@@ -427,7 +427,7 @@ To align any part of Eatsbits with original Eatsbeats, follow this systematic 6-
         4. *Drum Demuxer*: Automatically demuxes General MIDI drum tracks into Kick, Snare & Claps, Hi-Hats & Cymbals, and Percussion/Toms.
       - Directly applies splits to `StepSequencer`, creating designated colored tracks with assigned presets.
     - **Studio Track & Clip Color Picker** ([color_picker_dialog.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/color_picker_dialog.hpp), [color_picker_dialog.cpp](file:///c:/git/eatsbits/src/ui/widgets/color_picker_dialog.cpp)):
-      - 4 curated studio palettes: Neon & Cyberpunk, Classic Synth & Studio, Vibrant Palette, and Pastels & Subtle.
+      - 4 curated studio palettes: Vibrant Palette, Classic Synth & Studio, Pastels & Subtle, and Grayscale.
       - Interactive HSL sliders (Hue 0-360, Saturation 0-100%, Lightness 0-100%) with bidirectional RGB $\leftrightarrow$ HSL math.
       - Hex code display (`#RRGGBB`) and Before/After preview swatches.
     - **Stereo Field Scope & Lissajous Goniometer** ([space_visualizer_widget.hpp](file:///c:/git/eatsbits/include/eatsbits/ui/widgets/space_visualizer_widget.hpp), [space_visualizer_widget.cpp](file:///c:/git/eatsbits/src/ui/widgets/space_visualizer_widget.cpp)):

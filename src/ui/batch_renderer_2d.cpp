@@ -118,8 +118,12 @@ public:
     }
 
     void beginPass(float width, float height) override {
-        viewportWidth_ = static_cast<uint32_t>(width);
-        viewportHeight_ = static_cast<uint32_t>(height);
+        uint32_t targetW = static_cast<uint32_t>(std::round(width));
+        uint32_t targetH = static_cast<uint32_t>(std::round(height));
+        if (targetW > 0 && targetH > 0) {
+            viewportWidth_ = targetW;
+            viewportHeight_ = targetH;
+        }
         blendMode_ = BlendMode::Normal;
         scissorEnabled_ = false;
         size_t totalPixels = static_cast<size_t>(viewportWidth_) * viewportHeight_;
@@ -280,6 +284,8 @@ public:
 
     const std::vector<unsigned char>& getFontAtlas() const noexcept { return fontAtlas_; }
     const uint32_t* getFramebuffer() const noexcept override { return framebuffer_.data(); }
+    uint32_t getFramebufferWidth() const noexcept override { return viewportWidth_; }
+    uint32_t getFramebufferHeight() const noexcept override { return viewportHeight_; }
     void setDirectPresent(bool enable) noexcept override { directPresent_ = enable; }
     void setAntiAliasingMode(int mode) override { antiAliasingMode_ = std::clamp(mode, 0, 2); }
     void setBlendMode(BlendMode mode) override { blendMode_ = mode; }
@@ -1733,8 +1739,8 @@ public:
     }
 
     void beginPass(float width, float height) override {
-        width_ = static_cast<uint32_t>(width);
-        height_ = static_cast<uint32_t>(height);
+        width_ = static_cast<uint32_t>(std::round(width));
+        height_ = static_cast<uint32_t>(std::round(height));
         if (device_ && uniformBuffer_) {
             float vp[4] = { width, height, 0.0f, 0.0f };
             wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, vp, sizeof(vp));
@@ -2181,6 +2187,9 @@ private:
         reallocateMsaaTexture(width_, height_);
     }
 
+    uint32_t getFramebufferWidth() const noexcept override { return width_; }
+    uint32_t getFramebufferHeight() const noexcept override { return height_; }
+
     WGPUDevice device_{nullptr};
     WGPUSurface surface_{nullptr};
     WGPURenderPipeline pipeline1x_{nullptr};
@@ -2278,6 +2287,8 @@ void BatchRenderer2D::shutdown() {
 }
 
 void BatchRenderer2D::resize(uint32_t width, uint32_t height) {
+    physicalWidth_ = width;
+    physicalHeight_ = height;
     currentWidth_ = static_cast<float>(width);
     currentHeight_ = static_cast<float>(height);
     invalidateChromeCache();
@@ -2303,8 +2314,8 @@ void BatchRenderer2D::beginFrame(float width, float height) {
 
     if (backend_) {
         backend_->clearScissorRect();
-        float passW = width * renderScaleX_;
-        float passH = height * renderScaleY_;
+        float passW = (physicalWidth_ > 0) ? static_cast<float>(physicalWidth_) : std::round(width * renderScaleX_);
+        float passH = (physicalHeight_ > 0) ? static_cast<float>(physicalHeight_) : std::round(height * renderScaleY_);
         backend_->beginPass(passW, passH);
     }
 }

@@ -1,13 +1,10 @@
 # @id: seq_bass_full
-# @name: Bass Full
+# @name: Sustained Root Bass
 # @category: midiSeq
-# @description: Single sustained full 1-bar root bass note (16 steps).
+# @description: Single sustained full 1-bar root bass note (16 steps) for deep sub and synth bass.
+# @tags: bass, sub, sustained, root, 1-bar
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Sustained Root Bass" | Events: 1
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "C2", step = 0.0, dur = 16.0, vel = 0.85 }

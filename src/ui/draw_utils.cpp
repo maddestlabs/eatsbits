@@ -209,6 +209,36 @@ void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color&
     drawLine(r, emptyX + emptyW - strokeW * 0.5f, barY, emptyX + emptyW - strokeW * 0.5f, barY + barH, c, 1.0f, strokeW);
 }
 
+void drawIconArranger(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c) {
+    float laneH = h * 0.26f;
+    float gap = h * 0.10f;
+    drawRect(r, x, y, w * 0.65f, laneH, c.r, c.g, c.b, c.a);
+    drawRect(r, x + w * 0.30f, y + laneH + gap, w * 0.55f, laneH, c.r, c.g, c.b, c.a);
+    drawRect(r, x + w * 0.10f, y + (laneH + gap) * 2.0f, w * 0.45f, laneH, c.r, c.g, c.b, c.a);
+}
+
+void drawIconTrack(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c) {
+    float bars[5] = {0.35f, 0.75f, 1.0f, 0.60f, 0.40f};
+    float bw = w / 6.0f;
+    for (int i = 0; i < 5; ++i) {
+        float bh = h * bars[i];
+        float by = y + (h - bh) * 0.5f;
+        drawRect(r, x + i * (bw + 1.0f), by, bw, bh, c.r, c.g, c.b, c.a);
+    }
+}
+
+void drawIconMixer(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c) {
+    float step = w / 3.0f;
+    float faderH = h * 0.28f;
+    float faderW = step * 0.85f;
+    for (int i = 0; i < 3; ++i) {
+        float fx = x + i * step + step * 0.5f;
+        drawLine(r, fx, y, fx, y + h, Color(c.r, c.g, c.b, 0.45f), 1.0f, 1.2f);
+        float knobY = y + (i == 0 ? h * 0.20f : (i == 1 ? h * 0.65f : h * 0.40f));
+        drawRect(r, fx - faderW * 0.5f, knobY - faderH * 0.5f, faderW, faderH, c.r, c.g, c.b, c.a);
+    }
+}
+
 void drawDesignChipIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c) {
     float chipW = size * 0.74f;
     float chipH = size * 0.86f;

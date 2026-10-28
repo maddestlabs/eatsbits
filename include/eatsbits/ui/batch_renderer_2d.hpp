@@ -74,6 +74,8 @@ public:
     virtual void endPass() = 0;
     virtual RenderBackendType getBackendType() const noexcept = 0;
     virtual const uint32_t* getFramebuffer() const noexcept { return nullptr; }
+    virtual uint32_t getFramebufferWidth() const noexcept { return 0; }
+    virtual uint32_t getFramebufferHeight() const noexcept { return 0; }
     virtual void setDirectPresent(bool /*enable*/) noexcept {}
     virtual void setAntiAliasingMode(int /*mode*/) {}
     virtual void setBlendMode(BlendMode /*mode*/) {}
@@ -385,6 +387,22 @@ public:
     [[nodiscard]] const std::vector<Vertex2D>& getVertices() const noexcept { return vertices_; }
     [[nodiscard]] RenderBackendType getBackendType() const noexcept;
     [[nodiscard]] const uint32_t* getFramebuffer() const noexcept { return backend_ ? backend_->getFramebuffer() : nullptr; }
+    [[nodiscard]] uint32_t getFramebufferWidth() const noexcept {
+        if (backend_) {
+            uint32_t bw = backend_->getFramebufferWidth();
+            if (bw > 0) return bw;
+        }
+        return physicalWidth_;
+    }
+    [[nodiscard]] uint32_t getFramebufferHeight() const noexcept {
+        if (backend_) {
+            uint32_t bh = backend_->getFramebufferHeight();
+            if (bh > 0) return bh;
+        }
+        return physicalHeight_;
+    }
+    [[nodiscard]] uint32_t getPhysicalWidth() const noexcept { return physicalWidth_; }
+    [[nodiscard]] uint32_t getPhysicalHeight() const noexcept { return physicalHeight_; }
     void setDirectPresent(bool enable) noexcept { if (backend_) backend_->setDirectPresent(enable); }
     void setAntiAliasingMode(int mode) noexcept {
         if (antiAliasingMode_ != mode) {
@@ -413,6 +431,8 @@ private:
     std::vector<Vertex2D> vertices_;
     float currentWidth_{1280.0f};
     float currentHeight_{800.0f};
+    uint32_t physicalWidth_{1280};
+    uint32_t physicalHeight_{800};
     float renderScaleX_{1.0f};
     float renderScaleY_{1.0f};
     int antiAliasingMode_{2};

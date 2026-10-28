@@ -1,13 +1,11 @@
 # @id: seq_bass_halves
-# @name: Bass Halves
+# @name: Half-Note Pumping Bass
 # @category: midiSeq
-# @description: Two half-bar sustained bass notes (8 steps each).
+# @description: Two half-bar sustained bass notes (8 steps each) alternating between root and fifth.
+# @tags: bass, halfnote, root, fifth, pumping
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Half-Note Pumping Bass" | Events: 2
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "C2", step = 0.0, dur = 8.0, vel = 0.88, accent = true }
+{ pitch = "G1", step = 8.0, dur = 8.0, vel = 0.82 }

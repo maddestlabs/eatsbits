@@ -192,11 +192,11 @@ void testGuiWindowInteraction() {
     REQUIRE(recHit.hit);
     REQUIRE(recHit.action == TransportAction::Record);
 
-    // Test Lock button hit
+    // Test Command Palette button hit
     float rTop = static_cast<float>(window.getWidth());
-    auto lockHit = window.hitTestTransport(rTop - 105.0f, 25.0f);
-    REQUIRE(lockHit.hit);
-    REQUIRE(lockHit.action == TransportAction::LockToggle);
+    auto paletteHit = window.hitTestTransport(rTop - 105.0f, 25.0f);
+    REQUIRE(paletteHit.hit);
+    REQUIRE(paletteHit.action == TransportAction::SearchToggle);
 
     // Test BPM Scrubber Dragging on minimal capsule
     const double initialBpm = engine.getSequencer().getBpm();

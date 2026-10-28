@@ -561,74 +561,223 @@ struct PresetRegistry {
             presets[static_cast<size_t>(Theme::Preset::Catppuccino)] = Theme::buildTokens(seed);
         }
 
-        // 9. Preset 8: Dark Roast (Monochrome Dark)
-        {
+        // Helper for Mono Series: obsidian monochrome base with single punchy accent
+        auto makeMonoSeed = [](const std::string& name, const std::string& desc,
+                               Color highlight, bool isMonoPlain = false) {
             ThemeSeed seed;
-            seed.name = "Dark Roast";
-            seed.description = "High-contrast distraction-free obsidian monochrome with pure chalk accents";
+            seed.name = name;
+            seed.description = desc;
             seed.isLight = false;
             seed.chassisBase   = Color::fromHex(0x181818);
-            seed.primaryAccent = Color::fromHex(0xFFE0E0E0); // Chalk white
-            seed.secondaryAccent = Color::fromHex(0xFFB0B0B0); // Silver
+            seed.primaryAccent = highlight;
+            seed.secondaryAccent = isMonoPlain ? Color::fromHex(0xFFB0B0B0) : highlight.darken(0.20f);
 
             seed.overrideBackgroundDark = Color::fromHex(0x101010);
             seed.overridePanelHeader    = Color::fromHex(0x222222);
             seed.overrideControlWell    = Color::fromHex(0x141414);
-            seed.overrideTempoText      = Color::fromHex(0xFFFFFFFF);
-            seed.overrideTempoGlow      = Color::fromHex(0xFFE0E0E0);
+            seed.overrideTempoText      = isMonoPlain ? Color::fromHex(0xFFFFFFFF) : highlight;
+            seed.overrideTempoGlow      = highlight;
             seed.overrideLcdBackground  = Color::fromHex(0x0C0C0C);
             seed.overrideLcdBorder      = Color::fromHex(0x333333);
-            seed.overrideLcdText        = Color::fromHex(0xFFEDEDED);
+            seed.overrideLcdText        = isMonoPlain ? Color::fromHex(0xFFEDEDED) : highlight;
             seed.overrideCodeEditorBg   = Color::fromHex(0x121212);
             seed.overrideTextPrimary    = Color::fromHex(0xFFEDEDED);
             seed.overrideTextSecondary  = Color::fromHex(0xFFB0B0B0);
             seed.overrideTextMuted      = Color::fromHex(0xFF666666);
 
+            // In Mono series, all syntax except strings are chalk/monochrome. Strings get the single highlight!
             seed.overrideSyntaxKeyword    = Color::fromHex(0xFFFFFFFF); // Bold white
-            seed.overrideSyntaxString     = Color::fromHex(0xFFCCCCCC);
+            seed.overrideSyntaxString     = isMonoPlain ? Color::fromHex(0xFFCCCCCC) : highlight;
             seed.overrideSyntaxNumber     = Color::fromHex(0xFFE0E0E0);
             seed.overrideSyntaxComment    = Color::fromHex(0xFF555555);
             seed.overrideSyntaxFunction   = Color::fromHex(0xFFFFFFFF);
             seed.overrideSyntaxIdentifier = Color::fromHex(0xFFD6D6D6);
             seed.overrideSyntaxOperator   = Color::fromHex(0xFF888888);
             seed.overrideSyntaxType       = Color::fromHex(0xFFEEEEEE);
+            return seed;
+        };
 
-            presets[static_cast<size_t>(Theme::Preset::DarkRoast)] = Theme::buildTokens(seed);
-        }
+        // Helper for DuoTone Series (Simurai / Sallar)
+        auto makeDuoToneSeed = [](const std::string& name, const std::string& desc,
+                                  uint32_t bgHex, uint32_t uno1Hex, uint32_t uno2Hex,
+                                  uint32_t uno4Hex, uint32_t duo1Hex, uint32_t duo2Hex) {
+            ThemeSeed seed;
+            seed.name = name;
+            seed.description = desc;
+            seed.isLight = false;
+            seed.chassisBase   = Color::fromHex(bgHex);
+            seed.primaryAccent = Color::fromHex(duo1Hex);
+            seed.secondaryAccent = Color::fromHex(duo2Hex);
 
-        // 10. Preset 9: Sea & Salt (DuoTone Dark)
+            seed.overrideBackgroundDark = Color::fromHex(bgHex).darken(0.12f);
+            seed.overridePanelHeader    = Color::fromHex(bgHex).lighten(0.08f);
+            seed.overrideControlWell    = Color::fromHex(bgHex).darken(0.06f);
+            seed.overrideTempoText      = Color::fromHex(duo1Hex);
+            seed.overrideTempoGlow      = Color::fromHex(duo1Hex);
+            seed.overrideLcdBackground  = Color::fromHex(bgHex).darken(0.20f);
+            seed.overrideLcdBorder      = Color::fromHex(uno4Hex);
+            seed.overrideLcdText        = Color::fromHex(duo1Hex);
+            seed.overrideCodeEditorBg   = Color::fromHex(bgHex);
+            seed.overrideTextPrimary    = Color::fromHex(uno1Hex);
+            seed.overrideTextSecondary  = Color::fromHex(uno2Hex);
+            seed.overrideTextMuted      = Color::fromHex(uno4Hex);
+
+            seed.overrideSyntaxKeyword    = Color::fromHex(duo1Hex);
+            seed.overrideSyntaxString     = Color::fromHex(duo1Hex);
+            seed.overrideSyntaxNumber     = Color::fromHex(duo2Hex);
+            seed.overrideSyntaxComment    = Color::fromHex(uno4Hex);
+            seed.overrideSyntaxFunction   = Color::fromHex(uno1Hex);
+            seed.overrideSyntaxIdentifier = Color::fromHex(uno2Hex);
+            seed.overrideSyntaxOperator   = Color::fromHex(duo2Hex);
+            seed.overrideSyntaxType       = Color::fromHex(duo1Hex);
+            return seed;
+        };
+
+        // 9. Preset 8: Mono Plain (Obsidian Monochrome, renamed from Dark Roast)
+        presets[static_cast<size_t>(Theme::Preset::MonoPlain)] = Theme::buildTokens(
+            makeMonoSeed("Mono Plain",
+                         "High-contrast distraction-free obsidian monochrome with pure chalk accents",
+                         Color::fromHex(0xFFE0E0E0), true)
+        );
+
+        // 10. Preset 9: DuoTone Dark Sea (Sallar / Simurai)
+        presets[static_cast<size_t>(Theme::Preset::DuoToneSea)] = Theme::buildTokens(
+            makeDuoToneSeed("DuoTone Dark Sea",
+                            "Calm two-tone palette pairing deep sea navy chassis with vibrant sea green syntax",
+                            0x1D262F, 0xD6E9FF, 0x88B4E7, 0x586F89, 0x34FEBB, 0x32AE85)
+        );
+
+        // 11. Preset 10: Mono Aquamarine (Single vibrant aquamarine highlight)
+        presets[static_cast<size_t>(Theme::Preset::MonoAquamarine)] = Theme::buildTokens(
+            makeMonoSeed("Mono Aquamarine",
+                         "Distraction-free obsidian monochrome with a vibrant aquamarine script highlight",
+                         Color::fromHex(0xFF2EE6C8))
+        );
+
+        // 12. Preset 11: Mono Cyan (Single electric cyan highlight)
+        presets[static_cast<size_t>(Theme::Preset::MonoCyan)] = Theme::buildTokens(
+            makeMonoSeed("Mono Cyan",
+                         "Distraction-free obsidian monochrome with an electric cyan script highlight",
+                         Color::fromHex(0xFF00E5FF))
+        );
+
+        // 13. Preset 12: Mono Yellow (Single electric yellow highlight)
+        presets[static_cast<size_t>(Theme::Preset::MonoYellow)] = Theme::buildTokens(
+            makeMonoSeed("Mono Yellow",
+                         "Distraction-free obsidian monochrome with an electric yellow script highlight",
+                         Color::fromHex(0xFFFFD600))
+        );
+
+        // 14. Preset 13: Mono Magenta (Single neon magenta highlight)
+        presets[static_cast<size_t>(Theme::Preset::MonoMagenta)] = Theme::buildTokens(
+            makeMonoSeed("Mono Magenta",
+                         "Distraction-free obsidian monochrome with a vivid neon magenta script highlight",
+                         Color::fromHex(0xFFFF2E93))
+        );
+
+        // 15. Preset 14: Mono Amber (Single phosphor amber highlight)
+        presets[static_cast<size_t>(Theme::Preset::MonoAmber)] = Theme::buildTokens(
+            makeMonoSeed("Mono Amber",
+                         "Distraction-free obsidian monochrome with a warm vintage phosphor amber highlight",
+                         Color::fromHex(0xFFFFB000))
+        );
+
+        // 16. Preset 15: DuoTone Dark Space (Sallar / Simurai)
+        presets[static_cast<size_t>(Theme::Preset::DuoToneSpace)] = Theme::buildTokens(
+            makeDuoToneSeed("DuoTone Dark Space",
+                            "Calm two-tone palette pairing cosmic purple-slate chassis with supernova orange syntax",
+                            0x24242E, 0xBEBEEF, 0x8686CB, 0x5B5B7B, 0xFE7734, 0xB06845)
+        );
+
+        // 17. Preset 16: DuoTone Dark Forest (Sallar / Simurai)
+        presets[static_cast<size_t>(Theme::Preset::DuoToneForest)] = Theme::buildTokens(
+            makeDuoToneSeed("DuoTone Dark Forest",
+                            "Calm two-tone palette pairing deep pine forest slate with glowing canopy lime syntax",
+                            0x2A2D2A, 0xDDF8DD, 0xA9BCA9, 0x738273, 0xE7F98B, 0x99A659)
+        );
+
+        // 18. Preset 17: DuoTone Dark Sky (Sallar / Simurai)
+        presets[static_cast<size_t>(Theme::Preset::DuoToneSky)] = Theme::buildTokens(
+            makeDuoToneSeed("DuoTone Dark Sky",
+                            "Calm two-tone palette pairing twilight plum chassis with warm sunset apricot syntax",
+                            0x2C2734, 0xF1EBFF, 0xCAB2FA, 0x715F95, 0xFEC38F, 0xB07745)
+        );
+
+        // 19. Preset 18: DuoTone Dark Earth (Sallar / Simurai)
+        presets[static_cast<size_t>(Theme::Preset::DuoToneEarth)] = Theme::buildTokens(
+            makeDuoToneSeed("DuoTone Dark Earth",
+                            "Calm two-tone palette pairing warm espresso umber with radiant desert gold syntax",
+                            0x2C2826, 0xFFDAC2, 0xBD987F, 0x705E51, 0xFECB52, 0xB09045)
+        );
+
+        // 20. Preset 19: Monokai (Wimer Hazenberg)
         {
             ThemeSeed seed;
-            seed.name = "Sea & Salt";
-            seed.description = "Harmonious two-tone deep sea navy with amber gold syntax structure";
+            seed.name = "Monokai";
+            seed.description = "Iconic high-contrast dark palette with vibrant pink, yellow, lime, and cyan";
             seed.isLight = false;
-            seed.chassisBase   = Color::fromHex(0x1D262F);
-            seed.primaryAccent = Color::fromHex(0xFFFFB852); // Amber gold
-            seed.secondaryAccent = Color::fromHex(0xFF64B5F6); // Sea sky blue
+            seed.chassisBase   = Color::fromHex(0x272822);
+            seed.primaryAccent = Color::fromHex(0xFFF92672); // Monokai Pink
+            seed.secondaryAccent = Color::fromHex(0xFFA6E22E); // Monokai Lime Green
 
-            seed.overrideBackgroundDark = Color::fromHex(0x141B22);
-            seed.overridePanelHeader    = Color::fromHex(0x24303C);
-            seed.overrideControlWell    = Color::fromHex(0x19212A);
-            seed.overrideTempoText      = Color::fromHex(0xFFFFD599);
-            seed.overrideTempoGlow      = Color::fromHex(0xFFFFB852);
-            seed.overrideLcdBackground  = Color::fromHex(0x10161C);
-            seed.overrideLcdBorder      = Color::fromHex(0x2C3B49);
-            seed.overrideLcdText        = Color::fromHex(0xFFFFB852);
-            seed.overrideCodeEditorBg   = Color::fromHex(0x182028);
-            seed.overrideTextPrimary    = Color::fromHex(0xFFE2EAF2);
-            seed.overrideTextSecondary  = Color::fromHex(0xFF8CA3BA);
-            seed.overrideTextMuted      = Color::fromHex(0xFF4E657D);
+            seed.overrideBackgroundDark = Color::fromHex(0x1E1F1C);
+            seed.overridePanelHeader    = Color::fromHex(0x2F3129);
+            seed.overrideControlWell    = Color::fromHex(0x1E1F1C);
+            seed.overrideTempoText      = Color::fromHex(0xFFE6DB74); // Yellow
+            seed.overrideTempoGlow      = Color::fromHex(0xFFF92672);
+            seed.overrideLcdBackground  = Color::fromHex(0x1E1F1C);
+            seed.overrideLcdBorder      = Color::fromHex(0x3E3D32);
+            seed.overrideLcdText        = Color::fromHex(0xFFA6E22E);
+            seed.overrideCodeEditorBg   = Color::fromHex(0x272822);
+            seed.overrideTextPrimary    = Color::fromHex(0xFFF8F8F2);
+            seed.overrideTextSecondary  = Color::fromHex(0xFFCFCFC2);
+            seed.overrideTextMuted      = Color::fromHex(0xFF75715E);
 
-            seed.overrideSyntaxKeyword    = Color::fromHex(0xFFFFB852); // Amber gold
-            seed.overrideSyntaxString     = Color::fromHex(0xFF81D4FA); // Cool sea cyan
-            seed.overrideSyntaxNumber     = Color::fromHex(0xFFFFCC80);
-            seed.overrideSyntaxComment    = Color::fromHex(0xFF4E657D); // Deep slate
-            seed.overrideSyntaxFunction   = Color::fromHex(0xFFFFD599);
-            seed.overrideSyntaxIdentifier = Color::fromHex(0xFFCFDCE8);
-            seed.overrideSyntaxOperator   = Color::fromHex(0xFF64B5F6);
-            seed.overrideSyntaxType       = Color::fromHex(0xFFFFB852);
+            seed.overrideSyntaxKeyword    = Color::fromHex(0xFFF92672); // Pink
+            seed.overrideSyntaxString     = Color::fromHex(0xFFE6DB74); // Yellow
+            seed.overrideSyntaxNumber     = Color::fromHex(0xFFAE81FF); // Purple
+            seed.overrideSyntaxComment    = Color::fromHex(0xFF75715E); // Muted olive
+            seed.overrideSyntaxFunction   = Color::fromHex(0xFFA6E22E); // Green
+            seed.overrideSyntaxIdentifier = Color::fromHex(0xFFF8F8F2);
+            seed.overrideSyntaxOperator   = Color::fromHex(0xFFF92672);
+            seed.overrideSyntaxType       = Color::fromHex(0xFF66D9EF); // Cyan
 
-            presets[static_cast<size_t>(Theme::Preset::SeaAndSalt)] = Theme::buildTokens(seed);
+            presets[static_cast<size_t>(Theme::Preset::Monokai)] = Theme::buildTokens(seed);
+        }
+
+        // 21. Preset 20: Gruvbox Dark (Pavel Pertsev)
+        {
+            ThemeSeed seed;
+            seed.name = "Gruvbox Dark";
+            seed.description = "Warm retro groove palette with earthy terracotta, gold, and moss green";
+            seed.isLight = false;
+            seed.chassisBase   = Color::fromHex(0x282828); // Gruvbox dark0
+            seed.primaryAccent = Color::fromHex(0xFFFE8019); // Gruvbox bright orange
+            seed.secondaryAccent = Color::fromHex(0xFFB8BB26); // Gruvbox bright green
+
+            seed.overrideBackgroundDark = Color::fromHex(0x1D2021); // Gruvbox dark0_hard
+            seed.overridePanelHeader    = Color::fromHex(0x3C3836); // Gruvbox dark1
+            seed.overrideControlWell    = Color::fromHex(0x1D2021);
+            seed.overrideTempoText      = Color::fromHex(0xFFFABD2F); // Gruvbox bright yellow
+            seed.overrideTempoGlow      = Color::fromHex(0xFFFE8019);
+            seed.overrideLcdBackground  = Color::fromHex(0x1D2021);
+            seed.overrideLcdBorder      = Color::fromHex(0x504945); // Gruvbox dark2
+            seed.overrideLcdText        = Color::fromHex(0xFFFABD2F);
+            seed.overrideCodeEditorBg   = Color::fromHex(0x282828);
+            seed.overrideTextPrimary    = Color::fromHex(0xFFEBDBB2); // Gruvbox light1
+            seed.overrideTextSecondary  = Color::fromHex(0xFFD5C4A1); // Gruvbox light2
+            seed.overrideTextMuted      = Color::fromHex(0xFF928374); // Gruvbox gray_244
+
+            seed.overrideSyntaxKeyword    = Color::fromHex(0xFFFB4934); // Gruvbox bright red
+            seed.overrideSyntaxString     = Color::fromHex(0xFFB8BB26); // Gruvbox bright green
+            seed.overrideSyntaxNumber     = Color::fromHex(0xFFD3869B); // Gruvbox bright purple
+            seed.overrideSyntaxComment    = Color::fromHex(0xFF928374); // Gruvbox gray
+            seed.overrideSyntaxFunction   = Color::fromHex(0xFFFABD2F); // Gruvbox bright yellow
+            seed.overrideSyntaxIdentifier = Color::fromHex(0xFFEBDBB2); // Gruvbox light1
+            seed.overrideSyntaxOperator   = Color::fromHex(0xFFFE8019); // Gruvbox bright orange
+            seed.overrideSyntaxType       = Color::fromHex(0xFF83A598); // Gruvbox bright blue
+
+            presets[static_cast<size_t>(Theme::Preset::Gruvbox)] = Theme::buildTokens(seed);
         }
 
         // Initialize Rich Metadata Catalog
@@ -649,10 +798,32 @@ struct PresetRegistry {
               "Soothing polar night with arctic frost blues and aurora green highlights for zero eye strain.", "Arctic Ice Studio" },
             { Theme::Preset::Catppuccino, "Catppuccin Mocha", "Cozy Cocoa Cafe Heritage", "Syntax Port",
               "Warm, pastel-tuned mocha base with lavender, peach, and soft teal highlights.", "Catppuccin Org" },
-            { Theme::Preset::DarkRoast, "Dark Roast", "Pure Obsidian Monochrome", "Minimal / DuoTone",
+            { Theme::Preset::MonoPlain, "Mono Plain", "Pure Obsidian Monochrome", "Minimal / DuoTone",
               "Distraction-free black, graphite, and pure chalk white with zero chromatic clutter.", "anotherglitchinthematrix" },
-            { Theme::Preset::SeaAndSalt, "Sea & Salt", "DuoTone Dark Harmony", "Minimal / DuoTone",
-              "Calm two-tone palette pairing deep sea navy chassis with amber gold script syntax.", "Simurai / Sallar" }
+            { Theme::Preset::DuoToneSea, "DuoTone Dark Sea", "Sea & Turquoise Harmony", "Minimal / DuoTone",
+              "Calm two-tone palette pairing deep sea navy chassis with vibrant sea green syntax.", "Simurai / Sallar" },
+            { Theme::Preset::MonoAquamarine, "Mono Aquamarine", "Monochrome + Aquamarine", "Minimal / DuoTone",
+              "Distraction-free obsidian monochrome with a vibrant aquamarine script highlight.", "Eatsbits Original" },
+            { Theme::Preset::MonoCyan, "Mono Cyan", "Monochrome + Electric Cyan", "Minimal / DuoTone",
+              "Distraction-free obsidian monochrome with an electric cyan script highlight.", "Eatsbits Original" },
+            { Theme::Preset::MonoYellow, "Mono Yellow", "Monochrome + Electric Yellow", "Minimal / DuoTone",
+              "Distraction-free obsidian monochrome with an electric yellow script highlight.", "Eatsbits Original" },
+            { Theme::Preset::MonoMagenta, "Mono Magenta", "Monochrome + Neon Magenta", "Minimal / DuoTone",
+              "Distraction-free obsidian monochrome with a vivid neon magenta script highlight.", "Eatsbits Original" },
+            { Theme::Preset::MonoAmber, "Mono Amber", "Monochrome + Vintage Amber", "Minimal / DuoTone",
+              "Distraction-free obsidian monochrome with a warm vintage phosphor amber highlight.", "Eatsbits Original" },
+            { Theme::Preset::DuoToneSpace, "DuoTone Dark Space", "Cosmic Slate & Supernova Orange", "Minimal / DuoTone",
+              "Calm two-tone palette pairing cosmic purple-slate chassis with supernova orange syntax.", "Simurai / Sallar" },
+            { Theme::Preset::DuoToneForest, "DuoTone Dark Forest", "Pine Earth & Canopy Lime", "Minimal / DuoTone",
+              "Calm two-tone palette pairing deep pine forest slate with glowing canopy lime syntax.", "Simurai / Sallar" },
+            { Theme::Preset::DuoToneSky, "DuoTone Dark Sky", "Twilight Plum & Sunset Apricot", "Minimal / DuoTone",
+              "Calm two-tone palette pairing twilight plum chassis with warm sunset apricot syntax.", "Simurai / Sallar" },
+            { Theme::Preset::DuoToneEarth, "DuoTone Dark Earth", "Terracotta Umber & Desert Gold", "Minimal / DuoTone",
+              "Calm two-tone palette pairing warm espresso umber with radiant desert gold syntax.", "Simurai / Sallar" },
+            { Theme::Preset::Monokai, "Monokai", "Iconic High-Contrast Heritage", "Syntax Port",
+              "Wimer Hazenberg's iconic high-contrast dark palette with vibrant pink, yellow, lime, and cyan.", "Wimer Hazenberg" },
+            { Theme::Preset::Gruvbox, "Gruvbox Dark", "Retro Groove Heritage", "Syntax Port",
+              "Pavel Pertsev's iconic warm retro groove palette with earthy terracotta, gold, and moss green.", "Pavel Pertsev" }
         };
     }
 };

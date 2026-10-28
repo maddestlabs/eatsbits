@@ -26,7 +26,9 @@ namespace eatsbits::ui {
 
 #include "../score/score_layout_engine.hpp"
 #include "../widgets/circle_of_fifths_dialog.hpp"
+#include "../widgets/tracker_cell_dialog.hpp"
 #include "../widgets/text_editor_widget.hpp"
+#include "../widgets/piano_keyboard.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 
@@ -136,6 +138,7 @@ public:
     void deleteNoteAt(float step, uint8_t pitch);
     void retrogradeSelectedNotes() noexcept;
     void invertSelectedNotesPitch() noexcept;
+    void onNotesMutated();
 
     // Synchronize with audio engine sequencer track
     void syncFromSequencer(const sequencer::StepSequencer& seq);
@@ -176,9 +179,18 @@ public:
     std::function<void(uint32_t trackIdx, int clipIdx)> onNotesChanged;
     std::function<void(uint32_t trackIdx, int clipIdx)> onBakeRequested;
     std::function<void(EditSubViewMode mode)> onSubViewChanged;
+    std::function<void()> onRequestClearFocus;
 
     // Auto-center viewport vertically on existing notes (Eatsbeats parity)
     void autoCenterOnNotesOrDefault() noexcept;
+
+    // Tracker note entry and editing
+    void setTrackerEditStep(int step) noexcept { trackerEditStep_ = std::clamp(step, 0, 8); }
+    [[nodiscard]] int getTrackerEditStep() const noexcept { return trackerEditStep_; }
+    bool insertTrackerNote(uint8_t pitch, float velocity, const ViewContext* ctx = nullptr);
+    void openTrackerCellDialog(int step, int lane);
+    [[nodiscard]] TrackerCellDialog& getTrackerCellDialog() noexcept { return trackerCellDialog_; }
+    [[nodiscard]] const TrackerCellDialog& getTrackerCellDialog() const noexcept { return trackerCellDialog_; }
 
 private:
     // Render passes
@@ -216,6 +228,7 @@ private:
     ScoreAccidental scoreAccidental_{ScoreAccidental::Natural};
 
     int trackerBaseOctave_{4};
+    int trackerEditStep_{1};
     int trackerSelectedStep_{0};
     int trackerSelectedCol_{0};
     int trackerSelectedSubCol_{0}; // 0: Note, 1: Vol, 2: Sld, 3: Fx, 4+: Custom params
@@ -228,10 +241,18 @@ private:
     bool trackerFollowPlayback_{false};
     Rect2D btnOctDown_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnOctUp_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnStepDown_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D btnStepUp_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnLaneDown_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnLaneUp_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnToggleParams_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D btnFollow_{0.0f, 0.0f, 0.0f, 0.0f};
+
+    TrackerCellDialog trackerCellDialog_;
+    std::chrono::steady_clock::time_point lastTrackerClickTime_{};
+    Point2D lastTrackerClickPos_{0.0f, 0.0f};
+    int lastTrackerClickedStep_{-1};
+    int lastTrackerClickedCol_{-1};
 
     void ensureTrackerCursorVisible() noexcept;
     void updateTrackerLanesFromNotes() noexcept;
@@ -246,6 +267,7 @@ private:
     int maxPitch_{84}; // C6
     float scrollX_{0.0f};
     float scrollY_{200.0f}; // Centered around middle octaves
+    PianoKeyboard pianoKeyboard_{PianoKeyboardConfig{KeyboardOrientation::Vertical, 24, 84, 1, 5, 80.0f, 22.0f, 0.64f, true}};
     float trackerScrollY_{0.0f};
     float trackerScrollX_{0.0f};
     float scoreScrollX_{0.0f};

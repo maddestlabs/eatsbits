@@ -1,0 +1,25 @@
+# @id: acid_seq_01
+# @name: Classic Acid 303 Riff
+# @category: midiSeq
+# @description: 16-Step energetic 16th-note acid bassline with authentic slides and accents.
+# @tags: acid, 303, bassline, sequence, roland
+
+-- Clip: "Classic Acid 303 Riff" | Events: 16
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
+
+{ pitch = "C2", step = 0.0, dur = 0.9, vel = 0.95, accent = true }
+{ pitch = "C2", step = 1.0, dur = 0.8, vel = 0.70 }
+{ pitch = "C3", step = 2.0, dur = 0.9, vel = 0.90, slide = true }
+{ pitch = "A#2", step = 3.0, dur = 0.8, vel = 0.75 }
+{ pitch = "C2", step = 4.0, dur = 0.9, vel = 0.95, accent = true }
+{ pitch = "D#2", step = 5.0, dur = 0.8, vel = 0.70 }
+{ pitch = "F2", step = 6.0, dur = 0.9, vel = 0.85, slide = true }
+{ pitch = "G2", step = 7.0, dur = 0.8, vel = 0.80 }
+{ pitch = "C2", step = 8.0, dur = 0.9, vel = 0.95, accent = true }
+{ pitch = "C2", step = 9.0, dur = 0.8, vel = 0.70 }
+{ pitch = "D#3", step = 10.0, dur = 0.9, vel = 0.90, slide = true }
+{ pitch = "D3", step = 11.0, dur = 0.8, vel = 0.75 }
+{ pitch = "A#2", step = 12.0, dur = 0.9, vel = 0.90 }
+{ pitch = "G2", step = 13.0, dur = 0.8, vel = 0.75 }
+{ pitch = "F2", step = 14.0, dur = 0.8, vel = 0.80 }
+{ pitch = "D#2", step = 15.0, dur = 0.8, vel = 0.75 }

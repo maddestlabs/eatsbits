@@ -1,13 +1,13 @@
 # @id: seq_offbeat_bass
-# @name: Offbeat Bass (Pump)
+# @name: Offbeat Rolling Bass
 # @category: midiSeq
-# @description: Pumping offbeat bass notes hitting between kick downbeats for EDM and house grooves.
+# @description: Classic psytrance and eurodance offbeat bassline driving on every upbeat (2, 6, 10, 14).
+# @tags: bass, offbeat, trance, edm, rolling
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Offbeat Rolling Bass" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "C2", step = 2.0, dur = 1.5, vel = 0.90, accent = true }
+{ pitch = "C2", step = 6.0, dur = 1.5, vel = 0.85 }
+{ pitch = "C2", step = 10.0, dur = 1.5, vel = 0.90, accent = true }
+{ pitch = "C2", step = 14.0, dur = 1.5, vel = 0.85 }

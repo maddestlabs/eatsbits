@@ -1,0 +1,48 @@
+# Eatsbits Instrument Definition
+# @id: dxvii_epiano
+# @name: DXVII E-Piano
+# @category: instrument
+# @engine: eats_dx
+# @description: Lush 1983 6-operator FM electric piano ("FullTines"): Alg 5 triple 2-op stack with velocity dynamics, feedback loop, and stereo shimmer chorus.
+
+def init():
+    return {
+        "Algorithm": eat.param("Algorithm", 1.0, 32.0, 5.0, step=0.0, allow_variance=False),
+        "Feedback": eat.param("Feedback", 0.0, 7.0, 6.0, step=0.0),
+        "Patch": eat.param("Patch", 0.0, 31.0, 0.0, step=0.0),
+        "Volume": eat.param("Volume", 0.0, 2.0, 0.85, step=0.0),
+        "ChorusMix": eat.param("ChorusMix", 0.0, 1.0, 0.35, step=0.0),
+        "Drive": eat.param("Drive", 0.5, 3.0, 1.0, step=0.0),
+        "Brightness": eat.param("Brightness", 0.0, 3.0, 1.0, step=0.0),
+        "TineBell": eat.param("TineBell", 0.0, 3.0, 0.85, step=0.0),
+        "BodyWarmth": eat.param("BodyWarmth", 0.0, 3.0, 1.0, step=0.0),
+        "BassBoost": eat.param("BassBoost", -12.0, 12.0, 1.5, step=0.0),
+        "TrebleSparkle": eat.param("TrebleSparkle", -12.0, 12.0, 2.5, step=0.0),
+    }
+
+def gui():
+    return {
+        "panel": {
+            "title": "DXVII — ELECTRIC PIANO",
+            "subtitle": "6-Operator FM Tone Generator & E-Piano",
+            "accent": "#00A887",
+            "background": "dx7_faceplate",
+            "rackSides": "none",
+            "cornerRadius": 0,
+            "rows": [
+                [
+                    {"id": "w_alg", "type": 1, "param": "Algorithm", "label": "ALGORITHM", "style": 4, "size": 52},
+                    {"id": "w_fb", "type": 1, "param": "Feedback", "label": "FEEDBACK", "style": 5, "size": 52},
+                    {"id": "w_patch", "type": 1, "param": "Patch", "label": "ROM PATCH", "style": 5, "size": 52},
+                    {"id": "w_vol", "type": 1, "param": "Volume", "label": "MASTER VOL", "style": 7, "size": 52},
+                ],
+                [
+                    {"id": "w_chorus", "type": 1, "param": "ChorusMix", "label": "CHORUS", "style": 4, "size": 52},
+                    {"id": "w_drive", "type": 1, "param": "Drive", "label": "DRIVE", "style": 6, "size": 52},
+                ],
+            ],
+        },
+    }
+
+def process(time, freq, note, params):
+    return 0.0

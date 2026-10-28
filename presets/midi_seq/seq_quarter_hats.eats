@@ -1,13 +1,13 @@
 # @id: seq_quarter_hats
-# @name: Quarter Hats
+# @name: Quarter-Note Hats
 # @category: midiSeq
-# @description: Hi-hat pattern hitting on every quarter beat (1, 2, 3, 4).
+# @description: Solid quarter-note closed hi-hats on every downbeat (1, 2, 3, 4).
+# @tags: hihat, quarter, drums, rhythm
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Quarter-Note Hats" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "F#2", step = 0.0, dur = 1.0, vel = 0.85 }
+{ pitch = "F#2", step = 4.0, dur = 1.0, vel = 0.80 }
+{ pitch = "F#2", step = 8.0, dur = 1.0, vel = 0.85 }
+{ pitch = "F#2", step = 12.0, dur = 1.0, vel = 0.80 }

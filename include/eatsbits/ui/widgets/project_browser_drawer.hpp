@@ -143,6 +143,7 @@ public:
     std::function<void(const std::string& fxId)> onAddAudioFx;
     std::function<void(const std::string& fxId)> onAddMidiFx;
     std::function<void(const std::string& instrumentId)> onReplaceActiveTrackInstrument;
+    std::function<void(const std::string& sequenceId)> onAddSequenceClip;
     std::function<void(const BrowserScriptItem& item, float dropX, float dropY)> onDropScript;
     std::function<void(const std::string& filePath)> onLoadProject;
     std::function<void(const std::string& filePath)> onSaveProject;

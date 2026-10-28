@@ -126,32 +126,32 @@ private:
  * No <rect> or <circle> elements used.
  */
 struct SvgLogo {
-    // 1. Amber Chassis Square with rx=80 rounded corners
+    // 1. Amber Chassis Square with rx=40 rounded corners (256x256 coordinate system)
     static constexpr const char* kAmberChassisPath =
-        "M 112 32 L 400 32 A 80 80 0 0 1 480 112 L 480 400 A 80 80 0 0 1 400 480 "
-        "L 112 480 A 80 80 0 0 1 32 400 L 32 112 A 80 80 0 0 1 112 32 Z";
+        "M 56 16 L 200 16 A 40 40 0 0 1 240 56 L 240 200 A 40 40 0 0 1 200 240 "
+        "L 56 240 A 40 40 0 0 1 16 200 L 16 56 A 40 40 0 0 1 56 16 Z";
 
     // 2. Weathered Dark Monster Head, Open Mouth & Two Eating Bits
     static constexpr const char* kMonsterHeadAndBitsPath =
-        "M 100 100 L 380 100 L 380 220 L 220 220 L 220 340 L 380 340 L 380 410 L 100 410 Z "
-        "M 408 230 L 440 230 A 8 8 0 0 1 448 238 L 448 270 A 8 8 0 0 1 440 278 L 408 278 A 8 8 0 0 1 400 270 L 400 238 A 8 8 0 0 1 408 230 Z "
-        "M 406 320 L 430 320 A 6 6 0 0 1 436 326 L 436 350 A 6 6 0 0 1 430 356 L 406 356 A 6 6 0 0 1 400 350 L 400 326 A 6 6 0 0 1 406 320 Z";
+        "M 50 50 L 190 50 L 190 110 L 110 110 L 110 170 L 190 170 L 190 205 L 50 205 Z "
+        "M 203.5 115 L 220.5 115 A 3.5 3.5 0 0 1 224 118.5 L 224 135.5 A 3.5 3.5 0 0 1 220.5 139 L 203.5 139 A 3.5 3.5 0 0 1 200 135.5 L 200 118.5 A 3.5 3.5 0 0 1 203.5 115 Z "
+        "M 203 160 L 215 160 A 3 3 0 0 1 218 163 L 218 175 A 3 3 0 0 1 215 178 L 203 178 A 3 3 0 0 1 200 175 L 200 163 A 3 3 0 0 1 203 160 Z";
 
-    // 3. Amber Monster Eye circular arc
+    // 3. Amber Monster Eye circular arc (center 130, 80, radius 16)
     static constexpr const char* kMonsterEyePath =
-        "M 228 160 A 32 32 0 1 0 292 160 A 32 32 0 1 0 228 160 Z";
+        "M 114 80 A 16 16 0 1 0 146 80 A 16 16 0 1 0 114 80 Z";
 
-    // 4. Authentic Unboxed Silk-Screened Faceplate Logo (Existing SVG inner logo without outer square)
+    // 4. Authentic Unboxed Silk-Screened Faceplate Logo (4 contours: Head, Eye cutout, Bit 1, Bit 2)
     static constexpr const char* kPlainLogoPath =
-        "M 100 100 L 380 100 L 380 220 L 220 220 L 220 340 L 380 340 L 380 410 L 100 410 Z "
-        "M 228 160 A 32 32 0 1 0 292 160 A 32 32 0 1 0 228 160 Z "
-        "M 408 230 L 440 230 A 8 8 0 0 1 448 238 L 448 270 A 8 8 0 0 1 440 278 L 408 278 A 8 8 0 0 1 400 270 L 400 238 A 8 8 0 0 1 408 230 Z "
-        "M 406 320 L 430 320 A 6 6 0 0 1 436 326 L 436 350 A 6 6 0 0 1 430 356 L 406 356 A 6 6 0 0 1 400 350 L 400 326 A 6 6 0 0 1 406 320 Z";
+        "M 50 50 L 190 50 L 190 110 L 110 110 L 110 170 L 190 170 L 190 205 L 50 205 Z "
+        "M 114 80 A 16 16 0 1 0 146 80 A 16 16 0 1 0 114 80 Z "
+        "M 203.5 115 L 220.5 115 A 3.5 3.5 0 0 1 224 118.5 L 224 135.5 A 3.5 3.5 0 0 1 220.5 139 L 203.5 139 A 3.5 3.5 0 0 1 200 135.5 L 200 118.5 A 3.5 3.5 0 0 1 203.5 115 Z "
+        "M 203 160 L 215 160 A 3 3 0 0 1 218 163 L 218 175 A 3 3 0 0 1 215 178 L 203 178 A 3 3 0 0 1 200 175 L 200 163 A 3 3 0 0 1 203 160 Z";
 
     // 5. Two Eating Bits
     static constexpr const char* kMonsterBitsPath =
-        "M 408 230 L 440 230 A 8 8 0 0 1 448 238 L 448 270 A 8 8 0 0 1 440 278 L 408 278 A 8 8 0 0 1 400 270 L 400 238 A 8 8 0 0 1 408 230 Z "
-        "M 406 320 L 430 320 A 6 6 0 0 1 436 326 L 436 350 A 6 6 0 0 1 430 356 L 406 356 A 6 6 0 0 1 400 350 L 400 326 A 6 6 0 0 1 406 320 Z";
+        "M 203.5 115 L 220.5 115 A 3.5 3.5 0 0 1 224 118.5 L 224 135.5 A 3.5 3.5 0 0 1 220.5 139 L 203.5 139 A 3.5 3.5 0 0 1 200 135.5 L 200 118.5 A 3.5 3.5 0 0 1 203.5 115 Z "
+        "M 203 160 L 215 160 A 3 3 0 0 1 218 163 L 218 175 A 3 3 0 0 1 215 178 L 203 178 A 3 3 0 0 1 200 175 L 200 163 A 3 3 0 0 1 203 160 Z";
 
     /**
      * Color definitions:

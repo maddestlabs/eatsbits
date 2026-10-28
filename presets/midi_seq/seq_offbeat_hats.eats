@@ -1,13 +1,13 @@
 # @id: seq_offbeat_hats
 # @name: Offbeat Open Hats
 # @category: midiSeq
-# @description: Classic house and garage offbeat open hi-hat groove hitting on the upbeat of every beat.
+# @description: Classic open hi-hat on the offbeats (and of each beat) for driving house & techno energy.
+# @tags: hihat, openhat, house, techno, upbeat
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Offbeat Open Hats" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "A#2", step = 2.0, dur = 1.5, vel = 0.88, accent = true }
+{ pitch = "A#2", step = 6.0, dur = 1.5, vel = 0.85 }
+{ pitch = "A#2", step = 10.0, dur = 1.5, vel = 0.88, accent = true }
+{ pitch = "A#2", step = 14.0, dur = 1.5, vel = 0.85 }

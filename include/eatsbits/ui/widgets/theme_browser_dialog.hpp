@@ -75,8 +75,7 @@ private:
     Rect2D searchBarBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D cardsAreaBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D closeBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D applyBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
-    Rect2D cancelBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D okBtnBounds_{0.0f, 0.0f, 0.0f, 0.0f};
 
     std::string searchQuery_{""};
     bool searchFocused_{true};

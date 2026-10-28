@@ -1,13 +1,19 @@
 # @id: seq_dynamic_bassline
-# @name: Dynamic Bassline (Chord Track Follow)
+# @name: Dynamic 16th Bassline
 # @category: midiSeq
-# @description: Rhythmic bass groove that tracks root and slash bass notes from the Chord Track.
+# @description: Funky, syncopated 16th-note bassline pattern moving across the minor pentatonic scale.
+# @tags: bass, funk, syncopated, dynamic, groove
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Dynamic 16th Bassline" | Events: 10
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "C2", step = 0.0, dur = 1.5, vel = 0.92, accent = true }
+{ pitch = "C2", step = 2.0, dur = 0.8, vel = 0.70 }
+{ pitch = "D#2", step = 3.0, dur = 0.8, vel = 0.75 }
+{ pitch = "F2", step = 5.0, dur = 1.0, vel = 0.85, accent = true }
+{ pitch = "G2", step = 7.0, dur = 0.8, vel = 0.80 }
+{ pitch = "C2", step = 8.0, dur = 1.5, vel = 0.92, accent = true }
+{ pitch = "A#1", step = 10.0, dur = 0.8, vel = 0.75 }
+{ pitch = "C2", step = 11.0, dur = 0.8, vel = 0.80 }
+{ pitch = "G2", step = 13.0, dur = 1.0, vel = 0.85 }
+{ pitch = "A#2", step = 15.0, dur = 0.8, vel = 0.75, slide = true }

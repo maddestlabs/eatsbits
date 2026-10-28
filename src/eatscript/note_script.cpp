@@ -286,4 +286,92 @@ bool NoteScriptEngine::parseTrackNotes(const std::string& scriptText,
     return parseTrackNotesFromLines(lines, track, outError, outErrorLine);
 }
 
+std::vector<NoteScriptEngine::ClipNoteEvent> NoteScriptEngine::parseClipEvents(const std::string& scriptText) {
+    std::vector<ClipNoteEvent> results;
+    std::istringstream stream(scriptText);
+    std::string line;
+    std::unordered_map<int, int> stepLaneMap;
+
+    while (std::getline(stream, line)) {
+        std::string trimmed = trim(line);
+        if (trimmed.empty()) continue;
+        if (trimmed[0] == '#' || (trimmed.size() >= 2 && (trimmed.substr(0, 2) == "--" || trimmed.substr(0, 2) == "//"))) {
+            continue;
+        }
+
+        auto openBrace = line.find('{');
+        auto closeBrace = line.rfind('}');
+        if (openBrace == std::string::npos || closeBrace == std::string::npos || closeBrace <= openBrace) {
+            continue;
+        }
+
+        ClipNoteEvent ev;
+        ev.pitch = 60;
+        ev.startStep = 0.0f;
+        ev.durationSteps = 1.0f;
+        ev.velocity = 0.85f;
+        ev.lane = 0;
+        ev.slide = false;
+        ev.accent = false;
+
+        std::string content = line.substr(openBrace + 1, closeBrace - openBrace - 1);
+        std::stringstream ss(content);
+        std::string pairToken;
+        bool hasLane = false;
+        bool hasPitch = false;
+
+        while (std::getline(ss, pairToken, ',')) {
+            auto delimPos = pairToken.find('=');
+            if (delimPos == std::string::npos) delimPos = pairToken.find(':');
+            if (delimPos == std::string::npos) continue;
+
+            std::string key = toLower(trim(pairToken.substr(0, delimPos)));
+            std::string val = trim(pairToken.substr(delimPos + 1));
+
+            if (key == "pitch" || key == "note") {
+                int p = stringToPitch(val);
+                if (p >= 0) {
+                    ev.pitch = static_cast<uint8_t>(p);
+                    hasPitch = true;
+                }
+            } else if (key == "step") {
+                try {
+                    ev.startStep = std::stof(val);
+                } catch (...) {}
+            } else if (key == "dur" || key == "duration" || key == "gate" || key == "gatelength") {
+                try {
+                    ev.durationSteps = std::max(0.1f, std::stof(val));
+                } catch (...) {}
+            } else if (key == "vel" || key == "velocity") {
+                try {
+                    ev.velocity = std::clamp(std::stof(val), 0.01f, 1.0f);
+                } catch (...) {}
+            } else if (key == "lane" || key == "col") {
+                try {
+                    ev.lane = std::stoi(val);
+                    hasLane = true;
+                } catch (...) {}
+            } else if (key == "slide") {
+                std::string lval = toLower(val);
+                ev.slide = (lval == "true" || lval == "1" || lval == "yes");
+            } else if (key == "accent") {
+                std::string lval = toLower(val);
+                ev.accent = (lval == "true" || lval == "1" || lval == "yes");
+            }
+        }
+
+        if (!hasPitch) continue;
+
+        if (!hasLane) {
+            int sInt = static_cast<int>(std::round(ev.startStep));
+            ev.lane = stepLaneMap[sInt]++;
+        }
+
+        ev.startBeat = ev.startStep / 4.0f;
+        ev.lengthBeats = std::max(0.05f, ev.durationSteps / 4.0f);
+        results.push_back(ev);
+    }
+    return results;
+}
+
 } // namespace eatsbits::eatscript

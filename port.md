@@ -111,7 +111,7 @@ This document provides a comprehensive inventory, architectural mapping, and liv
   - 4 split modes: 3-Way Voice Skyline, 2-Way Piano Clefs, 4-Voice SATB polyphony, and GM Drum Demuxer.
   - Live output track preview and automated track creation in `StepSequencer`.
 - [x] **6.3 Studio Track Color Picker (`color_picker_dialog.hpp`)**:
-  - 4 curated Eatsbeats palette categories (Neon & Cyberpunk, Classic Synth & Studio, Vibrant Palette, Pastels & Subtle).
+  - 4 curated Eatsbeats palette categories (Vibrant Palette, Classic Synth & Studio, Pastels & Subtle, Grayscale).
   - Interactive HSL sliders, hex format display (`#RRGGBB`), and Before/After preview swatches.
 - [x] **6.4 Stereo Field Scope & Goniometer (`space_visualizer_widget.hpp`)**:
   - Real-time Lissajous phase correlation scope, $-1.0 \leftrightarrow +1.0$ meter, L/R balance, and M/S ratio readout.

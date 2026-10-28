@@ -52,11 +52,152 @@ EditView::EditView() {
     };
 
     formatEatscriptFromNotes();
+
+    PianoKeyboardConfig pcfg;
+    pcfg.orientation = KeyboardOrientation::Vertical;
+    pcfg.minPitch = minPitch_;
+    pcfg.maxPitch = maxPitch_;
+    pcfg.keyHeight = semitoneHeight_;
+    pcfg.keyWidth = 80.0f;
+    pcfg.blackKeyRatio = 0.64f;
+    pcfg.showOctaveLabels = true;
+    pianoKeyboard_.setConfig(pcfg);
+
+    trackerCellDialog_.onApply = [this](int step, int lane, uint8_t pitch, float velocity, bool isSlide, const std::string& fxCmd,
+                                        const std::unordered_map<std::string, std::string>& chipParams) {
+        bool found = false;
+        for (auto& n : notes_) {
+            if (static_cast<int>(std::round(n.startStep)) == step && n.column == lane) {
+                n.pitch = pitch;
+                n.velocity = velocity;
+                n.isSlide = isSlide;
+                n.effectCommand = fxCmd;
+                n.customParams = chipParams;
+                for (const auto& [k, v] : chipParams) {
+                    registerTrackerParamCol(k);
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            PianoRollNote n;
+            n.id = "n" + std::to_string(notes_.size());
+            n.pitch = pitch;
+            n.startStep = static_cast<float>(step);
+            n.durationSteps = 1.0f;
+            n.velocity = velocity;
+            n.isSlide = isSlide;
+            n.effectCommand = fxCmd;
+            n.column = lane;
+            n.customParams = chipParams;
+            for (const auto& [k, v] : chipParams) {
+                registerTrackerParamCol(k);
+            }
+            notes_.push_back(n);
+        }
+        formatEatscriptFromNotes();
+        if (onNotesChanged) {
+            onNotesChanged(activeTrackIndex_, activeClipIndex_);
+        }
+    };
+
+    trackerCellDialog_.onDelete = [this](int step, int lane) {
+        notes_.erase(std::remove_if(notes_.begin(), notes_.end(), [=](const PianoRollNote& n) {
+            return static_cast<int>(std::round(n.startStep)) == step && n.column == lane;
+        }), notes_.end());
+        formatEatscriptFromNotes();
+        if (onNotesChanged) {
+            onNotesChanged(activeTrackIndex_, activeClipIndex_);
+        }
+    };
 }
 
 EditView::~EditView() = default;
 
+void EditView::openTrackerCellDialog(int step, int lane) {
+    const PianoRollNote* match = nullptr;
+    for (const auto& n : notes_) {
+        if (static_cast<int>(std::round(n.startStep)) == step && n.column == lane) {
+            match = &n;
+            break;
+        }
+    }
+    std::vector<std::string> customKeys;
+    for (const auto& col : trackerCustomCols_) {
+        customKeys.push_back(col.key);
+    }
+    trackerCellDialog_.open(step, lane, activeTrackName_, match, customKeys);
+}
+
+bool EditView::insertTrackerNote(uint8_t pitch, float velocity, const ViewContext* ctx) {
+    if (subView_ != EditSubViewMode::Tracker) return false;
+    if (trackerHasBlockSelection_) return false;
+
+    bool found = false;
+    for (auto& n : notes_) {
+        if (static_cast<int>(std::round(n.startStep)) == trackerSelectedStep_ && n.column == trackerSelectedCol_) {
+            n.pitch = pitch;
+            n.velocity = std::clamp(velocity, 0.05f, 1.0f);
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        PianoRollNote n;
+        n.id = "n" + std::to_string(notes_.size());
+        n.pitch = pitch;
+        n.startStep = static_cast<float>(trackerSelectedStep_);
+        n.durationSteps = 1.0f;
+        n.velocity = std::clamp(velocity, 0.05f, 1.0f);
+        n.column = trackerSelectedCol_;
+        notes_.push_back(n);
+    }
+
+    if (ctx) {
+        auditionPitch(pitch, velocity, *ctx);
+    }
+
+    if (trackerEditStep_ > 0) {
+        trackerSelectedStep_ = (trackerSelectedStep_ + trackerEditStep_) % 64;
+        ensureTrackerCursorVisible();
+    }
+
+    formatEatscriptFromNotes();
+    if (onNotesChanged) {
+        onNotesChanged(activeTrackIndex_, activeClipIndex_);
+    } else if (ctx && ctx->audioEngine) {
+        syncToSequencer(ctx->audioEngine->getSequencer());
+    }
+    return true;
+}
+
 void EditView::setSubView(EditSubViewMode mode) noexcept {
+    if (subView_ != mode) {
+        pianoKeyboard_.releaseAllNotes(nullptr, activeTrackIndex_);
+    }
+
+    // Bi-directional synchronization:
+    // If leaving Script tab, parse text editor buffer into notes
+    if (subView_ == EditSubViewMode::Script && mode != EditSubViewMode::Script) {
+        parseNotesFromEatscript();
+        scriptEditor_.onFocusLost();
+        if (onRequestClearFocus) {
+            onRequestClearFocus();
+        }
+    }
+    // If entering Script tab, format the latest notes into the script editor
+    if (mode == EditSubViewMode::Script && subView_ != EditSubViewMode::Script) {
+        formatEatscriptFromNotes();
+    }
+    // If not in Script mode, ensure script editor does not retain focus
+    if (mode != EditSubViewMode::Script) {
+        scriptEditor_.onFocusLost();
+        if (onRequestClearFocus) {
+            onRequestClearFocus();
+        }
+    }
+
     subView_ = mode;
     if (subView_ == EditSubViewMode::Tracker) {
         updateTrackerLanesFromNotes();
@@ -120,6 +261,8 @@ void EditView::registerTrackerParamCol(const std::string& key) {
 }
 
 void EditView::setActiveTrackIndex(uint32_t idx) noexcept {
+    if (activeTrackIndex_ == idx) return;
+    pianoKeyboard_.releaseAllNotes(nullptr, activeTrackIndex_);
     activeTrackIndex_ = idx;
     switch (idx) {
         case 0:
@@ -331,12 +474,23 @@ void EditView::invertSelection() noexcept {
     }
 }
 
+void EditView::onNotesMutated() {
+    formatEatscriptFromNotes();
+    scriptEditor_.setText(scriptBuffer_);
+    updateEvaluatedNotes();
+    if (subView_ == EditSubViewMode::Tracker) {
+        updateTrackerLanesFromNotes();
+    }
+    if (onNotesChanged) {
+        onNotesChanged(activeTrackIndex_, activeClipIndex_);
+    }
+}
+
 void EditView::deleteSelectedNotes() noexcept {
     notes_.erase(std::remove_if(notes_.begin(), notes_.end(), [](const PianoRollNote& n) {
         return n.isSelected;
     }), notes_.end());
-    formatEatscriptFromNotes();
-    if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
+    onNotesMutated();
 }
 
 void EditView::transposeSelectedNotes(int semitones) noexcept {
@@ -346,7 +500,7 @@ void EditView::transposeSelectedNotes(int semitones) noexcept {
             n.pitch = static_cast<uint8_t>(std::clamp(newPitch, 0, 127));
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::nudgeSelectedNotes(float deltaSteps) noexcept {
@@ -355,7 +509,7 @@ void EditView::nudgeSelectedNotes(float deltaSteps) noexcept {
             n.startStep = std::max(0.0f, n.startStep + deltaSteps);
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::changeSelectedNotesDuration(float deltaDuration) noexcept {
@@ -364,7 +518,7 @@ void EditView::changeSelectedNotesDuration(float deltaDuration) noexcept {
             n.durationSteps = std::clamp(n.durationSteps + deltaDuration, 0.25f, 64.0f);
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::setSelectedNotesVelocity(float velocity) noexcept {
@@ -374,7 +528,7 @@ void EditView::setSelectedNotesVelocity(float velocity) noexcept {
             n.velocity = v;
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::humanizeSelectedNotes(float amount) noexcept {
@@ -384,7 +538,7 @@ void EditView::humanizeSelectedNotes(float amount) noexcept {
             notes_[i].velocity = std::clamp(notes_[i].velocity + r * amount, 0.1f, 1.0f);
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::quantizeSelectedNotes(float snapSteps) noexcept {
@@ -394,7 +548,7 @@ void EditView::quantizeSelectedNotes(float snapSteps) noexcept {
             n.startStep = std::round(n.startStep / snap) * snap;
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::setSelectedNotesSlide(bool slide) noexcept {
@@ -403,7 +557,7 @@ void EditView::setSelectedNotesSlide(bool slide) noexcept {
             n.isSlide = slide;
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::setSelectedNotesArticulation(const std::string& art) noexcept {
@@ -412,7 +566,7 @@ void EditView::setSelectedNotesArticulation(const std::string& art) noexcept {
             n.articulation = art;
         }
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::addNote(uint8_t pitch, float startStep, float durationSteps, float velocity, bool isSlide, bool isAccent) {
@@ -504,7 +658,7 @@ void EditView::retrogradeSelectedNotes() noexcept {
         float oldEnd = notes_[idx].startStep + notes_[idx].durationSteps;
         notes_[idx].startStep = minStep + (maxEndStep - oldEnd);
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::invertSelectedNotesPitch() noexcept {
@@ -523,7 +677,7 @@ void EditView::invertSelectedNotesPitch() noexcept {
         int inverted = static_cast<int>(std::round(2.0f * avgPitch - static_cast<float>(notes_[idx].pitch)));
         notes_[idx].pitch = static_cast<uint8_t>(std::clamp(inverted, 0, 127));
     }
-    formatEatscriptFromNotes();
+    onNotesMutated();
 }
 
 void EditView::syncFromSequencer(const sequencer::StepSequencer& seq) {
@@ -609,28 +763,35 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
     chordTrack_ = chordTrack;
 
     notes_.clear();
-    std::unordered_map<int, int> stepColMap;
-    int maxPoly = 0;
-    for (size_t i = 0; i < clip.notes.size(); ++i) {
-        const auto& cn = clip.notes[i];
-        PianoRollNote pn;
-        pn.id = "n" + std::to_string(i);
-        pn.pitch = cn.pitch;
-        pn.startStep = cn.startBeat * 4.0f;
-        pn.durationSteps = std::max(0.25f, cn.lengthBeats * 4.0f);
-        pn.velocity = cn.velocity;
-        pn.isSelected = false;
-        pn.isSlide = false;
-        pn.isAccent = false;
-        pn.articulation = "normal";
-        int sInt = static_cast<int>(std::round(pn.startStep));
-        int cIdx = stepColMap[sInt]++;
-        pn.column = cIdx;
-        if (cIdx + 1 > maxPoly) maxPoly = cIdx + 1;
-        pn.effectCommand = "00";
-        notes_.push_back(pn);
+    if (!clip.eatscriptCode.empty()) {
+        scriptBuffer_ = clip.eatscriptCode;
+        scriptEditor_.setText(scriptBuffer_);
+        parseNotesFromEatscript();
+    } else {
+        std::unordered_map<int, int> stepColMap;
+        int maxPoly = 0;
+        for (size_t i = 0; i < clip.notes.size(); ++i) {
+            const auto& cn = clip.notes[i];
+            PianoRollNote pn;
+            pn.id = "n" + std::to_string(i);
+            pn.pitch = cn.pitch;
+            pn.startStep = cn.startBeat * 4.0f;
+            pn.durationSteps = std::max(0.25f, cn.lengthBeats * 4.0f);
+            pn.velocity = cn.velocity;
+            pn.isSelected = false;
+            pn.isSlide = cn.slide;
+            pn.isAccent = cn.accent;
+            pn.articulation = "normal";
+            int sInt = static_cast<int>(std::round(pn.startStep));
+            int cIdx = stepColMap[sInt]++;
+            pn.column = cIdx;
+            if (cIdx + 1 > maxPoly) maxPoly = cIdx + 1;
+            pn.effectCommand = "00";
+            notes_.push_back(pn);
+        }
+        trackerNumLanes_ = std::max(2, maxPoly);
+        formatEatscriptFromNotes();
     }
-    trackerNumLanes_ = std::max(2, maxPoly);
 
     // Ghost notes from other tracks' clips
     ghostNotes_.clear();
@@ -652,7 +813,6 @@ void EditView::loadFromArrangerClip(const ArrangerTimelineClip& clip,
         }
     }
 
-    formatEatscriptFromNotes();
     updateEvaluatedNotes();
     scrollX_ = 0.0f;
     autoCenterOnNotesOrDefault();
@@ -667,8 +827,11 @@ void EditView::writeBackToArrangerClip(ArrangerTimelineClip& clip) const {
         an.startBeat = pn.startStep / 4.0f;
         an.lengthBeats = pn.durationSteps / 4.0f;
         an.velocity = pn.velocity;
+        an.slide = pn.isSlide;
+        an.accent = pn.isAccent;
         clip.notes.push_back(an);
     }
+    clip.eatscriptCode = scriptBuffer_;
 }
 
 void EditView::autoCenterOnNotesOrDefault() noexcept {
@@ -908,19 +1071,23 @@ void EditView::parseNotesFromEatscript() {
 }
 
 void EditView::auditionPitch(int pitch, float velocity, const ViewContext& ctx, bool isPreEvaluated) {
+    (void)isPreEvaluated;
     auditioningPitch_ = pitch;
     if (ctx.audioEngine) {
-        ctx.audioEngine->postNoteOn(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), velocity, false, false, static_cast<int>(activeTrackIndex_), !isPreEvaluated);
+        ctx.audioEngine->postNoteOn(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), velocity, false, false, static_cast<int>(activeTrackIndex_), false);
     }
+    pianoKeyboard_.triggerNoteOn(pitch, velocity, nullptr, activeTrackIndex_);
 }
 
 void EditView::stopAuditionPitch(int pitch, const ViewContext& ctx, bool isPreEvaluated) {
+    (void)isPreEvaluated;
     if (auditioningPitch_ == pitch) {
         auditioningPitch_ = -1;
     }
     if (ctx.audioEngine) {
-        ctx.audioEngine->postNoteOff(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), static_cast<int>(activeTrackIndex_), !isPreEvaluated);
+        ctx.audioEngine->postNoteOff(static_cast<uint8_t>(std::clamp(pitch, 0, 127)), static_cast<int>(activeTrackIndex_), false);
     }
+    pianoKeyboard_.triggerNoteOff(pitch, nullptr, activeTrackIndex_);
 }
 
 void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
@@ -1067,6 +1234,11 @@ void EditView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     float maxScroll = std::max(0.0f, static_cast<float>(maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
     scrollY_ = std::clamp(scrollY_, 0.0f, maxScroll);
 
+    pianoKeyboard_.setMinPitch(minPitch_);
+    pianoKeyboard_.setMaxPitch(maxPitch_);
+    pianoKeyboard_.setKeyHeight(semitoneHeight_);
+    pianoKeyboard_.setKeyWidth(pianoGutterBounds_.w);
+
     float scToolY = contentBounds_.y + 6.0f;
     btnClefAuto_ = Rect2D(contentBounds_.x + 12.0f, scToolY, 52.0f, 24.0f);
     btnClefTreble_ = Rect2D(btnClefAuto_.x + 56.0f, scToolY, 58.0f, 24.0f);
@@ -1169,6 +1341,11 @@ void EditView::render(const ViewContext& ctx) {
 
     if (hasSelectedNotes()) {
         renderNoteInspectorSidebar(ctx);
+    }
+
+    if (trackerCellDialog_.isOpen()) {
+        trackerCellDialog_.layout(bounds_.w, bounds_.h);
+        trackerCellDialog_.render(*ctx.renderer, *ctx.theme);
     }
 }
 
@@ -1363,7 +1540,7 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
             }
 
             float alpha = n.isSelected ? 1.0f : 0.88f;
-            Color baseCol = n.isSlide ? theme.highlight : trackColor_;
+            Color baseCol = trackColor_;
             float v = std::clamp(n.velocity, 0.08f, 1.0f);
             float velIntensity = 0.35f + 0.65f * v;
             Color noteCol(std::clamp(baseCol.r * velIntensity, 0.0f, 1.0f),
@@ -1433,41 +1610,8 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
         }
     }
 
-    // 7. Left Piano Keyboard Gutter
-    {
-        BatchRenderer2D::ScissorScope gutterScissor(r, pianoGutterBounds_);
-        drawRect(r, pianoGutterBounds_.x, pianoGutterBounds_.y, pianoGutterBounds_.w, pianoGutterBounds_.h, theme.panelHeader);
-        drawLine(r, pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y,
-                 pianoGutterBounds_.x + pianoGutterBounds_.w, pianoGutterBounds_.y + pianoGutterBounds_.h,
-                 theme.borderSubtle, 0.9f, 1.5f);
-
-        for (int p = minPitch_; p <= maxPitch_; ++p) {
-            float py = pianoGutterBounds_.y + static_cast<float>(maxPitch_ - p) * semitoneHeight_ - scrollY_;
-            if (py + semitoneHeight_ < pianoGutterBounds_.y || py > pianoGutterBounds_.y + pianoGutterBounds_.h) continue;
-
-            bool isBlack = PianoKeyboard::isBlackKey(p);
-            bool isAuditioning = (p == auditioningPitch_);
-            if (isBlack) {
-                Color keyCol = isAuditioning ? theme.highlight : Color(0.12f, 0.12f, 0.14f);
-                drawRect(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
-                         keyCol, 1.0f);
-                drawRoundedRectOutline(r, pianoGutterBounds_.x, py + 1.0f, pianoGutterBounds_.w * 0.65f, semitoneHeight_ - 2.0f,
-                                       1.0f, isAuditioning ? theme.highlight : Color(0.25f, 0.25f, 0.28f), 0.8f, 1.0f);
-            } else {
-                Color keyCol = isAuditioning ? (theme.highlight * 0.85f) : Color(0.88f, 0.88f, 0.86f);
-                drawRect(r, pianoGutterBounds_.x, py, pianoGutterBounds_.w, semitoneHeight_,
-                         keyCol, 1.0f);
-                drawLine(r, pianoGutterBounds_.x, py + semitoneHeight_, pianoGutterBounds_.x + pianoGutterBounds_.w, py + semitoneHeight_,
-                         Color(0.35f, 0.35f, 0.35f), 0.5f, 1.0f);
-
-                if (p % 12 == 0) {
-                    std::string cLabel = "C" + std::to_string(p / 12 - 1);
-                    drawText(r, cLabel, pianoGutterBounds_.x + pianoGutterBounds_.w - 24.0f, py + semitoneHeight_ - 15.0f, 9.5f,
-                             Color(0.15f, 0.15f, 0.15f), 1.0f);
-                }
-            }
-        }
-    }
+    // 7. Left Piano Keyboard Gutter (FL Studio styled unified PianoKeyboard)
+    pianoKeyboard_.render(r, pianoGutterBounds_, theme, scrollY_);
 
     // 8. Velocity Lane
     {
@@ -1487,7 +1631,7 @@ void EditView::renderPianoRoll(const ViewContext& ctx) {
             float stalkH = (velocityLaneBounds_.h - 26.0f) * n.velocity;
             float sy = velocityLaneBounds_.y + velocityLaneBounds_.h - stalkH - 6.0f;
 
-            Color vCol = n.isSelected ? theme.highlight : trackColor_;
+            Color vCol = n.isSelected ? (trackColor_ * 1.3f) : trackColor_;
             drawLine(r, sx, velocityLaneBounds_.y + velocityLaneBounds_.h - 6.0f, sx, sy, vCol, 0.85f, 2.0f);
             drawCircle(r, sx, sy, 4.0f, vCol);
             if (n.isSelected) {
@@ -1509,23 +1653,37 @@ void EditView::renderTracker(const ViewContext& ctx) {
     drawLine(r, toolBounds.x, toolBounds.y + toolH, toolBounds.x + toolBounds.w, toolBounds.y + toolH,
              theme.borderSubtle, 0.8f, 1.5f);
 
-    drawText(r, "TRACKER MATRIX", toolBounds.x + 16.0f, toolBounds.y + 9.0f, 11.0f, theme.primaryAccent);
-
     std::string octText = "OCT: " + std::to_string(trackerBaseOctave_);
-    drawText(r, octText, toolBounds.x + 135.0f, toolBounds.y + 9.0f, 10.0f, theme.highlight);
+    drawText(r, octText, toolBounds.x + 12.0f, toolBounds.y + 9.0f, 10.0f, theme.highlight);
 
-    btnOctDown_ = Rect2D(toolBounds.x + 185.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
-    btnOctUp_ = Rect2D(toolBounds.x + 209.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
-    drawRoundedRect(r, btnOctDown_.x, btnOctDown_.y, btnOctDown_.w, btnOctDown_.h, 3.0f, theme.controlBackground, 0.8f);
-    drawText(r, "-", btnOctDown_.x + 7.0f, btnOctDown_.y + 5.0f, 11.0f, theme.textPrimary);
-    drawRoundedRect(r, btnOctUp_.x, btnOctUp_.y, btnOctUp_.w, btnOctUp_.h, 3.0f, theme.controlBackground, 0.8f);
-    drawText(r, "+", btnOctUp_.x + 6.0f, btnOctUp_.y + 5.0f, 11.0f, theme.textPrimary);
+    btnOctDown_ = Rect2D(toolBounds.x + 62.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnOctUp_ = Rect2D(toolBounds.x + 86.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    drawRoundedRect(r, btnOctDown_.x, btnOctDown_.y, btnOctDown_.w, btnOctDown_.h, 3.0f,
+                    trackerBaseOctave_ > 0 ? theme.controlBackground : (theme.controlBackground * 0.4f), 0.8f);
+    drawText(r, "-", btnOctDown_.x + 7.0f, btnOctDown_.y + 5.0f, 11.0f,
+             trackerBaseOctave_ > 0 ? theme.textPrimary : theme.textMuted);
+    drawRoundedRect(r, btnOctUp_.x, btnOctUp_.y, btnOctUp_.w, btnOctUp_.h, 3.0f,
+                    trackerBaseOctave_ < 8 ? theme.controlBackground : (theme.controlBackground * 0.4f), 0.8f);
+    drawText(r, "+", btnOctUp_.x + 6.0f, btnOctUp_.y + 5.0f, 11.0f,
+             trackerBaseOctave_ < 8 ? theme.textPrimary : theme.textMuted);
+
+    std::string stepText = "STEP: " + std::to_string(trackerEditStep_);
+    drawText(r, stepText, toolBounds.x + 118.0f, toolBounds.y + 9.0f, 10.0f, theme.secondaryAccent);
+
+    btnStepDown_ = Rect2D(toolBounds.x + 170.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnStepUp_ = Rect2D(toolBounds.x + 194.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    drawRoundedRect(r, btnStepDown_.x, btnStepDown_.y, btnStepDown_.w, btnStepDown_.h, 3.0f,
+                    trackerEditStep_ > 0 ? theme.controlBackground : (theme.controlBackground * 0.4f), 0.8f);
+    drawText(r, "-", btnStepDown_.x + 7.0f, btnStepDown_.y + 5.0f, 11.0f,
+             trackerEditStep_ > 0 ? theme.textPrimary : theme.textMuted);
+    drawRoundedRect(r, btnStepUp_.x, btnStepUp_.y, btnStepUp_.w, btnStepUp_.h, 3.0f, theme.controlBackground, 0.8f);
+    drawText(r, "+", btnStepUp_.x + 6.0f, btnStepUp_.y + 5.0f, 11.0f, theme.textPrimary);
 
     std::string laneText = "LANES: " + std::to_string(trackerNumLanes_);
-    drawText(r, laneText, toolBounds.x + 245.0f, toolBounds.y + 9.0f, 10.0f, theme.primaryAccent);
+    drawText(r, laneText, toolBounds.x + 226.0f, toolBounds.y + 9.0f, 10.0f, theme.primaryAccent);
 
-    btnLaneDown_ = Rect2D(toolBounds.x + 305.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
-    btnLaneUp_ = Rect2D(toolBounds.x + 329.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnLaneDown_ = Rect2D(toolBounds.x + 286.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
+    btnLaneUp_ = Rect2D(toolBounds.x + 310.0f, toolBounds.y + 5.0f, 20.0f, 22.0f);
     drawRoundedRect(r, btnLaneDown_.x, btnLaneDown_.y, btnLaneDown_.w, btnLaneDown_.h, 3.0f,
                     trackerNumLanes_ > 2 ? theme.controlBackground : (theme.controlBackground * 0.4f), 0.8f);
     drawText(r, "-", btnLaneDown_.x + 7.0f, btnLaneDown_.y + 5.0f, 11.0f,
@@ -1533,13 +1691,13 @@ void EditView::renderTracker(const ViewContext& ctx) {
     drawRoundedRect(r, btnLaneUp_.x, btnLaneUp_.y, btnLaneUp_.w, btnLaneUp_.h, 3.0f, theme.controlBackground, 0.8f);
     drawText(r, "+", btnLaneUp_.x + 6.0f, btnLaneUp_.y + 5.0f, 11.0f, theme.textPrimary);
 
-    btnToggleParams_ = Rect2D(toolBounds.x + 365.0f, toolBounds.y + 5.0f, 85.0f, 22.0f);
+    btnToggleParams_ = Rect2D(toolBounds.x + 342.0f, toolBounds.y + 5.0f, 82.0f, 22.0f);
     drawRoundedRect(r, btnToggleParams_.x, btnToggleParams_.y, btnToggleParams_.w, btnToggleParams_.h, 3.0f,
                     trackerShowCustomParams_ ? (theme.primaryAccent * 0.35f) : theme.controlBackground, 0.8f);
-    drawText(r, trackerShowCustomParams_ ? "CHIP FX: ON" : "CHIP FX", btnToggleParams_.x + 10.0f, btnToggleParams_.y + 6.0f, 9.5f,
+    drawText(r, trackerShowCustomParams_ ? "CHIP FX: ON" : "CHIP FX", btnToggleParams_.x + 8.0f, btnToggleParams_.y + 6.0f, 9.5f,
              trackerShowCustomParams_ ? theme.highlight : theme.textMuted);
 
-    btnFollow_ = Rect2D(toolBounds.x + toolBounds.w - 110.0f, toolBounds.y + 5.0f, 96.0f, 22.0f);
+    btnFollow_ = Rect2D(toolBounds.x + toolBounds.w - 105.0f, toolBounds.y + 5.0f, 96.0f, 22.0f);
     drawRoundedRect(r, btnFollow_.x, btnFollow_.y, btnFollow_.w, btnFollow_.h, 3.0f,
                     trackerFollowPlayback_ ? (theme.playActive * 0.35f) : theme.controlBackground, 0.8f);
     drawText(r, trackerFollowPlayback_ ? "FOLLOW: ON" : "FOLLOW: OFF",
@@ -1547,9 +1705,9 @@ void EditView::renderTracker(const ViewContext& ctx) {
              trackerFollowPlayback_ ? theme.playActive : theme.textMuted);
 
     if (trackerHasBlockSelection_) {
-        drawRoundedRect(r, toolBounds.x + 465.0f, toolBounds.y + 5.0f, 110.0f, 22.0f, 3.0f,
+        drawRoundedRect(r, toolBounds.x + 432.0f, toolBounds.y + 5.0f, 105.0f, 22.0f, 3.0f,
                         theme.primaryAccent * 0.25f, 0.9f);
-        drawText(r, "BLOCK SELECTED", toolBounds.x + 473.0f, toolBounds.y + 9.0f, 9.5f, theme.primaryAccent);
+        drawText(r, "BLOCK SELECTED", toolBounds.x + 438.0f, toolBounds.y + 9.0f, 9.5f, theme.primaryAccent);
     }
 
     float colHeaderY = toolBounds.y + toolH + 4.0f;
@@ -1632,6 +1790,16 @@ void EditView::renderTracker(const ViewContext& ctx) {
             if (cx + colW < matrixStartX || cx > contentBounds_.x + contentBounds_.w) continue;
 
             bool isCellSelected = (isSelectedRow && trackerSelectedCol_ == c);
+            bool inBlock = false;
+            if (trackerHasBlockSelection_) {
+                int minStep = std::min(trackerBlockAnchorStep_, trackerSelectedStep_);
+                int maxStep = std::max(trackerBlockAnchorStep_, trackerSelectedStep_);
+                int minCol = std::min(trackerBlockAnchorCol_, trackerSelectedCol_);
+                int maxCol = std::max(trackerBlockAnchorCol_, trackerSelectedCol_);
+                if (step >= minStep && step <= maxStep && c >= minCol && c <= maxCol) {
+                    inBlock = true;
+                }
+            }
 
             std::string noteStr = "---";
             std::string volStr = "..";
@@ -1654,7 +1822,7 @@ void EditView::renderTracker(const ViewContext& ctx) {
                 }
             }
 
-            if (isCellSelected || noteIsSelected) {
+            if (isCellSelected || noteIsSelected || inBlock) {
                 drawRoundedRect(r, cx, ry, colW, rowH - 2.0f, 3.0f,
                                 theme.primaryAccent * 0.35f, 0.85f);
                 drawRoundedRectOutline(r, cx, ry, colW, rowH - 2.0f, 3.0f,
@@ -1679,7 +1847,7 @@ void EditView::renderTracker(const ViewContext& ctx) {
                 }
             }
 
-            Color cellCol = hasNote ? (noteIsSelected ? theme.highlight : trackColor_) : theme.textMuted;
+            Color cellCol = hasNote ? (noteIsSelected ? (trackColor_ * 1.3f) : trackColor_) : theme.textMuted;
             drawMonoText(r, cellText, cx + 8.0f, ry + 5.0f, 10.5f, cellCol, hasNote ? 1.0f : 0.6f);
         }
     }
@@ -1780,7 +1948,7 @@ void EditView::renderScore(const ViewContext& ctx) {
             }
         }
 
-        Color headCol = n.isSelected ? theme.highlight : Color(0.12f, 0.12f, 0.15f);
+        Color headCol = n.isSelected ? (trackColor_ * 1.3f) : Color(0.12f, 0.12f, 0.15f);
 
         // Classical SMuFL notehead & stem rendering
         if (n.durationSteps >= 16.0f) {
@@ -2116,7 +2284,28 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
     lastMouseX_ = ev.x;
     lastMouseY_ = ev.y;
 
+    if (trackerCellDialog_.isOpen()) {
+        trackerCellDialog_.onAudition = [this, &ctx](uint8_t p, float v) {
+            auditionPitch(p, v, ctx);
+        };
+        if (trackerCellDialog_.handlePointer(ev)) {
+            return true;
+        }
+        return true;
+    }
+
     if (ev.action == PointerAction::Down) {
+        // Clear text editor focus if clicking outside the script editor or in a non-script subview
+        if (subView_ != EditSubViewMode::Script || !scriptEditorBounds_.contains(ev.x, ev.y)) {
+            if (ctx.focusManager && ctx.focusManager->hasFocus(&scriptEditor_)) {
+                ctx.focusManager->clearFocus();
+            }
+            scriptEditor_.onFocusLost();
+            if (onRequestClearFocus) {
+                onRequestClearFocus();
+            }
+        }
+
         // Bake Chord Follow & MIDI FX button
         if (hasActiveChordFollowOrMidiFx() && btnBake_.contains(ev.x, ev.y)) {
             bakeChordFollowAndMidiFx();
@@ -2227,24 +2416,28 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
         if (ev.button == PointerButton::Middle) {
             dragMode_ = DragMode::MiddlePan;
             dragStartPoint_ = Point2D{ev.x, ev.y};
-            panStartScrollX_ = scrollX_;
-            panStartScrollY_ = scrollY_;
+            panStartScrollX_ = (subView_ == EditSubViewMode::Tracker) ? trackerScrollX_ : scrollX_;
+            panStartScrollY_ = (subView_ == EditSubViewMode::Tracker) ? trackerScrollY_ : scrollY_;
             return true;
         }
 
         // 4. Sub-view specific interactions
         if (subView_ == EditSubViewMode::PianoRoll) {
             if (pianoGutterBounds_.contains(ev.x, ev.y)) {
-                float localY = ev.y - pianoGutterBounds_.y + scrollY_;
-                int pitch = maxPitch_ - static_cast<int>(localY / semitoneHeight_);
-                auditionPitch(pitch, 0.85f, ctx);
-
                 if (ev.button == PointerButton::Right) {
-                    for (auto& n : notes_) {
-                        if (n.pitch == pitch) n.isSelected = true;
+                    auto hit = pianoKeyboard_.hitTest(ev.x, ev.y, pianoGutterBounds_.x, pianoGutterBounds_.y,
+                                                      pianoGutterBounds_.w, pianoGutterBounds_.h, scrollY_);
+                    if (hit.hit) {
+                        for (auto& n : notes_) {
+                            if (n.pitch == hit.pitch) n.isSelected = true;
+                        }
                     }
+                    return true;
                 }
-                return true;
+                if (pianoKeyboard_.handlePointer(ev, pianoGutterBounds_, scrollY_, ctx.audioEngine, activeTrackIndex_)) {
+                    auditioningPitch_ = -1;
+                    return true;
+                }
             }
 
             if (gridBounds_.contains(ev.x, ev.y)) {
@@ -2357,11 +2550,25 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         } else if (subView_ == EditSubViewMode::Tracker) {
             if (btnOctDown_.contains(ev.x, ev.y)) {
-                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 1, 6);
+                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 0, 8);
                 return true;
             }
             if (btnOctUp_.contains(ev.x, ev.y)) {
-                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ + 1, 1, 6);
+                trackerBaseOctave_ = std::clamp(trackerBaseOctave_ + 1, 0, 8);
+                return true;
+            }
+            if (btnStepDown_.contains(ev.x, ev.y)) {
+                if (trackerEditStep_ > 4) trackerEditStep_ = 4;
+                else if (trackerEditStep_ > 2) trackerEditStep_ = 2;
+                else if (trackerEditStep_ > 1) trackerEditStep_ = 1;
+                else if (trackerEditStep_ > 0) trackerEditStep_ = 0;
+                return true;
+            }
+            if (btnStepUp_.contains(ev.x, ev.y)) {
+                if (trackerEditStep_ == 0) trackerEditStep_ = 1;
+                else if (trackerEditStep_ == 1) trackerEditStep_ = 2;
+                else if (trackerEditStep_ == 2) trackerEditStep_ = 4;
+                else if (trackerEditStep_ == 4) trackerEditStep_ = 8;
                 return true;
             }
             if (btnLaneDown_.contains(ev.x, ev.y)) {
@@ -2403,6 +2610,7 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                     if (ev.x < contentBounds_.x + rowNumW && ev.x >= contentBounds_.x) {
                         // Click in STEP number lane -> select step
                         trackerSelectedStep_ = clickedStep;
+                        trackerHasBlockSelection_ = false;
                         clearSelection();
                         for (auto& n : notes_) {
                             if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == trackerSelectedCol_) {
@@ -2417,21 +2625,30 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                         return true;
                     }
                     if (clickedCol >= 0 && clickedCol < trackerNumLanes_) {
-                        trackerSelectedStep_ = clickedStep;
-                        trackerSelectedCol_ = clickedCol;
-
-                        clearSelection();
-                        for (auto& n : notes_) {
-                            if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
-                                n.isSelected = true;
-                                int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
-                                    ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
-                                auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
-                                break;
-                            }
+                        if (ev.type == PointerType::Touch || ctx.isMobile) {
+                            dragMode_ = DragMode::TouchGridPending;
+                            touchDownPos_ = Point2D{ev.x, ev.y};
+                            touchDownTimePoint_ = std::chrono::steady_clock::now();
+                            dragStartPoint_ = Point2D{ev.x, ev.y};
+                            panStartScrollX_ = trackerScrollX_;
+                            panStartScrollY_ = trackerScrollY_;
+                            touchPanCommitted_ = false;
+                            touchLongPressArmed_ = false;
+                            trackerBlockAnchorStep_ = clickedStep;
+                            trackerBlockAnchorCol_ = clickedCol;
+                            kineticScroller_.reset();
+                            kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                            return true;
+                        } else if (ev.button == PointerButton::Left) {
+                            dragMode_ = DragMode::TrackerBlockSelect;
+                            dragStartPoint_ = Point2D{ev.x, ev.y};
+                            trackerBlockAnchorStep_ = clickedStep;
+                            trackerBlockAnchorCol_ = clickedCol;
+                            trackerSelectedStep_ = clickedStep;
+                            trackerSelectedCol_ = clickedCol;
+                            trackerHasBlockSelection_ = false;
+                            return true;
                         }
-                        ensureTrackerCursorVisible();
-                        return true;
                     }
                 }
             }
@@ -2515,6 +2732,11 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             }
         }
     } else if (ev.action == PointerAction::Move) {
+        if (subView_ == EditSubViewMode::PianoRoll && pianoKeyboard_.hasActiveTouches()) {
+            if (pianoKeyboard_.handlePointer(ev, pianoGutterBounds_, scrollY_, ctx.audioEngine, activeTrackIndex_)) {
+                return true;
+            }
+        }
         if (subView_ == EditSubViewMode::Script) {
             if (scriptEditor_.handlePointer(ev, ctx)) return true;
         }
@@ -2523,17 +2745,54 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             float dist = std::hypot(ev.x - touchDownPos_.x, ev.y - touchDownPos_.y);
             auto now = std::chrono::steady_clock::now();
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - touchDownTimePoint_).count();
-            if (elapsedMs >= 380 && dist <= 14.0f) {
-                touchLongPressArmed_ = true;
-                dragMode_ = DragMode::MarqueeSelect;
-                dragStartPoint_ = touchDownPos_;
-                marqueeCurrentPoint_ = Point2D{ev.x, ev.y};
-                clearSelection();
-                return true;
-            } else if (dist > 14.0f) {
-                touchPanCommitted_ = true;
-                dragMode_ = DragMode::TouchPan;
-                kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+
+            if (subView_ == EditSubViewMode::Tracker) {
+                float rowNumW = 48.0f;
+                float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+                float colW = 140.0f + extraParamsW;
+                float colSpacing = 6.0f;
+                float startRowY = contentBounds_.y + 62.0f;
+                float rowH = 24.0f;
+
+                if (elapsedMs >= 350 && dist <= 14.0f) {
+                    touchLongPressArmed_ = true;
+                    dragMode_ = DragMode::TrackerBlockSelect;
+                    dragStartPoint_ = touchDownPos_;
+                    trackerHasBlockSelection_ = true;
+                    int curStep = std::clamp(static_cast<int>((ev.y - startRowY + trackerScrollY_) / rowH), 0, 63);
+                    float relX = ev.x - (contentBounds_.x + rowNumW) + trackerScrollX_;
+                    int curCol = std::clamp(static_cast<int>(relX / (colW + colSpacing)), 0, trackerNumLanes_ - 1);
+                    trackerSelectedStep_ = curStep;
+                    trackerSelectedCol_ = curCol;
+
+                    int minStep = std::min(trackerBlockAnchorStep_, trackerSelectedStep_);
+                    int maxStep = std::max(trackerBlockAnchorStep_, trackerSelectedStep_);
+                    int minCol = std::min(trackerBlockAnchorCol_, trackerSelectedCol_);
+                    int maxCol = std::max(trackerBlockAnchorCol_, trackerSelectedCol_);
+                    for (auto& n : notes_) {
+                        int nStep = static_cast<int>(std::round(n.startStep));
+                        n.isSelected = (nStep >= minStep && nStep <= maxStep && n.column >= minCol && n.column <= maxCol);
+                    }
+                    return true;
+                } else if (dist > 12.0f) {
+                    touchPanCommitted_ = true;
+                    dragMode_ = DragMode::TouchPan;
+                    dragStartPoint_ = touchDownPos_;
+                    kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                }
+            } else {
+                if (elapsedMs >= 380 && dist <= 14.0f) {
+                    touchLongPressArmed_ = true;
+                    dragMode_ = DragMode::MarqueeSelect;
+                    dragStartPoint_ = touchDownPos_;
+                    marqueeCurrentPoint_ = Point2D{ev.x, ev.y};
+                    clearSelection();
+                    return true;
+                } else if (dist > 14.0f) {
+                    touchPanCommitted_ = true;
+                    dragMode_ = DragMode::TouchPan;
+                    kineticScroller_.addSample(ev.x, ev.y, ev.timestampMs);
+                }
             }
         }
 
@@ -2546,16 +2805,70 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             } else if (subView_ == EditSubViewMode::Score) {
                 scoreScrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
             } else if (subView_ == EditSubViewMode::Tracker) {
-                trackerScrollY_ = (std::max)(0.0f, panStartScrollY_ - (ev.y - dragStartPoint_.y));
+                float rowNumW = 48.0f;
+                float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+                float colW = 140.0f + extraParamsW;
+                float colSpacing = 6.0f;
+                float rowH = 24.0f;
+                float totalLanesW = static_cast<float>(trackerNumLanes_) * (colW + colSpacing);
+                float maxScrollX = std::max(0.0f, totalLanesW - (contentBounds_.w - rowNumW));
+                float maxScrollY = std::max(0.0f, 64.0f * rowH - (contentBounds_.h - 62.0f));
+
+                trackerScrollX_ = std::clamp(panStartScrollX_ - (ev.x - dragStartPoint_.x), 0.0f, maxScrollX);
+                trackerScrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
             }
             return true;
         }
 
         if (dragMode_ == DragMode::MiddlePan) {
-            scrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
-            float maxScrollY = (std::max)(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
-            scrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
+            if (subView_ == EditSubViewMode::Tracker) {
+                float rowNumW = 48.0f;
+                float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+                float colW = 140.0f + extraParamsW;
+                float colSpacing = 6.0f;
+                float rowH = 24.0f;
+                float totalLanesW = static_cast<float>(trackerNumLanes_) * (colW + colSpacing);
+                float maxScrollX = std::max(0.0f, totalLanesW - (contentBounds_.w - rowNumW));
+                float maxScrollY = std::max(0.0f, 64.0f * rowH - (contentBounds_.h - 62.0f));
+
+                trackerScrollX_ = std::clamp(panStartScrollX_ - (ev.x - dragStartPoint_.x), 0.0f, maxScrollX);
+                trackerScrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
+            } else {
+                scrollX_ = (std::max)(0.0f, panStartScrollX_ - (ev.x - dragStartPoint_.x));
+                float maxScrollY = (std::max)(0.0f, (maxPitch_ - minPitch_ + 1) * semitoneHeight_ - gridBounds_.h);
+                scrollY_ = std::clamp(panStartScrollY_ - (ev.y - dragStartPoint_.y), 0.0f, maxScrollY);
+            }
             return true;
+        }
+
+        if (dragMode_ == DragMode::TrackerBlockSelect) {
+            float dist = std::hypot(ev.x - dragStartPoint_.x, ev.y - dragStartPoint_.y);
+            if (dist >= 6.0f) {
+                trackerHasBlockSelection_ = true;
+                float rowNumW = 48.0f;
+                float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+                float colW = 140.0f + extraParamsW;
+                float colSpacing = 6.0f;
+                float startRowY = contentBounds_.y + 62.0f;
+                float rowH = 24.0f;
+
+                int curStep = std::clamp(static_cast<int>((ev.y - startRowY + trackerScrollY_) / rowH), 0, 63);
+                float relX = ev.x - (contentBounds_.x + rowNumW) + trackerScrollX_;
+                int curCol = std::clamp(static_cast<int>(relX / (colW + colSpacing)), 0, trackerNumLanes_ - 1);
+                trackerSelectedStep_ = curStep;
+                trackerSelectedCol_ = curCol;
+
+                int minStep = std::min(trackerBlockAnchorStep_, trackerSelectedStep_);
+                int maxStep = std::max(trackerBlockAnchorStep_, trackerSelectedStep_);
+                int minCol = std::min(trackerBlockAnchorCol_, trackerSelectedCol_);
+                int maxCol = std::max(trackerBlockAnchorCol_, trackerSelectedCol_);
+
+                for (auto& n : notes_) {
+                    int nStep = static_cast<int>(std::round(n.startStep));
+                    n.isSelected = (nStep >= minStep && nStep <= maxStep && n.column >= minCol && n.column <= maxCol);
+                }
+                return true;
+            }
         }
 
         if (dragMode_ == DragMode::GhostSlider) {
@@ -2631,14 +2944,108 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
 
+        if (dragMode_ == DragMode::TrackerBlockSelect) {
+            dragMode_ = DragMode::None;
+            if (!trackerHasBlockSelection_) {
+                int clickedStep = trackerBlockAnchorStep_;
+                int clickedCol = trackerBlockAnchorCol_;
+                if (clickedStep >= 0 && clickedStep < 64 && clickedCol >= 0 && clickedCol < trackerNumLanes_) {
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTrackerClickTime_).count();
+                    float clickDist = std::hypot(ev.x - lastTrackerClickPos_.x, ev.y - lastTrackerClickPos_.y);
+                    bool isDouble = (elapsedMs < 400 && clickDist < 25.0f && lastTrackerClickedStep_ == clickedStep && lastTrackerClickedCol_ == clickedCol);
+
+                    trackerSelectedStep_ = clickedStep;
+                    trackerSelectedCol_ = clickedCol;
+
+                    if (isDouble) {
+                        openTrackerCellDialog(clickedStep, clickedCol);
+                        trackerCellDialog_.onAudition = [this, &ctx](uint8_t p, float v) {
+                            auditionPitch(p, v, ctx);
+                        };
+                        lastTrackerClickTime_ = std::chrono::steady_clock::time_point{};
+                        return true;
+                    }
+
+                    lastTrackerClickTime_ = now;
+                    lastTrackerClickPos_ = Point2D{ev.x, ev.y};
+                    lastTrackerClickedStep_ = clickedStep;
+                    lastTrackerClickedCol_ = clickedCol;
+
+                    clearSelection();
+                    for (auto& n : notes_) {
+                        if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
+                            n.isSelected = true;
+                            int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                                ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                            auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                            break;
+                        }
+                    }
+                    ensureTrackerCursorVisible();
+                    return true;
+                }
+            }
+            return true;
+        }
+
         if (dragMode_ == DragMode::TouchGridPending) {
             dragMode_ = DragMode::None;
             if (ev.action == PointerAction::Up) {
-                auto now = std::chrono::steady_clock::now();
-                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGridClickTime_).count();
-                float clickDist = std::hypot(ev.x - lastGridClickPos_.x, ev.y - lastGridClickPos_.y);
+                if (subView_ == EditSubViewMode::Tracker) {
+                    float rowNumW = 48.0f;
+                    float extraParamsW = (trackerShowCustomParams_ ? static_cast<float>(trackerCustomCols_.size()) * 26.0f : 0.0f);
+                    float colW = 140.0f + extraParamsW;
+                    float colSpacing = 6.0f;
+                    float startRowY = contentBounds_.y + 62.0f;
+                    float rowH = 24.0f;
 
-                if (subView_ == EditSubViewMode::PianoRoll && gridBounds_.contains(ev.x, ev.y)) {
+                    int clickedStep = static_cast<int>((touchDownPos_.y - startRowY + trackerScrollY_) / rowH);
+                    float relX = touchDownPos_.x - (contentBounds_.x + rowNumW) + trackerScrollX_;
+                    int clickedCol = static_cast<int>(relX / (colW + colSpacing));
+
+                    if (clickedStep >= 0 && clickedStep < 64 && clickedCol >= 0 && clickedCol < trackerNumLanes_) {
+                        auto now = std::chrono::steady_clock::now();
+                        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTrackerClickTime_).count();
+                        float clickDist = std::hypot(ev.x - lastTrackerClickPos_.x, ev.y - lastTrackerClickPos_.y);
+                        bool isDouble = (elapsedMs < 400 && clickDist < 25.0f && lastTrackerClickedStep_ == clickedStep && lastTrackerClickedCol_ == clickedCol);
+
+                        trackerSelectedStep_ = clickedStep;
+                        trackerSelectedCol_ = clickedCol;
+                        trackerHasBlockSelection_ = false;
+
+                        if (isDouble) {
+                            openTrackerCellDialog(clickedStep, clickedCol);
+                            trackerCellDialog_.onAudition = [this, &ctx](uint8_t p, float v) {
+                                auditionPitch(p, v, ctx);
+                            };
+                            lastTrackerClickTime_ = std::chrono::steady_clock::time_point{};
+                            return true;
+                        }
+
+                        lastTrackerClickTime_ = now;
+                        lastTrackerClickPos_ = Point2D{ev.x, ev.y};
+                        lastTrackerClickedStep_ = clickedStep;
+                        lastTrackerClickedCol_ = clickedCol;
+
+                        clearSelection();
+                        for (auto& n : notes_) {
+                            if (static_cast<int>(std::round(n.startStep)) == clickedStep && n.column == clickedCol) {
+                                n.isSelected = true;
+                                int audP = (hasActiveChordFollowOrMidiFx() && &n >= notes_.data() && static_cast<size_t>(&n - notes_.data()) < evaluatedFxNotes_.size())
+                                    ? evaluatedFxNotes_[&n - notes_.data()].pitch : n.pitch;
+                                auditionPitch(audP, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                                break;
+                            }
+                        }
+                        ensureTrackerCursorVisible();
+                        return true;
+                    }
+                } else if (subView_ == EditSubViewMode::PianoRoll && gridBounds_.contains(ev.x, ev.y)) {
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGridClickTime_).count();
+                    float clickDist = std::hypot(ev.x - lastGridClickPos_.x, ev.y - lastGridClickPos_.y);
+
                     if (elapsedMs < 350 && clickDist < 20.0f) {
                         float step = std::floor((ev.x - gridBounds_.x + scrollX_) / stepWidth_);
                         int pitch = maxPitch_ - static_cast<int>((ev.y - gridBounds_.y + scrollY_) / semitoneHeight_);
@@ -2723,6 +3130,11 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
             return true;
         }
 
+        if (pianoKeyboard_.hasActiveTouches()) {
+            if (pianoKeyboard_.handlePointer(ev, pianoGutterBounds_, scrollY_, ctx.audioEngine, activeTrackIndex_)) {
+                return true;
+            }
+        }
         if (pianoGutterBounds_.contains(ev.x, ev.y)) {
             float localY = ev.y - pianoGutterBounds_.y + scrollY_;
             int pitch = maxPitch_ - static_cast<int>(localY / semitoneHeight_);
@@ -2760,6 +3172,16 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
 }
 
 bool EditView::handleKey(int key, int scancode, int action, int mods, const ViewContext& ctx) {
+    if (trackerCellDialog_.isOpen()) {
+        trackerCellDialog_.onAudition = [this, &ctx](uint8_t p, float v) {
+            auditionPitch(p, v, ctx);
+        };
+        if (trackerCellDialog_.handleKey(key, scancode, action, mods)) {
+            return true;
+        }
+        return true;
+    }
+
     if (subView_ == EditSubViewMode::Script) {
         if (scriptEditor_.handleKey(key, scancode, action, mods, ctx)) {
             return true;
@@ -2797,8 +3219,10 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
             notes_.erase(std::remove_if(notes_.begin(), notes_.end(), [&](const PianoRollNote& n) {
                 return (static_cast<int>(std::round(n.startStep)) == trackerSelectedStep_ && n.column == trackerSelectedCol_);
             }), notes_.end());
-            trackerSelectedStep_ = (trackerSelectedStep_ + 1) % 64;
-            ensureTrackerCursorVisible();
+            if (trackerEditStep_ > 0) {
+                trackerSelectedStep_ = (trackerSelectedStep_ + trackerEditStep_) % 64;
+                ensureTrackerCursorVisible();
+            }
             formatEatscriptFromNotes();
             if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
             else if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());
@@ -2872,11 +3296,11 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
         }
 
         if (key == 91 || key == 45) {
-            trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 1, 6);
+            trackerBaseOctave_ = std::clamp(trackerBaseOctave_ - 1, 0, 8);
             return true;
         }
         if (key == 93 || key == 61) {
-            trackerBaseOctave_ = std::clamp(trackerBaseOctave_ + 1, 1, 6);
+            trackerBaseOctave_ = std::clamp(trackerBaseOctave_ + 1, 0, 8);
             return true;
         }
 
@@ -2952,8 +3376,10 @@ bool EditView::handleKey(int key, int scancode, int action, int mods, const View
             }
 
             auditionPitch(pitch, 0.85f, ctx);
-            trackerSelectedStep_ = (trackerSelectedStep_ + 1) % 64;
-            ensureTrackerCursorVisible();
+            if (trackerEditStep_ > 0) {
+                trackerSelectedStep_ = (trackerSelectedStep_ + trackerEditStep_) % 64;
+                ensureTrackerCursorVisible();
+            }
             formatEatscriptFromNotes();
             if (onNotesChanged) onNotesChanged(activeTrackIndex_, activeClipIndex_);
             else if (ctx.audioEngine) syncToSequencer(ctx.audioEngine->getSequencer());

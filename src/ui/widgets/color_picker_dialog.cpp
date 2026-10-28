@@ -104,37 +104,7 @@ void ColorPickerDialog::setSelectedColor(const Color& col) noexcept {
 void ColorPickerDialog::initPaletteCategories() {
     categories_.clear();
 
-    // 1. NEON & CYBERPUNK
-    categories_.push_back({
-        "NEON & CYBERPUNK",
-        {
-            Color(0.13f, 0.96f, 0.91f), // Neon Cyan #21F4E8
-            Color(1.00f, 0.00f, 0.48f), // Hot Pink #FF007A
-            Color(0.00f, 1.00f, 0.40f), // Acid Lime #00FF66
-            Color(0.74f, 0.00f, 1.00f), // Electric Purple #BD00FF
-            Color(1.00f, 0.55f, 0.00f), // Neon Orange #FF8C00
-            Color(1.00f, 0.90f, 0.00f), // Solar Yellow #FFE600
-            Color(0.00f, 0.90f, 1.00f), // Bright Cyan #00E5FF
-            Color(1.00f, 0.20f, 0.40f), // Laser Coral #FF3366
-        }
-    });
-
-    // 2. CLASSIC SYNTH & STUDIO
-    categories_.push_back({
-        "CLASSIC SYNTH & STUDIO",
-        {
-            Color(0.97f, 0.50f, 0.00f), // Amber Glow #F77F00
-            Color(0.90f, 0.22f, 0.27f), // Drum Red #E63946
-            Color(0.00f, 0.47f, 0.71f), // Indigo Blue #0077B6
-            Color(0.16f, 0.62f, 0.56f), // Analog Teal #2A9D8F
-            Color(0.88f, 0.66f, 0.43f), // Brass Gold #E0A96D
-            Color(0.45f, 0.04f, 0.72f), // Deep Violet #7209B7
-            Color(0.27f, 0.48f, 0.62f), // Steel Slate #457B9D
-            Color(0.83f, 0.64f, 0.45f), // Warm Wood #D4A373
-        }
-    });
-
-    // 3. VIBRANT PALETTE
+    // 1. VIBRANT PALETTE
     categories_.push_back({
         "VIBRANT PALETTE",
         {
@@ -157,7 +127,22 @@ void ColorPickerDialog::initPaletteCategories() {
         }
     });
 
-    // 4. PASTELS & SUBTLE
+    // 2. CLASSIC SYNTH & STUDIO
+    categories_.push_back({
+        "CLASSIC SYNTH & STUDIO",
+        {
+            Color(0.97f, 0.50f, 0.00f), // Amber Glow #F77F00
+            Color(0.90f, 0.22f, 0.27f), // Drum Red #E63946
+            Color(0.00f, 0.47f, 0.71f), // Indigo Blue #0077B6
+            Color(0.16f, 0.62f, 0.56f), // Analog Teal #2A9D8F
+            Color(0.88f, 0.66f, 0.43f), // Brass Gold #E0A96D
+            Color(0.45f, 0.04f, 0.72f), // Deep Violet #7209B7
+            Color(0.27f, 0.48f, 0.62f), // Steel Slate #457B9D
+            Color(0.83f, 0.64f, 0.45f), // Warm Wood #D4A373
+        }
+    });
+
+    // 3. PASTELS & SUBTLE
     categories_.push_back({
         "PASTELS & SUBTLE",
         {
@@ -171,11 +156,26 @@ void ColorPickerDialog::initPaletteCategories() {
             Color(0.72f, 0.88f, 0.86f), // Soft Aqua #B8E0DB
         }
     });
+
+    // 4. GRAYSCALE
+    categories_.push_back({
+        "GRAYSCALE",
+        {
+            Color(1.00f, 1.00f, 1.00f), // Pure White #FFFFFF
+            Color(0.86f, 0.86f, 0.88f), // Platinum #DCDCE0
+            Color(0.70f, 0.71f, 0.74f), // Silver #B3B5BD
+            Color(0.52f, 0.54f, 0.58f), // Steel #858A94
+            Color(0.36f, 0.38f, 0.42f), // Slate #5C616B
+            Color(0.24f, 0.25f, 0.28f), // Charcoal #3D4047
+            Color(0.14f, 0.15f, 0.17f), // Onyx #24262B
+            Color(0.06f, 0.06f, 0.08f), // Carbon Black #0F0F14
+        }
+    });
 }
 
 void ColorPickerDialog::layout(float screenW, float screenH) {
-    const float w = std::min(580.0f, screenW - 32.0f);
-    const float h = std::min(530.0f, screenH - 32.0f);
+    const float w = std::min(560.0f, screenW - 24.0f);
+    const float h = std::min(520.0f, screenH - 24.0f);
     const float x = (screenW - w) * 0.5f;
     const float y = (screenH - h) * 0.5f;
 
@@ -195,10 +195,13 @@ void ColorPickerDialog::layout(float screenW, float screenH) {
 
     for (size_t c = 0; c < categories_.size(); ++c) {
         const auto& cat = categories_[c];
-        curY += 18.0f; // Category header label space
+        curY += 20.0f; // Category header label space
 
         size_t numCols = cat.colors.size() > 8 ? 8 : cat.colors.size();
-        const float swatchSize = (w - 48.0f - (numCols - 1) * 6.0f) / static_cast<float>(numCols);
+        const float swatchGapX = 5.0f;
+        const float swatchGapY = 5.0f;
+        const float swatchW = (w - 48.0f - (numCols - 1) * swatchGapX) / static_cast<float>(numCols);
+        const float swatchH = std::clamp(swatchW * 0.36f, 16.0f, 20.0f);
 
         if (swatchBounds_[c].size() != cat.colors.size()) {
             swatchBounds_[c].resize(cat.colors.size());
@@ -207,30 +210,32 @@ void ColorPickerDialog::layout(float screenW, float screenH) {
         for (size_t i = 0; i < cat.colors.size(); ++i) {
             size_t col = i % numCols;
             size_t row = i / numCols;
-            float sx = x + 24.0f + col * (swatchSize + 6.0f);
-            float sy = curY + row * (swatchSize + 6.0f);
-            swatchBounds_[c][i] = Rect2D(sx, sy, swatchSize, swatchSize);
+            float sx = x + 24.0f + col * (swatchW + swatchGapX);
+            float sy = curY + row * (swatchH + swatchGapY);
+            swatchBounds_[c][i] = Rect2D(sx, sy, swatchW, swatchH);
         }
 
         size_t totalRows = (cat.colors.size() + numCols - 1) / numCols;
-        curY += totalRows * (swatchSize + 6.0f) + 6.0f;
+        curY += totalRows * (swatchH + swatchGapY) + 6.0f;
     }
 
-    // HSL Sliders
+    // HSL Sliders & Preview Swatches
+    float hslStartY = curY + 14.0f;
     const float sliderW = w - 48.0f - 110.0f;
-    hueSliderBounds_ = Rect2D(x + 24.0f, curY + 4.0f, sliderW, 20.0f);
-    satSliderBounds_ = Rect2D(x + 24.0f, hueSliderBounds_.bottom() + 10.0f, sliderW, 20.0f);
-    lightSliderBounds_ = Rect2D(x + 24.0f, satSliderBounds_.bottom() + 10.0f, sliderW, 20.0f);
+    const float sliderH = 14.0f;
+    hueSliderBounds_ = Rect2D(x + 24.0f, hslStartY + 16.0f, sliderW, sliderH);
+    satSliderBounds_ = Rect2D(x + 24.0f, hueSliderBounds_.bottom() + 24.0f, sliderW, sliderH);
+    lightSliderBounds_ = Rect2D(x + 24.0f, satSliderBounds_.bottom() + 24.0f, sliderW, sliderH);
 
     // Before / After Preview Swatches
     const float prevX = x + w - 24.0f - 96.0f;
-    beforeSwatchBounds_ = Rect2D(prevX, curY + 4.0f, 44.0f, 44.0f);
-    afterSwatchBounds_ = Rect2D(prevX + 48.0f, curY + 4.0f, 48.0f, 44.0f);
+    beforeSwatchBounds_ = Rect2D(prevX, hslStartY + 16.0f, 44.0f, 44.0f);
+    afterSwatchBounds_ = Rect2D(prevX + 48.0f, hslStartY + 16.0f, 48.0f, 44.0f);
 
     // Bottom Action Buttons
-    const float botY = y + h - 46.0f;
-    applyBtnBounds_ = Rect2D(x + w - 134.0f, botY, 110.0f, 32.0f);
-    cancelBtnBounds_ = Rect2D(applyBtnBounds_.x - 90.0f, botY, 80.0f, 32.0f);
+    const float botY = y + h - 42.0f;
+    applyBtnBounds_ = Rect2D(x + w - 134.0f, botY, 110.0f, 30.0f);
+    cancelBtnBounds_ = Rect2D(applyBtnBounds_.x - 90.0f, botY, 80.0f, 30.0f);
 }
 
 void ColorPickerDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
@@ -249,13 +254,13 @@ void ColorPickerDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawText(r, "Choose from curated studio palettes or tweak custom HSL color values", dialogBounds_.x + 44.0f, dialogBounds_.y + 36.0f, 9.5f, theme.textMuted);
 
     // 3. Swatch Palettes
-    float curY = dialogBounds_.y + 54.0f;
-    for (size_t c = 0; c < categories_.size(); ++c) {
+    for (size_t c = 0; c < categories_.size() && c < swatchBounds_.size(); ++c) {
         const auto& cat = categories_[c];
-        drawText(r, cat.name, dialogBounds_.x + 24.0f, curY + 2.0f, 8.5f, theme.textMuted);
-        curY += 18.0f;
-
         const auto& swatches = swatchBounds_[c];
+        if (swatches.empty()) continue;
+
+        drawText(r, cat.name, dialogBounds_.x + 24.0f, swatches[0].y - 15.0f, 8.5f, theme.textMuted);
+
         for (size_t i = 0; i < cat.colors.size() && i < swatches.size(); ++i) {
             const auto& sb = swatches[i];
             const auto& col = cat.colors[i];
@@ -264,23 +269,18 @@ void ColorPickerDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
                                std::abs(col.g - currentColor_.g) < 0.02f &&
                                std::abs(col.b - currentColor_.b) < 0.02f);
 
-            drawRoundedRect(r, sb.x, sb.y, sb.w, sb.h, 4.0f, col);
+            drawRoundedRect(r, sb.x, sb.y, sb.w, sb.h, 3.5f, col);
             if (isSelected) {
-                drawRoundedRectOutline(r, sb.x - 2.0f, sb.y - 2.0f, sb.w + 4.0f, sb.h + 4.0f, 5.0f, Color(1.0f, 1.0f, 1.0f, 0.95f), 2.0f);
+                drawRoundedRectOutline(r, sb.x - 2.0f, sb.y - 2.0f, sb.w + 4.0f, sb.h + 4.0f, 4.5f, Color(1.0f, 1.0f, 1.0f, 0.95f), 2.0f);
             } else {
-                drawRoundedRectOutline(r, sb.x, sb.y, sb.w, sb.h, 4.0f, Color(0.0f, 0.0f, 0.0f, 0.35f), 1.0f);
+                drawRoundedRectOutline(r, sb.x, sb.y, sb.w, sb.h, 3.5f, Color(0.0f, 0.0f, 0.0f, 0.35f), 1.0f);
             }
         }
-
-        size_t numCols = cat.colors.size() > 8 ? 8 : cat.colors.size();
-        size_t totalRows = (cat.colors.size() + numCols - 1) / numCols;
-        const float swatchSize = (dialogBounds_.w - 48.0f - (numCols - 1) * 6.0f) / static_cast<float>(numCols);
-        curY += totalRows * (swatchSize + 6.0f) + 6.0f;
     }
 
     // 4. HSL Sliders
     auto drawHslSlider = [&](const Rect2D& b, const std::string& name, float val, float maxV, const Color& thumbCol) {
-        drawText(r, name, b.x, b.y - 12.0f, 8.5f, theme.textMuted);
+        drawText(r, name, b.x, b.y - 14.0f, 8.5f, theme.textMuted);
 
         // Track background
         drawRoundedRect(r, b.x, b.y, b.w, b.h, 4.0f, Color(0.10f, 0.14f, 0.20f, 1.0f));
@@ -301,17 +301,17 @@ void ColorPickerDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     drawHslSlider(lightSliderBounds_, "LIGHTNESS (0 - 100%)", lightness_ * 100.0f, 100.0f, hslToRgb(hue_, saturation_, lightness_));
 
     // 5. Before / After Preview Swatches
-    drawText(r, "BEFORE", beforeSwatchBounds_.x, beforeSwatchBounds_.y - 12.0f, 8.0f, theme.textMuted);
+    drawText(r, "BEFORE", beforeSwatchBounds_.x, beforeSwatchBounds_.y - 14.0f, 8.0f, theme.textMuted);
     drawRoundedRect(r, beforeSwatchBounds_.x, beforeSwatchBounds_.y, beforeSwatchBounds_.w, beforeSwatchBounds_.h, 4.0f, initialColor_);
     drawRoundedRectOutline(r, beforeSwatchBounds_.x, beforeSwatchBounds_.y, beforeSwatchBounds_.w, beforeSwatchBounds_.h, 4.0f, theme.borderSubtle, 1.0f);
 
-    drawText(r, "AFTER", afterSwatchBounds_.x, afterSwatchBounds_.y - 12.0f, 8.0f, theme.textMuted);
+    drawText(r, "AFTER", afterSwatchBounds_.x, afterSwatchBounds_.y - 14.0f, 8.0f, theme.textMuted);
     drawRoundedRect(r, afterSwatchBounds_.x, afterSwatchBounds_.y, afterSwatchBounds_.w, afterSwatchBounds_.h, 4.0f, currentColor_);
     drawRoundedRectOutline(r, afterSwatchBounds_.x, afterSwatchBounds_.y, afterSwatchBounds_.w, afterSwatchBounds_.h, 4.0f, Color(1.0f, 1.0f, 1.0f, 0.8f), 1.5f);
 
     // Hex code readout below after swatch
     std::string hexStr = colorToHex(currentColor_);
-    drawText(r, hexStr, afterSwatchBounds_.x - 12.0f, afterSwatchBounds_.bottom() + 6.0f, 9.0f, theme.textPrimary);
+    drawText(r, hexStr, afterSwatchBounds_.x - 12.0f, afterSwatchBounds_.bottom() + 7.0f, 9.0f, theme.textPrimary);
 
     // 6. Action Buttons
     drawButton(r, cancelBtnBounds_, "CANCEL", theme.panelHeader, theme.borderSubtle, theme.textSecondary, 10.0f);

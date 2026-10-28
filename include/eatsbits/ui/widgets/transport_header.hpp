@@ -41,6 +41,8 @@ public:
     [[nodiscard]] Rect2D getBpmBounds() const noexcept { return bpmBounds_; }
     [[nodiscard]] std::string getTooltip(float x, float y) const noexcept;
     void setHoverPosition(float x, float y) noexcept { hoverX_ = x; hoverY_ = y; }
+    void setLoopActive(bool active) noexcept { loopActive_ = active; }
+    [[nodiscard]] bool isLoopActive() const noexcept { return loopActive_; }
 
     std::function<void()> onToggleProjectHub;
     std::function<void()> onToggleBrowser;

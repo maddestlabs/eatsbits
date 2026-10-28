@@ -25,6 +25,7 @@
 #include "eatsbits/audio/graph/nodes/ym2612_node.hpp"
 #include "eatsbits/audio/clap/clap_plugin_loader.hpp"
 #include "eatsbits/project/eats_builtin_presets.hpp"
+#include "eatsbits/project/sequence_catalog.hpp"
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
@@ -967,22 +968,127 @@ inline uint32_t packSvgColor(const Color& c, float extraAlpha = 1.0f) {
     return ur | (ug << 8) | (ub << 16) | (ua << 24);
 }
 
+static void drawPlainEatsbitsVectorEmblem(BatchRenderer2D& r, float x, float y, float w, float h, const Color& col) {
+    if (w <= 0.0f || h <= 0.0f) return;
+
+    // SVG coordinates from app_icon_plain.svg:
+    // [50, 50] to [224, 205] -> 174w x 155h
+    constexpr float kPiVal = 3.14159265358979323846f;
+    const float scale = std::min(w / 174.0f, h / 155.0f);
+    const float ox = x + (w - 174.0f * scale) * 0.5f;
+    const float oy = y + (h - 155.0f * scale) * 0.5f;
+
+    auto mapX = [&](float sx) { return ox + (sx - 50.0f) * scale; };
+    auto mapY = [&](float sy) { return oy + (sy - 50.0f) * scale; };
+    auto mapW = [&](float sw) { return sw * scale; };
+    auto mapH = [&](float sh) { return sh * scale; };
+
+    // 1. Bottom jaw/bar: [50, 170] to [190, 205] (140w x 35h)
+    r.drawRect(mapX(50.0f), mapY(170.0f), mapW(140.0f), mapH(35.0f), col.r, col.g, col.b, col.a);
+
+    // 2. Spine/back: [50, 110] to [110, 170] (60w x 60h)
+    r.drawRect(mapX(50.0f), mapY(110.0f), mapW(60.0f), mapH(60.0f), col.r, col.g, col.b, col.a);
+
+    // 3. Top bar with genuine circular cutout hole in the "e" (cx=130, cy=80, r=16):
+    // Rect left of hole: [50, 50] to [114, 110] (64w x 60h)
+    r.drawRect(mapX(50.0f), mapY(50.0f), mapW(64.0f), mapH(60.0f), col.r, col.g, col.b, col.a);
+
+    // Rect right of hole: [146, 50] to [190, 110] (44w x 60h)
+    r.drawRect(mapX(146.0f), mapY(50.0f), mapW(44.0f), mapH(60.0f), col.r, col.g, col.b, col.a);
+
+    // Slice above hole: [114, 50] to [146, 64] (32w x 14h)
+    r.drawRect(mapX(114.0f), mapY(50.0f), mapW(32.0f), mapH(14.0f), col.r, col.g, col.b, col.a);
+
+    // Slice below hole: [114, 96] to [146, 110] (32w x 14h)
+    r.drawRect(mapX(114.0f), mapY(96.0f), mapW(32.0f), mapH(14.0f), col.r, col.g, col.b, col.a);
+
+    // 4. Smooth corner filler triangles in the 4 corners outside the circular hole
+    const float cx = mapX(130.0f);
+    const float cy = mapY(80.0f);
+    const float cr = 16.0f * scale;
+
+    const float x0 = mapX(114.0f);
+    const float y0 = mapY(64.0f);
+    const float x1 = mapX(146.0f);
+    const float y1 = mapY(96.0f);
+
+    constexpr int kSteps = 6;
+    for (int i = 0; i < kSteps; ++i) {
+        float a0 = (static_cast<float>(i) / kSteps) * (kPiVal * 0.5f);
+        float a1 = (static_cast<float>(i + 1) / kSteps) * (kPiVal * 0.5f);
+
+        // Top-Left quadrant (angle pi to 1.5*pi)
+        float cos0 = std::cos(kPiVal + a0), sin0 = std::sin(kPiVal + a0);
+        float cos1 = std::cos(kPiVal + a1), sin1 = std::sin(kPiVal + a1);
+        r.drawTriangle(x0, y0, cx + cr * cos0, cy + cr * sin0, cx + cr * cos1, cy + cr * sin1,
+                       col.r, col.g, col.b, col.a);
+
+        // Top-Right quadrant (angle 1.5*pi to 2*pi)
+        cos0 = std::cos(1.5f * kPiVal + a0); sin0 = std::sin(1.5f * kPiVal + a0);
+        cos1 = std::cos(1.5f * kPiVal + a1); sin1 = std::sin(1.5f * kPiVal + a1);
+        r.drawTriangle(x1, y0, cx + cr * cos0, cy + cr * sin0, cx + cr * cos1, cy + cr * sin1,
+                       col.r, col.g, col.b, col.a);
+
+        // Bottom-Right quadrant (angle 0 to 0.5*pi)
+        cos0 = std::cos(a0); sin0 = std::sin(a0);
+        cos1 = std::cos(a1); sin1 = std::sin(a1);
+        r.drawTriangle(x1, y1, cx + cr * cos0, cy + cr * sin0, cx + cr * cos1, cy + cr * sin1,
+                       col.r, col.g, col.b, col.a);
+
+        // Bottom-Left quadrant (angle 0.5*pi to pi)
+        cos0 = std::cos(0.5f * kPiVal + a0); sin0 = std::sin(0.5f * kPiVal + a0);
+        cos1 = std::cos(0.5f * kPiVal + a1); sin1 = std::sin(0.5f * kPiVal + a1);
+        r.drawTriangle(x0, y1, cx + cr * cos0, cy + cr * sin0, cx + cr * cos1, cy + cr * sin1,
+                       col.r, col.g, col.b, col.a);
+    }
+
+    // 5. Bit 1 (upper floating bit): [200, 115], 24x24, rx=3.5
+    r.drawRoundedRect(mapX(200.0f), mapY(115.0f), mapW(24.0f), mapH(24.0f), 3.5f * scale, col.r, col.g, col.b, col.a, 8);
+
+    // 6. Bit 2 (lower floating bit): [200, 160], 18x18, rx=3.0
+    r.drawRoundedRect(mapX(200.0f), mapY(160.0f), mapW(18.0f), mapH(18.0f), 3.0f * scale, col.r, col.g, col.b, col.a, 8);
+}
+
 void drawPlainEatsbitsLogo(float x, float y, float w, float h, const Color& color, float opacity = 1.0f,
                            bool inverted = false, const Color& darkColor = Color(0.08f, 0.07f, 0.06f)) {
+    if (!g_activeBatchRenderer) return;
+
     if (!inverted) {
         // Subtle drop shadow / stamped depth edge for realistic faceplate silkscreen
-        uint32_t shadowCol = packSvgColor(Color(0.0f, 0.0f, 0.0f, 0.50f));
-        drawSvgPath(SvgLogo::kPlainLogoPath, x + 0.65f, y + 0.85f, w, h, shadowCol, 0.40f * opacity);
+        Color shadowCol(0.0f, 0.0f, 0.0f, 0.40f * opacity);
+        drawPlainEatsbitsVectorEmblem(*g_activeBatchRenderer, x + 0.65f, y + 0.85f, w, h, shadowCol);
 
-        // Stamped silkscreen emblem with theme accent color
-        uint32_t emblemCol = packSvgColor(color);
-        drawSvgPath(SvgLogo::kPlainLogoPath, x, y, w, h, emblemCol, opacity);
+        // Stamped silkscreen emblem with theme accent color and genuine circular hole in the "e"
+        Color emblemCol = color;
+        emblemCol.a *= opacity;
+        drawPlainEatsbitsVectorEmblem(*g_activeBatchRenderer, x, y, w, h, emblemCol);
     } else {
-        // Inverted state on hover: dark creature body with illuminated accent outline, eye, and eating bits
-        uint32_t accentCol = packSvgColor(color);
-        uint32_t darkCol = packSvgColor(darkColor);
-        auto invertedLayers = SvgLogo::getPlainInvertedLayers(accentCol, darkCol);
-        drawSvgLayers(invertedLayers, x, y, w, h, opacity);
+        // Inverted state on hover: dark creature body with illuminated accent outline, eye rim, and eating bits
+        Color bodyCol = darkColor;
+        bodyCol.a *= opacity;
+        drawPlainEatsbitsVectorEmblem(*g_activeBatchRenderer, x, y, w, h, bodyCol);
+
+        const float scale = std::min(w / 174.0f, h / 155.0f);
+        const float ox = x + (w - 174.0f * scale) * 0.5f;
+        const float oy = y + (h - 155.0f * scale) * 0.5f;
+        auto mapX = [&](float sx) { return ox + (sx - 50.0f) * scale; };
+        auto mapY = [&](float sy) { return oy + (sy - 50.0f) * scale; };
+        auto mapW = [&](float sw) { return sw * scale; };
+        auto mapH = [&](float sh) { return sh * scale; };
+
+        const float cx = mapX(130.0f);
+        const float cy = mapY(80.0f);
+        const float cr = 16.0f * scale;
+
+        Color rimCol = color;
+        rimCol.a *= opacity;
+        // Illuminated eye rim
+        drawCircleOutline(cx, cy, cr, rimCol.r, rimCol.g, rimCol.b, rimCol.a, 1.2f);
+        // Bit outlines
+        drawRoundedRectOutline(mapX(200.0f), mapY(115.0f), mapW(24.0f), mapH(24.0f), 3.5f * scale,
+                               rimCol.r, rimCol.g, rimCol.b, rimCol.a, 1.0f);
+        drawRoundedRectOutline(mapX(200.0f), mapY(160.0f), mapW(18.0f), mapH(18.0f), 3.0f * scale,
+                               rimCol.r, rimCol.g, rimCol.b, rimCol.a, 1.0f);
     }
 }
 
@@ -2500,6 +2606,19 @@ void GuiWindow::setStatusMessage(const std::string& msg) noexcept {
 void GuiWindow::setUiScale(float scale) noexcept {
     uiScale_ = std::clamp(scale, 0.50f, 2.50f);
     updateLogicalDimensions();
+    if (window_) {
+        uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
+        uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
+        dawnBridge_.resize(physW, physH);
+        if (batchRenderer_) {
+            batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+            if (dawnBridge_.isNativeActive()) {
+                batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+            }
+#endif
+        }
+    }
     setStatusMessage("UI Scale: " + std::to_string(static_cast<int>(std::round(uiScale_ * 100.0f))) + "%");
 }
 
@@ -2642,6 +2761,11 @@ void GuiWindow::onWindowResize(int width, int height) noexcept {
     if (width <= 0 || height <= 0) return;
     windowWidth_ = width;
     windowHeight_ = height;
+#if EATS_HAS_GLFW
+    if (window_) {
+        glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
+    }
+#endif
     updateLogicalDimensions();
     uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
     uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
@@ -2660,6 +2784,11 @@ void GuiWindow::onFramebufferResize(int width, int height) noexcept {
     if (width <= 0 || height <= 0) return;
     fbWidth_ = width;
     fbHeight_ = height;
+#if EATS_HAS_GLFW
+    if (window_) {
+        glfwGetWindowSize(window_, &windowWidth_, &windowHeight_);
+    }
+#endif
     updateLogicalDimensions();
     uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
     uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
@@ -4300,6 +4429,106 @@ void GuiWindow::addClipToTrack(uint32_t trackIdx) {
     setStatusMessage("Added new clip to Track " + std::to_string(trackIdx + 1));
 }
 
+void GuiWindow::addSequenceClipToTrack(uint32_t trackIdx, const std::string& seqId, uint32_t targetBar) {
+    // 1. If no tracks exist in project, create a suitable default track first
+    if (modularArrangerView_ && modularArrangerView_->getTracks().empty()) {
+        std::string trkName = "Sequence Track";
+        std::string trkEngine = "tb303";
+        float r = 0.0f, g = 0.90f, b = 0.46f;
+        addTrackToProject(trkName, trkEngine, r, g, b);
+        trackIdx = 0;
+    }
+
+    if (!modularArrangerView_ || trackIdx >= modularArrangerView_->getTracks().size()) {
+        trackIdx = selectedTrackIndex_;
+        if (!modularArrangerView_ || trackIdx >= modularArrangerView_->getTracks().size()) return;
+    }
+
+    // 2. Lookup sequence definition
+    std::string seqName = seqId;
+    std::string seqScript;
+    const auto* seqDef = project::SequenceCatalog::findSequence(seqId);
+    if (seqDef) {
+        seqName = seqDef->name;
+        seqScript = seqDef->eatscriptCode;
+    } else {
+        const auto* preset = project::PresetManager::instance().findPreset(seqId);
+        if (preset) {
+            seqName = preset->name;
+            seqScript = preset->rawScript;
+        }
+    }
+
+    if (seqScript.empty()) {
+        setStatusMessage("Sequence script '" + seqId + "' not found");
+        return;
+    }
+
+    // 3. Parse clip notes from Eatscript code
+    auto events = eatscript::NoteScriptEngine::parseClipEvents(seqScript);
+    std::vector<ArrangerClipNote> clipNotes;
+    float maxStep = 0.0f;
+    for (const auto& ev : events) {
+        ArrangerClipNote an;
+        an.pitch = ev.pitch;
+        an.startBeat = ev.startBeat;
+        an.lengthBeats = ev.lengthBeats;
+        an.velocity = ev.velocity;
+        an.slide = ev.slide;
+        an.accent = ev.accent;
+        clipNotes.push_back(an);
+        maxStep = std::max(maxStep, ev.startStep + ev.durationSteps);
+    }
+    uint32_t barLength = static_cast<uint32_t>(std::max(1.0f, std::ceil(maxStep / 16.0f)));
+
+    // 4. Determine startBar
+    uint32_t startBar = targetBar;
+    auto& targetTrack = modularArrangerView_->getTracks()[trackIdx];
+    if (startBar == 0) {
+        if (!targetTrack.clips.empty()) {
+            uint32_t endB = 1;
+            for (const auto& c : targetTrack.clips) {
+                endB = std::max(endB, c.startBar + c.lengthBars);
+            }
+            startBar = endB;
+        } else {
+            startBar = 1;
+        }
+    }
+
+    // 5. Add clip with notes to ArrangerView
+    modularArrangerView_->addClipWithNotes(trackIdx, seqName, startBar, barLength, clipNotes, seqScript);
+
+    // 6. Sync ArrangerView clips back to arrangerTracks_ in GuiWindow
+    if (trackIdx < arrangerTracks_.size()) {
+        arrangerTracks_[trackIdx].clips.clear();
+        for (const auto& c : targetTrack.clips) {
+            ArrangerClip ac;
+            ac.name = c.name;
+            ac.startBar = c.startBar;
+            ac.barLength = c.lengthBars;
+            ac.isLooped = c.isLooped;
+            ac.loopLengthBars = c.loopLengthBars;
+            ac.isAudio = c.isAudio;
+            ac.transposeSemitones = c.transposeSemitones;
+            ac.r = c.r; ac.g = c.g; ac.b = c.b;
+            ac.eatscriptCode = c.eatscriptCode;
+            arrangerTracks_[trackIdx].clips.push_back(ac);
+        }
+    }
+
+    // 7. Select newly created clip and sync to EditView
+    int newClipIdx = static_cast<int>(targetTrack.clips.size() - 1);
+    modularArrangerView_->setSelectedClip(newClipIdx);
+    syncActiveClipToEditView(trackIdx, newClipIdx);
+
+    // 8. Sync Arranger to Sequencer for immediate live audio playback
+    syncArrangerToSequencer();
+
+    recordProjectHistory("Add Sequence Clip: " + seqName, "CLIP");
+    setStatusMessage("Added sequence \"" + seqName + "\" to " + targetTrack.name);
+}
+
 void GuiWindow::duplicateClip(uint32_t trackIdx, int clipIdx) {
     if (trackIdx >= arrangerTracks_.size()) return;
     if (modularArrangerView_ && trackIdx < modularArrangerView_->getTracks().size()) {
@@ -5609,9 +5838,24 @@ void GuiWindow::dispatchTrackParam(uint32_t trackIndex, const std::string& param
     }
 }
 
+void GuiWindow::toggleLoop() noexcept {
+    loopEnabled_ = !loopEnabled_;
+    if (engine_) {
+        engine_->getSequencer().getTransport().setLoopEnabled(loopEnabled_);
+    }
+    if (transportHeaderWidget_) {
+        transportHeaderWidget_->setLoopActive(loopEnabled_);
+    }
+    if (modularArrangerView_) {
+        modularArrangerView_->setLoopEnabled(loopEnabled_);
+    }
+}
+
 bool GuiWindow::initialize(audio::AudioEngine& engine) {
     engine_ = &engine;
     engine_->getSequencer().getTransport().setMaxSteps(18 * 16);
+    engine_->getSequencer().getTransport().setLoopEnabled(loopEnabled_);
+    engine_->getSequencer().getTransport().setLoopRange(0, 64);
     if (engine_->getSequencer().getNumTracks() == 0) {
         engine_->getSequencer().addTrack("DXVII E-Piano", engine_->getTrackSourceNodeId(0), 128);
     }
@@ -5630,20 +5874,45 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     updateMixerStrips();
     dawnBridge_.initialize(width_, height_);
 
+    if (engine_) {
+        engine_->getSequencer().getTransport().setLoopEnabled(loopEnabled_);
+        engine_->getSequencer().getTransport().setLoopRange(0, 64);
+    }
+
     // Instantiate Modular Subsystem Architecture (Option B)
     modularArrangerView_ = std::make_unique<ArrangerView>();
     modularEditView_ = std::make_unique<EditView>();
+    modularEditView_->onRequestClearFocus = [this]() {
+        focusManager_.clearFocus();
+    };
     modularTrackInspectorView_ = std::make_unique<TrackInspectorView>();
     modularMixerView_ = std::make_unique<MixerView>();
     modularDesignView_ = std::make_unique<DesignView>();
     virtualKeyboardDrawerWidget_ = std::make_unique<VirtualKeyboardDrawer>();
     projectBrowserDrawerWidget_ = std::make_unique<ProjectBrowserDrawer>();
     transportHeaderWidget_ = std::make_unique<TransportHeader>();
+    transportHeaderWidget_->setLoopActive(loopEnabled_);
     bottomNavBarWidget_ = std::make_unique<BottomNavBar>();
     syncDesignViewToProject();
     if (modularArrangerView_) {
         modularArrangerView_->setActiveTrack(0);
         modularArrangerView_->syncDrawerDataForTrack(0);
+        modularArrangerView_->setLoopEnabled(loopEnabled_);
+        modularArrangerView_->setLoopRange(0, 64);
+        modularArrangerView_->onToggleLoop = [this](bool enabled) {
+            loopEnabled_ = enabled;
+            if (engine_) {
+                engine_->getSequencer().getTransport().setLoopEnabled(enabled);
+            }
+            if (transportHeaderWidget_) {
+                transportHeaderWidget_->setLoopActive(enabled);
+            }
+        };
+        modularArrangerView_->onLoopRangeChanged = [this](uint32_t startStep, uint32_t endStep) {
+            if (engine_) {
+                engine_->getSequencer().getTransport().setLoopRange(startStep, endStep);
+            }
+        };
     }
 
     bottomNavBarWidget_->onTabSelected = [this](int tabIdx) {
@@ -5708,7 +5977,24 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         }
     };
     projectBrowserDrawerWidget_->onRunScript = [this](const std::string& scriptId) {
+        if (scriptId.rfind("macro_", 0) == 0) {
+            runMacro(0);
+            return;
+        }
+        const auto* seq = project::SequenceCatalog::findSequence(scriptId);
+        if (seq || scriptId == "acid_seq_01" || scriptId == "four_floor_seq" || scriptId.rfind("seq_", 0) == 0) {
+            addSequenceClipToTrack(selectedTrackIndex_, scriptId);
+            return;
+        }
+        const auto* preset = project::PresetManager::instance().findPreset(scriptId);
+        if (preset && (preset->category == "MIDI SEQ" || preset->category == "MIDI_SEQ")) {
+            addSequenceClipToTrack(selectedTrackIndex_, scriptId);
+            return;
+        }
         runMacro(0);
+    };
+    projectBrowserDrawerWidget_->onAddSequenceClip = [this](const std::string& seqId) {
+        addSequenceClipToTrack(selectedTrackIndex_, seqId);
     };
     projectBrowserDrawerWidget_->onAddPresetTrack = [this](const std::string& presetId) {
         std::string instName = presetId;
@@ -5770,7 +6056,8 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
         bool isInstrument = (script.category == "SYNTH" || script.category == "INSTRUMENT");
         bool isAudioFx = (script.category == "AUDIO_FX");
-        bool isMidiFx = (script.category == "MIDI_FX" || script.category == "MIDI_SEQ");
+        bool isMidiFx = (script.category == "MIDI_FX");
+        bool isMidiSeq = (script.category == "MIDI_SEQ" || script.category == "MIDI SEQ" || script.category == "SEQUENCE");
 
         // 1. Check if dropped over Track Properties Sidebar / Inspector
         bool droppedOnProperties = false;
@@ -5783,6 +6070,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         }
 
         if (droppedOnProperties) {
+            if (isMidiSeq) {
+                addSequenceClipToTrack(selectedTrackIndex_, script.id);
+                return;
+            }
             if (selectedTrackIndex_ < arrangerTracks_.size()) {
                 if (isInstrument) {
                     changeTrackInstrument(selectedTrackIndex_, engineTag, scriptName);
@@ -5799,7 +6090,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         if (modularArrangerView_ && activeView_ == WorkspaceView::Arranger) {
             int targetTrack = modularArrangerView_->getTrackIndexAt(dropX, dropY);
             if (targetTrack >= 0 && targetTrack < static_cast<int>(arrangerTracks_.size())) {
-                if (isInstrument) {
+                if (isMidiSeq) {
+                    uint32_t bar = modularArrangerView_->getBarAt(dropX);
+                    addSequenceClipToTrack(static_cast<uint32_t>(targetTrack), script.id, bar);
+                } else if (isInstrument) {
                     changeTrackInstrument(static_cast<uint32_t>(targetTrack), engineTag, scriptName);
                 } else if (isAudioFx) {
                     addAudioFxToTrackIndex(static_cast<uint32_t>(targetTrack), script.id, scriptName, engineTag);
@@ -5814,9 +6108,27 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                     addTrackToProject(scriptName, engineTag, r, g, b);
                     recordProjectHistory("Add Track from Dropped Script: " + scriptName, "TRACK");
                     setStatusMessage("Added Track: " + scriptName);
+                } else if (isMidiSeq) {
+                    std::string newTrkEngine = "poly_synth";
+                    if (script.id.find("kick") != std::string::npos || script.id.find("hat") != std::string::npos ||
+                        script.id.find("snare") != std::string::npos || script.id.find("clap") != std::string::npos ||
+                        script.id.find("floor") != std::string::npos) {
+                        newTrkEngine = "synth_drum";
+                    } else if (script.id.find("acid") != std::string::npos || script.id.find("bass") != std::string::npos) {
+                        newTrkEngine = "tb303";
+                    }
+                    addTrackToProject(scriptName + " Track", newTrkEngine, r, g, b);
+                    uint32_t newTrkIdx = static_cast<uint32_t>(arrangerTracks_.size() - 1);
+                    uint32_t bar = modularArrangerView_->getBarAt(dropX);
+                    addSequenceClipToTrack(newTrkIdx, script.id, bar);
                 } else {
                     setStatusMessage("Cannot add effect to empty space. Drop on a track.");
                 }
+                return;
+            }
+
+            if (isMidiSeq) {
+                addSequenceClipToTrack(selectedTrackIndex_, script.id);
                 return;
             }
         }
@@ -5934,6 +6246,215 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     audioToMidiDialog_.onAuditionStop = [this]() {
         if (engine_) engine_->postNoteOff(60, static_cast<int>(selectedTrackIndex_));
+    };
+
+    macroRunnerDialog_.onRunRequested = [this](const eatscript::MacroDefinition& def,
+                                               const std::map<std::string, float>& numParams,
+                                               const std::map<std::string, std::string>& strParams) {
+        if (!engine_) return;
+
+        eatscript::MacroRuntime runtime;
+        auto res = runtime.executeParameterized(def.id, numParams, strParams, *engine_, engine_->getSequencer(), selectedTrackIndex_);
+
+        if (res.success) {
+            lastStatusMessage_ = "MACRO: " + def.name + " EXECUTED";
+            recordProjectHistory("Ran Macro: " + def.name, "MACRO");
+            macroRunnerDialog_.setStatus(res.message.empty() ? "Generated successfully!" : res.message, false);
+
+            if (!res.generatedTracks.empty()) {
+                // 1. Synchronize Modular Arranger View with generated tracks & clips
+                if (modularArrangerView_) {
+                    modularArrangerView_->getTracks() = res.generatedTracks;
+                    for (auto& trk : modularArrangerView_->getTracks()) {
+                        for (auto& clp : trk.clips) {
+                            modularArrangerView_->updateClipDetectedChords(clp);
+                        }
+                    }
+                }
+
+                // 2. Populate StepSequencer and AudioEngine tracks to match
+                uint32_t totalBars = 16;
+                for (const auto& trk : res.generatedTracks) {
+                    for (const auto& clp : trk.clips) {
+                        totalBars = std::max(totalBars, clp.startBar + clp.lengthBars);
+                    }
+                }
+                uint32_t maxSteps = totalBars * 16;
+
+                auto& seq = engine_->getSequencer();
+                while (seq.getNumTracks() < res.generatedTracks.size()) {
+                    seq.addTrack("Track " + std::to_string(seq.getNumTracks() + 1), 0, maxSteps);
+                }
+                while (seq.getNumTracks() > res.generatedTracks.size()) {
+                    seq.removeTrack(seq.getNumTracks() - 1);
+                }
+
+                for (size_t tIdx = 0; tIdx < res.generatedTracks.size(); ++tIdx) {
+                    const auto& genTrack = res.generatedTracks[tIdx];
+                    auto* seqTrack = seq.getTrack(tIdx);
+                    if (!seqTrack) continue;
+
+                    seqTrack->setName(genTrack.name);
+                    seqTrack->setVolume(genTrack.volume);
+                    seqTrack->setPan(genTrack.pan);
+                    seqTrack->clear();
+                    seqTrack->setNumSteps(maxSteps);
+                    seqTrack->setChordFollowMode(genTrack.chordFollowMode);
+
+                    for (const auto& clip : genTrack.clips) {
+                        uint32_t clipStartStep = (clip.startBar > 0 ? clip.startBar - 1 : 0) * 16;
+                        for (const auto& note : clip.notes) {
+                            uint32_t noteStep = clipStartStep + static_cast<uint32_t>(note.startBeat * 4.0f);
+                            if (noteStep < maxSteps) {
+                                auto& sd = seqTrack->getStep(noteStep);
+                                if (!sd.active) {
+                                    sd.active = true;
+                                    sd.note = note.pitch;
+                                    sd.velocity = note.velocity;
+                                    sd.gateLength = static_cast<float>(std::clamp(note.lengthBeats * 4.0f, 0.1f, 64.0f));
+                                    sd.probability = 1.0f;
+                                } else if (sd.note != note.pitch && std::find(sd.extraNotes.begin(), sd.extraNotes.end(), note.pitch) == sd.extraNotes.end()) {
+                                    sd.extraNotes.push_back(note.pitch);
+                                }
+                            }
+                        }
+                    }
+                    engine_->assignTrackInstrument(static_cast<uint32_t>(tIdx), genTrack.instrumentEngine);
+                }
+
+                // 3. Synchronize legacy ArrangerTrackData
+                arrangerTracks_.clear();
+                for (const auto& gt : res.generatedTracks) {
+                    ArrangerTrackData atd;
+                    atd.id = gt.id;
+                    atd.name = gt.name;
+                    atd.instrument = gt.instrument;
+                    atd.instrumentEngine = gt.instrumentEngine;
+                    atd.type = (gt.instrumentEngine == "tr808" || gt.instrumentEngine == "tr909") ? "SAMPLER" : "SYNTH";
+                    atd.volume = gt.volume;
+                    atd.pan = gt.pan;
+                    atd.r = gt.r;
+                    atd.g = gt.g;
+                    atd.b = gt.b;
+                    for (const auto& c : gt.clips) {
+                        ArrangerClip ac;
+                        ac.name = c.name;
+                        ac.startBar = c.startBar;
+                        ac.barLength = c.lengthBars;
+                        ac.r = c.r;
+                        ac.g = c.g;
+                        ac.b = c.b;
+                        atd.clips.push_back(ac);
+                    }
+                    arrangerTracks_.push_back(std::move(atd));
+                }
+
+                // 4. Synchronize Inspector & Mixer
+                if (modularTrackInspectorView_) {
+                    modularTrackInspectorView_->getTracks().clear();
+                    for (const auto& at : res.generatedTracks) {
+                        InspectorTrackChannel ch;
+                        ch.id = at.id;
+                        ch.name = at.name;
+                        ch.instrument = at.name;
+                        ch.instrumentEngine = at.instrumentEngine;
+                        ch.r = at.r; ch.g = at.g; ch.b = at.b;
+                        ch.volume = at.volume;
+                        modularTrackInspectorView_->getTracks().push_back(ch);
+                    }
+                    modularTrackInspectorView_->updateDrawerData();
+                }
+
+                if (modularMixerView_) {
+                    modularMixerView_->getChannels().clear();
+                    for (const auto& at : res.generatedTracks) {
+                        MixerChannelStrip ch;
+                        ch.name = at.name;
+                        ch.instrument = at.name;
+                        ch.r = at.r; ch.g = at.g; ch.b = at.b;
+                        ch.fader = at.volume;
+                        modularMixerView_->getChannels().push_back(ch);
+                    }
+                }
+                updateMixerStrips();
+
+                if (modularArrangerView_) {
+                    modularArrangerView_->setActiveTrack(0);
+                    modularArrangerView_->setSelectedClip(0);
+                }
+                setSelectedTrackIndex(0);
+                syncDesignViewToProject();
+
+                auto itStyle = strParams.find("Style");
+                if (itStyle == strParams.end()) itStyle = strParams.find("Template");
+                std::string styleName = (itStyle != strParams.end()) ? itStyle->second : def.name;
+                projectName_ = styleName + " (Procedural)";
+            } else {
+                // Single-track procedural generator or non-destructive transform macro
+                // (Acid 303, Drum Groover, Piano Comp, Harmonic Progression, Transpose, Humanize, Arp)
+                syncArrangerFromSequencer();
+
+                // If specific instrument engine was generated for the active track
+                if (def.id == "macro_acid_gen") {
+                    engine_->assignTrackInstrument(selectedTrackIndex_, "tb303");
+                    if (modularArrangerView_ && selectedTrackIndex_ < modularArrangerView_->getTracks().size()) {
+                        modularArrangerView_->getTracks()[selectedTrackIndex_].instrumentEngine = "tb303";
+                        modularArrangerView_->getTracks()[selectedTrackIndex_].name = "TB-303 Acid";
+                    }
+                } else if (def.id == "macro_drum_techno" || def.id == "macro_drum_groover") {
+                    engine_->assignTrackInstrument(selectedTrackIndex_, "tr909");
+                    if (modularArrangerView_ && selectedTrackIndex_ < modularArrangerView_->getTracks().size()) {
+                        modularArrangerView_->getTracks()[selectedTrackIndex_].instrumentEngine = "tr909";
+                    }
+                } else if (def.id == "macro_piano_comp") {
+                    engine_->assignTrackInstrument(selectedTrackIndex_, "piano");
+                    if (modularArrangerView_ && selectedTrackIndex_ < modularArrangerView_->getTracks().size()) {
+                        modularArrangerView_->getTracks()[selectedTrackIndex_].instrumentEngine = "piano";
+                    }
+                }
+
+                if (modularArrangerView_) {
+                    modularArrangerView_->setActiveTrack(selectedTrackIndex_);
+                }
+                if (modularTrackInspectorView_) {
+                    modularTrackInspectorView_->updateDrawerData();
+                }
+                updateMixerStrips();
+                syncDesignViewToProject();
+            }
+
+            // 5. Synchronize Chord Track if present
+            if (!res.generatedChords.empty()) {
+                if (modularArrangerView_) {
+                    modularArrangerView_->setChordTrack(res.generatedChords);
+                }
+                engine_->getSequencer().setChordTrack(res.generatedChords);
+                if (modularEditView_) {
+                    modularEditView_->setChordTrack(res.generatedChords);
+                }
+            }
+
+            // 6. Update BPM and Transport
+            if (res.bpm > 20.0) {
+                engine_->getSequencer().setBpm(res.bpm);
+            }
+
+            // 7. Update Note Script Editor Buffer if open
+            if (selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
+                auto* trk = engine_->getSequencer().getTrack(selectedTrackIndex_);
+                if (trk) {
+                    noteScriptBuffer_ = eatscript::NoteScriptEngine::serializeTrackNotesToLines(*trk);
+                }
+            }
+            markNeedsRedraw();
+        } else {
+            lastStatusMessage_ = "MACRO ERROR: " + res.message;
+            macroRunnerDialog_.setStatus("ERROR: " + res.message, true);
+        }
+    };
+
+    macroRunnerDialog_.onClose = [this]() {
+        markNeedsRedraw();
     };
 
     // Configure Top-Level Reusable PresetSearchDialog
@@ -6201,24 +6722,44 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         [this]() { toggleMinimalGui(); }
     });
     commandPaletteDialog_.registerCommand({
-        "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern",
-        CommandCategory::Macro, "", [this]() { runMacro(0); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "macro.techno_groove", "Macro: 909 Techno Groove", "Populate kick, hi-hat offbeat, and claps",
-        CommandCategory::Macro, "", [this]() { runMacro(1); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "macro.humanize", "Macro: Humanize Velocities & Timing", "Apply subtle organic jitter to selected notes",
-        CommandCategory::Macro, "", [this]() { runMacro(2); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "macro.arp_track", "Macro: Arpeggiate Active Track", "Transform active track notes into 16th-note arpeggio",
-        CommandCategory::Macro, "", [this]() { runMacro(3); }
+        "macro.runner", "Open Procedural Macro Runner", "Interactive parameter controls for procedural songs, ensembles, and music theory",
+        CommandCategory::Macro, "Ctrl+Shift+M", [this]() { openMacroRunner("macro_song_gen"); }
     });
     commandPaletteDialog_.registerCommand({
         "macro.procedural_song", "Macro: Procedural Song Architect", "Generate complete multi-track song arrangement",
-        CommandCategory::Macro, "Ctrl+Shift+G", [this]() { runMacro(4); }
+        CommandCategory::Macro, "Ctrl+Shift+G", [this]() { openMacroRunner("macro_song_gen"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.ensemble", "Macro: Dynamic Ensemble Arranger", "Multi-track arrangement across dynamic ensembles (RPG tavern, action theme, dungeon)",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_ensemble_arranger"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern with slides & accents",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_acid_gen"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.techno_groove", "Macro: Procedural Drum Groover", "Populate genre-authentic drum patterns with swing & fills",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_drum_techno"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.piano_comp", "Macro: Procedural Piano Accompaniment", "Compose lush piano voicings with jazz chords & voice leading",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_piano_comp"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.chords", "Macro: Harmonic Progression Generator", "Generate Roman numeral modal progressions across project chord track",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_harmonic_progression"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.transpose", "Macro: Global Chord-Aware Transpose", "Transpose whole project with scale/chord adherence",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_global_transpose"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.humanize", "Macro: Humanize Velocities & Timing", "Apply organic micro-timing jitter to selected notes",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_humanize_all"); }
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.arp_track", "Macro: Arpeggiate Active Track", "Transform active track notes into 16th-note arpeggio",
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_arp_track"); }
     });
 
     if (modularArrangerView_) {
@@ -8364,28 +8905,27 @@ void GuiWindow::drawTopTransportBar() {
                                active ? theme.primaryAccent : theme.borderSubtle.darken(0.15f), active ? 1.5f : 1.0f);
     };
 
-    // BUTTON 1: LOCK (Toggle Workspace Edit Lock)
-    const float lockX = r - 120.0f;
-    drawTactileSquareBtnBase(lockX, toolY, projectLocked_);
-    // Etched Lock Glyph (Themed with clear contrast)
-    Color lockCol = projectLocked_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
-    float lBodyX = lockX + 10.5f;
-    float lBodyY = toolY + 16.0f + (projectLocked_ ? 2.0f : 0.0f);
-    drawRoundedRect(lBodyX, lBodyY, 13.0f, 10.0f, 2.0f, lockCol);
-    drawCircleOutline(lBodyX + 6.5f, lBodyY - 1.0f, 4.0f, lockCol, 1.5f);
-    drawCircle(lBodyX + 6.5f, lBodyY + 4.5f, 1.5f, darkIcon);
-    drawTactileSquareBtnOverlay(lockX, toolY, projectLocked_);
+    // BUTTON 1: COMMAND PALETTE (Toggle Universal Quick Command Palette)
+    const float cmdX = r - 120.0f;
+    const bool isCmdOpen = commandPaletteDialog_.isOpen();
+    drawTactileSquareBtnBase(cmdX, toolY, isCmdOpen);
+    Color cmdCol = isCmdOpen ? theme.primaryAccent : buttonEtch.lighten(0.10f);
+    float pY = toolY + 11.0f + (isCmdOpen ? 2.0f : 0.0f);
+    // Tactile command prompt glyph ">_"
+    drawLine(cmdX + 10.0f, pY + 3.0f, cmdX + 15.5f, pY + 7.5f, cmdCol, 1.8f);
+    drawLine(cmdX + 15.5f, pY + 7.5f, cmdX + 10.0f, pY + 12.0f, cmdCol, 1.8f);
+    drawLine(cmdX + 17.5f, pY + 12.0f, cmdX + 24.5f, pY + 12.0f, cmdCol, 1.8f);
+    drawTactileSquareBtnOverlay(cmdX, toolY, isCmdOpen);
 
-    // BUTTON 2: SEARCH / INSPECT (Toggle Fullscreen / Plugin Finder)
-    const float searchX = r - 80.0f;
-    drawTactileSquareBtnBase(searchX, toolY, isFullscreen_);
-    // Etched Magnifying Glass Glyph (Themed with clear contrast)
-    Color searchCol = isFullscreen_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
-    float sLensX = searchX + 15.0f;
-    float sLensY = toolY + 16.0f + (isFullscreen_ ? 2.0f : 0.0f);
-    drawCircleOutline(sLensX, sLensY, 5.0f, searchCol, 1.6f);
-    drawLine(sLensX + 3.5f, sLensY + 3.5f, sLensX + 7.5f, sLensY + 7.5f, searchCol, 2.0f);
-    drawTactileSquareBtnOverlay(searchX, toolY, isFullscreen_);
+    // BUTTON 2: FULLSCREEN (Toggle Native / Workspace Fullscreen Mode)
+    const float fsX = r - 80.0f;
+    drawTactileSquareBtnBase(fsX, toolY, isFullscreen_);
+    Color fsCol = isFullscreen_ ? theme.primaryAccent : buttonEtch.lighten(0.10f);
+    float fsY = toolY + 11.0f + (isFullscreen_ ? 2.0f : 0.0f);
+    if (batchRenderer_) {
+        drawFullscreenIcon(*batchRenderer_, fsX + 11.0f, fsY, 12.0f, fsCol, 1.4f);
+    }
+    drawTactileSquareBtnOverlay(fsX, toolY, isFullscreen_);
 
     // BUTTON 3: FOLDER / PRESET LIBRARY (Toggle Sliding Drawer)
     const float folderX = r - 40.0f;
@@ -8410,9 +8950,9 @@ void GuiWindow::drawTopTransportBar() {
         else if (mouseX_ >= 130.0f && mouseX_ < 168.0f) tipX = 149.0f;
         else if (mouseX_ >= 176.0f && mouseX_ <= 296.0f) tipX = 236.0f;
         else if (mouseX_ >= (rW - 228.0f) && mouseX_ < (rW - 132.0f)) tipX = rW - 180.0f;
-        else if (mouseX_ >= (rW - 132.0f) && mouseX_ < (rW - 96.0f)) tipX = rW - 103.0f;
-        else if (mouseX_ >= (rW - 96.0f) && mouseX_ < (rW - 66.0f)) tipX = rW - 63.0f;
-        else if (mouseX_ >= (rW - 66.0f) && mouseX_ <= (rW - 4.0f)) tipX = rW - 23.0f;
+        else if (mouseX_ >= (rW - 122.0f) && mouseX_ < (rW - 83.0f)) tipX = rW - 103.0f;
+        else if (mouseX_ >= (rW - 83.0f) && mouseX_ < (rW - 43.0f)) tipX = rW - 63.0f;
+        else if (mouseX_ >= (rW - 43.0f) && mouseX_ <= (rW - 4.0f)) tipX = rW - 23.0f;
 
         // Render tooltip badge directly ABOVE the elements, strictly within the top panel faceplate (y <= 54px)
         drawTooltipBadge(*batchRenderer_, tip, tipX, 10.0f, theme, false, rW, static_cast<float>(height_), 0.0f, 54.0f);
@@ -8719,26 +9259,34 @@ void GuiWindow::renderFrame() {
             Color glowCol = isAct ? btnAccent : theme.textSecondary.lighten(0.12f);
 
             float iconW = 14.0f;
+            float iconH = 11.0f;
             float gap = 8.0f;
-            float textLen = static_cast<float>(std::strlen(navButtons[i].label)) * 7.0f;
+            float textLen = static_cast<float>(std::strlen(navButtons[i].label)) * 6.8f;
+            const auto* oswald = getEffectiveOswaldFont();
+            if (oswald && oswald->isValid()) {
+                textLen = oswald->measureText(navButtons[i].label, 13.95f);
+            }
             float totalW = iconW + gap + textLen;
             float startX = bx + (bw - totalW) * 0.5f;
-            float textY = by + pressOff + 9.0f;
+
+            // Optical vertical center of keycap face plate (accounting for LED tally and bottom chamfer)
+            float contentCenterY = by + pressOff + 1.5f + (bh - pressOff - 1.5f) * 0.5f;
+            float iconY = contentCenterY - iconH * 0.5f;
 
             // Procedural Navigation Icon
             if (navButtons[i].view == WorkspaceView::Arranger) {
-                drawIconArranger(startX, textY - 1.0f, 13.0f, 11.0f, glowCol);
+                drawIconArranger(startX, iconY, 13.0f, iconH, glowCol);
             } else if (navButtons[i].view == WorkspaceView::Edit) {
-                drawIconEdit(startX, textY - 1.0f, 11.0f, glowCol);
+                drawIconEdit(startX, iconY, iconH, glowCol);
             } else if (navButtons[i].view == WorkspaceView::Track) {
-                drawIconTrack(startX, textY - 1.0f, 13.0f, 11.0f, glowCol);
+                drawIconTrack(startX, iconY, 13.0f, iconH, glowCol);
             } else if (navButtons[i].view == WorkspaceView::Mixer) {
-                drawIconMixer(startX, textY - 1.0f, 13.0f, 11.0f, glowCol);
+                drawIconMixer(startX, iconY, 13.0f, iconH, glowCol);
             } else if (navButtons[i].view == WorkspaceView::Design) {
-                drawIconDesign(startX, textY - 1.0f, 13.0f, 11.0f, glowCol);
+                drawIconDesign(startX, iconY, 13.0f, iconH, glowCol);
             }
 
-            drawVectorString(navButtons[i].label, startX + iconW + gap, textY, 0.90f, glowCol);
+            drawVectorStringLeftAlignedY(navButtons[i].label, startX + iconW + gap, contentCenterY, 0.90f, glowCol);
 
             // 5. Tactile micro-noise overlay applied across keycap, icon, AND text label (shifts on active)
             drawButtonNoise(bx, by + pressOff, bw, bh - pressOff, false, 0.28f, 2.5f, true, true, true, true, isAct, 3.0f);
@@ -8843,9 +9391,9 @@ void GuiWindow::renderFrame() {
 
             float curDrawerH = 0.0f;
             if (projectHubSection_ >= 0) {
-                if (projectHubSection_ == 0) curDrawerH = 190.0f;
+                if (projectHubSection_ == 0) curDrawerH = 202.0f;
                 else if (projectHubSection_ == 1) curDrawerH = 186.0f;
-                else if (projectHubSection_ == 2) curDrawerH = 270.0f;
+                else if (projectHubSection_ == 2) curDrawerH = 328.0f;
                 else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
                 else if (projectHubSection_ == 4) curDrawerH = 176.0f;
                 else if (projectHubSection_ == 5) curDrawerH = 100.0f;
@@ -8964,8 +9512,8 @@ void GuiWindow::renderFrame() {
 
                         // Action Buttons 2x3 Grid
                         const float btnW = (hubW - 48.0f - 16.0f) / 3.0f;
-                        const float row1Y = contentY + 104.0f;
-                        const float row2Y = contentY + 144.0f;
+                        const float row1Y = contentY + 114.0f;
+                        const float row2Y = contentY + 154.0f;
 
                         // [ SAVE (.eats) ]
                         drawRoundedRectGradient(hubX + 24.0f, row1Y, btnW, 34.0f, 4.0f,
@@ -9057,7 +9605,7 @@ void GuiWindow::renderFrame() {
                         // Slider Track
                         float sliderX = hubX + 24.0f;
                         float sliderW = hubW - 130.0f;
-                        float sliderY = contentY + 22.0f;
+                        float sliderY = contentY + 28.0f;
                         float sliderH = 6.0f;
                         float norm = std::clamp((uiScale_ - 0.50f) / 1.50f, 0.0f, 1.0f);
 
@@ -9088,7 +9636,7 @@ void GuiWindow::renderFrame() {
 
                         // Digital Readout Pod on the right
                         float podX = hubX + hubW - 96.0f;
-                        float podY = contentY + 13.0f;
+                        float podY = contentY + 20.0f;
                         float podW = 72.0f;
                         float podH = 22.0f;
                         drawRoundedRect(podX, podY, podW, podH, 4.0f, theme.controlWell);
@@ -9098,7 +9646,7 @@ void GuiWindow::renderFrame() {
                         drawVectorString(pctStr, podX + (pct >= 100 ? 18.0f : 24.0f), podY + 5.0f, 0.82f, theme.primaryAccent);
 
                         // Discrete 25% increment chips below the track
-                        float chipY = contentY + 36.0f;
+                        float chipY = contentY + 44.0f;
                         float chipH = 16.0f;
                         float chipGap = 5.0f;
                         float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
@@ -9113,125 +9661,104 @@ void GuiWindow::renderFrame() {
                                              isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
                         }
 
-                        // Theme Engine Palette with Bank Switcher & Theme Browser Modal
-                        drawLine(hubX + 24.0f, contentY + 54.0f, hubX + hubW - 24.0f, contentY + 54.0f, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("THEME:", hubX + 28.0f, contentY + 60.0f, 0.65f, theme.textMuted);
+                        // Revamped Theme Selector: [ < ] [ Swatch  Current Theme Name    (x/21) ] [ > ]
+                        // (Clicking the theme pill opens the full Theme Registry & Palette Browser dialog)
+                        drawLine(hubX + 24.0f, contentY + 70.0f, hubX + hubW - 24.0f, contentY + 70.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("THEME & COLORWAY", hubX + 28.0f, contentY + 76.0f, 0.65f, theme.textMuted);
 
-                        int curBank = getThemeBank();
-                        // Bank 0: [ 1: CONSOLES (1-5) ]
-                        float b0X = hubX + 76.0f;
-                        float b0Y = contentY + 57.0f;
-                        float b0W = 120.0f;
-                        float b0H = 18.0f;
-                        drawRoundedRect(b0X, b0Y, b0W, b0H, 3.0f,
-                                       (curBank == 0) ? theme.primaryAccent.darken(0.35f) : theme.controlBackground);
-                        drawRoundedRectOutline(b0X, b0Y, b0W, b0H, 3.0f,
-                                              (curBank == 0) ? theme.primaryAccent : theme.borderSubtle, (curBank == 0) ? 1.2f : 0.8f);
-                        drawVectorString("1: CONSOLES (1-5)", b0X + 10.0f, b0Y + 4.0f, 0.60f,
-                                         (curBank == 0) ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-
-                        // Bank 1: [ 2: SYNTAX (6-10) ]
-                        float b1X = hubX + 202.0f;
-                        float b1Y = contentY + 57.0f;
-                        float b1W = 126.0f;
-                        float b1H = 18.0f;
-                        drawRoundedRect(b1X, b1Y, b1W, b1H, 3.0f,
-                                       (curBank == 1) ? theme.primaryAccent.darken(0.35f) : theme.controlBackground);
-                        drawRoundedRectOutline(b1X, b1Y, b1W, b1H, 3.0f,
-                                              (curBank == 1) ? theme.primaryAccent : theme.borderSubtle, (curBank == 1) ? 1.2f : 0.8f);
-                        drawVectorString("2: SYNTAX (6-10)", b1X + 10.0f, b1Y + 4.0f, 0.60f,
-                                         (curBank == 1) ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-
-                        // Modal Browse Button: [ + BROWSE ALL ]
-                        float browseBtnW = 124.0f;
-                        float browseBtnH = 18.0f;
-                        float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
-                        float browseBtnY = contentY + 57.0f;
-                        drawRoundedRect(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 3.0f, theme.primaryAccent.darken(0.40f));
-                        drawRoundedRectOutline(browseBtnX, browseBtnY, browseBtnW, browseBtnH, 3.0f, theme.primaryAccent, 1.2f);
-                        drawVectorString("+ BROWSE ALL (10)", browseBtnX + 10.0f, browseBtnY + 4.0f, 0.60f, Color(1.0f, 1.0f, 1.0f));
-
-                        // Chips Row (5 Chips per active bank)
-                        const char* themeLabelsBank0[5] = {"ATE TRACK", "MIDNIGHT", "LT SNACK", "BREAKFAST", "DINNER"};
-                        const char* themeLabelsBank1[5] = {"DRACULA", "NORDIC", "CATPPUCCIN", "DARK ROAST", "SEA & SALT"};
-                        const char** currentLabels = (curBank == 1) ? themeLabelsBank1 : themeLabelsBank0;
-
-                        for (int th = 0; th < 5; ++th) {
-                            int presetIdx = (curBank == 1) ? (5 + th) : th;
-                            float tx = hubX + 24.0f + th * 95.0f;
-                            bool isAct = (activeThemePreset_ == presetIdx);
-                            const auto& thToken = Theme::get(static_cast<Theme::Preset>(presetIdx));
-                            drawRoundedRect(tx, contentY + 80.0f, 88.0f, 22.0f, 4.0f,
-                                           isAct ? thToken.primaryAccent.darken(0.45f) : theme.controlBackground);
-                            drawRoundedRectOutline(tx, contentY + 80.0f, 88.0f, 22.0f, 4.0f,
-                                                  isAct ? thToken.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 1.0f);
-                            drawCircle(tx + 10.0f, contentY + 91.0f, 4.0f, thToken.primaryAccent);
-                            drawVectorString(currentLabels[th], tx + 18.0f, contentY + 84.0f, 0.65f,
-                                             isAct ? Color(1.0f, 1.0f, 1.0f) : theme.textSecondary);
-                        }
-
-                        // Active Theme Readout line
                         const auto& catalog = Theme::getPresetCatalog();
-                        if (static_cast<size_t>(activeThemePreset_) < catalog.size()) {
-                            std::string readout = "Active: " + catalog[activeThemePreset_].name + " (" + catalog[activeThemePreset_].subtitle + ")";
-                            drawVectorString(readout, hubX + 28.0f, contentY + 105.0f, 0.58f, theme.textMuted);
-                        }
+                        size_t safeThemeIdx = (static_cast<size_t>(activeThemePreset_) < catalog.size())
+                                                  ? static_cast<size_t>(activeThemePreset_) : 0;
+                        const auto& curMeta = catalog[safeThemeIdx];
+                        const auto& curTokens = Theme::get(curMeta.preset);
+
+                        float themeRowY = contentY + 92.0f;
+                        float themeRowH = 28.0f;
+                        float arrowW = 30.0f;
+                        float leftArrowX = hubX + 24.0f;
+                        float rightArrowX = hubX + hubW - 24.0f - arrowW;
+                        float currPillX = leftArrowX + arrowW + 8.0f;
+                        float currPillW = rightArrowX - currPillX - 8.0f;
+
+                        // 1. Previous Theme Button: [ < ]
+                        drawRoundedRect(leftArrowX, themeRowY, arrowW, themeRowH, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(leftArrowX, themeRowY, arrowW, themeRowH, 4.0f, theme.borderSubtle, 1.0f);
+                        drawVectorString("<", leftArrowX + 10.5f, themeRowY + 6.0f, 0.85f, theme.textPrimary);
+
+                        // 2. Current Theme Display Pill: [ Swatch  Theme Name   (idx/total) ]
+                        drawRoundedRect(currPillX, themeRowY, currPillW, themeRowH, 5.0f, theme.controlBackground);
+                        drawRoundedRectOutline(currPillX, themeRowY, currPillW, themeRowH, 5.0f, curTokens.primaryAccent.withAlpha(0.65f), 1.2f);
+                        drawCircle(currPillX + 16.0f, themeRowY + 14.0f, 5.5f, curTokens.primaryAccent);
+                        drawCircleOutline(currPillX + 16.0f, themeRowY + 14.0f, 5.5f, curTokens.secondaryAccent, 0.8f);
+                        drawVectorString(curMeta.name, currPillX + 28.0f, themeRowY + 6.0f, 0.82f, Color(1.0f, 1.0f, 1.0f));
+
+                        std::string countStr = std::to_string(safeThemeIdx + 1) + " / " + std::to_string(catalog.size());
+                        drawVectorString(countStr, rightArrowX - 60.0f, themeRowY + 7.0f, 0.62f, theme.textMuted);
+
+                        // 3. Next Theme Button: [ > ]
+                        drawRoundedRect(rightArrowX, themeRowY, arrowW, themeRowH, 4.0f, theme.controlWell);
+                        drawRoundedRectOutline(rightArrowX, themeRowY, arrowW, themeRowH, 4.0f, theme.borderSubtle, 1.0f);
+                        drawVectorString(">", rightArrowX + 11.5f, themeRowY + 6.0f, 0.85f, theme.textPrimary);
+
+                        // Active Theme Subtitle line
+                        std::string readout = curMeta.subtitle + "  ·  " + curMeta.category;
+                        drawVectorString(readout, hubX + 28.0f, contentY + 124.0f, 0.58f, theme.textMuted);
 
                         // Anti-Aliasing Mode Chips (No AA 1x, 2x Fast, 4x RGSS)
-                        drawLine(hubX + 24.0f, contentY + 98.0f, hubX + hubW - 24.0f, contentY + 98.0f, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("ANTI-ALIASING (SUBPIXEL EDGE QUALITY)", hubX + 28.0f, contentY + 105.0f, 0.65f, theme.textMuted);
+                        drawLine(hubX + 24.0f, contentY + 140.0f, hubX + hubW - 24.0f, contentY + 140.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("ANTI-ALIASING (SUBPIXEL EDGE QUALITY)", hubX + 28.0f, contentY + 148.0f, 0.65f, theme.textMuted);
                         const char* aaLabels[3] = {"NO AA (1X)", "2X FAST", "4X RGSS"};
                         const float aaWidths[3] = {100.0f, 100.0f, 110.0f};
                         const float aaOffsets[3] = {0.0f, 108.0f, 216.0f};
                         for (int aa = 0; aa < 3; ++aa) {
                             float ax = hubX + 24.0f + aaOffsets[aa];
                             bool isAct = (antiAliasingMode_ == aa);
-                            drawRoundedRect(ax, contentY + 118.0f, aaWidths[aa], 24.0f, 4.0f,
+                            drawRoundedRect(ax, contentY + 166.0f, aaWidths[aa], 24.0f, 4.0f,
                                            isAct ? theme.controlWell : theme.controlBackground);
-                            drawRoundedRectOutline(ax, contentY + 118.0f, aaWidths[aa], 24.0f, 4.0f,
+                            drawRoundedRectOutline(ax, contentY + 166.0f, aaWidths[aa], 24.0f, 4.0f,
                                                   isAct ? theme.primaryAccent : theme.borderSubtle, isAct ? 1.5f : 1.0f);
-                            drawVectorString(aaLabels[aa], ax + 14.0f, contentY + 123.0f, 0.78f,
+                            drawVectorString(aaLabels[aa], ax + 14.0f, contentY + 172.0f, 0.78f,
                                              isAct ? theme.primaryAccent : theme.textSecondary);
                         }
 
                         // HiDPI Canvas Resolution Switch
-                        drawLine(hubX + 24.0f, contentY + 150.0f, hubX + hubW - 24.0f, contentY + 150.0f, theme.borderSubtle.darken(0.15f), 1.0f);
-                        drawVectorString("Native 1:1 HiDPI Resolution (Retina/4K)", hubX + 28.0f, contentY + 160.0f, 0.85f, theme.textPrimary);
-                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 156.0f, 44.0f, 20.0f, 10.0f,
+                        drawLine(hubX + 24.0f, contentY + 198.0f, hubX + hubW - 24.0f, contentY + 198.0f, theme.borderSubtle.darken(0.15f), 1.0f);
+                        drawVectorString("Native 1:1 HiDPI Resolution (Retina/4K)", hubX + 28.0f, contentY + 208.0f, 0.85f, theme.textPrimary);
+                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 204.0f, 44.0f, 20.0f, 10.0f,
                                        hiDpiEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
-                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 156.0f, 44.0f, 20.0f, 10.0f,
+                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 204.0f, 44.0f, 20.0f, 10.0f,
                                               hiDpiEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
-                        drawCircle(hiDpiEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 166.0f, 7.0f,
+                        drawCircle(hiDpiEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 214.0f, 7.0f,
                                    hiDpiEnabled_ ? theme.primaryAccent : theme.textMuted);
 
                         // CRT Curved Shaders
-                        drawVectorString("Screen Shaders & CRT Glass Curvature", hubX + 28.0f, contentY + 186.0f, 0.85f, theme.textPrimary);
+                        drawVectorString("Screen Shaders & CRT Glass Curvature", hubX + 28.0f, contentY + 236.0f, 0.85f, theme.textPrimary);
                         // CRT toggle pill
-                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 182.0f, 44.0f, 20.0f, 10.0f,
+                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 232.0f, 44.0f, 20.0f, 10.0f,
                                        crtShaderEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
-                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 182.0f, 44.0f, 20.0f, 10.0f,
+                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 232.0f, 44.0f, 20.0f, 10.0f,
                                               crtShaderEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
-                        drawCircle(crtShaderEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 192.0f, 7.0f,
+                        drawCircle(crtShaderEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 242.0f, 7.0f,
                                    crtShaderEnabled_ ? theme.primaryAccent : theme.textMuted);
 
                         // GUI Animations toggle
-                        drawVectorString("Real-time Oscilloscopes & Ticker Animations", hubX + 28.0f, contentY + 212.0f, 0.85f, theme.textPrimary);
-                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 208.0f, 44.0f, 20.0f, 10.0f,
+                        drawVectorString("Real-time Oscilloscopes & Ticker Animations", hubX + 28.0f, contentY + 264.0f, 0.85f, theme.textPrimary);
+                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 260.0f, 44.0f, 20.0f, 10.0f,
                                        guiAnimationsEnabled_ ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
-                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 208.0f, 44.0f, 20.0f, 10.0f,
+                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 260.0f, 44.0f, 20.0f, 10.0f,
                                               guiAnimationsEnabled_ ? theme.primaryAccent : theme.borderSubtle, 1.0f);
-                        drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 218.0f, 7.0f,
+                        drawCircle(guiAnimationsEnabled_ ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 270.0f, 7.0f,
                                    guiAnimationsEnabled_ ? theme.primaryAccent : theme.textMuted);
 
                         // Minimalist Controls toggle (Performance Vector Knobs & Sliders)
                         bool isMin = isMinimalGuiEnabled();
-                        drawVectorString("Minimalist GUI & Controls (Performance Mode)", hubX + 28.0f, contentY + 238.0f, 0.85f, theme.textPrimary);
-                        drawVectorString("Bypasses 3D skeuomorphism & complex backgrounds for flat dials and solid panels", hubX + 28.0f, contentY + 252.0f, 0.62f, theme.textMuted);
-                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
+                        drawVectorString("Minimalist GUI & Controls (Performance Mode)", hubX + 28.0f, contentY + 292.0f, 0.85f, theme.textPrimary);
+                        drawVectorString("Bypasses 3D skeuomorphism & complex backgrounds for flat dials and solid panels", hubX + 28.0f, contentY + 306.0f, 0.62f, theme.textMuted);
+                        drawRoundedRect(hubX + hubW - 70.0f, contentY + 292.0f, 44.0f, 20.0f, 10.0f,
                                        isMin ? theme.primaryAccent.darken(0.3f) : theme.controlWell);
-                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 234.0f, 44.0f, 20.0f, 10.0f,
+                        drawRoundedRectOutline(hubX + hubW - 70.0f, contentY + 292.0f, 44.0f, 20.0f, 10.0f,
                                               isMin ? theme.primaryAccent : theme.borderSubtle, 1.0f);
-                        drawCircle(isMin ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 244.0f, 7.0f,
+                        drawCircle(isMin ? (hubX + hubW - 38.0f) : (hubX + hubW - 58.0f), contentY + 302.0f, 7.0f,
                                    isMin ? theme.primaryAccent : theme.textMuted);
                     } else if (s == 3) {
                         // SECTION 3: CRT SHADER (Scrollable within constrained drawer space)
@@ -9459,6 +9986,15 @@ void GuiWindow::renderFrame() {
             }
         }
 
+        // 6c. PROCEDURAL MACRO RUNNER MODAL DIALOG
+        if (macroRunnerDialog_.isOpen()) {
+            macroRunnerDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+            macroRunnerDialog_.update(frameDt);
+            if (batchRenderer_) {
+                macroRunnerDialog_.render(*batchRenderer_, theme);
+            }
+        }
+
         // 7. UNIVERSAL QUICK COMMAND PALETTE DIALOG (Ctrl+P / Ctrl+K / Search)
         if (commandPaletteDialog_.isOpen()) {
             commandPaletteDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
@@ -9523,8 +10059,10 @@ void GuiWindow::renderFrame() {
     if (dawnBridge_.isNativeActive()) {
         const uint32_t* dawPixels = batchRenderer_ ? batchRenderer_->getFramebuffer() : nullptr;
         dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
-        uint32_t physW = static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
-        uint32_t physH = static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
+        uint32_t fbW = batchRenderer_ ? batchRenderer_->getFramebufferWidth() : 0;
+        uint32_t fbH = batchRenderer_ ? batchRenderer_->getFramebufferHeight() : 0;
+        uint32_t physW = (fbW > 0) ? fbW : static_cast<uint32_t>(std::round(static_cast<float>(width_) * renderScale_));
+        uint32_t physH = (fbH > 0) ? fbH : static_cast<uint32_t>(std::round(static_cast<float>(height_) * renderScale_));
         float subBass = engine_ ? engine_->getSubBassEnergy() : 0.0f;
         dawnBridge_.renderCrtScene(dawPixels, physW, physH, lampTime_, subBass, renderScale_);
     } else {
@@ -9877,18 +10415,18 @@ std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
     }
 
     // 3. Right-Side Tactile Pushbuttons:
-    // Lock Button [r - 134 to r - 96]
-    if (x >= (r - 134.0f) && x < (r - 96.0f) && y >= 8.0f && y <= 48.0f) {
-        return projectLocked_ ? "Workspace Locked (Ctrl+L to Unlock)" : "Lock Workspace Editing (Ctrl+L)";
+    // Command Palette Button [r - 122 to r - 83]
+    if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
+        return commandPaletteDialog_.isOpen() ? "Close Command Palette (Ctrl+P)" : "Command Palette (Ctrl+P / Ctrl+K)";
     }
 
-    // Search / Fullscreen Button [r - 96 to r - 66]
-    if (x >= (r - 96.0f) && x < (r - 66.0f) && y >= 8.0f && y <= 48.0f) {
-        return isFullscreen_ ? "Exit Fullscreen Device Mode (F)" : "Fullscreen Device Mode / Finder (F)";
+    // Fullscreen Button [r - 83 to r - 43]
+    if (x >= (r - 83.0f) && x < (r - 43.0f) && y >= 8.0f && y <= 48.0f) {
+        return isFullscreen_ ? "Exit Fullscreen (F11 / F)" : "Toggle Fullscreen (F11 / F)";
     }
 
-    // Folder / Preset Library Button [r - 66 to r - 4]
-    if (x >= (r - 66.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
+    // Folder / Preset Library Button [r - 43 to r - 4]
+    if (x >= (r - 43.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
         return browserOpen_ ? "Close Preset & Sample Browser (B)" : "Preset & Sample Browser (B)";
     }
 
@@ -9955,22 +10493,22 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
     }
 
     // 3. Right-Side Tactile Pushbuttons:
-    // Lock Button [r - 134 to r - 96]
-    if (x >= (r - 134.0f) && x < (r - 96.0f) && y >= 8.0f && y <= 48.0f) {
+    // Command Palette Button [r - 122 to r - 83]
+    if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
-        res.action = TransportAction::LockToggle;
+        res.action = TransportAction::SearchToggle;
         return res;
     }
 
-    // Search / Fullscreen Button [r - 96 to r - 66]
-    if (x >= (r - 96.0f) && x < (r - 66.0f) && y >= 8.0f && y <= 48.0f) {
+    // Search / Fullscreen Button [r - 83 to r - 43]
+    if (x >= (r - 83.0f) && x < (r - 43.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::FullscreenToggle;
         return res;
     }
 
-    // Folder / Preset Library Button [r - 66 to r - 4]
-    if (x >= (r - 66.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
+    // Folder / Preset Library Button [r - 43 to r - 4]
+    if (x >= (r - 43.0f) && x <= (r - 4.0f) && y >= 8.0f && y <= 48.0f) {
         res.hit = true;
         res.action = TransportAction::BrowserToggle;
         return res;
@@ -11885,9 +12423,9 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
 
     float curDrawerH = 0.0f;
     if (projectHubSection_ >= 0) {
-        if (projectHubSection_ == 0) curDrawerH = 190.0f;
+        if (projectHubSection_ == 0) curDrawerH = 202.0f;
         else if (projectHubSection_ == 1) curDrawerH = 186.0f;
-        else if (projectHubSection_ == 2) curDrawerH = 244.0f;
+        else if (projectHubSection_ == 2) curDrawerH = 328.0f;
         else if (projectHubSection_ == 3) curDrawerH = availableDrawerH;
         else if (projectHubSection_ == 4) curDrawerH = 176.0f;
         else if (projectHubSection_ == 5) curDrawerH = 100.0f;
@@ -11929,8 +12467,8 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 return res;
             }
             const float btnW = (hubW - 48.0f - 16.0f) / 3.0f;
-            const float row1Y = contentStartY + 104.0f;
-            const float row2Y = contentStartY + 144.0f;
+            const float row1Y = contentStartY + 114.0f;
+            const float row2Y = contentStartY + 154.0f;
 
             if (y >= row1Y && y <= row1Y + 34.0f) {
                 if (x >= hubX + 24.0f && x <= hubX + 24.0f + btnW) { res.action = ProjectHubAction::SaveProject; return res; }
@@ -11979,10 +12517,10 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
 #endif
         } else if (projectHubSection_ == 2) {
             float contentStartY = drawerY;
-            // 1. Slider track hit [contentStartY + 10.0f .. contentStartY + 34.0f]
+            // 1. Slider track hit [contentStartY + 18.0f .. contentStartY + 38.0f]
             float sliderX = hubX + 24.0f;
             float sliderW = hubW - 130.0f;
-            if (y >= contentStartY + 10.0f && y <= contentStartY + 34.0f && x >= sliderX && x <= sliderX + sliderW + 8.0f) {
+            if (y >= contentStartY + 18.0f && y <= contentStartY + 38.0f && x >= sliderX && x <= sliderX + sliderW + 8.0f) {
                 float norm = std::clamp((x - sliderX) / sliderW, 0.0f, 1.0f);
                 float rawScale = 0.50f + norm * 1.50f;
                 float snappedScale = std::round(rawScale / 0.25f) * 0.25f;
@@ -11991,8 +12529,8 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 res.scaleValue = snappedScale;
                 return res;
             }
-            // 2. Discrete 7 chips hit [contentStartY + 35.0f .. contentStartY + 52.0f]
-            if (y >= contentStartY + 35.0f && y <= contentStartY + 52.0f) {
+            // 2. Discrete 7 chips hit [contentStartY + 42.0f .. contentStartY + 64.0f]
+            if (y >= contentStartY + 42.0f && y <= contentStartY + 64.0f) {
                 const float scales[7] = {0.50f, 0.75f, 1.0f, 1.25f, 1.50f, 1.75f, 2.0f};
                 float chipGap = 5.0f;
                 float chipW = (hubW - 48.0f - (6.0f * chipGap)) / 7.0f;
@@ -12006,60 +12544,56 @@ HitTestProjectHubResult GuiWindow::hitTestProjectHub(float x, float y) const noe
                 }
             }
 
-            // 3. Theme Header: Bank Toggles & Browse Button [contentStartY + 54.0f .. contentStartY + 76.0f]
-            if (y >= contentStartY + 54.0f && y <= contentStartY + 76.0f) {
-                // Bank 0: [ 1: CONSOLES (1-5) ]
-                if (x >= hubX + 76.0f && x <= hubX + 196.0f) {
-                    res.action = ProjectHubAction::SelectThemeBank;
-                    res.themeBank = 0;
-                    return res;
-                }
-                // Bank 1: [ 2: SYNTAX (6-10) ]
-                if (x >= hubX + 202.0f && x <= hubX + 328.0f) {
-                    res.action = ProjectHubAction::SelectThemeBank;
-                    res.themeBank = 1;
-                    return res;
-                }
-                // Browse button: [ + BROWSE ALL (10) ]
-                float browseBtnW = 124.0f;
-                float browseBtnX = hubX + hubW - browseBtnW - 24.0f;
-                if (x >= browseBtnX && x <= browseBtnX + browseBtnW) {
-                    res.action = ProjectHubAction::OpenThemeBrowser;
-                    return res;
-                }
-            }
+            // 3. Theme Selector [< Current theme >] (Click pill to open full theme catalog)
+            if (y >= contentStartY + 88.0f && y <= contentStartY + 124.0f) {
+                const auto& catalog = Theme::getPresetCatalog();
+                int catSize = static_cast<int>(catalog.size());
+                if (catSize > 0) {
+                    float arrowW = 30.0f;
+                    float leftArrowX = hubX + 24.0f;
+                    float rightArrowX = hubX + hubW - 24.0f - arrowW;
+                    float currPillX = leftArrowX + arrowW + 8.0f;
+                    float currPillW = rightArrowX - currPillX - 8.0f;
 
-            // 4. Theme Preset Chips [contentStartY + 78.0f .. contentStartY + 104.0f]
-            if (y >= contentStartY + 78.0f && y <= contentStartY + 104.0f) {
-                int curBank = getThemeBank();
-                for (int th = 0; th < 5; ++th) {
-                    float tx = hubX + 24.0f + th * 95.0f;
-                    if (x >= tx && x <= tx + 88.0f) {
+                    // Left arrow: Prev theme (<)
+                    if (x >= leftArrowX && x <= leftArrowX + arrowW) {
                         res.action = ProjectHubAction::SelectTheme;
-                        res.themeIndex = (curBank == 1) ? (5 + th) : th;
+                        res.themeIndex = (activeThemePreset_ > 0) ? (activeThemePreset_ - 1) : (catSize - 1);
+                        return res;
+                    }
+                    // Right arrow: Next theme (>)
+                    if (x >= rightArrowX && x <= rightArrowX + arrowW) {
+                        res.action = ProjectHubAction::SelectTheme;
+                        res.themeIndex = (activeThemePreset_ + 1) % catSize;
+                        return res;
+                    }
+                    // Center current theme pill: Open Theme Browser dialog
+                    if (x >= currPillX && x <= currPillX + currPillW) {
+                        res.action = ProjectHubAction::OpenThemeBrowser;
                         return res;
                     }
                 }
             }
-            if (y >= contentStartY + 116.0f && y <= contentStartY + 144.0f) {
+            if (y >= contentStartY + 164.0f && y <= contentStartY + 192.0f) {
                 if (x >= hubX + 24.0f && x <= hubX + 124.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 0; return res; }
                 if (x >= hubX + 132.0f && x <= hubX + 232.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 1; return res; }
                 if (x >= hubX + 240.0f && x <= hubX + 350.0f) { res.action = ProjectHubAction::SetAntiAliasing; res.aaMode = 2; return res; }
             }
-            if (y >= contentStartY + 154.0f && y <= contentStartY + 178.0f &&
+            if (y >= contentStartY + 200.0f && y <= contentStartY + 226.0f &&
                 x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
                 res.action = ProjectHubAction::ToggleHiDpi;
                 return res;
             }
-            if (y >= contentStartY + 180.0f && y <= contentStartY + 204.0f) {
-                if (x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) { res.action = ProjectHubAction::ToggleCrtShader; return res; }
+            if (y >= contentStartY + 228.0f && y <= contentStartY + 254.0f &&
+                x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
+                res.action = ProjectHubAction::ToggleCrtShader; return res;
             }
-            if (y >= contentStartY + 206.0f && y <= contentStartY + 230.0f &&
+            if (y >= contentStartY + 256.0f && y <= contentStartY + 282.0f &&
                 x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
                 res.action = ProjectHubAction::ToggleAnimations;
                 return res;
             }
-            if (y >= contentStartY + 232.0f && y <= contentStartY + 258.0f &&
+            if (y >= contentStartY + 284.0f && y <= contentStartY + 316.0f &&
                 x >= hubX + 24.0f && x <= hubX + hubW - 24.0f) {
                 res.action = ProjectHubAction::ToggleMinimalGui;
                 return res;
@@ -13542,57 +14076,8 @@ void GuiWindow::runMacro(size_t macroIndex) {
     const auto& macros = eatscript::MacroRuntime::getBuiltinMacros();
     if (macroIndex >= macros.size()) return;
 
-    eatscript::MacroRuntime runtime;
-    auto res = runtime.execute(macros[macroIndex].scriptCode, *engine_, engine_->getSequencer());
-    if (res.success) {
-        lastStatusMessage_ = "MACRO: " + macros[macroIndex].name + " EXECUTED";
-        recordProjectHistory("Ran Macro: " + macros[macroIndex].name, "MACRO");
-
-        if (macroIndex == 4) {
-            // Procedural Song: sync arranger timeline tracks & clips
-            procgen::SongGenerationParams p;
-            p.style = "Lo-Fi Hip Hop";
-            p.bars = 16;
-            p.seed = 42;
-            auto songRes = procgen::ProceduralSongEngine::generateSong(p);
-            if (songRes.success && !songRes.generatedTracks.empty()) {
-                arrangerTracks_.clear();
-                for (const auto& gt : songRes.generatedTracks) {
-                    ArrangerTrackData atd;
-                    atd.name = gt.name;
-                    atd.type = gt.instrumentEngine;
-                    atd.volume = gt.volume;
-                    atd.pan = gt.pan;
-                    atd.r = gt.r;
-                    atd.g = gt.g;
-                    atd.b = gt.b;
-                    for (const auto& c : gt.clips) {
-                        ArrangerClip ac;
-                        ac.name = c.name;
-                        ac.startBar = c.startBar;
-                        ac.barLength = c.lengthBars;
-                        ac.r = c.r;
-                        ac.g = c.g;
-                        ac.b = c.b;
-                        atd.clips.push_back(ac);
-                    }
-                    arrangerTracks_.push_back(std::move(atd));
-                }
-                projectName_ = "Lo-Fi Hip Hop (Procedural)";
-                if (engine_) engine_->getSequencer().setBpm(songRes.bpm);
-            }
-        }
-
-        // If on note script view, synchronize script editor with new track data
-        if (selectedTrackIndex_ < engine_->getSequencer().getNumTracks()) {
-            auto* trk = engine_->getSequencer().getTrack(selectedTrackIndex_);
-            if (trk) {
-                noteScriptBuffer_ = eatscript::NoteScriptEngine::serializeTrackNotesToLines(*trk);
-            }
-        }
-    } else {
-        lastStatusMessage_ = "MACRO ERROR: " + res.message;
-    }
+    // Open the procedural macro runner dialog with this macro selected so user has full parametric control
+    openMacroRunner(macros[macroIndex].id);
 }
 
 bool GuiWindow::saveProjectToFile(const std::string& filePath) {
@@ -14136,7 +14621,7 @@ void GuiWindow::selectPianoRollNotesByPitch(int pitch, bool additive) {
     if (!matching.empty()) {
         tr->selectSteps(matching, !additive);
         if (engine_) {
-            engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f, false, false, static_cast<int>(selectedTrackIndex_));
+            engine_->postNoteOn(static_cast<uint8_t>(pitch), 0.85f, false, false, static_cast<int>(selectedTrackIndex_), false);
         }
         previewingPitch_ = pitch;
         previewingVelocity_ = 0.85f;
@@ -14257,7 +14742,7 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
         drawRoundedRectOutline(tabX, closedTabY, tabW, tabH + 4.0f, 4.0f,
                                theme.borderSubtle, 1.0f);
         if (batchRenderer_) {
-            drawPianoIcon(*batchRenderer_, tabX + 16.0f, closedTabY + 4.5f, 16.0f, 11.0f, theme.primaryAccent);
+            drawPianoIcon(*batchRenderer_, tabX + 16.0f, closedTabY + 5.5f, 16.0f, 11.0f, theme.primaryAccent);
             drawCenteredText(*batchRenderer_, "VIRTUAL PIANO", tabX + 36.0f, closedTabY, tabW - 44.0f, tabH, 10.5f, theme.primaryAccent);
         } else {
             drawVectorString("VIRTUAL PIANO", tabX + 38.0f, closedTabY + 5.0f, 0.72f, theme.primaryAccent);
@@ -14271,7 +14756,7 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
     drawRoundedRectOutline(tabX, tabY, tabW, tabH + 4.0f, 4.0f,
                            theme.borderSubtle, 1.0f);
     if (batchRenderer_) {
-        drawPianoIcon(*batchRenderer_, tabX + 16.0f, tabY + 4.5f, 16.0f, 11.0f, theme.secondaryAccent);
+        drawPianoIcon(*batchRenderer_, tabX + 16.0f, tabY + 5.5f, 16.0f, 11.0f, theme.secondaryAccent);
         drawCenteredText(*batchRenderer_, "VIRTUAL PIANO", tabX + 36.0f, tabY, tabW - 44.0f, tabH, 10.5f, theme.secondaryAccent);
     } else {
         drawVectorString("VIRTUAL PIANO", tabX + 38.0f, tabY + 5.0f, 0.72f, theme.secondaryAccent);
@@ -14334,16 +14819,15 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
             float wx = kx + static_cast<float>(currWhite) * whiteKeyW;
             bool isPressed = (previewingPitch_ == p || virtualKeyboardActivePitch_ == p);
 
+            // Base white key
+            drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh, 0.92f, 0.94f, 0.97f, 0.76f, 0.78f, 0.82f);
+
             if (isPressed) {
-                drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh,
-                                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b,
-                                 theme.primaryAccent.darken(0.35f).r, theme.primaryAccent.darken(0.35f).g, theme.primaryAccent.darken(0.35f).b);
-                // Dynamic Velocity Fill Bar (extending from bottom up, matching top-is-higher velocity)
-                float fillH = std::clamp(kh * previewingVelocity_, 4.0f, kh);
-                drawRect(wx, ky + kh - fillH, whiteKeyW - 1.0f, fillH,
-                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, 0.90f);
-            } else {
-                drawRectGradient(wx, ky, whiteKeyW - 1.0f, kh, 0.92f, 0.94f, 0.97f, 0.76f, 0.78f, 0.82f);
+                // Color opacity based on velocity: higher velocity = more noticeable color
+                float vel = std::clamp(previewingVelocity_, 0.05f, 1.0f);
+                float alpha = std::clamp(0.22f + 0.78f * vel, 0.20f, 1.0f);
+                drawRect(wx, ky, whiteKeyW - 1.0f, kh,
+                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, alpha);
             }
             drawRectOutline(wx, ky, whiteKeyW - 1.0f, kh, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.85f, 1.0f);
 
@@ -14365,16 +14849,15 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
             float bx = cx - blackKeyW * 0.5f;
             bool isPressed = (previewingPitch_ == p || virtualKeyboardActivePitch_ == p);
 
+            // Base charcoal black key
+            drawRectGradient(bx, ky, blackKeyW, blackKeyH, 0.22f, 0.24f, 0.30f, 0.08f, 0.09f, 0.12f);
+
             if (isPressed) {
-                drawRectGradient(bx, ky, blackKeyW, blackKeyH,
-                                 theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b,
-                                 theme.secondaryAccent.darken(0.40f).r, theme.secondaryAccent.darken(0.40f).g, theme.secondaryAccent.darken(0.40f).b);
-                // Dynamic Velocity Fill Bar (extending from bottom up, matching top-is-higher velocity)
-                float fillH = std::clamp(blackKeyH * previewingVelocity_, 4.0f, blackKeyH);
-                drawRect(bx, ky + blackKeyH - fillH, blackKeyW, fillH,
-                         theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.95f);
-            } else {
-                drawRectGradient(bx, ky, blackKeyW, blackKeyH, 0.22f, 0.24f, 0.30f, 0.08f, 0.09f, 0.12f);
+                // Color opacity based on velocity: higher velocity = more noticeable color
+                float vel = std::clamp(previewingVelocity_, 0.05f, 1.0f);
+                float alpha = std::clamp(0.28f + 0.72f * vel, 0.25f, 1.0f);
+                drawRect(bx, ky, blackKeyW, blackKeyH,
+                         theme.secondaryAccent.r, theme.secondaryAccent.g, theme.secondaryAccent.b, alpha);
             }
             drawRectOutline(bx, ky, blackKeyW, blackKeyH, theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.90f, 1.0f);
         } else {
@@ -15489,6 +15972,23 @@ void GuiWindow::onMouseMove(float x, float y) {
         }
     }
 
+    if (macroRunnerDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Move;
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        pev.dx = x - mouseX_;
+        pev.dy = y - mouseY_;
+        if (macroRunnerDialog_.handlePointer(pev)) {
+            mouseX_ = x;
+            mouseY_ = y;
+            return;
+        }
+    }
+
     if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -15686,12 +16186,16 @@ void GuiWindow::onMouseMove(float x, float y) {
             if (dHit.hit && dHit.isKey && dHit.pitch != virtualKeyboardActivePitch_) {
                 if (engine_) {
                     if (virtualKeyboardActivePitch_ != -1) {
-                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
+                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_), false);
                     }
                     if (previewingPitch_ != -1 && previewingPitch_ != virtualKeyboardActivePitch_) {
-                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
+                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_), false);
                     }
-                    engine_->postNoteOn(static_cast<uint8_t>(dHit.pitch), dHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                    engine_->postNoteOn(static_cast<uint8_t>(dHit.pitch), dHit.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
+                }
+                if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
+                    ViewContext ctx = createViewContext();
+                    modularEditView_->insertTrackerNote(static_cast<uint8_t>(dHit.pitch), dHit.velocity, &ctx);
                 }
                 virtualKeyboardActivePitch_ = dHit.pitch;
                 previewingPitch_ = dHit.pitch;
@@ -15704,12 +16208,12 @@ void GuiWindow::onMouseMove(float x, float y) {
             if (kHit.hit && kHit.pitch != previewingPitch_) {
                 if (engine_) {
                     if (previewingPitch_ != -1) {
-                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
+                        engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_), false);
                     }
                     if (virtualKeyboardActivePitch_ != -1 && virtualKeyboardActivePitch_ != previewingPitch_) {
-                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
+                        engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_), false);
                     }
-                    engine_->postNoteOn(static_cast<uint8_t>(kHit.pitch), kHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                    engine_->postNoteOn(static_cast<uint8_t>(kHit.pitch), kHit.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
                 }
                 previewingPitch_ = kHit.pitch;
                 virtualKeyboardActivePitch_ = kHit.pitch;
@@ -16062,6 +16566,21 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
         pev.rawX = x;
         pev.rawY = y;
         if (audioToMidiDialog_.handlePointer(pev)) return;
+    }
+
+    if (macroRunnerDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Down;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (macroRunnerDialog_.handlePointer(pev)) {
+            markNeedsRedraw();
+            return;
+        }
     }
 
     // Intercept if Dedicated Full-Display Device GUI is open
@@ -16638,10 +17157,6 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 case TransportAction::SearchToggle:
                     toggleCommandPalette();
                     break;
-                case TransportAction::LockToggle:
-                    projectLocked_ = !projectLocked_;
-                    setStatusMessage(projectLocked_ ? "[LOCK] Workspace Edit Protection Engaged" : "[LOCK] Workspace Edit Protection Released");
-                    break;
                 case TransportAction::SnapToggle:
                     break;
                 case TransportAction::ScaleToggle:
@@ -16725,7 +17240,11 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                 previewingPitch_ = drawerHit.pitch;
                 previewingVelocity_ = drawerHit.velocity;
                 if (engine_) {
-                    engine_->postNoteOn(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                    engine_->postNoteOn(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
+                }
+                if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
+                    ViewContext ctx = createViewContext();
+                    modularEditView_->insertTrackerNote(static_cast<uint8_t>(drawerHit.pitch), drawerHit.velocity, &ctx);
                 }
                 dragMode_ = DragMode::VirtualKeyboardGlissando;
                 return;
@@ -16752,7 +17271,10 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             pev.y = y;
             pev.rawX = x;
             pev.rawY = y;
-            modularEditView_->setActiveTrackIndex(selectedTrackIndex_);
+            if (selectedTrackIndex_ < arrangerTracks_.size()) {
+                const auto& trk = arrangerTracks_[selectedTrackIndex_];
+                modularEditView_->setActiveTrackInfo(trk.name, trk.r, trk.g, trk.b);
+            }
             if (modularEditView_->handlePointer(pev, ctx)) {
                 markNeedsRedraw();
                 return;
@@ -17376,7 +17898,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                     virtualKeyboardActivePitch_ = keyHit.pitch;
                     dragMode_ = DragMode::VirtualKeyboardGlissando;
                     if (engine_) {
-                        engine_->postNoteOn(keyHit.pitch, keyHit.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                        engine_->postNoteOn(keyHit.pitch, keyHit.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
                     }
                     return;
                 }
@@ -17440,7 +17962,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                     activeTrk->selectStep(s, true);
                                 }
                                 if (engine_) {
-                                    engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                                    engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
                                     previewingPitch_ = st.note;
                                     previewingVelocity_ = st.velocity;
                                 }
@@ -17477,7 +17999,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                         activeTrk->setStep(gridHit.step, st);
                         activeTrk->selectStep(gridHit.step, true);
                         if (engine_) {
-                            engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                            engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
                             previewingPitch_ = st.note;
                             previewingVelocity_ = st.velocity;
                         }
@@ -17568,7 +18090,7 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                                         st.velocity = 0.85f;
                                         float durSteps = scoreDurationToSteps(scoreDuration_);
                                         st.gateLength = std::clamp(durSteps, 0.25f, 64.0f);
-                                        engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_));
+                                        engine_->postNoteOn(st.note, st.velocity, false, false, static_cast<int>(selectedTrackIndex_), false);
                                         previewingPitch_ = st.note;
                                         tr->setStep(scoreHit.step, st);
                                         tr->selectStep(scoreHit.step, true);
@@ -17966,6 +18488,21 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         if (audioToMidiDialog_.handlePointer(pev)) return;
     }
 
+    if (macroRunnerDialog_.isOpen()) {
+        PointerEvent pev;
+        pev.type = PointerType::Mouse;
+        pev.action = PointerAction::Up;
+        pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+        pev.x = x;
+        pev.y = y;
+        pev.rawX = x;
+        pev.rawY = y;
+        if (macroRunnerDialog_.handlePointer(pev)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
+
     if (themeBrowserDialog_.isOpen()) {
         PointerEvent pev;
         pev.type = PointerType::Mouse;
@@ -18097,14 +18634,14 @@ void GuiWindow::onMouseUp(int button, float x, float y) {
         stopChordAudition();
         if (previewingPitch_ != -1) {
             if (engine_) {
-                engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_));
+                engine_->postNoteOff(static_cast<uint8_t>(previewingPitch_), static_cast<int>(selectedTrackIndex_), false);
             }
             previewingPitch_ = -1;
         }
 
         if (virtualKeyboardActivePitch_ != -1) {
             if (engine_) {
-                engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_));
+                engine_->postNoteOff(static_cast<uint8_t>(virtualKeyboardActivePitch_), static_cast<int>(selectedTrackIndex_), false);
             }
             virtualKeyboardActivePitch_ = -1;
         }
@@ -18542,6 +19079,10 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
     // 4. Edit / Tracker View routing
     if ((activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) && modularEditView_) {
         ViewContext ctx = createViewContext();
+        if (selectedTrackIndex_ < arrangerTracks_.size()) {
+            const auto& trk = arrangerTracks_[selectedTrackIndex_];
+            modularEditView_->setActiveTrackInfo(trk.name, trk.r, trk.g, trk.b);
+        }
         if (modularEditView_->handlePointer(pev, ctx)) {
             return;
         }
@@ -18578,6 +19119,7 @@ void GuiWindow::onKeyDown(int key, int mods) {
                                  (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) ||
                                  commandPaletteDialog_.isOpen() ||
                                  audioToMidiDialog_.isOpen() ||
+                                 macroRunnerDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
                                  (activePluginDialog && activePluginDialog->isOpen());
 
@@ -18681,6 +19223,14 @@ void GuiWindow::onKeyDown(int key, int mods) {
         }
     }
 
+    // Intercept keyboard input if Procedural Macro Runner Dialog is open
+    if (macroRunnerDialog_.isOpen()) {
+        if (macroRunnerDialog_.handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
+
     // Intercept keyboard input if Plugin / Preset Search Modal Dialog is open
     if (activePluginDialog && activePluginDialog->isOpen()) {
         // If printable key and not Ctrl/Alt, let onChar handle text insertion
@@ -18724,8 +19274,19 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
+    // Ctrl+Shift+M or Ctrl+Shift+G: Open Procedural Macro Runner Dialog
+    if (isCtrl && isShift && (key == 77 || key == 109 || key == 71 || key == 103)) { // 'M' or 'G'
+        if (isMacroRunnerOpen()) {
+            closeMacroRunner();
+        } else {
+            openMacroRunner("macro_song_gen");
+        }
+        markNeedsRedraw();
+        return;
+    }
+
     // Ctrl+M: Open Audio to MIDI Converter Modal Dialog
-    if (isCtrl && (key == 77 || key == 109)) { // 'M'
+    if (isCtrl && !isShift && (key == 77 || key == 109)) { // 'M'
         openAudioToMidiConverter();
         return;
     }
@@ -19263,6 +19824,10 @@ void GuiWindow::onChar(unsigned int codepoint) {
         audioToMidiDialog_.handleChar(codepoint);
         return;
     }
+    if (macroRunnerDialog_.isOpen()) {
+        macroRunnerDialog_.handleChar(codepoint);
+        return;
+    }
     if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
         return;
     }
@@ -19319,6 +19884,22 @@ void GuiWindow::closeAudioToMidiConverter() noexcept {
 
 bool GuiWindow::isAudioToMidiDialogOpen() const noexcept {
     return audioToMidiDialog_.isOpen();
+}
+
+void GuiWindow::openMacroRunner(const std::string& macroId) {
+    focusManager_.clearFocus();
+    macroRunnerDialog_.layout(static_cast<float>(width_), static_cast<float>(height_));
+    macroRunnerDialog_.open(macroId);
+    markNeedsRedraw();
+}
+
+void GuiWindow::closeMacroRunner() noexcept {
+    macroRunnerDialog_.close();
+    markNeedsRedraw();
+}
+
+bool GuiWindow::isMacroRunnerOpen() const noexcept {
+    return macroRunnerDialog_.isOpen();
 }
 
 void GuiWindow::openPresetDialog(PluginDialogMode mode, uint32_t trackIndex) {
@@ -19392,6 +19973,7 @@ bool GuiWindow::isAnyModalActive() const noexcept {
     if (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) return true;
     if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) return true;
     if (audioToMidiDialog_.isOpen()) return true;
+    if (macroRunnerDialog_.isOpen()) return true;
     if (fullscreenDeviceModal_.isOpen()) return true;
     if (themeBrowserDialog_.isOpen()) return true;
     const PluginSearchDialog* activePlugin = const_cast<GuiWindow*>(this)->getActivePluginSearchDialog();

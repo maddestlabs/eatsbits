@@ -2,6 +2,7 @@
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/icon_registry.hpp"
 #include "eatsbits/project/preset_manager.hpp"
+#include "eatsbits/project/sequence_catalog.hpp"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -53,14 +54,19 @@ void ProjectBrowserDrawer::initData() {
         {"bitcrusher", "Vintage Sampler Crusher", "AUDIO_FX", "12-Bit Vintage S-DSP Sample & Hold", "FX / Distortion"},
         {"arp_generator", "Euclidean Arpeggiator", "MIDI_FX", "Algorithmic Euclidean & Classic Arp", "MIDI / Pattern"},
         {"scale_snap", "Harmonic Scale Snap", "MIDI_FX", "Quantizes raw notes to selected musical scale", "MIDI / Theory"},
-        {"humanize", "Global Humanizer", "MIDI_FX", "Micro-timing and velocity drift generator", "MIDI / Groove"},
-        {"acid_seq_01", "Classic Acid 303 Riff", "MIDI_SEQ", "16-Step energetic 16th-note acid bassline", "Sequence / Acid"},
-        {"four_floor_seq", "Techno 4-on-the-Floor", "MIDI_SEQ", "Standard 909 kick, snappy snare and hats", "Sequence / Techno"},
-        {"macro_acid", "Acid 303 Generator", "MACRO", "Generates randomized Roland acid lines", "Macro / AI"},
-        {"macro_909", "909 Techno Synthesizer", "MACRO", "Generates 4-on-the-floor industrial beats", "Macro / Rhythm"},
-        {"macro_humanize", "Batch Humanize", "MACRO", "Applies subtle velocity and timing variations", "Macro / Groove"},
-        {"macro_song", "Procedural Song Architect", "MACRO", "Generates complete multi-track song arrangement", "Macro / Generative"}
+        {"humanize", "Global Humanizer", "MIDI_FX", "Micro-timing and velocity drift generator", "MIDI / Groove"}
     };
+
+    // Ready-made Sequences (Eatscript Note Sequences)
+    for (const auto& seq : project::SequenceCatalog::getAllSequences()) {
+        scripts_.push_back({seq.id, seq.name, seq.category, seq.description, "Sequence / " + seq.subCategory});
+    }
+
+    // Procedural Macros
+    scripts_.push_back({"macro_acid", "Acid 303 Generator", "MACRO", "Generates randomized Roland acid lines", "Macro / AI"});
+    scripts_.push_back({"macro_909", "909 Techno Synthesizer", "MACRO", "Generates 4-on-the-floor industrial beats", "Macro / Rhythm"});
+    scripts_.push_back({"macro_humanize", "Batch Humanize", "MACRO", "Applies subtle velocity and timing variations", "Macro / Groove"});
+    scripts_.push_back({"macro_song", "Procedural Song Architect", "MACRO", "Generates complete multi-track song arrangement", "Macro / Generative"});
 
     // Tab 3: Sound Patches, Spaces & Cabs (Populated from PresetManager catalog)
     project::PresetManager::instance().initialize();
@@ -424,7 +430,7 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
             float ix = tb.x + 4.5f;
             float iy = tb.y + (tb.h - iconSize) * 0.5f;
             IconRegistry::instance().renderIcon(r, tabIcons[i], Rect2D(ix, iy, iconSize, iconSize), fg);
-            drawText(r, tabNames[i], tb.x + 18.0f, tb.y + 7.5f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
+            drawTextLeftAlignedY(r, tabNames[i], tb.x + 18.0f, tb.y + tb.h * 0.5f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
         }
     }
 
@@ -504,7 +510,7 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
                 float ix = cb.x + 3.5f;
                 float iy = cb.y + (cb.h - icSize) * 0.5f;
                 IconRegistry::instance().renderIcon(r, catIcons[i], Rect2D(ix, iy, icSize, icSize), fg);
-                drawText(r, catNames[i], cb.x + 16.5f, cb.y + 6.0f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
+                drawTextLeftAlignedY(r, catNames[i], cb.x + 16.5f, cb.y + cb.h * 0.5f, 7.5f, fg.r, fg.g, fg.b, 1.0f);
             }
         }
     }
@@ -678,7 +684,10 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
                     // Playlist add / chain insert icon for effects
                     Rect2D chainBtn(cardX + cardW - 34.0f, cy + 14.0f, 22.0f, 22.0f);
                     IconRegistry::instance().renderIcon(r, "ui_playlist_add", chainBtn, badgeCol);
-                } else if (item.category == "MACRO" || item.category == "MIDI_SEQ") {
+                } else if (item.category == "MIDI_SEQ") {
+                    Rect2D seqBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
+                    IconRegistry::instance().renderIcon(r, "ui_cat_seq", seqBtn, badgeCol);
+                } else if (item.category == "MACRO") {
                     Rect2D runBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
                     IconRegistry::instance().renderIcon(r, "ui_cat_macro", runBtn, badgeCol);
                 }
@@ -888,11 +897,15 @@ void ProjectBrowserDrawer::render(BatchRenderer2D& r, const ThemeTokens& theme) 
         float pillX = mouseX_ - 16.0f;
         float pillY = mouseY_ - 16.0f;
         Color col = (draggedScript_.category == "SYNTH") ? Color(1.0f, 0.55f, 0.0f, 1.0f) :
-                    ((draggedScript_.category == "AUDIO_FX") ? Color(0.13f, 0.96f, 0.91f, 1.0f) : Color(0.0f, 1.0f, 0.4f, 1.0f));
+                    ((draggedScript_.category == "AUDIO_FX") ? Color(0.13f, 0.96f, 0.91f, 1.0f) :
+                    ((draggedScript_.category == "MIDI_SEQ") ? Color(1.0f, 0.84f, 0.0f, 1.0f) :
+                    ((draggedScript_.category == "MACRO") ? Color(0.74f, 0.0f, 1.0f, 1.0f) : Color(0.0f, 1.0f, 0.4f, 1.0f))));
         drawRoundedRect(r, pillX, pillY, pillW, pillH, 6.0f, 0.12f, 0.12f, 0.14f, 0.95f);
         drawRoundedRectOutline(r, pillX, pillY, pillW, pillH, 6.0f, col.r, col.g, col.b, 0.9f, 1.5f);
         const char* ic = (draggedScript_.category == "SYNTH") ? "ui_cat_instruments" :
-                         ((draggedScript_.category == "AUDIO_FX") ? "ui_cat_fx" : "ui_cat_midifx");
+                         ((draggedScript_.category == "AUDIO_FX") ? "ui_cat_fx" :
+                         ((draggedScript_.category == "MIDI_SEQ") ? "ui_cat_seq" :
+                         ((draggedScript_.category == "MACRO") ? "ui_cat_macro" : "ui_cat_midifx")));
         IconRegistry::instance().renderIcon(r, ic, Rect2D(pillX + 6.0f, pillY + 6.0f, 20.0f, 20.0f), col);
         drawText(r, draggedScript_.name, pillX + 32.0f, pillY + 9.0f, 10.5f, 1.0f, 1.0f, 1.0f, 1.0f);
     }
@@ -929,7 +942,10 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
             }
             return true;
         }
-        return true;
+        if (drawerBounds_.contains(ev.x, ev.y)) {
+            return true;
+        }
+        return false;
     }
 
     if (ev.action == PointerAction::Up) {
@@ -945,6 +961,9 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
                         onAddAudioFx(item.id);
                     } else if (item.category == "MIDI_FX" && onAddMidiFx) {
                         onAddMidiFx(item.id);
+                    } else if (item.category == "MIDI_SEQ") {
+                        if (onAddSequenceClip) onAddSequenceClip(item.id);
+                        else if (onRunScript) onRunScript(item.id);
                     } else if (onRunScript) {
                         onRunScript(item.id);
                     }
@@ -1090,7 +1109,14 @@ bool ProjectBrowserDrawer::handlePointer(const PointerEvent& ev) {
                                 else if (item.category == "MIDI_FX" && onAddMidiFx) onAddMidiFx(item.id);
                                 return true;
                             }
-                        } else if (item.category == "MACRO" || item.category == "MIDI_SEQ") {
+                        } else if (item.category == "MIDI_SEQ") {
+                            Rect2D seqBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
+                            if (seqBtn.contains(ev.x, ev.y)) {
+                                if (onAddSequenceClip) onAddSequenceClip(item.id);
+                                else if (onRunScript) onRunScript(item.id);
+                                return true;
+                            }
+                        } else if (item.category == "MACRO") {
                             Rect2D runBtn(cardX + cardW - 32.0f, cy + 16.0f, 18.0f, 18.0f);
                             if (runBtn.contains(ev.x, ev.y)) {
                                 if (onRunScript) onRunScript(item.id);

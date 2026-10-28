@@ -8,6 +8,17 @@
 
 namespace eatsbits::ui {
 
+namespace LayoutSpacing {
+    /// Consistent vertical padding between a text label and the widget directly below it (slider track, button, chips)
+    constexpr float kLabelToWidgetGap = 6.0f;
+    /// Consistent vertical padding between a widget bottom and the next label or sub-header
+    constexpr float kWidgetToLabelGap = 10.0f;
+    /// Consistent vertical padding between distinct cards, panels, or logical sections
+    constexpr float kSectionGap = 16.0f;
+    /// Consistent vertical gap between a section title / card header and its first content item
+    constexpr float kCardHeaderToContentGap = 10.0f;
+}
+
 void drawVectorString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, float red, float green, float blue, float alpha = 1.0f);
 inline void drawVectorString(BatchRenderer2D& r, std::string_view str, float x, float y, float scale, const Color& c) {
     drawVectorString(r, str, x, y, scale, c.r, c.g, c.b, c.a);
@@ -96,7 +107,13 @@ void drawPropertiesIcon(BatchRenderer2D& r, float x, float y, float w, float h, 
 
 void drawScrewCloseButton(BatchRenderer2D& r, float cx, float cy, float radius, bool hovered, const Color& highlightColor);
 
+void drawIconArranger(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c);
+
 void drawIconEdit(BatchRenderer2D& r, float x, float y, float size, const Color& c);
+
+void drawIconTrack(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c);
+
+void drawIconMixer(BatchRenderer2D& r, float x, float y, float w, float h, const Color& c);
 
 void drawDesignChipIcon(BatchRenderer2D& r, float x, float y, float size, const Color& c);
 

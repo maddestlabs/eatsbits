@@ -141,7 +141,9 @@ void CommandPaletteDialog::layout(float screenW, float screenH) noexcept {
     CLAY(CLAY_ID("PaletteOverlay"), {
         .layout = {
             .sizing = { CLAY_SIZING_FIXED(screenW), CLAY_SIZING_FIXED(screenH) },
+            .padding = { 0, 0, static_cast<uint16_t>(std::max(0.0f, topOffset)), 0 },
             .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_TOP },
+            .layoutDirection = CLAY_TOP_TO_BOTTOM,
         }
     }) {
         CLAY(CLAY_ID("PaletteDialogCard"), {
@@ -150,10 +152,6 @@ void CommandPaletteDialog::layout(float screenW, float screenH) noexcept {
                 .padding = { 16, 16, 16, 26 },
                 .childGap = 10,
                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
-            },
-            .floating = {
-                .offset = { 0.0f, topOffset },
-                .attachTo = CLAY_ATTACH_TO_PARENT,
             }
         }) {
             // Search Box at top (height 36)
@@ -212,11 +210,12 @@ void CommandPaletteDialog::update(float dt) noexcept {
 void CommandPaletteDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) noexcept {
     if (!isOpen_) return;
 
-    // 1. Frosted Backdrop Blur & Dark Dimming
-    r.applyBackdropBlur(4.0f, 0.60f);
-    r.drawRect(0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.65f);
+    // 1. Semi-transparent backdrop darkening (matching core ValueEditDialog; no GPU blur for 60+ FPS)
+    r.drawRect(0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.50f);
 
     // 2. Dialog Chassis Background & Deep Shadow
+    drawRoundedRect(r, dialogBounds_.x - 3.0f, dialogBounds_.y - 3.0f, dialogBounds_.w + 6.0f, dialogBounds_.h + 6.0f, 10.0f,
+                    0.0f, 0.0f, 0.0f, 0.45f);
     drawRoundedRect(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 8.0f,
                     0.10f, 0.11f, 0.13f, 0.98f);
     drawRoundedRectOutline(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 8.0f,
@@ -263,6 +262,8 @@ void CommandPaletteDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) 
     const float itemH = 46.0f;
     const float itemGap = 4.0f;
     const size_t maxVisible = static_cast<size_t>(resultsListBounds_.h / (itemH + itemGap));
+    const float totalContentH = static_cast<float>(filteredCommands_.size()) * (itemH + itemGap);
+    const float maxScroll = std::max(0.0f, totalContentH - resultsListBounds_.h);
 
     if (filteredCommands_.empty()) {
         drawCenteredText(r, "No matching commands found.", resultsListBounds_, 11.0f, theme.textMuted);
@@ -274,56 +275,77 @@ void CommandPaletteDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) 
         } else if (targetScroll + itemH > scrollOffset_ + resultsListBounds_.h) {
             scrollOffset_ = targetScroll + itemH - resultsListBounds_.h;
         }
+        scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxScroll);
 
         size_t startIndex = static_cast<size_t>(std::max(0.0f, scrollOffset_ / (itemH + itemGap)));
-        size_t endIndex = std::min(filteredCommands_.size(), startIndex + maxVisible + 1);
+        size_t endIndex = std::min(filteredCommands_.size(), startIndex + maxVisible + 2);
 
-        for (size_t i = startIndex; i < endIndex; ++i) {
-            const auto* cmd = filteredCommands_[i];
-            float itemY = resultsListBounds_.y + static_cast<float>(i) * (itemH + itemGap) - scrollOffset_;
-            if (itemY + itemH < resultsListBounds_.y || itemY > resultsListBounds_.y + resultsListBounds_.h) continue;
+        // Hardware-clip to resultsListBounds_ so items never scroll above filters or below footer
+        {
+            ScissorScope listScissor(r, resultsListBounds_);
 
-            Rect2D itemBounds(resultsListBounds_.x, itemY, resultsListBounds_.w, itemH);
-            bool isSelected = (static_cast<int>(i) == selectedIndex_);
+            for (size_t i = startIndex; i < endIndex; ++i) {
+                const auto* cmd = filteredCommands_[i];
+                float itemY = resultsListBounds_.y + static_cast<float>(i) * (itemH + itemGap) - scrollOffset_;
+                if (itemY + itemH < resultsListBounds_.y || itemY > resultsListBounds_.y + resultsListBounds_.h) continue;
 
-            // Item Background
-            Color itemBg = isSelected
-                               ? theme.primaryAccent.withAlpha(0.20f)
-                               : Color(0.12f, 0.13f, 0.16f, 0.85f);
-            drawRoundedRect(r, itemBounds.x, itemBounds.y, itemBounds.w, itemBounds.h, 4.0f, itemBg);
+                Rect2D itemBounds(resultsListBounds_.x, itemY, resultsListBounds_.w, itemH);
+                bool isSelected = (static_cast<int>(i) == selectedIndex_);
 
-            if (isSelected) {
-                drawRoundedRectOutline(r, itemBounds.x, itemBounds.y, itemBounds.w, itemBounds.h, 4.0f,
-                                       theme.primaryAccent, 1.2f);
-                // Left accent notch
-                drawRect(r, itemBounds.x, itemBounds.y + 4.0f, 3.0f, itemBounds.h - 8.0f, theme.primaryAccent);
+                // Item Background
+                Color itemBg = isSelected
+                                   ? theme.primaryAccent.withAlpha(0.20f)
+                                   : Color(0.12f, 0.13f, 0.16f, 0.85f);
+                drawRoundedRect(r, itemBounds.x, itemBounds.y, itemBounds.w, itemBounds.h, 4.0f, itemBg);
+
+                if (isSelected) {
+                    drawRoundedRectOutline(r, itemBounds.x, itemBounds.y, itemBounds.w, itemBounds.h, 4.0f,
+                                           theme.primaryAccent, 1.2f);
+                    // Left accent notch
+                    drawRect(r, itemBounds.x, itemBounds.y + 4.0f, 3.0f, itemBounds.h - 8.0f, theme.primaryAccent);
+                }
+
+                // Category Badge
+                Color catCol = getCategoryColor(cmd->category);
+                drawRoundedRect(r, itemBounds.x + 10.0f, itemBounds.y + 14.0f, 44.0f, 16.0f, 3.0f,
+                                catCol.withAlpha(0.18f));
+                drawCenteredText(r, getCategoryName(cmd->category), itemBounds.x + 10.0f, itemBounds.y + 14.0f,
+                                 44.0f, 16.0f, 7.5f, catCol);
+
+                // Title
+                Color titleCol = isSelected ? Color(1.0f, 1.0f, 1.0f, 1.0f) : theme.textPrimary;
+                drawText(r, cmd->title, itemBounds.x + 62.0f, itemBounds.y + 8.0f, 10.5f, titleCol);
+
+                // Subtitle
+                drawText(r, cmd->subtitle, itemBounds.x + 62.0f, itemBounds.y + 24.0f, 8.5f, theme.textMuted);
+
+                // Shortcut Badge (if any)
+                if (!cmd->shortcutHint.empty()) {
+                    const float scW = 68.0f;
+                    const float scH = 18.0f;
+                    float scX = itemBounds.x + itemBounds.w - scW - 10.0f;
+                    float scY = itemBounds.y + (itemBounds.h - scH) * 0.5f;
+
+                    drawRoundedRect(r, scX, scY, scW, scH, 3.0f, Color(0.08f, 0.09f, 0.11f, 0.90f));
+                    drawRoundedRectOutline(r, scX, scY, scW, scH, 3.0f, theme.borderSubtle, 1.0f);
+                    drawCenteredText(r, cmd->shortcutHint, scX, scY, scW, scH, 8.0f, theme.textSecondary);
+                }
             }
+        }
 
-            // Category Badge
-            Color catCol = getCategoryColor(cmd->category);
-            drawRoundedRect(r, itemBounds.x + 10.0f, itemBounds.y + 14.0f, 44.0f, 16.0f, 3.0f,
-                            catCol.withAlpha(0.18f));
-            drawCenteredText(r, getCategoryName(cmd->category), itemBounds.x + 10.0f, itemBounds.y + 14.0f,
-                             44.0f, 16.0f, 7.5f, catCol);
+        // Render sleek scrollbar indicator if results overflow viewport
+        if (maxScroll > 0.0f) {
+            float sbW = 3.5f;
+            float sbX = resultsListBounds_.x + resultsListBounds_.w - sbW - 2.0f;
+            float sbY = resultsListBounds_.y + 2.0f;
+            float sbH = resultsListBounds_.h - 4.0f;
 
-            // Title
-            Color titleCol = isSelected ? Color(1.0f, 1.0f, 1.0f, 1.0f) : theme.textPrimary;
-            drawText(r, cmd->title, itemBounds.x + 62.0f, itemBounds.y + 8.0f, 10.5f, titleCol);
+            float thumbH = std::max(20.0f, (resultsListBounds_.h / totalContentH) * sbH);
+            float thumbNorm = scrollOffset_ / maxScroll;
+            float thumbY = sbY + thumbNorm * (sbH - thumbH);
 
-            // Subtitle
-            drawText(r, cmd->subtitle, itemBounds.x + 62.0f, itemBounds.y + 24.0f, 8.5f, theme.textMuted);
-
-            // Shortcut Badge (if any)
-            if (!cmd->shortcutHint.empty()) {
-                const float scW = 68.0f;
-                const float scH = 18.0f;
-                float scX = itemBounds.x + itemBounds.w - scW - 10.0f;
-                float scY = itemBounds.y + (itemBounds.h - scH) * 0.5f;
-
-                drawRoundedRect(r, scX, scY, scW, scH, 3.0f, Color(0.08f, 0.09f, 0.11f, 0.90f));
-                drawRoundedRectOutline(r, scX, scY, scW, scH, 3.0f, theme.borderSubtle, 1.0f);
-                drawCenteredText(r, cmd->shortcutHint, scX, scY, scW, scH, 8.0f, theme.textSecondary);
-            }
+            drawRoundedRect(r, sbX, sbY, sbW, sbH, 1.5f, Color(0.0f, 0.0f, 0.0f, 0.20f));
+            drawRoundedRect(r, sbX, thumbY, sbW, thumbH, 1.5f, theme.primaryAccent.withAlpha(0.60f));
         }
     }
 
@@ -380,7 +402,9 @@ bool CommandPaletteDialog::handlePointer(const PointerEvent& ev) noexcept {
 
         // Wheel Scroll
         if (ev.action == PointerAction::Scroll) {
-            scrollOffset_ = std::max(0.0f, scrollOffset_ - ev.scrollY * 30.0f);
+            const float totalContentH = static_cast<float>(filteredCommands_.size()) * (itemH + itemGap);
+            const float maxScroll = std::max(0.0f, totalContentH - resultsListBounds_.h);
+            scrollOffset_ = std::clamp(scrollOffset_ - ev.scrollY * 30.0f, 0.0f, maxScroll);
             return true;
         }
     }

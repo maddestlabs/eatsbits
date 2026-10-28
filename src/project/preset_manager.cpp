@@ -1,4 +1,5 @@
 #include "eatsbits/project/preset_manager.hpp"
+#include "eatsbits/project/sequence_catalog.hpp"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -354,6 +355,24 @@ void PresetManager::registerBuiltinPresets() {
         item.author = info.author;
         item.isBuiltin = true;
         getCategoryColor(item.category, item.colorR, item.colorG, item.colorB);
+        addOrUpdatePreset(item);
+    }
+
+    // Register all ready-made sequences with valid Eatscript clip code
+    for (const auto& seq : SequenceCatalog::getAllSequences()) {
+        PresetItem item;
+        item.id = seq.id;
+        item.name = seq.name;
+        item.category = "MIDI SEQ";
+        item.subCategory = seq.subCategory;
+        item.engineTag = seq.subCategory + " Sequence";
+        item.description = seq.description;
+        item.author = "Eatsbeats / Eatsbits";
+        item.rawScript = seq.eatscriptCode;
+        item.isBuiltin = true;
+        item.colorR = seq.colorR;
+        item.colorG = seq.colorG;
+        item.colorB = seq.colorB;
         addOrUpdatePreset(item);
     }
 }

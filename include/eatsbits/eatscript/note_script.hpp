@@ -40,6 +40,22 @@ public:
                                         sequencer::SequencerTrack& track,
                                         std::string* outError = nullptr,
                                         int* outErrorLine = nullptr);
+
+    /// Parsed event for Eatscript clip code ({ pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, ... })
+    struct ClipNoteEvent {
+        uint8_t pitch{60};
+        float startBeat{0.0f};      // in beats (step / 4.0f)
+        float lengthBeats{1.0f};    // in beats (dur / 4.0f)
+        float velocity{0.85f};
+        float startStep{0.0f};      // in 16th-note steps
+        float durationSteps{1.0f};  // in 16th-note steps
+        int lane{0};
+        bool slide{false};
+        bool accent{false};
+    };
+
+    /// Parses Eatscript clip code ({ pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, ... }) into a list of ClipNoteEvents.
+    [[nodiscard]] static std::vector<ClipNoteEvent> parseClipEvents(const std::string& scriptText);
 };
 
 } // namespace eatsbits::eatscript

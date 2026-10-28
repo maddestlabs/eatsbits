@@ -98,6 +98,19 @@ public:
     }
     [[nodiscard]] uint32_t getMaxSteps() const noexcept { return maxSteps_; }
 
+    void setLoopEnabled(bool enabled) noexcept { loopEnabled_ = enabled; }
+    [[nodiscard]] bool isLoopEnabled() const noexcept { return loopEnabled_; }
+
+    void setLoopRange(uint32_t startStep, uint32_t endStep) noexcept {
+        if (startStep > endStep) {
+            std::swap(startStep, endStep);
+        }
+        loopStartStep_ = startStep;
+        loopEndStep_ = (std::max)(startStep + 1, endStep);
+    }
+    [[nodiscard]] uint32_t getLoopStartStep() const noexcept { return loopStartStep_; }
+    [[nodiscard]] uint32_t getLoopEndStep() const noexcept { return loopEndStep_; }
+
     /**
      * Advances the clock by numFrames, reporting any step boundaries crossed.
      * Guaranteed zero heap allocations.
@@ -142,7 +155,15 @@ public:
                 totalSamplesElapsed_ += framesToBoundary;
 
                 // Advance to next step
-                currentStep_ = (currentStep_ + 1) % maxSteps_;
+                if (loopEnabled_ && loopEndStep_ > loopStartStep_) {
+                    if (currentStep_ + 1 >= loopEndStep_ || currentStep_ < loopStartStep_) {
+                        currentStep_ = loopStartStep_;
+                    } else {
+                        currentStep_ = currentStep_ + 1;
+                    }
+                } else {
+                    currentStep_ = (currentStep_ + 1) % maxSteps_;
+                }
                 stepSampleCounter_ = 0.0;
 
                 if (tickCount < N) {
@@ -181,6 +202,9 @@ private:
 
     uint32_t currentStep_{0};
     uint32_t maxSteps_{16};
+    bool loopEnabled_{true};
+    uint32_t loopStartStep_{0};
+    uint32_t loopEndStep_{64};
     double stepSampleCounter_{0.0};
     uint64_t totalSamplesElapsed_{0};
     bool triggeredFirstStep_{false};

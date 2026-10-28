@@ -102,13 +102,6 @@ private:
     int baseOctave_{3}; // Default C3
     PianoKeyboard keyboard_;
     DrumPadGridWidget drumPadGrid_;
-
-    struct ActiveKeyTouch {
-        int pitch{-1};
-        float velocity{0.85f};
-    };
-    std::unordered_map<int, ActiveKeyTouch> activeTouches_;
-    std::set<int> activePitches_;
 };
 
 } // namespace eatsbits::ui

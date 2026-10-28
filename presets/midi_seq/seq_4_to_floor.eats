@@ -2,12 +2,12 @@
 # @name: 4-to-Floor Kick
 # @category: midiSeq
 # @description: Classic four-on-the-floor kick drum pattern hitting on every downbeat (1, 2, 3, 4).
+# @tags: kick, drums, 4-on-the-floor, edm, house
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "4-to-Floor Kick" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "C2", step = 0.0, dur = 1.0, vel = 0.95, accent = true }
+{ pitch = "C2", step = 4.0, dur = 1.0, vel = 0.90 }
+{ pitch = "C2", step = 8.0, dur = 1.0, vel = 0.95, accent = true }
+{ pitch = "C2", step = 12.0, dur = 1.0, vel = 0.90 }

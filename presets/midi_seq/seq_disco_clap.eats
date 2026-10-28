@@ -1,0 +1,13 @@
+# @id: seq_disco_clap
+# @name: Dance Clap
+# @category: midiSeq
+# @description: House and disco clap on beats 2 and 4 with layered flam.
+# @tags: clap, disco, house, dance, percussion
+
+-- Clip: "Dance Clap" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
+
+{ pitch = "D#2", step = 3.9, dur = 0.8, vel = 0.60 }
+{ pitch = "D#2", step = 4.0, dur = 1.0, vel = 0.95, lane = 1, accent = true }
+{ pitch = "D#2", step = 11.9, dur = 0.8, vel = 0.60 }
+{ pitch = "D#2", step = 12.0, dur = 1.0, vel = 0.95, lane = 1, accent = true }

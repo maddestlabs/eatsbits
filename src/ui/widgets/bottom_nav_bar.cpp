@@ -152,24 +152,34 @@ void BottomNavBar::render(BatchRenderer2D& r, const ThemeTokens& theme, int acti
             drawRoundedRect(r, ledX, ledY, ledW, ledH, 1.0f, 0.18f, 0.19f, 0.22f, 0.70f);
         }
 
-        // G. Chunky tactile label (illuminated amber legend if active, muted retro cream if inactive)
+        // G. Chunky tactile label & icon (perfectly centered and vertically aligned)
         std::string label = tabNames[i];
         float fontSize = isMobile ? 9.5f : 11.0f;
         Color labelCol = isActive ? theme.primaryAccent : theme.textPrimary * 0.92f;
 
-        if (i == 4) { // DESIGN tab: render computer chip icon + DESIGN
-            float iconSize = isMobile ? 10.5f : 12.0f;
-            float textW = 40.0f;
-            float spacing = 5.0f;
-            float totalW = iconSize + spacing + textW;
-            float startX = b.x + (b.w - totalW) * 0.5f;
-            float iconY = b.y + (b.h - iconSize) * 0.5f + 4.0f;
-            drawDesignChipIcon(r, startX, iconY, iconSize, labelCol);
-            drawText(r, "DESIGN", startX + iconSize + spacing, b.y + (isMobile ? 12.0f : 10.5f), fontSize, labelCol);
-        } else {
-            drawCenteredText(r, label, b.x, b.y + 8.0f, b.w, b.h - 8.0f, fontSize,
-                             labelCol.r, labelCol.g, labelCol.b, 1.0f);
+        float contentCenterY = b.y + 4.0f + (b.h - 4.0f) * 0.5f;
+        float iconW = (i == 1) ? 11.0f : 13.0f;
+        float iconH = (i == 1) ? 11.0f : (isMobile ? 10.0f : 11.0f);
+        float spacing = 6.0f;
+        float textW = static_cast<float>(std::strlen(tabNames[i])) * (isMobile ? 5.8f : 6.8f);
+        float totalW = iconW + spacing + textW;
+        float startX = b.x + (b.w - totalW) * 0.5f;
+        float iconY = contentCenterY - iconH * 0.5f;
+
+        if (i == 0) {
+            drawIconArranger(r, startX, iconY, iconW, iconH, labelCol);
+        } else if (i == 1) {
+            drawIconEdit(r, startX, iconY, iconH, labelCol);
+        } else if (i == 2) {
+            drawIconTrack(r, startX, iconY, iconW, iconH, labelCol);
+        } else if (i == 3) {
+            drawIconMixer(r, startX, iconY, iconW, iconH, labelCol);
+        } else if (i == 4) {
+            drawDesignChipIcon(r, startX, iconY, iconH, labelCol);
         }
+
+        drawTextLeftAlignedY(r, label, startX + iconW + spacing, contentCenterY, fontSize,
+                             labelCol.r, labelCol.g, labelCol.b, 1.0f);
     }
 }
 

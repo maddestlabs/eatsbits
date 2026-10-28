@@ -2727,10 +2727,10 @@ void testTooltips() {
     assert(!timeTip.empty());
     assert(timeTip.find("Song Position") != std::string::npos || timeTip.find("Position") != std::string::npos);
 
-    // Test Lock tooltip
-    std::string lockTip = window.getTransportTooltip(wW - 105.0f, 25.0f);
-    assert(!lockTip.empty());
-    assert(lockTip.find("Lock") != std::string::npos);
+    // Test Command Palette tooltip
+    std::string cmdTip = window.getTransportTooltip(wW - 105.0f, 25.0f);
+    assert(!cmdTip.empty());
+    assert(cmdTip.find("Palette") != std::string::npos || cmdTip.find("Command") != std::string::npos);
 
     // Test Fullscreen tooltip
     std::string fsTip = window.getTransportTooltip(wW - 75.0f, 25.0f);

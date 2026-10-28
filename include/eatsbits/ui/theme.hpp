@@ -240,19 +240,32 @@ struct ThemeTokens {
 class Theme {
 public:
     enum class Preset : int {
-        AteTrack = 0,       // Default: 80s 8-Track Vintage Hardware Console
-        MidnightBites = 1,  // Obsidian Dark / Cyber Neon (Midnight Munchies)
-        LightSnack = 2,     // Bright Daylight Studio
-        Breakfast = 3,      // Solarized Light
-        Dinner = 4,         // Solarized Dark
-        CountsBite = 5,     // Dracula (Gothic slate / purple / pink)
-        NordicFrost = 6,    // Nord (Polar night / arctic frost blues)
-        Catppuccino = 7,    // Catppuccin Mocha (Cocoa / lavender / peach)
-        DarkRoast = 8,      // Monochrome Dark (Obsidian / neutral graphite / chalk white)
-        SeaAndSalt = 9      // DuoTone Dark (Deep sea navy / amber gold syntax)
+        AteTrack = 0,        // Default: 80s 8-Track Vintage Hardware Console
+        MidnightBites = 1,   // Obsidian Dark / Cyber Neon (Midnight Munchies)
+        LightSnack = 2,      // Bright Daylight Studio
+        Breakfast = 3,       // Solarized Light
+        Dinner = 4,          // Solarized Dark
+        CountsBite = 5,      // Dracula (Gothic slate / purple / pink)
+        NordicFrost = 6,     // Nord (Polar night / arctic frost blues)
+        Catppuccino = 7,     // Catppuccin Mocha (Cocoa / lavender / peach)
+        MonoPlain = 8,       // Monochrome Dark (Obsidian / neutral graphite / chalk white)
+        DarkRoast = 8,       // Backward compatibility alias for MonoPlain
+        DuoToneSea = 9,      // DuoTone Dark Sea (Deep sea navy / sea green syntax)
+        SeaAndSalt = 9,      // Backward compatibility alias for DuoToneSea
+        MonoAquamarine = 10, // Mono with single Aquamarine highlight
+        MonoCyan = 11,       // Mono with single Electric Cyan highlight
+        MonoYellow = 12,     // Mono with single Electric Yellow highlight
+        MonoMagenta = 13,    // Mono with single Neon Magenta highlight
+        MonoAmber = 14,      // Mono with single Vintage Amber highlight
+        DuoToneSpace = 15,   // DuoTone Dark Space (Sallar / Simurai)
+        DuoToneForest = 16,  // DuoTone Dark Forest (Sallar / Simurai)
+        DuoToneSky = 17,     // DuoTone Dark Sky (Sallar / Simurai)
+        DuoToneEarth = 18,   // DuoTone Dark Earth (Sallar / Simurai)
+        Monokai = 19,        // Monokai (Wimer Hazenberg)
+        Gruvbox = 20         // Gruvbox Dark (Pavel Pertsev)
     };
 
-    static constexpr size_t kPresetCount = 10;
+    static constexpr size_t kPresetCount = 21;
 
     struct PresetMetadata {
         Preset preset;

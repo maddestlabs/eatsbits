@@ -1889,8 +1889,8 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     // Preset button (opens Preset dialog)
     drawRoundedRect(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.13f, 0.14f, 0.18f, 0.95f);
     drawRoundedRectOutline(r, presetBtnX, presetBtnY, presetBtnW, presetBtnH, 4.0f, 0.32f, 0.36f, 0.45f, 0.85f, 1.0f);
-    drawSlidersTuneIcon(r, presetBtnX + 5.0f, presetBtnY + 5.0f, 12.0f, theme.textSecondary);
-    drawText(r, "PRESETS", presetBtnX + 19.0f, presetBtnY + 6.0f, 8.5f, theme.textSecondary);
+    drawSlidersTuneIcon(r, presetBtnX + 5.0f, presetBtnY + (presetBtnH - 12.0f) * 0.5f, 12.0f, theme.textSecondary);
+    drawTextLeftAlignedY(r, "PRESETS", presetBtnX + 19.0f, presetBtnY + presetBtnH * 0.5f, 8.5f, theme.textSecondary);
 
     // Detached / Floating Window button (spawns or focuses native OS floating window)
     bool isDetached = data.isDetached || FloatingWindowManager::instance().isDetached(data.trackIndex);
@@ -1905,8 +1905,8 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
     Color fullGold(0.95f, 0.62f, 0.10f, 1.0f);
     drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, 0.14f, 0.12f, 0.10f, 0.95f);
     drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 4.0f, fullGold.r, fullGold.g, fullGold.b, 0.85f, 1.2f);
-    drawFullscreenIcon(r, fullBtnX + 5.0f, fullBtnY + 5.0f, 10.0f, fullGold, 1.4f);
-    drawText(r, "FULL", fullBtnX + 18.0f, fullBtnY + 5.5f, 8.5f, fullGold);
+    drawFullscreenIcon(r, fullBtnX + 5.0f, fullBtnY + (fullBtnH - 10.0f) * 0.5f, 10.0f, fullGold, 1.4f);
+    drawTextLeftAlignedY(r, "FULL", fullBtnX + 18.0f, fullBtnY + fullBtnH * 0.5f, 8.5f, fullGold);
 
     // Instrument Title in uppercase bold with dropdown chevron
     char instTitleBuf[64];
@@ -1982,15 +1982,15 @@ void TrackPropertiesPanel::renderFaceplateCard(BatchRenderer2D& r, const ThemeTo
             drawRoundedRect(r, b1X, btnY, btnW, btnH, 4.0f, 0.12f, 0.18f, 0.26f, 0.95f);
             drawRoundedRectOutline(r, b1X, btnY, btnW, btnH, 4.0f,
                                    theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.80f, 1.2f);
-            drawFullscreenIcon(r, b1X + 8.0f, btnY + 9.0f, 12.0f, theme.primaryAccent, 1.4f);
-            drawText(r, "FOCUS WINDOW", b1X + 24.0f, btnY + 9.5f, 9.0f, theme.primaryAccent);
+            drawFullscreenIcon(r, b1X + 8.0f, btnY + (btnH - 12.0f) * 0.5f, 12.0f, theme.primaryAccent, 1.4f);
+            drawTextLeftAlignedY(r, "FOCUS WINDOW", b1X + 24.0f, btnY + btnH * 0.5f, 9.0f, theme.primaryAccent);
 
             // Button 2: RE-ATTACH / DOCK
             Color dockCol(0.85f, 0.88f, 0.94f, 1.0f);
             drawRoundedRect(r, b2X, btnY, btnW, btnH, 4.0f, 0.15f, 0.16f, 0.20f, 0.95f);
             drawRoundedRectOutline(r, b2X, btnY, btnW, btnH, 4.0f, 0.35f, 0.38f, 0.48f, 0.75f, 1.0f);
-            drawChevronDown(r, b2X + 12.0f, btnY + 15.0f, 8.0f, dockCol, 1.8f);
-            drawText(r, "RE-ATTACH / DOCK", b2X + 24.0f, btnY + 9.5f, 8.5f, dockCol);
+            drawChevronDown(r, b2X + 12.0f, btnY + btnH * 0.5f, 8.0f, dockCol, 1.8f);
+            drawTextLeftAlignedY(r, "RE-ATTACH / DOCK", b2X + 24.0f, btnY + btnH * 0.5f, 8.5f, dockCol);
         } else {
             focusDetachedBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
             reattachDetachedBtnBounds_ = Rect2D(0.0f, 0.0f, 0.0f, 0.0f);
@@ -2196,8 +2196,8 @@ void TrackPropertiesPanel::renderMidiFxCard(BatchRenderer2D& r, const ThemeToken
             float fullBtnY = itemY + 36.0f;
             drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, 0.12f, 0.16f, 0.22f, 0.95f);
             drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, accent.r, accent.g, accent.b, 0.65f, 1.0f);
-            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 4.5f, 11.0f, accent, 1.4f);
-            drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.0f, 8.5f, accent);
+            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + (fullBtnH - 11.0f) * 0.5f, 11.0f, accent, 1.4f);
+            drawTextLeftAlignedY(r, "FULL", fullBtnX + 21.0f, fullBtnY + fullBtnH * 0.5f, 8.5f, accent);
 
             // Inset Hardware Faceplate
             float fpX = itemX + 10.0f;
@@ -2398,8 +2398,8 @@ void TrackPropertiesPanel::renderAudioFxCard(BatchRenderer2D& r, const ThemeToke
             float fullBtnY = itemY + 36.0f;
             drawRoundedRect(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, 0.12f, 0.16f, 0.22f, 0.95f);
             drawRoundedRectOutline(r, fullBtnX, fullBtnY, fullBtnW, fullBtnH, 3.0f, accent.r, accent.g, accent.b, 0.65f, 1.0f);
-            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + 4.5f, 11.0f, accent, 1.4f);
-            drawText(r, "FULL", fullBtnX + 21.0f, fullBtnY + 5.0f, 8.5f, accent);
+            drawFullscreenIcon(r, fullBtnX + 6.0f, fullBtnY + (fullBtnH - 11.0f) * 0.5f, 11.0f, accent, 1.4f);
+            drawTextLeftAlignedY(r, "FULL", fullBtnX + 21.0f, fullBtnY + fullBtnH * 0.5f, 8.5f, accent);
 
             // Inset Hardware Faceplate
             float fpX = itemX + 10.0f;

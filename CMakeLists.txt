@@ -149,6 +149,7 @@ add_library(eats_audio STATIC
     src/audio/graph/nodes/tts_synth_node.cpp
     src/project/eats_builtin_presets.cpp
     src/project/preset_manager.cpp
+    src/project/sequence_catalog.cpp
     src/audio/clap/clap_plugin_loader.cpp
     src/audio/graph/nodes/clap_audio_node.cpp
     src/audio/graph/nodes/oscillator_node.cpp
@@ -369,7 +370,9 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/theme_browser_dialog.cpp
     src/ui/widgets/space_visualizer_widget.cpp
     src/ui/widgets/ai_assistant_dialog.cpp
+    src/ui/widgets/macro_runner_dialog.cpp
     src/ui/widgets/fullscreen_device_modal.cpp
+    src/ui/widgets/tracker_cell_dialog.cpp
     src/ui/views/arranger_view.cpp
     src/ui/views/edit_view.cpp
     src/ui/views/track_inspector_view.cpp

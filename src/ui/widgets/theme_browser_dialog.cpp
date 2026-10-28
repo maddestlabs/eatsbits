@@ -197,19 +197,16 @@ void ThemeBrowserDialog::layout(float screenW, float screenH) {
             }
 
             // Footer Action Buttons Row (Height 30)
+            // Footer Action Button Row (Height 30): OK Button
             CLAY(CLAY_ID("ThemeFooterRow"), {
                 .layout = {
                     .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
-                    .childGap = 12,
                     .childAlignment = { CLAY_ALIGN_X_RIGHT, CLAY_ALIGN_Y_CENTER },
                     .layoutDirection = CLAY_LEFT_TO_RIGHT,
                 }
             }) {
-                CLAY(CLAY_ID("ThemeCancelBtn"), {
-                    .layout = { .sizing = { CLAY_SIZING_FIXED(105), CLAY_SIZING_FIXED(30) } }
-                }) {}
-                CLAY(CLAY_ID("ThemeApplyBtn"), {
-                    .layout = { .sizing = { CLAY_SIZING_FIXED(105), CLAY_SIZING_FIXED(30) } }
+                CLAY(CLAY_ID("ThemeOkBtn"), {
+                    .layout = { .sizing = { CLAY_SIZING_FIXED(100), CLAY_SIZING_FIXED(30) } }
                 }) {}
             }
         }
@@ -225,8 +222,7 @@ void ThemeBrowserDialog::layout(float screenW, float screenH) {
     closeBtnBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCloseBtn")).boundingBox);
     searchBarBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeSearchBar")).boundingBox);
     cardsAreaBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCardsArea")).boundingBox);
-    cancelBtnBounds_ = toRect(clayCtx_.getElementData(CLAY_ID("ThemeCancelBtn")).boundingBox);
-    applyBtnBounds_  = toRect(clayCtx_.getElementData(CLAY_ID("ThemeApplyBtn")).boundingBox);
+    okBtnBounds_     = toRect(clayCtx_.getElementData(CLAY_ID("ThemeOkBtn")).boundingBox);
 
     categoryPillBounds_.clear();
     for (size_t c = 0; c < categories_.size(); ++c) {
@@ -249,6 +245,9 @@ void ThemeBrowserDialog::layout(float screenW, float screenH) {
 void ThemeBrowserDialog::applyPreview(Theme::Preset preset) {
     previewPreset_ = preset;
     Theme::setPreset(preset);
+    if (onThemeApplied) {
+        onThemeApplied(preset);
+    }
 }
 
 void ThemeBrowserDialog::confirmSelection() {
@@ -264,9 +263,7 @@ void ThemeBrowserDialog::confirmSelection() {
 }
 
 void ThemeBrowserDialog::cancelAndRevert() {
-    Theme::setPreset(initialPreset_);
-    close();
-    if (onClose) onClose();
+    confirmSelection();
 }
 
 void ThemeBrowserDialog::setSearchQuery(const std::string& query) {
@@ -296,27 +293,25 @@ void ThemeBrowserDialog::setSelectedItemIndex(int idx) {
 void ThemeBrowserDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     if (!isOpen_) return;
 
-    // 1. Semi-transparent backdrop
-    r.drawRect(0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.70f);
+    // 1. Semi-transparent backdrop (unified 45% shadow)
+    r.drawRect(0.0f, 0.0f, screenWidth_, screenHeight_, 0.0f, 0.0f, 0.0f, 0.45f);
 
-    // 2. Dialog Modal Window
-    drawRoundedRect(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 8.0f, theme.panelBackground);
-    drawRoundedRectOutline(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 8.0f, theme.borderFocus, 1.5f);
+    // 2. Dialog Chassis with softly rounded corners (matching core Eatsbits dialogs)
+    drawRoundedRect(r, dialogBounds_.x - 2.0f, dialogBounds_.y - 2.0f, dialogBounds_.w + 4.0f, dialogBounds_.h + 4.0f, 15.0f, Color(0.0f, 0.0f, 0.0f, 0.40f));
+    drawRoundedRectGradient(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 14.0f,
+                            theme.panelBackground, theme.panelBackground.darken(0.06f));
+    drawRoundedRectOutline(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, dialogBounds_.h, 14.0f,
+                           theme.borderSubtle.darken(0.12f), 1.2f);
 
-    // Header bar
-    float headerH = 46.0f;
-    drawRoundedRect(r, dialogBounds_.x, dialogBounds_.y, dialogBounds_.w, headerH, 8.0f, theme.panelHeader);
-    drawLine(r, dialogBounds_.x, dialogBounds_.y + headerH,
-             dialogBounds_.x + dialogBounds_.w, dialogBounds_.y + headerH, theme.borderSubtle, 1.0f);
-
-    drawText(r, "THEME REGISTRY & PALETTE BROWSER", dialogBounds_.x + 20.0f, dialogBounds_.y + 14.0f, 13.0f,
+    // Header bar (unified with dialog)
+    drawText(r, "THEME REGISTRY & PALETTE BROWSER", dialogBounds_.x + 22.0f, dialogBounds_.y + 18.0f, 13.0f,
              theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 1.0f);
     drawText(r, "Curated hardware consoles and authentic syntax heritage themes",
-             dialogBounds_.x + 20.0f, dialogBounds_.y + 30.0f, 9.5f, theme.textMuted);
+             dialogBounds_.x + 22.0f, dialogBounds_.y + 34.0f, 9.5f, theme.textMuted);
 
     // Close [X] Button
-    drawRoundedRect(r, closeBtnBounds_.x, closeBtnBounds_.y, closeBtnBounds_.w, closeBtnBounds_.h, 4.0f, theme.controlBackground);
-    drawRoundedRectOutline(r, closeBtnBounds_.x, closeBtnBounds_.y, closeBtnBounds_.w, closeBtnBounds_.h, 4.0f, theme.borderSubtle, 1.0f);
+    drawRoundedRect(r, closeBtnBounds_.x, closeBtnBounds_.y, closeBtnBounds_.w, closeBtnBounds_.h, 5.0f, theme.controlWell);
+    drawRoundedRectOutline(r, closeBtnBounds_.x, closeBtnBounds_.y, closeBtnBounds_.w, closeBtnBounds_.h, 5.0f, theme.borderSubtle, 1.0f);
     drawCenteredText(r, "X", closeBtnBounds_, 10.0f, theme.textSecondary);
 
     // 3. Search Bar
@@ -417,39 +412,34 @@ void ThemeBrowserDialog::render(BatchRenderer2D& r, const ThemeTokens& theme) {
     }
 
     // 6. Footer Controls
-    drawLine(r, dialogBounds_.x, dialogBounds_.y + dialogBounds_.h - 52.0f,
-             dialogBounds_.x + dialogBounds_.w, dialogBounds_.y + dialogBounds_.h - 52.0f, theme.borderSubtle, 1.0f);
+    drawLine(r, dialogBounds_.x + 16.0f, dialogBounds_.y + dialogBounds_.h - 48.0f,
+             dialogBounds_.x + dialogBounds_.w - 16.0f, dialogBounds_.y + dialogBounds_.h - 48.0f, theme.borderSubtle.darken(0.15f), 1.0f);
 
-    drawText(r, "LIVE PREVIEW: Changes apply in real-time. Press Enter to lock in or Esc to cancel.",
-             dialogBounds_.x + 20.0f, dialogBounds_.y + dialogBounds_.h - 32.0f, 9.0f, theme.textSecondary);
+    drawText(r, "LIVE PREVIEW: Themes auto-apply instantly on selection. Click any theme or use arrow keys to test.",
+             dialogBounds_.x + 22.0f, dialogBounds_.y + dialogBounds_.h - 29.0f, 9.2f, theme.textSecondary);
 
-    drawButton(r, cancelBtnBounds_, "CANCEL (ESC)", theme.controlBackground, theme.borderSubtle, theme.textSecondary, 9.5f, 4.0f, 1.0f);
-    drawButton(r, applyBtnBounds_, "APPLY THEME", theme.primaryAccent.darken(0.35f), theme.primaryAccent, Color{1.0f, 1.0f, 1.0f}, 9.5f, 4.0f, 1.2f);
+    drawRoundedRect(r, okBtnBounds_.x, okBtnBounds_.y, okBtnBounds_.w, okBtnBounds_.h, 4.0f, theme.primaryAccent.darken(0.35f));
+    drawRoundedRectOutline(r, okBtnBounds_.x, okBtnBounds_.y, okBtnBounds_.w, okBtnBounds_.h, 4.0f, theme.primaryAccent, 1.2f);
+    drawCenteredText(r, "OK", okBtnBounds_, 10.5f, Color{1.0f, 1.0f, 1.0f});
 }
 
 bool ThemeBrowserDialog::handlePointer(const PointerEvent& ev) {
     if (!isOpen_) return false;
 
-    // Check outside dialog click
+    // Check outside dialog click -> close and keep
     if (!dialogBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
-        cancelAndRevert();
+        confirmSelection();
         return true;
     }
 
-    // Close button click
+    // Close button click -> close and keep
     if (closeBtnBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
-        cancelAndRevert();
+        confirmSelection();
         return true;
     }
 
-    // Cancel button click
-    if (cancelBtnBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
-        cancelAndRevert();
-        return true;
-    }
-
-    // Apply button click
-    if (applyBtnBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
+    // OK button click -> close and keep
+    if (okBtnBounds_.contains(ev.x, ev.y) && ev.action == PointerAction::Down) {
         confirmSelection();
         return true;
     }
@@ -537,9 +527,9 @@ bool ThemeBrowserDialog::handleKey(int key, [[maybe_unused]] int scancode, int a
     if (!isOpen_) return false;
     if (action != 1 && action != 2) return true; // Down or repeat only
 
-    // Escape -> cancel and revert
+    // Escape -> close and preserve active selection
     if (key == 256) { // GLFW_KEY_ESCAPE
-        cancelAndRevert();
+        confirmSelection();
         return true;
     }
 

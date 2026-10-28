@@ -33,6 +33,8 @@ struct ArrangerClipNote {
     float startBeat{0.0f}; // relative to clip start, in beats (4 beats = 1 bar)
     float lengthBeats{1.0f};
     float velocity{0.85f};
+    bool slide{false};
+    bool accent{false};
 };
 
 struct ArrangerTimelineClip {
@@ -51,6 +53,7 @@ struct ArrangerTimelineClip {
     bool mute{false};
     std::vector<ArrangerClipNote> notes;
     std::vector<theory::ChordEvent> detectedChords;
+    std::string eatscriptCode;
 };
 
 struct ArrangerTimelineTrack {
@@ -129,6 +132,13 @@ public:
     void setScrollX(float sx) noexcept { scrollX_ = (std::max)(0.0f, sx); }
     void setScrollY(float sy) noexcept { scrollY_ = (std::max)(0.0f, sy); }
 
+    [[nodiscard]] bool isLoopEnabled() const noexcept { return loopEnabled_; }
+    void setLoopEnabled(bool enabled) noexcept { loopEnabled_ = enabled; }
+    void toggleLoop() noexcept;
+    [[nodiscard]] uint32_t getLoopStartStep() const noexcept { return loopStartStep_; }
+    [[nodiscard]] uint32_t getLoopEndStep() const noexcept { return loopEndStep_; }
+    void setLoopRange(uint32_t startStep, uint32_t endStep) noexcept;
+
     [[nodiscard]] uint32_t getActiveTrack() const noexcept { return activeTrackIndex_; }
     [[nodiscard]] uint32_t getActiveTrackIndex() const noexcept { return activeTrackIndex_; }
     void setActiveTrack(uint32_t idx) noexcept;
@@ -172,6 +182,12 @@ public:
     // Track addition / modification API
     void addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine = "");
     void addClipToTrack(uint32_t trackIdx, uint32_t startBar = 1, uint32_t lengthBars = 4);
+    void addClipWithNotes(uint32_t trackIdx,
+                          const std::string& clipName,
+                          uint32_t startBar,
+                          uint32_t lengthBars,
+                          const std::vector<ArrangerClipNote>& notes,
+                          const std::string& eatscriptCode = "");
     void createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars = 4);
     void duplicateClip(uint32_t trackIdx, int clipIdx);
     void deleteClip(uint32_t trackIdx, int clipIdx);
@@ -182,6 +198,7 @@ public:
 
     [[nodiscard]] int getTrackIndexAt(float x, float y) const noexcept;
     [[nodiscard]] bool isBelowLastTrack(float x, float y) const noexcept;
+    [[nodiscard]] uint32_t getBarAt(float x) const noexcept;
 
     PluginSearchDialog& getPluginSearchDialog() noexcept { return pluginDialog_; }
     CircleOfFifthsDialog& getCircleOfFifthsDialog() noexcept { return circleOfFifthsDialog_; }
@@ -266,6 +283,8 @@ public:
     std::function<void(uint32_t trackIdx, int clipIdx)> onDuplicateClip;
     std::function<void(uint32_t trackIdx, int clipIdx)> onDeleteClip;
     std::function<void(uint32_t trackIndex)> onOpenDesign;
+    std::function<void(bool enabled)> onToggleLoop;
+    std::function<void(uint32_t startStep, uint32_t endStep)> onLoopRangeChanged;
 
 private:
     void renderGrid(const ViewContext& ctx);
@@ -324,7 +343,10 @@ private:
         InspectorVolume,
         InspectorPan,
         ChordMove,
-        ChordResize
+        ChordResize,
+        LoopStartDrag,
+        LoopEndDrag,
+        LoopBarDrag
     } dragMode_{ClipDragMode::None};
 
     KineticScroller kineticScroller_;
@@ -348,7 +370,16 @@ private:
     uint32_t dragChordOrigStartBar_{0};
     float dragChordOrigLength_{1.0f};
 
+    // Timeline Loop Points State
+    bool loopEnabled_{true};
+    uint32_t loopStartStep_{0};
+    uint32_t loopEndStep_{64};
+    uint32_t dragLoopOrigStartStep_{0};
+    uint32_t dragLoopOrigLengthSteps_{64};
+
     // Layout Bounds
+    Rect2D rulerHeaderBounds_{0.0f, 0.0f, 0.0f, 0.0f};
+    Rect2D loopToggleBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D rulerBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D minimapBounds_{0.0f, 0.0f, 0.0f, 0.0f};
     Rect2D chordLaneBounds_{0.0f, 0.0f, 0.0f, 0.0f};

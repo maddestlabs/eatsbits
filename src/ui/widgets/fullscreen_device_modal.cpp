@@ -679,14 +679,14 @@ void FullscreenDeviceModal::renderInstrumentFaceplate(BatchRenderer2D& r, const 
 
         drawRoundedRect(r, b1X, bY, bW, bH, 5.0f, 0.12f, 0.18f, 0.26f, 0.95f);
         drawRoundedRectOutline(r, b1X, bY, bW, bH, 5.0f, theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.80f, 1.2f);
-        drawFullscreenIcon(r, b1X + 14.0f, bY + 11.0f, 12.0f, theme.primaryAccent, 1.4f);
-        drawText(r, "FOCUS WINDOW", b1X + 34.0f, bY + 10.5f, 9.5f, theme.primaryAccent);
+        drawFullscreenIcon(r, b1X + 14.0f, bY + (bH - 12.0f) * 0.5f, 12.0f, theme.primaryAccent, 1.4f);
+        drawTextLeftAlignedY(r, "FOCUS WINDOW", b1X + 34.0f, bY + bH * 0.5f, 9.5f, theme.primaryAccent);
 
         Color dockCol(0.85f, 0.88f, 0.94f, 1.0f);
         drawRoundedRect(r, b2X, bY, bW, bH, 5.0f, 0.15f, 0.16f, 0.20f, 0.95f);
         drawRoundedRectOutline(r, b2X, bY, bW, bH, 5.0f, 0.35f, 0.38f, 0.48f, 0.75f, 1.0f);
-        drawChevronDown(r, b2X + 18.0f, bY + 17.0f, 8.0f, dockCol, 1.8f);
-        drawText(r, "RE-ATTACH / DOCK", b2X + 32.0f, bY + 10.5f, 9.5f, dockCol);
+        drawChevronDown(r, b2X + 18.0f, bY + bH * 0.5f, 8.0f, dockCol, 1.8f);
+        drawTextLeftAlignedY(r, "RE-ATTACH / DOCK", b2X + 32.0f, bY + bH * 0.5f, 9.5f, dockCol);
         return;
     }
 

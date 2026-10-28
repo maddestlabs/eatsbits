@@ -39,6 +39,7 @@ class TerminalConsoleDrawer;
 #include "widgets/value_edit_dialog.hpp"
 #include "widgets/command_palette_dialog.hpp"
 #include "widgets/audio_to_midi_dialog.hpp"
+#include "widgets/macro_runner_dialog.hpp"
 #include "widgets/plugin_search_dialog.hpp"
 #include "widgets/theme_browser_dialog.hpp"
 #include "widgets/fullscreen_device_modal.hpp"
@@ -132,8 +133,9 @@ enum class TransportAction {
     Toggle3dConsole,
     ToggleCameraFocus,
     FullscreenToggle,
-    LockToggle,
-    SearchToggle
+    SearchToggle,
+    CommandPaletteToggle = SearchToggle,
+    LockToggle = SearchToggle
 };
 
 struct HitTestTransportResult {
@@ -637,7 +639,7 @@ public:
     void setDesignSubView(DesignSubView subView);
 
     [[nodiscard]] bool isLoopEnabled() const noexcept { return loopEnabled_; }
-    void toggleLoop() noexcept { loopEnabled_ = !loopEnabled_; }
+    void toggleLoop() noexcept;
 
     [[nodiscard]] bool isMetronomeEnabled() const noexcept { return metronomeEnabled_; }
     void toggleMetronome() noexcept { metronomeEnabled_ = !metronomeEnabled_; }
@@ -740,6 +742,11 @@ public:
                                   const std::string& name = "");
     void closeAudioToMidiConverter() noexcept;
     [[nodiscard]] bool isAudioToMidiDialogOpen() const noexcept;
+    [[nodiscard]] MacroRunnerDialog& getMacroRunnerDialog() noexcept { return macroRunnerDialog_; }
+    [[nodiscard]] const MacroRunnerDialog& getMacroRunnerDialog() const noexcept { return macroRunnerDialog_; }
+    void openMacroRunner(const std::string& macroId = "macro_song_gen");
+    void closeMacroRunner() noexcept;
+    [[nodiscard]] bool isMacroRunnerOpen() const noexcept;
     [[nodiscard]] PluginSearchDialog* getActivePluginSearchDialog() noexcept;
     [[nodiscard]] ColorPickerDialog* getActiveColorPickerDialog() noexcept;
     [[nodiscard]] bool isAnyModalActive() const noexcept;
@@ -933,6 +940,7 @@ public:
     void duplicateTrack(uint32_t trackIdx);
     void openDesignForTrack(uint32_t trackIdx);
     void addClipToTrack(uint32_t trackIdx);
+    void addSequenceClipToTrack(uint32_t trackIdx, const std::string& seqId, uint32_t targetBar = 0);
     void duplicateClip(uint32_t trackIdx, int clipIdx);
     void deleteClip(uint32_t trackIdx, int clipIdx);
     void handleTrackAdded(uint32_t trackIdx);
@@ -1148,7 +1156,7 @@ private:
     float previewingVelocity_{0.85f};
     std::vector<uint8_t> auditionChordNotes_;
     bool mockShiftPressed_{false};
-    bool loopEnabled_{false};
+    bool loopEnabled_{true};
     bool metronomeEnabled_{false};
     bool browserOpen_{false};
     bool projectHubOpen_{false};
@@ -1270,7 +1278,6 @@ private:
     std::string statusToastText_{""};
     float statusToastTimer_{0.0f};
     size_t selectedBrowserPresetIndex_{0};
-    bool projectLocked_{false};
 
     // Pure Diff-Based History State
     project::DiffHistoryManager diffHistory_;
@@ -1339,7 +1346,7 @@ private:
 
     // Decoupled Piano Keyboards (Vertical for Piano Roll, Horizontal for Drawer)
     PianoKeyboard pianoRollKeyboard_{PianoKeyboardConfig{KeyboardOrientation::Vertical, 24, 96, 3, 3, 90.0f, 22.0f, 0.62f, true}};
-    PianoKeyboard virtualPianoDrawerKeyboard_{PianoKeyboardConfig{KeyboardOrientation::Horizontal, 24, 96, 3, 3, 72.0f, 130.0f, 0.65f, true}};
+    PianoKeyboard virtualPianoDrawerKeyboard_{PianoKeyboardConfig{KeyboardOrientation::Horizontal, 48, 84, 3, 3, 72.0f, 130.0f, 0.65f, true}};
     float pianoRollScrollX_{0.0f};
     float pianoRollScrollY_{792.0f}; // Default C4 (pitch 60) at topY (100.0f)
     float pianoRollStepW_{70.0f};
@@ -1390,6 +1397,7 @@ private:
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;
+    MacroRunnerDialog macroRunnerDialog_;
     PresetSearchDialog presetSearchDialog_;
     ThemeBrowserDialog themeBrowserDialog_;
     FullscreenDeviceModal fullscreenDeviceModal_;

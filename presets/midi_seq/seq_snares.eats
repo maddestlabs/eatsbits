@@ -1,13 +1,11 @@
 # @id: seq_snares
-# @name: Snares (Backbeat)
+# @name: Backbeat Snare
 # @category: midiSeq
-# @description: Standard backbeat snare pattern hitting on beats 2 and 4.
+# @description: Standard backbeat acoustic/electronic snare hitting on beats 2 and 4.
+# @tags: snare, backbeat, drums, rhythm, 2-and-4
 
-# --- Parameter Definitions ---
-def init():
-    return {
-    }
+-- Clip: "Backbeat Snare" | Events: 2
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
 
-# --- Synthesizer Voice DSP Process Hook ---
-def process(time, freq, note, params):
-    return 0.0
+{ pitch = "D2", step = 4.0, dur = 1.0, vel = 0.92, accent = true }
+{ pitch = "D2", step = 12.0, dur = 1.0, vel = 0.95, accent = true }

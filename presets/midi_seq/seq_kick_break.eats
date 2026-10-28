@@ -1,0 +1,13 @@
+# @id: seq_kick_break
+# @name: Syncopated Break Kick
+# @category: midiSeq
+# @description: Syncopated funk/breakbeat kick drum pattern on steps 1, 7, and 11.
+# @tags: kick, breakbeat, funk, hiphop, drums
+
+-- Clip: "Syncopated Break Kick" | Events: 4
+-- Syntax: { pitch = "C4", step = 0.0, dur = 1.0, vel = 0.85, slide = true }
+
+{ pitch = "C2", step = 0.0, dur = 1.0, vel = 0.95, accent = true }
+{ pitch = "C2", step = 6.0, dur = 1.0, vel = 0.85 }
+{ pitch = "C2", step = 10.0, dur = 1.0, vel = 0.90, accent = true }
+{ pitch = "C2", step = 15.0, dur = 0.5, vel = 0.70 }

@@ -577,6 +577,24 @@ void ArrangerView::setSelectedClip(int idx) noexcept {
     selectedClipIndex_ = idx;
 }
 
+void ArrangerView::toggleLoop() noexcept {
+    loopEnabled_ = !loopEnabled_;
+    if (onToggleLoop) {
+        onToggleLoop(loopEnabled_);
+    }
+}
+
+void ArrangerView::setLoopRange(uint32_t startStep, uint32_t endStep) noexcept {
+    if (startStep > endStep) {
+        std::swap(startStep, endStep);
+    }
+    loopStartStep_ = startStep;
+    loopEndStep_ = (std::max)(startStep + 1, endStep);
+    if (onLoopRangeChanged) {
+        onLoopRangeChanged(loopStartStep_, loopEndStep_);
+    }
+}
+
 void ArrangerView::addTrack(const std::string& name, const std::string& instrument, float r, float g, float b, const std::string& instrumentEngine) {
     static std::atomic<uint64_t> s_arrangerTrackSeq{100};
     ArrangerTimelineTrack t;
@@ -634,6 +652,41 @@ void ArrangerView::addClipToTrack(uint32_t trackIdx, uint32_t startBar, uint32_t
         startBar = endB;
     }
     createEmptyClipAt(trackIdx, startBar, lengthBars);
+}
+
+void ArrangerView::addClipWithNotes(uint32_t trackIdx,
+                                   const std::string& clipName,
+                                   uint32_t startBar,
+                                   uint32_t lengthBars,
+                                   const std::vector<ArrangerClipNote>& notes,
+                                   const std::string& eatscriptCode) {
+    if (trackIdx >= tracks_.size()) return;
+    auto& track = tracks_[trackIdx];
+    std::string cid = "clip_" + std::to_string(trackIdx + 1) + "_" + std::to_string(startBar) + "_" + std::to_string(track.clips.size() + 1);
+    ArrangerTimelineClip cl;
+    cl.id = cid;
+    cl.name = clipName.empty() ? (track.name + " Clip " + std::to_string(track.clips.size() + 1)) : clipName;
+    cl.trackIndex = trackIdx;
+    cl.startBar = startBar;
+    cl.lengthBars = lengthBars;
+    cl.r = track.r;
+    cl.g = track.g;
+    cl.b = track.b;
+    cl.isAudio = false;
+    cl.isLooped = false;
+    cl.loopLengthBars = lengthBars;
+    cl.volumeScale = 1.0f;
+    cl.mute = false;
+    cl.notes = notes;
+    cl.eatscriptCode = eatscriptCode;
+    updateClipDetectedChords(cl);
+    track.clips.push_back(cl);
+    selectedClipIndex_ = static_cast<int>(track.clips.size() - 1);
+    activeTrackIndex_ = trackIdx;
+    inspectorTab_ = ArrangerInspectorTab::Clip;
+    inspectorOpen_ = true;
+    if (onClipsChanged) onClipsChanged();
+    if (onTrackSelected) onTrackSelected(activeTrackIndex_);
 }
 
 void ArrangerView::createEmptyClipAt(uint32_t trackIdx, uint32_t startBar, uint32_t lengthBars) {
@@ -788,6 +841,14 @@ bool ArrangerView::isBelowLastTrack(float x, float y) const noexcept {
     float localY = y - tracksListBounds_.y + scrollY_;
     float bottomOfLastTrack = static_cast<float>(tracks_.size()) * trackRowHeight_;
     return localY >= bottomOfLastTrack;
+}
+
+uint32_t ArrangerView::getBarAt(float x) const noexcept {
+    if (gridBounds_.w > 0.0f && x >= gridBounds_.x) {
+        float relX = x - gridBounds_.x + scrollX_;
+        return static_cast<uint32_t>(std::max(1.0f, std::floor(relX / barWidth_) + 1.0f));
+    }
+    return 1;
 }
 
 // -------------------------------------------------------------------------
@@ -1110,6 +1171,16 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
 
         clayContext_->endLayout(0.016f);
 
+        auto rhData = clayContext_->getElementData(CLAY_ID("RulerHeaderSpacer"));
+        if (rhData.found) {
+            rulerHeaderBounds_ = Rect2D(bounds_.x + rhData.boundingBox.x, bounds_.y + rhData.boundingBox.y,
+                                        rhData.boundingBox.width, rhData.boundingBox.height);
+        } else {
+            rulerHeaderBounds_ = Rect2D(bounds_.x, bounds_.y, trackHeaderWidth_, rulerHeight_);
+        }
+        loopToggleBounds_ = Rect2D(rulerHeaderBounds_.x + 8.0f, rulerHeaderBounds_.y + (rulerHeight_ - 20.0f) * 0.5f,
+                                   rulerHeaderBounds_.w - 16.0f, 20.0f);
+
         auto rData = clayContext_->getElementData(CLAY_ID("TimelineRuler"));
         if (rData.found) {
             rulerBounds_ = Rect2D(bounds_.x + rData.boundingBox.x, bounds_.y + rData.boundingBox.y,
@@ -1142,6 +1213,9 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
         }
         inspectorBounds_ = propertiesDrawer_.getDrawerBounds();
     } else {
+        rulerHeaderBounds_ = Rect2D(bounds_.x, bounds_.y, trackHeaderWidth_, rulerHeight_);
+        loopToggleBounds_ = Rect2D(rulerHeaderBounds_.x + 8.0f, rulerHeaderBounds_.y + (rulerHeight_ - 20.0f) * 0.5f,
+                                   rulerHeaderBounds_.w - 16.0f, 20.0f);
         rulerBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y, mainW - trackHeaderWidth_, rulerHeight_);
         minimapBounds_ = Rect2D(bounds_.x + trackHeaderWidth_, bounds_.y + rulerHeight_, mainW - trackHeaderWidth_, minimapHeight_);
 
@@ -1258,6 +1332,31 @@ void ArrangerView::renderGrid(const ViewContext& ctx) {
 
         drawLine(r, gridBounds_.x, rowY, gridBounds_.x + gridBounds_.w, rowY,
                  theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.40f, 1.0f);
+    }
+
+    // Translucent Loop Region Column across timeline grid
+    if (loopEndStep_ > loopStartStep_) {
+        float stepW = barWidth_ / 16.0f;
+        float lsX = gridBounds_.x + static_cast<float>(loopStartStep_) * stepW - scrollX_;
+        float leX = gridBounds_.x + static_cast<float>(loopEndStep_) * stepW - scrollX_;
+
+        float visX1 = (std::max)(lsX, gridBounds_.x);
+        float visX2 = (std::min)(leX, gridBounds_.x + gridBounds_.w);
+        if (visX2 > visX1) {
+            float alpha = loopEnabled_ ? 0.10f : 0.03f;
+            drawRect(r, visX1, gridBounds_.y, visX2 - visX1, gridBounds_.h,
+                     theme.loopRegion.r, theme.loopRegion.g, theme.loopRegion.b, alpha);
+            if (loopEnabled_) {
+                if (lsX >= gridBounds_.x && lsX <= gridBounds_.x + gridBounds_.w) {
+                    drawLine(r, lsX, gridBounds_.y, lsX, gridBounds_.y + gridBounds_.h,
+                             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.30f, 1.0f);
+                }
+                if (leX >= gridBounds_.x && leX <= gridBounds_.x + gridBounds_.w) {
+                    drawLine(r, leX, gridBounds_.y, leX, gridBounds_.y + gridBounds_.h,
+                             theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, 0.30f, 1.0f);
+                }
+            }
+        }
     }
 }
 
@@ -1598,17 +1697,16 @@ void ArrangerView::renderTrackHeaders(const ViewContext& ctx) {
 
         // Track Vector Icon Glyph
         float iconBoxX = tracksListBounds_.x + 10.0f;
-        float iconBoxY = rowY + 7.5f;
         float iconBoxSize = 15.0f;
+        float iconBoxY = rowY + (trackRowHeight_ - iconBoxSize) * 0.5f;
         Color iconCol = isActive ? theme.primaryAccent : Color{track.r, track.g, track.b, 1.0f};
         std::string_view iconRef = track.iconRef.empty() ? std::string_view("preset:inst_synth") : std::string_view(track.iconRef);
         IconRegistry::instance().renderIcon(r, iconRef, iconBoxX, iconBoxY, iconBoxSize, iconCol);
 
         // Track Name (size 10.0f matching clip title text)
-        drawText(r, track.name, iconBoxX + iconBoxSize + 6.0f, rowY + 9.5f, 10.0f,
-                 isActive ? theme.primaryAccent.r : theme.textPrimary.r,
-                 isActive ? theme.primaryAccent.g : theme.textPrimary.g,
-                 isActive ? theme.primaryAccent.b : theme.textPrimary.b, 1.0f);
+        Color trackNameCol = isActive ? theme.primaryAccent : theme.textPrimary;
+        drawTextLeftAlignedY(r, track.name, iconBoxX + iconBoxSize + 6.0f, rowY + trackRowHeight_ * 0.5f, 10.0f,
+                             trackNameCol.r, trackNameCol.g, trackNameCol.b, 1.0f);
 
         // MUTE, SOLO Buttons
         float btnW = 16.0f;
@@ -1667,6 +1765,39 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
     auto& r = *ctx.renderer;
     const auto& theme = *ctx.theme;
 
+    // 0. Header Spacer Area: Loop Toggle Button to the left of the timeline ruler
+    drawRect(r, rulerHeaderBounds_.x, rulerHeaderBounds_.y, rulerHeaderBounds_.w, rulerHeaderBounds_.h,
+             theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
+    drawLine(r, rulerHeaderBounds_.x, rulerHeaderBounds_.y + rulerHeaderBounds_.h,
+             rulerHeaderBounds_.x + rulerHeaderBounds_.w, rulerHeaderBounds_.y + rulerHeaderBounds_.h,
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.7f, 1.0f);
+    drawLine(r, rulerHeaderBounds_.x + rulerHeaderBounds_.w, rulerHeaderBounds_.y,
+             rulerHeaderBounds_.x + rulerHeaderBounds_.w, rulerHeaderBounds_.y + rulerHeaderBounds_.h,
+             theme.borderSubtle.r, theme.borderSubtle.g, theme.borderSubtle.b, 0.85f, 1.5f);
+
+    // Loop Toggle Button (tactile styled pill badge)
+    Color btnBg = loopEnabled_
+        ? Color(theme.primaryAccent.r * 0.25f, theme.primaryAccent.g * 0.25f, theme.primaryAccent.b * 0.25f, 0.95f)
+        : Color(theme.controlBackground.r, theme.controlBackground.g, theme.controlBackground.b, 0.90f);
+    Color btnBorder = loopEnabled_ ? theme.primaryAccent : theme.borderSubtle;
+    Color textColor = loopEnabled_ ? theme.primaryAccent : theme.textMuted;
+
+    drawRoundedRect(r, loopToggleBounds_.x, loopToggleBounds_.y, loopToggleBounds_.w, loopToggleBounds_.h, 4.0f,
+                    btnBg.r, btnBg.g, btnBg.b, btnBg.a);
+    drawRoundedRectOutline(r, loopToggleBounds_.x, loopToggleBounds_.y, loopToggleBounds_.w, loopToggleBounds_.h, 4.0f,
+                           btnBorder.r, btnBorder.g, btnBorder.b, btnBorder.a, loopEnabled_ ? 1.5f : 1.0f);
+
+    // LED Status Indicator Light
+    float ledX = loopToggleBounds_.x + 10.0f;
+    float ledY = loopToggleBounds_.y + loopToggleBounds_.h * 0.5f;
+    Color ledColor = loopEnabled_ ? theme.primaryAccent : Color(0.35f, 0.35f, 0.40f, 0.8f);
+    drawCircle(r, ledX, ledY, 3.5f, ledColor.r, ledColor.g, ledColor.b, 1.0f);
+
+    // Loop Text Label
+    std::string loopLabel = loopEnabled_ ? "LOOP [ON]" : "LOOP [OFF]";
+    drawText(r, loopLabel, loopToggleBounds_.x + 20.0f, loopToggleBounds_.y + 4.5f, 9.5f,
+             textColor.r, textColor.g, textColor.b, 1.0f);
+
     // 1. Time Ruler Bar
     drawRect(r, rulerBounds_.x, rulerBounds_.y, rulerBounds_.w, rulerBounds_.h,
              theme.panelHeader.r, theme.panelHeader.g, theme.panelHeader.b, 1.0f);
@@ -1684,6 +1815,62 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
         snprintf(barBuf, sizeof(barBuf), "%u", bar);
         drawText(r, std::string_view(barBuf), bx + 4.0f, rulerBounds_.y + 7.0f, 10.0f,
                  theme.textPrimary.r, theme.textPrimary.g, theme.textPrimary.b, 0.9f);
+    }
+
+    // Loop Region Overlay & Handles in Time Ruler
+    if (loopEndStep_ > loopStartStep_) {
+        float stepW = barWidth_ / 16.0f;
+        float loopStartX = rulerBounds_.x + static_cast<float>(loopStartStep_) * stepW - scrollX_;
+        float loopEndX = rulerBounds_.x + static_cast<float>(loopEndStep_) * stepW - scrollX_;
+
+        float rulerVisX1 = (std::max)(loopStartX, rulerBounds_.x);
+        float rulerVisX2 = (std::min)(loopEndX, rulerBounds_.x + rulerBounds_.w);
+        if (rulerVisX2 > rulerVisX1) {
+            float bandAlpha = loopEnabled_ ? 0.30f : 0.10f;
+            drawRect(r, rulerVisX1, rulerBounds_.y, rulerVisX2 - rulerVisX1, rulerBounds_.h,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, bandAlpha);
+
+            // Top Connecting Loop Bar
+            float barAlpha = loopEnabled_ ? 0.95f : 0.40f;
+            drawRect(r, rulerVisX1, rulerBounds_.y, rulerVisX2 - rulerVisX1, 3.0f,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, barAlpha);
+        }
+
+        // Loop Start Marker Handle [►
+        if (loopStartX >= rulerBounds_.x - 14.0f && loopStartX <= rulerBounds_.x + rulerBounds_.w + 14.0f) {
+            drawLine(r, loopStartX, rulerBounds_.y, loopStartX, rulerBounds_.y + rulerBounds_.h,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, loopEnabled_ ? 0.95f : 0.45f, 2.0f);
+
+            float flagW = 14.0f;
+            float flagH = 14.0f;
+            float flagX = loopStartX;
+            float flagY = rulerBounds_.y + 1.0f;
+            drawRoundedRect(r, flagX, flagY, flagW, flagH, 2.5f,
+                            theme.primaryAccent.r * 0.95f, theme.primaryAccent.g * 0.95f, theme.primaryAccent.b * 0.95f,
+                            loopEnabled_ ? 1.0f : 0.50f);
+            drawTriangle(r, flagX + 4.0f, flagY + 3.0f,
+                            flagX + 4.0f, flagY + flagH - 3.0f,
+                            flagX + flagW - 3.0f, flagY + flagH * 0.5f,
+                            0.05f, 0.05f, 0.07f, 1.0f);
+        }
+
+        // Loop End Marker Handle ◄]
+        if (loopEndX >= rulerBounds_.x - 14.0f && loopEndX <= rulerBounds_.x + rulerBounds_.w + 14.0f) {
+            drawLine(r, loopEndX, rulerBounds_.y, loopEndX, rulerBounds_.y + rulerBounds_.h,
+                     theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, loopEnabled_ ? 0.95f : 0.45f, 2.0f);
+
+            float flagW = 14.0f;
+            float flagH = 14.0f;
+            float flagX = loopEndX - flagW;
+            float flagY = rulerBounds_.y + 1.0f;
+            drawRoundedRect(r, flagX, flagY, flagW, flagH, 2.5f,
+                            theme.primaryAccent.r * 0.95f, theme.primaryAccent.g * 0.95f, theme.primaryAccent.b * 0.95f,
+                            loopEnabled_ ? 1.0f : 0.50f);
+            drawTriangle(r, flagX + flagW - 4.0f, flagY + 3.0f,
+                            flagX + flagW - 4.0f, flagY + flagH - 3.0f,
+                            flagX + 3.0f, flagY + flagH * 0.5f,
+                            0.05f, 0.05f, 0.07f, 1.0f);
+        }
     }
 
     // 2. Timeline Minimap Scrollbar
@@ -1704,6 +1891,14 @@ void ArrangerView::renderRulerAndMinimap(const ViewContext& ctx) {
             drawRect(r, mcx, mcy, std::max(2.0f, mcw), 2.5f,
                      cl.r, cl.g, cl.b, 0.85f);
         }
+    }
+
+    // Render loop range in minimap
+    if (loopEndStep_ > loopStartStep_) {
+        float mlsX = minimapBounds_.x + ((static_cast<float>(loopStartStep_) / 16.0f) * barWidth_) * scaleFactor;
+        float mleX = minimapBounds_.x + ((static_cast<float>(loopEndStep_) / 16.0f) * barWidth_) * scaleFactor;
+        drawRect(r, mlsX, minimapBounds_.y, (std::max)(2.0f, mleX - mlsX), minimapBounds_.h,
+                 theme.primaryAccent.r, theme.primaryAccent.g, theme.primaryAccent.b, loopEnabled_ ? 0.30f : 0.10f);
     }
 
     // Render Draggable Viewport Window Thumb
@@ -1941,11 +2136,77 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
                 float normX = (ev.x - minimapBounds_.x) / std::max(1.0f, minimapBounds_.w);
                 scrollX_ = std::clamp(normX * totalArrangerW - (gridBounds_.w * 0.5f), 0.0f, std::max(0.0f, totalArrangerW - gridBounds_.w));
                 return true;
-            } else if (dragMode_ == ClipDragMode::PlayheadScrub) {
-                if (ctx.audioEngine) {
-                    float localX = ev.x - rulerBounds_.x;
-                    float bar = (localX + scrollX_) / barWidth_;
-                    ctx.audioEngine->getSequencer().getTransport().setPosition(static_cast<uint32_t>(std::max(0.0f, bar * 16.0f)));
+            } else if (dragMode_ == ClipDragMode::PlayheadScrub ||
+                       dragMode_ == ClipDragMode::LoopStartDrag ||
+                       dragMode_ == ClipDragMode::LoopEndDrag ||
+                       dragMode_ == ClipDragMode::LoopBarDrag) {
+                float totalArrangerW = static_cast<float>(totalBars_) * barWidth_;
+                float maxScrollX = (std::max)(0.0f, totalArrangerW - gridBounds_.w);
+                float maxTotalSteps = static_cast<float>(totalBars_ * 16);
+
+                // Auto-panning if dragged past visible edge of timeline lane
+                if (ev.x > rulerBounds_.x + rulerBounds_.w) {
+                    float overflow = ev.x - (rulerBounds_.x + rulerBounds_.w);
+                    float panSpeed = std::clamp(overflow * 0.35f, 4.0f, 40.0f);
+                    scrollX_ = std::clamp(scrollX_ + panSpeed, 0.0f, maxScrollX);
+                } else if (ev.x < rulerBounds_.x) {
+                    float underflow = rulerBounds_.x - ev.x;
+                    float panSpeed = std::clamp(underflow * 0.35f, 4.0f, 40.0f);
+                    scrollX_ = std::clamp(scrollX_ - panSpeed, 0.0f, maxScrollX);
+                }
+
+                float localX = ev.x - rulerBounds_.x + scrollX_;
+                float rawStep = std::clamp((localX / barWidth_) * 16.0f, 0.0f, maxTotalSteps);
+
+                if (dragMode_ == ClipDragMode::PlayheadScrub) {
+                    if (ctx.audioEngine) {
+                        ctx.audioEngine->getSequencer().getTransport().setPosition(static_cast<uint32_t>(rawStep));
+                    }
+                } else if (dragMode_ == ClipDragMode::LoopStartDrag) {
+                    uint32_t snappedStep = static_cast<uint32_t>(std::clamp(std::round(rawStep / 4.0f) * 4.0f, 0.0f, maxTotalSteps));
+                    if (snappedStep > loopEndStep_) {
+                        // Dynamically switch roles
+                        loopStartStep_ = loopEndStep_;
+                        loopEndStep_ = snappedStep;
+                        dragMode_ = ClipDragMode::LoopEndDrag;
+                    } else {
+                        loopStartStep_ = snappedStep;
+                    }
+                    if (ctx.audioEngine) {
+                        ctx.audioEngine->getSequencer().getTransport().setLoopRange(loopStartStep_, loopEndStep_);
+                    }
+                    if (onLoopRangeChanged) {
+                        onLoopRangeChanged(loopStartStep_, loopEndStep_);
+                    }
+                } else if (dragMode_ == ClipDragMode::LoopEndDrag) {
+                    uint32_t snappedStep = static_cast<uint32_t>(std::clamp(std::round(rawStep / 4.0f) * 4.0f, 0.0f, maxTotalSteps));
+                    if (snappedStep < loopStartStep_) {
+                        // Dynamically switch roles
+                        loopEndStep_ = loopStartStep_;
+                        loopStartStep_ = snappedStep;
+                        dragMode_ = ClipDragMode::LoopStartDrag;
+                    } else {
+                        loopEndStep_ = snappedStep;
+                    }
+                    if (ctx.audioEngine) {
+                        ctx.audioEngine->getSequencer().getTransport().setLoopRange(loopStartStep_, loopEndStep_);
+                    }
+                    if (onLoopRangeChanged) {
+                        onLoopRangeChanged(loopStartStep_, loopEndStep_);
+                    }
+                } else if (dragMode_ == ClipDragMode::LoopBarDrag) {
+                    float dx = ev.x - dragStartPointerX_;
+                    int deltaSteps = static_cast<int>(std::round((dx / barWidth_) * 16.0f / 4.0f) * 4.0f);
+                    int newStart = std::clamp(static_cast<int>(dragLoopOrigStartStep_) + deltaSteps,
+                                              0, static_cast<int>(maxTotalSteps - dragLoopOrigLengthSteps_));
+                    loopStartStep_ = static_cast<uint32_t>(newStart);
+                    loopEndStep_ = loopStartStep_ + dragLoopOrigLengthSteps_;
+                    if (ctx.audioEngine) {
+                        ctx.audioEngine->getSequencer().getTransport().setLoopRange(loopStartStep_, loopEndStep_);
+                    }
+                    if (onLoopRangeChanged) {
+                        onLoopRangeChanged(loopStartStep_, loopEndStep_);
+                    }
                 }
                 return true;
             } else if (dragMode_ == ClipDragMode::TrackVolume) {
@@ -2095,16 +2356,51 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         }
     }
 
-    // 3. Time Ruler Scrubbing
-    if (rulerBounds_.contains(ev.x, ev.y)) {
-        if (ev.action == PointerAction::Down || (ev.action == PointerAction::Move && dragMode_ == ClipDragMode::PlayheadScrub)) {
-            dragMode_ = ClipDragMode::PlayheadScrub;
-            float localX = ev.x - rulerBounds_.x + scrollX_;
-            float clickedStep = std::max(0.0f, (localX / barWidth_) * 16.0f);
+    // 2b. Loop Toggle Button in Ruler Header Spacer Click
+    if (loopToggleBounds_.contains(ev.x, ev.y)) {
+        if (ev.action == PointerAction::Down) {
+            toggleLoop();
             if (ctx.audioEngine) {
-                ctx.audioEngine->getSequencer().getTransport().setPosition(static_cast<uint32_t>(clickedStep));
+                ctx.audioEngine->getSequencer().getTransport().setLoopEnabled(loopEnabled_);
             }
             return true;
+        }
+    }
+
+    // 3. Time Ruler Scrubbing & Loop Points Dragging
+    if (rulerBounds_.contains(ev.x, ev.y)) {
+        float stepW = barWidth_ / 16.0f;
+        float loopStartX = rulerBounds_.x + static_cast<float>(loopStartStep_) * stepW - scrollX_;
+        float loopEndX = rulerBounds_.x + static_cast<float>(loopEndStep_) * stepW - scrollX_;
+
+        bool hitStart = (ev.x >= loopStartX - 6.0f && ev.x <= loopStartX + 16.0f);
+        bool hitEnd = (ev.x >= loopEndX - 16.0f && ev.x <= loopEndX + 6.0f);
+        bool hitBar = (ev.y <= rulerBounds_.y + 10.0f && ev.x > loopStartX + 16.0f && ev.x < loopEndX - 16.0f);
+
+        if (ev.action == PointerAction::Down) {
+            if (hitStart) {
+                dragMode_ = ClipDragMode::LoopStartDrag;
+                dragStartPointerX_ = ev.x;
+                return true;
+            } else if (hitEnd) {
+                dragMode_ = ClipDragMode::LoopEndDrag;
+                dragStartPointerX_ = ev.x;
+                return true;
+            } else if (hitBar) {
+                dragMode_ = ClipDragMode::LoopBarDrag;
+                dragStartPointerX_ = ev.x;
+                dragLoopOrigStartStep_ = loopStartStep_;
+                dragLoopOrigLengthSteps_ = loopEndStep_ - loopStartStep_;
+                return true;
+            } else {
+                dragMode_ = ClipDragMode::PlayheadScrub;
+                float localX = ev.x - rulerBounds_.x + scrollX_;
+                float clickedStep = std::max(0.0f, (localX / barWidth_) * 16.0f);
+                if (ctx.audioEngine) {
+                    ctx.audioEngine->getSequencer().getTransport().setPosition(static_cast<uint32_t>(clickedStep));
+                }
+                return true;
+            }
         } else if (ev.action == PointerAction::Up) {
             dragMode_ = ClipDragMode::None;
             return true;
