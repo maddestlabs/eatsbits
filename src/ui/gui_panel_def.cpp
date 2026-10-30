@@ -1444,9 +1444,10 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                 recordRenderer.copyActiveVertices(panel.backgroundCache.cachedVertices);
                 recordRenderer.endFrame();
 
+#if !defined(__EMSCRIPTEN__)
                 // 2. Also software-rasterize to RGBA pixels for CPU blitting / popout window / CLAP export
                 BatchRenderer2D offlineRasterizer;
-                offlineRasterizer.initialize(nullptr, cW, cH);
+                offlineRasterizer.initialize(nullptr, cW, cH, RenderBackendType::Filament);
                 offlineRasterizer.beginFrame(static_cast<float>(cW), static_cast<float>(cH));
                 renderFaceplateBackgroundGeometry(offlineRasterizer, 0.0f, 0.0f, static_cast<float>(cW), static_cast<float>(cH));
                 offlineRasterizer.endFrame();
@@ -1454,6 +1455,7 @@ void drawGuiFaceplate(BatchRenderer2D& r,
                 if (fb) {
                     panel.backgroundCache.cachedPixels.assign(fb, fb + (static_cast<size_t>(cW) * cH));
                 }
+#endif
                 panel.backgroundCache.isValid = true;
             }
 

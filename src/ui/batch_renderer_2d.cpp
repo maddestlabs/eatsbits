@@ -1507,7 +1507,13 @@ public:
         shutdown();
     }
 
-    bool initialize(void* /*windowHandle*/, uint32_t width, uint32_t height) override {
+    bool initialize(void* windowHandle, uint32_t width, uint32_t height) override {
+#if defined(__EMSCRIPTEN__)
+        if (!windowHandle) {
+            std::cerr << "[WebGPU] WebGpuBatchBackend requires a valid window handle on Emscripten." << std::endl;
+            return false;
+        }
+#endif
         width_ = width;
         height_ = height;
 
@@ -2248,13 +2254,14 @@ bool BatchRenderer2D::initialize(void* windowHandle, uint32_t width, uint32_t he
     currentHeight_ = static_cast<float>(height);
 
 #if defined(__EMSCRIPTEN__) && defined(EATS_ENABLE_WEBGPU)
-    (void)backend;
-    backend_ = std::make_unique<WebGpuBatchBackend>();
-    bool ok = backend_->initialize(windowHandle, width, height);
-    if (ok) {
-        backend_->setAntiAliasingMode(antiAliasingMode_);
+    if (backend == RenderBackendType::WebGPU && windowHandle != nullptr) {
+        backend_ = std::make_unique<WebGpuBatchBackend>();
+        bool ok = backend_->initialize(windowHandle, width, height);
+        if (ok) {
+            backend_->setAntiAliasingMode(antiAliasingMode_);
+        }
+        return ok;
     }
-    return ok;
 #else
     if (backend == RenderBackendType::WebGPU) {
 #if defined(EATS_ENABLE_WEBGPU)
