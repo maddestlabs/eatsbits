@@ -288,18 +288,33 @@
         }
 
         // Silent unlock listeners for first user gesture (touch, click, keydown)
+        var lastTouchTimestamp = 0;
         window.eatsbitsLastPointerIsTouch = false;
         ['click', 'pointerdown', 'keydown', 'touchstart'].forEach(function(evt) {
             window.addEventListener(evt, unlockAudio, { passive: true, capture: true });
         });
-        ['touchstart', 'touchend', 'touchcancel'].forEach(function(evt) {
-            window.addEventListener(evt, function() {
-                window.eatsbitsLastPointerIsTouch = true;
-            }, { passive: true, capture: true });
-        });
-        window.addEventListener('mousedown', function() {
-            window.eatsbitsLastPointerIsTouch = false;
+        window.addEventListener('touchstart', function() {
+            window.eatsbitsLastPointerIsTouch = true;
+            lastTouchTimestamp = Date.now();
         }, { passive: true, capture: true });
+        window.addEventListener('pointerdown', function(e) {
+            if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+                window.eatsbitsLastPointerIsTouch = true;
+                lastTouchTimestamp = Date.now();
+            } else if (Date.now() - lastTouchTimestamp > 800) {
+                window.eatsbitsLastPointerIsTouch = false;
+            }
+        }, { passive: true, capture: true });
+        window.addEventListener('mousedown', function(e) {
+            if (Date.now() - lastTouchTimestamp < 800) {
+                // Synthetic mouse event from recent touch: suppress duplicate
+                window.eatsbitsLastPointerIsTouch = true;
+                e.preventDefault();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            } else {
+                window.eatsbitsLastPointerIsTouch = false;
+            }
+        }, { passive: false, capture: true });
 
         // Verify WebGPU support and initiate device acquisition immediately
         let webgpuDevicePromise = null;
@@ -330,6 +345,10 @@
                     var rect = canvas.getBoundingClientRect();
                     var clientX = e.clientX - rect.left;
                     var clientY = e.clientY - rect.top;
+                    if (rect.width > 0 && rect.height > 0) {
+                        clientX = clientX * (canvas.clientWidth / rect.width);
+                        clientY = clientY * (canvas.clientHeight / rect.height);
+                    }
                     var pressure = (typeof e.pressure === 'number' && e.pressure > 0) ? e.pressure : 1.0;
                     Module._eats_on_web_touch_event(e.pointerId, action, clientX, clientY, pressure);
                 }
@@ -338,6 +357,7 @@
             canvas.addEventListener('pointerdown', function(e) {
                 if (e.pointerType === 'touch' || e.pointerType === 'pen') {
                     window.eatsbitsLastPointerIsTouch = true;
+                    lastTouchTimestamp = Date.now();
                     try {
                         canvas.setPointerCapture(e.pointerId);
                     } catch (err) {}
@@ -345,7 +365,9 @@
                     e.preventDefault();
                     e.stopImmediatePropagation();
                 } else {
-                    window.eatsbitsLastPointerIsTouch = false;
+                    if (Date.now() - lastTouchTimestamp > 800) {
+                        window.eatsbitsLastPointerIsTouch = false;
+                    }
                 }
             }, { passive: false, capture: true });
 
@@ -378,6 +400,16 @@
                     e.stopImmediatePropagation();
                 }
             }, { passive: false, capture: true });
+
+            // Suppress native touch events so Emscripten GLFW doesn't duplicate them as mouse clicks
+            ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function(type) {
+                canvas.addEventListener(type, function(e) {
+                    window.eatsbitsLastPointerIsTouch = true;
+                    lastTouchTimestamp = Date.now();
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }, { passive: false, capture: true });
+            });
         }
 
         if (document.readyState === 'loading') {

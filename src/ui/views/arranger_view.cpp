@@ -1071,7 +1071,10 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     inspectorOpen_ = propertiesDrawer_.isExpanded();
 
     float inspW = propertiesDrawer_.getEffectiveWidth();
-    float mainW = bounds_.w - inspW - ctx.browserOffset;
+    if (inspW > bounds_.w - 60.0f) {
+        inspW = std::max(0.0f, bounds_.w - 60.0f);
+    }
+    float mainW = std::max(60.0f, bounds_.w - inspW - ctx.browserOffset);
 
     if (clayContext_ && clayContext_->isInitialized()) {
         clayContext_->setDimensions(bounds_.w, bounds_.h);

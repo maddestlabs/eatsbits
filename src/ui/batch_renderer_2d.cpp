@@ -1724,7 +1724,7 @@ public:
             wgpuTextureRelease(currentSurfaceTexture_.texture);
             currentSurfaceTexture_.texture = nullptr;
         }
-        if (surface_ && device_) {
+        if (surface_ && device_ && !customTargetView_) {
             WGPUSurfaceConfiguration config{};
             config.device = device_;
             config.format = WGPUTextureFormat_BGRA8Unorm;

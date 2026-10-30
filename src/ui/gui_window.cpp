@@ -2761,7 +2761,7 @@ void GuiWindow::onWindowResize(int width, int height) noexcept {
     if (width <= 0 || height <= 0) return;
     windowWidth_ = width;
     windowHeight_ = height;
-#if EATS_HAS_GLFW
+#if EATS_HAS_GLFW && !defined(__EMSCRIPTEN__)
     if (window_) {
         glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
     }
@@ -2784,7 +2784,7 @@ void GuiWindow::onFramebufferResize(int width, int height) noexcept {
     if (width <= 0 || height <= 0) return;
     fbWidth_ = width;
     fbHeight_ = height;
-#if EATS_HAS_GLFW
+#if EATS_HAS_GLFW && !defined(__EMSCRIPTEN__)
     if (window_) {
         glfwGetWindowSize(window_, &windowWidth_, &windowHeight_);
     }
@@ -2801,9 +2801,11 @@ void GuiWindow::onFramebufferResize(int width, int height) noexcept {
         }
 #endif
     }
+#if !defined(__EMSCRIPTEN__)
     if (!isRendering_ && engine_) {
         renderFrame();
     }
+#endif
 }
 
 void GuiWindow::updateLogicalDimensions() noexcept {
@@ -8177,7 +8179,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
             app->markNeedsRedraw();
+#if !defined(__EMSCRIPTEN__)
             app->onFramebufferResize(width, height);
+#endif
         }
     });
 
@@ -8185,7 +8189,9 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
             app->markNeedsRedraw();
+#if !defined(__EMSCRIPTEN__)
             app->onWindowResize(width, height);
+#endif
         }
     });
 
@@ -8209,6 +8215,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetCursorPosCallback(window_, [](GLFWwindow* w, double xpos, double ypos) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (app) {
+#if defined(__EMSCRIPTEN__)
+            int isTouch = EM_ASM_INT({ return window.eatsbitsLastPointerIsTouch ? 1 : 0; });
+            if (isTouch) return;
+#endif
             app->markNeedsRedraw();
             float logX = app->windowToLogicalX(xpos);
             float logY = app->windowToLogicalY(ypos);
@@ -8223,6 +8233,10 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     glfwSetMouseButtonCallback(window_, [](GLFWwindow* w, int button, int action, int /*mods*/) {
         auto* app = static_cast<GuiWindow*>(glfwGetWindowUserPointer(w));
         if (!app) return;
+#if defined(__EMSCRIPTEN__)
+        int isTouch = EM_ASM_INT({ return window.eatsbitsLastPointerIsTouch ? 1 : 0; });
+        if (isTouch) return;
+#endif
         app->markNeedsRedraw();
         double x, y;
         glfwGetCursorPos(w, &x, &y);
@@ -8386,7 +8400,6 @@ void GuiWindow::pollWebResize() noexcept {
     int targetFbH = static_cast<int>(std::round(static_cast<float>(targetH) * expectedDpi));
 
     if (targetW != windowWidth_ || targetH != windowHeight_ || targetFbW != fbWidth_ || targetFbH != fbHeight_) {
-        glfwSetWindowSize(window_, targetW, targetH);
         windowWidth_ = targetW;
         windowHeight_ = targetH;
         fbWidth_ = targetFbW;
@@ -8397,8 +8410,16 @@ void GuiWindow::pollWebResize() noexcept {
             if (canvas) {
                 canvas.width = $0;
                 canvas.height = $1;
+                canvas.style.width = $2 + 'px';
+                canvas.style.height = $3 + 'px';
             }
-        }, fbWidth_, fbHeight_);
+            if (typeof GLFW !== 'undefined' && GLFW.active) {
+                GLFW.active.width = $2;
+                GLFW.active.height = $3;
+                GLFW.active.framebufferWidth = $0;
+                GLFW.active.framebufferHeight = $1;
+            }
+        }, fbWidth_, fbHeight_, targetW, targetH);
 
         onWindowResize(targetW, targetH);
         onFramebufferResize(fbWidth_, fbHeight_);
@@ -9037,6 +9058,12 @@ void GuiWindow::renderFrame() {
         if (batchRenderer_) {
             batchRenderer_->setRenderScale(renderScale_, renderScale_);
             batchRenderer_->resize(physW, physH);
+#if defined(__EMSCRIPTEN__)
+            if (dawnBridge_.isNativeActive()) {
+                dawnBridge_.resize(physW, physH);
+                batchRenderer_->setCustomRenderTargetView(dawnBridge_.getDawTextureView());
+            }
+#endif
             batchRenderer_->beginFrame(static_cast<float>(width_), static_cast<float>(height_));
         }
 
