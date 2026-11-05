@@ -418,48 +418,6 @@ ArrangerView::ArrangerView() {
         deleteClip(trackIdx, clipIdx);
         if (onDeleteClip) onDeleteClip(trackIdx, clipIdx);
     };
-
-    // Docked ArrangerMixerDrawer callbacks
-    mixerDrawer_.onTrackSelected = [this](uint32_t trackIdx) {
-        setActiveTrack(trackIdx);
-        if (onTrackSelected) onTrackSelected(trackIdx);
-    };
-    mixerDrawer_.onVolumeChanged = [this](uint32_t trackIdx, float vol) {
-        if (trackIdx < tracks_.size()) {
-            tracks_[trackIdx].volume = vol;
-            if (onVolumeChanged) onVolumeChanged(trackIdx, vol);
-        }
-    };
-    mixerDrawer_.onPanChanged = [this](uint32_t trackIdx, float pan) {
-        if (trackIdx < tracks_.size()) {
-            tracks_[trackIdx].pan = pan;
-            if (onPanChanged) onPanChanged(trackIdx, pan);
-        }
-    };
-    mixerDrawer_.onMuteToggled = [this](uint32_t trackIdx, bool mute) {
-        if (trackIdx < tracks_.size()) {
-            tracks_[trackIdx].mute = mute;
-            if (onMuteToggled) onMuteToggled(trackIdx, mute);
-        }
-    };
-    mixerDrawer_.onSoloToggled = [this](uint32_t trackIdx, bool solo) {
-        if (trackIdx < tracks_.size()) {
-            tracks_[trackIdx].solo = solo;
-            if (onSoloToggled) onSoloToggled(trackIdx, solo);
-        }
-    };
-    mixerDrawer_.onMasterVolumeChanged = [this](float vol) {
-        masterVolume_ = vol;
-        if (onMasterVolumeChanged) onMasterVolumeChanged(vol);
-    };
-    mixerDrawer_.onMasterPanChanged = [this](float pan) {
-        masterPan_ = pan;
-        if (onMasterPanChanged) onMasterPanChanged(pan);
-    };
-    mixerDrawer_.onMasterMuteToggled = [this](bool mute) {
-        masterMute_ = mute;
-        if (onMasterMuteToggled) onMasterMuteToggled(mute);
-    };
 }
 
 ArrangerView::~ArrangerView() = default;
@@ -1241,7 +1199,6 @@ void ArrangerView::layout(const Rect2D& bounds, const ViewContext& ctx) {
     pluginDialog_.layout(bounds_.w, bounds_.h);
     circleOfFifthsDialog_.layout(bounds_.w, bounds_.h);
     iconDialog_.layout(bounds_.w, bounds_.h);
-    mixerDrawer_.layout(bounds, inspW + ctx.browserOffset);
 }
 
 void ArrangerView::render(const ViewContext& ctx) {
@@ -1251,8 +1208,6 @@ void ArrangerView::render(const ViewContext& ctx) {
     float frameDt = ctx.dt > 0.0f ? ctx.dt : 0.016f;
     propertiesDrawer_.update(frameDt);
     propertiesDrawer_.layout(bounds_, ctx.browserOffset);
-    mixerDrawer_.update(frameDt);
-    mixerDrawer_.layout(bounds_, propertiesDrawer_.getEffectiveWidth() + ctx.browserOffset);
 
     if (kineticScroller_.isGliding()) {
         float dx = 0.0f, dy = 0.0f;
@@ -1389,13 +1344,6 @@ void ArrangerView::renderChordLane(const ViewContext& ctx) {
                  chordLaneBounds_.x + 20.0f, chordLaneBounds_.y + 9.0f, 10.0f,
                  theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, 0.75f);
         return;
-    }
-
-    // Right-hand header hint
-    float hintX = chordLaneBounds_.x + chordLaneBounds_.w - 240.0f;
-    if (hintX > chordLaneBounds_.x + 200.0f) {
-        drawText(r, "[ + ] CIRCLE OF FIFTHS • CLICK TO AUDITION", hintX, chordLaneBounds_.y + 9.0f, 8.0f,
-                 0.50f, 0.55f, 0.65f, 0.70f);
     }
 
     for (size_t i = 0; i < chordTrack_.size(); ++i) {
@@ -2026,14 +1974,6 @@ void ArrangerView::syncDrawerData() {
 void ArrangerView::renderPropertiesDrawer(const ViewContext& ctx) {
     syncDrawerData();
 
-    mixerDrawer_.render(*ctx.renderer, *ctx.theme, tracks_, activeTrackIndex_,
-                        masterVolume_, masterPan_, masterMute_,
-                        masterPeakL_, masterPeakR_,
-                        chPeaksL_.empty() ? nullptr : chPeaksL_.data(),
-                        chPeaksR_.empty() ? nullptr : chPeaksR_.data(),
-                        chPeaksL_.size(),
-                        ctx.mouseX, ctx.mouseY);
-
     propertiesDrawer_.render(*ctx.renderer, *ctx.theme, drawerData_, ctx.mouseX, ctx.mouseY);
 }
 
@@ -2065,7 +2005,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
     }
 
     // Disallow interactions outside arranger bounds when not actively dragging
-    const bool isDragging = (dragMode_ != ClipDragMode::None) || propertiesDrawer_.isDragging() || mixerDrawer_.isDragging();
+    const bool isDragging = (dragMode_ != ClipDragMode::None) || propertiesDrawer_.isDragging();
     if (!isDragging && !bounds_.contains(ev.x, ev.y)) {
         return false;
     }
@@ -2084,22 +2024,7 @@ bool ArrangerView::handlePointer(const PointerEvent& ev, const ViewContext& ctx)
         return true;
     }
 
-    // 0c. Active Continuous Drag in Mixer Drawer (faders, pan, resize, scrollbar)
-    if (mixerDrawer_.isDragging()) {
-        if (mixerDrawer_.handlePointer(ev, tracks_, activeTrackIndex_, masterVolume_, masterPan_, masterMute_, ctx)) {
-            return true;
-        }
-    }
-
-    // 0d. Interaction with Mixer Drawer (Pull-Tab or expanded drawer body)
-    if (mixerDrawer_.getPullTabBounds().contains(ev.x, ev.y) ||
-        (mixerDrawer_.isExpanded() && mixerDrawer_.getDrawerBounds().contains(ev.x, ev.y))) {
-        if (mixerDrawer_.handlePointer(ev, tracks_, activeTrackIndex_, masterVolume_, masterPan_, masterMute_, ctx)) {
-            return true;
-        }
-    }
-
-    // 0e. Mouse Wheel / 2D Scroll on Arranger Grid
+    // 0b. Mouse Wheel / 2D Scroll on Arranger Grid
     if (ev.action == PointerAction::Scroll) {
         float totalArrangerW = static_cast<float>(totalBars_) * barWidth_;
         scrollX_ = std::clamp(scrollX_ - ev.scrollX * 30.0f, 0.0f, std::max(0.0f, totalArrangerW - gridBounds_.w));
@@ -2881,11 +2806,6 @@ bool ArrangerView::handleKey(int key, [[maybe_unused]] int scancode, int action,
     }
 
     if (action != 1 && action != 2) return false;
-
-    // 'M' -> Toggle docked bottom mixer drawer
-    if (mixerDrawer_.handleKey(key, scancode, action, mods, ctx)) {
-        return true;
-    }
 
     // 'F' -> Toggle continuous playback follow mode
     if (key == 'F' || key == 'f') {

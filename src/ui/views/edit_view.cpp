@@ -5,6 +5,7 @@
 #include "eatsbits/ui/widgets/piano_keyboard.hpp"
 #include "eatsbits/audio/audio_engine.hpp"
 #include "eatsbits/sequencer/step_sequencer.hpp"
+#include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/ui/clay/clay_context.hpp"
 #include "clay.h"
 #include <algorithm>
@@ -521,6 +522,16 @@ void EditView::changeSelectedNotesDuration(float deltaDuration) noexcept {
     onNotesMutated();
 }
 
+void EditView::setSelectedNotesDuration(float durationSteps) noexcept {
+    float d = std::max(0.125f, durationSteps);
+    for (auto& n : notes_) {
+        if (n.isSelected) {
+            n.durationSteps = d;
+        }
+    }
+    onNotesMutated();
+}
+
 void EditView::setSelectedNotesVelocity(float velocity) noexcept {
     float v = std::clamp(velocity, 0.05f, 1.0f);
     for (auto& n : notes_) {
@@ -558,6 +569,111 @@ void EditView::setSelectedNotesSlide(bool slide) noexcept {
         }
     }
     onNotesMutated();
+}
+
+void EditView::toggleSelectedNotesSlide() noexcept {
+    for (auto& n : notes_) {
+        if (n.isSelected) {
+            n.isSlide = !n.isSlide;
+        }
+    }
+    onNotesMutated();
+}
+
+void EditView::executeInspectorScript(const std::string& scriptCode, const ViewContext& ctx) {
+    if (scriptCode.empty()) return;
+
+    eatscript::Evaluator eval;
+
+    eval.registerMemberFunction("eat.transform", "reverse", [this](const auto&, const auto&) -> eatscript::Value {
+        retrogradeSelectedNotes();
+        return eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("eat.transform", "invert_pitch", [this](const auto&, const auto&) -> eatscript::Value {
+        invertSelectedNotesPitch();
+        return eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("eat.transform", "octave_up", [this](const auto&, const auto&) -> eatscript::Value {
+        transposeSelectedNotes(12);
+        return eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("eat.transform", "octave_down", [this](const auto&, const auto&) -> eatscript::Value {
+        transposeSelectedNotes(-12);
+        return eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("eat.transform", "humanize", [this](const auto& args, const auto& kw) -> eatscript::Value {
+        float amt = eatscript::resolveArg(args, kw, 0, "amt", eatscript::Value(0.15)).asFloat(0.15f);
+        humanizeSelectedNotes(amt);
+        return eatscript::Value(true);
+    });
+
+    eval.evaluateSource(scriptCode);
+}
+
+void EditView::dispatchInspectorAction(const InspectorItem& item, const ViewContext& ctx) {
+    switch (item.action) {
+        case SelectionSidebarAction::Transpose:
+            transposeSelectedNotes(item.intParam);
+            break;
+        case SelectionSidebarAction::Nudge:
+            nudgeSelectedNotes(item.floatParam != 0.0f ? item.floatParam : static_cast<float>(item.intParam));
+            break;
+        case SelectionSidebarAction::ChangeDuration:
+            changeSelectedNotesDuration(item.floatParam);
+            break;
+        case SelectionSidebarAction::SetDuration:
+            setSelectedNotesDuration(item.floatParam);
+            break;
+        case SelectionSidebarAction::SetVelocity:
+            setSelectedNotesVelocity(item.floatParam);
+            break;
+        case SelectionSidebarAction::Humanize:
+            humanizeSelectedNotes(item.floatParam > 0.0f ? item.floatParam : 0.15f);
+            break;
+        case SelectionSidebarAction::SetSlide:
+            setSelectedNotesSlide(item.intParam != 0);
+            break;
+        case SelectionSidebarAction::ToggleSlide:
+            toggleSelectedNotesSlide();
+            break;
+        case SelectionSidebarAction::SetArticulation:
+            setSelectedNotesArticulation(item.stringParam);
+            break;
+        case SelectionSidebarAction::Quantize:
+            quantizeSelectedNotes(item.floatParam > 0.0f ? item.floatParam : 1.0f);
+            break;
+        case SelectionSidebarAction::SelectAll:
+            selectAllNotes();
+            break;
+        case SelectionSidebarAction::Invert:
+            invertSelection();
+            break;
+        case SelectionSidebarAction::Retrograde:
+            retrogradeSelectedNotes();
+            break;
+        case SelectionSidebarAction::InvertPitch:
+            invertSelectedNotesPitch();
+            break;
+        case SelectionSidebarAction::Audition:
+            for (size_t ni = 0; ni < notes_.size(); ++ni) {
+                const auto& n = notes_[ni];
+                if (n.isSelected) {
+                    int audPitch = (hasActiveChordFollowOrMidiFx() && ni < evaluatedFxNotes_.size()) ? evaluatedFxNotes_[ni].pitch : n.pitch;
+                    auditionPitch(audPitch, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
+                    break;
+                }
+            }
+            break;
+        case SelectionSidebarAction::Script:
+            executeInspectorScript(item.scriptCode, ctx);
+            break;
+        default:
+            break;
+    }
 }
 
 void EditView::setSelectedNotesArticulation(const std::string& art) noexcept {
@@ -2078,206 +2194,74 @@ void EditView::renderNoteInspectorSidebar(const ViewContext& ctx) {
         }
     }
 
-    if (isSingle && firstSelected) {
-        renderSingleNoteSidebar(ctx, *firstSelected);
-    } else {
-        renderMultiNoteSidebar(ctx);
-    }
-}
-
-void EditView::renderSingleNoteSidebar(const ViewContext& ctx, PianoRollNote& note) {
-    auto& r = *ctx.renderer;
-    const auto& theme = *ctx.theme;
-
+    // Dynamic rendering from NoteInspectorRegistry
     float cardY = sidebarBounds_.y + 40.0f;
-    drawRoundedRect(r, sidebarBounds_.x + 10.0f, cardY, sidebarBounds_.w - 20.0f, 32.0f, 5.0f,
-                    trackColor_ * 0.2f, 0.9f);
-    drawRoundedRectOutline(r, sidebarBounds_.x + 10.0f, cardY, sidebarBounds_.w - 20.0f, 32.0f, 5.0f,
-                           trackColor_, 0.8f, 1.2f);
+    float curY = cardY + 44.0f;
+    const auto& sections = NoteInspectorRegistry::instance().getSections();
 
-    std::string pitchStr = PianoKeyboard::getNoteName(note.pitch);
-    drawText(r, pitchStr, sidebarBounds_.x + 18.0f, cardY + 8.0f, 13.5f, trackColor_);
+    for (const auto& sec : sections) {
+        if (sec.visibility == "single" && !isSingle) continue;
+        if (sec.visibility == "multi" && isSingle) continue;
 
-    std::string stepInfo = "Step " + std::to_string(static_cast<int>(note.startStep)) + " (" +
-                           std::to_string(note.durationSteps).substr(0, 4) + " st)";
-    drawText(r, stepInfo, sidebarBounds_.x + 110.0f, cardY + 10.0f, 10.5f, theme.textPrimary);
+        drawText(r, sec.title, sidebarBounds_.x + 12.0f, curY, 9.5f, theme.textMuted, 0.85f);
+        curY += 14.0f;
 
-    float pY = cardY + 44.0f;
-    drawText(r, "PITCH TRANSPOSE", sidebarBounds_.x + 12.0f, pY, 9.5f, theme.textMuted, 0.85f);
+        for (const auto& row : sec.rows) {
+            float itemX = sidebarBounds_.x + 12.0f;
 
-    float btnY = pY + 14.0f;
-    auto drawSmallBtn = [&](float x, const std::string& lbl) {
-        drawRoundedRect(r, x, btnY, 34.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-        drawRoundedRectOutline(r, x, btnY, 34.0f, 22.0f, 3.5f, theme.borderSubtle, 0.7f, 1.0f);
-        drawText(r, lbl, x + 6.0f, btnY + 5.0f, 10.0f, theme.textPrimary);
-    };
+            for (const auto& item : row.items) {
+                if (item.visibility == "single" && !isSingle) continue;
+                if (item.visibility == "multi" && isSingle) continue;
 
-    drawSmallBtn(sidebarBounds_.x + 12.0f, "-12");
-    drawSmallBtn(sidebarBounds_.x + 50.0f, "-1");
+                float itemW = item.width > 0.0f ? item.width : 50.0f;
 
-    drawRoundedRect(r, sidebarBounds_.x + 88.0f, btnY, 68.0f, 22.0f, 3.5f, theme.primaryAccent * 0.25f, 0.9f);
-    drawText(r, pitchStr, sidebarBounds_.x + 108.0f, btnY + 5.0f, 11.0f, theme.primaryAccent);
+                if (item.type == InspectorItemType::Badge) {
+                    std::string badgeTxt = (isSingle && firstSelected) ? PianoKeyboard::getNoteName(firstSelected->pitch) : item.label;
+                    drawRoundedRect(r, itemX, curY, itemW, row.rowHeight, 3.5f, theme.controlBackground, 0.9f);
+                    drawText(r, badgeTxt, itemX + (itemW - badgeTxt.length() * 6.5f) * 0.5f, curY + 5.0f, 10.5f, theme.primaryAccent);
+                } else if (item.type == InspectorItemType::Toggle) {
+                    bool isActive = false;
+                    if (firstSelected) {
+                        if (item.action == SelectionSidebarAction::SetSlide || item.action == SelectionSidebarAction::ToggleSlide) {
+                            isActive = (item.intParam == 1) ? firstSelected->isSlide : !firstSelected->isSlide;
+                        }
+                    }
+                    drawRoundedRect(r, itemX, curY, itemW, row.rowHeight, 4.0f,
+                                    isActive ? (theme.primaryAccent * 0.3f) : theme.controlBackground, 0.9f);
+                    drawRoundedRectOutline(r, itemX, curY, itemW, row.rowHeight, 4.0f,
+                                           isActive ? theme.primaryAccent : theme.borderSubtle, 0.9f, 1.0f);
+                    drawText(r, item.label, itemX + (itemW - item.label.length() * 6.0f) * 0.5f, curY + 6.0f, 9.5f,
+                             isActive ? theme.primaryAccent : theme.textMuted);
+                } else if (item.type == InspectorItemType::Chip) {
+                    bool isAct = false;
+                    if (firstSelected && item.action == SelectionSidebarAction::SetArticulation) {
+                        isAct = (firstSelected->articulation == item.stringParam || (item.stringParam == "NORMAL" && firstSelected->articulation == "normal"));
+                    }
+                    drawRoundedRect(r, itemX, curY, itemW, row.rowHeight, 3.0f,
+                                    isAct ? (theme.primaryAccent * 0.3f) : theme.controlBackground, 0.9f);
+                    drawText(r, item.label, itemX + (itemW - item.label.length() * 6.0f) * 0.5f, curY + 5.0f, 9.0f,
+                             isAct ? theme.primaryAccent : theme.textPrimary);
+                } else {
+                    drawRoundedRect(r, itemX, curY, itemW, row.rowHeight, 3.5f, theme.controlBackground, 0.9f);
+                    drawRoundedRectOutline(r, itemX, curY, itemW, row.rowHeight, 3.5f, theme.borderSubtle, 0.7f, 1.0f);
+                    drawText(r, item.label, itemX + (itemW - item.label.length() * 6.0f) * 0.5f, curY + 5.0f, 9.5f,
+                             (item.action == SelectionSidebarAction::Script) ? theme.highlight : theme.primaryAccent);
+                }
 
-    drawSmallBtn(sidebarBounds_.x + 160.0f, "+1");
-    drawSmallBtn(sidebarBounds_.x + 198.0f, "+12");
-
-    float posSectionY = btnY + 34.0f;
-    drawText(r, "POSITION (START STEP)", sidebarBounds_.x + 12.0f, posSectionY, 9.5f, theme.textMuted, 0.85f);
-    std::string curStepStr = "Step " + std::to_string(note.startStep).substr(0, 4);
-    drawText(r, curStepStr, sidebarBounds_.x + 12.0f, posSectionY + 16.0f, 11.0f, theme.highlight);
-
-    drawSmallBtn(sidebarBounds_.x + 130.0f, "-STEP");
-    drawSmallBtn(sidebarBounds_.x + 172.0f, "+STEP");
-
-    float lenSectionY = posSectionY + 48.0f;
-    drawText(r, "LENGTH / DURATION", sidebarBounds_.x + 12.0f, lenSectionY, 9.5f, theme.textMuted, 0.85f);
-    std::string curDurStr = std::to_string(note.durationSteps).substr(0, 4) + " steps";
-    drawText(r, curDurStr, sidebarBounds_.x + 12.0f, lenSectionY + 16.0f, 11.0f, theme.primaryAccent);
-
-    drawSmallBtn(sidebarBounds_.x + 130.0f, "-LEN");
-    drawSmallBtn(sidebarBounds_.x + 172.0f, "+LEN");
-
-    float velSectionY = lenSectionY + 48.0f;
-    int velPct = static_cast<int>(note.velocity * 100.0f);
-    std::string velHeader = "VELOCITY (" + std::to_string(velPct) + "%)";
-    drawText(r, velHeader, sidebarBounds_.x + 12.0f, velSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    float audBtnX = sidebarBounds_.x + sidebarBounds_.w - 42.0f;
-    drawRoundedRect(r, audBtnX, velSectionY - 4.0f, 26.0f, 22.0f, 3.0f, theme.primaryAccent * 0.25f, 0.9f);
-    drawText(r, ">", audBtnX + 8.0f, velSectionY + 1.0f, 11.0f, theme.primaryAccent);
-
-    float velBarY = velSectionY + 16.0f;
-    drawRoundedRect(r, sidebarBounds_.x + 12.0f, velBarY, sidebarBounds_.w - 24.0f, 8.0f, 4.0f, theme.controlBackground, 0.8f);
-    float velFillW = (sidebarBounds_.w - 24.0f) * note.velocity;
-    drawRoundedRect(r, sidebarBounds_.x + 12.0f, velBarY, velFillW, 8.0f, 4.0f, theme.primaryAccent, 0.95f);
-
-    float typeSectionY = velBarY + 22.0f;
-    drawText(r, "NOTE TYPE / GLISSANDO", sidebarBounds_.x + 12.0f, typeSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    float typeBtnY = typeSectionY + 14.0f;
-    float typeBtnW = (sidebarBounds_.w - 28.0f) * 0.5f;
-
-    bool isReg = !note.isSlide;
-    drawRoundedRect(r, sidebarBounds_.x + 12.0f, typeBtnY, typeBtnW, 26.0f, 4.0f,
-                    isReg ? (theme.primaryAccent * 0.3f) : theme.controlBackground, 0.9f);
-    drawRoundedRectOutline(r, sidebarBounds_.x + 12.0f, typeBtnY, typeBtnW, 26.0f, 4.0f,
-                           isReg ? theme.primaryAccent : theme.borderSubtle, 0.9f, 1.0f);
-    drawText(r, "REGULAR", sidebarBounds_.x + 36.0f, typeBtnY + 7.0f, 10.0f,
-             isReg ? theme.primaryAccent : theme.textMuted);
-
-    bool isSlide = note.isSlide;
-    drawRoundedRect(r, sidebarBounds_.x + 16.0f + typeBtnW, typeBtnY, typeBtnW, 26.0f, 4.0f,
-                    isSlide ? (theme.highlight * 0.3f) : theme.controlBackground, 0.9f);
-    drawRoundedRectOutline(r, sidebarBounds_.x + 16.0f + typeBtnW, typeBtnY, typeBtnW, 26.0f, 4.0f,
-                           isSlide ? theme.highlight : theme.borderSubtle, 0.9f, 1.0f);
-    drawText(r, "GLISS / BEND", sidebarBounds_.x + 28.0f + typeBtnW, typeBtnY + 7.0f, 10.0f,
-             isSlide ? theme.highlight : theme.textMuted);
-
-    float artSectionY = typeBtnY + 38.0f;
-    drawText(r, "ARTICULATION", sidebarBounds_.x + 12.0f, artSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    const char* arts[] = {"NORMAL", "PIZZ", "STACC", "LEGATO", "SLAP", "FLAM"};
-    float chipX = sidebarBounds_.x + 12.0f;
-    float chipY = artSectionY + 14.0f;
-    for (int i = 0; i < 6; ++i) {
-        bool isAct = (note.articulation == arts[i] || (i == 0 && note.articulation == "normal"));
-        drawRoundedRect(r, chipX, chipY, 36.0f, 20.0f, 3.0f,
-                        isAct ? (theme.primaryAccent * 0.3f) : theme.controlBackground, 0.9f);
-        drawText(r, arts[i], chipX + 4.0f, chipY + 5.0f, 8.5f,
-                 isAct ? theme.primaryAccent : theme.textMuted);
-        chipX += 40.0f;
-        if (i == 2) {
-            chipX = sidebarBounds_.x + 12.0f;
-            chipY += 24.0f;
+                itemX += itemW + 4.0f;
+            }
+            curY += row.rowHeight + row.marginBottom;
         }
+        curY += 6.0f;
     }
 }
 
-void EditView::renderMultiNoteSidebar(const ViewContext& ctx) {
-    auto& r = *ctx.renderer;
-    const auto& theme = *ctx.theme;
+void EditView::renderSingleNoteSidebar(const ViewContext&, PianoRollNote&) {
+    // Delegated to data-driven NoteInspectorRegistry
+}
 
-    size_t count = getSelectedNoteCount();
-
-    float cardY = sidebarBounds_.y + 40.0f;
-    drawRoundedRect(r, sidebarBounds_.x + 10.0f, cardY, sidebarBounds_.w - 20.0f, 32.0f, 5.0f,
-                    theme.primaryAccent * 0.2f, 0.9f);
-    drawRoundedRectOutline(r, sidebarBounds_.x + 10.0f, cardY, sidebarBounds_.w - 20.0f, 32.0f, 5.0f,
-                           theme.primaryAccent, 0.8f, 1.2f);
-
-    std::string countStr = std::to_string(count) + " Notes Selected";
-    drawText(r, countStr, sidebarBounds_.x + 18.0f, cardY + 9.0f, 12.0f, theme.primaryAccent);
-
-    drawRoundedRect(r, sidebarBounds_.x + sidebarBounds_.w - 95.0f, cardY + 6.0f, 80.0f, 20.0f, 3.0f,
-                    theme.controlBackground, 0.9f);
-    drawText(r, "BATCH MODE", sidebarBounds_.x + sidebarBounds_.w - 86.0f, cardY + 10.0f, 9.0f, theme.textPrimary);
-
-    float pY = cardY + 44.0f;
-    drawText(r, "BATCH PITCH TRANSPOSE", sidebarBounds_.x + 12.0f, pY, 9.5f, theme.textMuted, 0.85f);
-
-    float btnY = pY + 14.0f;
-    auto drawSmallBtn = [&](float x, const std::string& lbl) {
-        drawRoundedRect(r, x, btnY, 34.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-        drawRoundedRectOutline(r, x, btnY, 34.0f, 22.0f, 3.5f, theme.borderSubtle, 0.7f, 1.0f);
-        drawText(r, lbl, x + 6.0f, btnY + 5.0f, 10.0f, theme.textPrimary);
-    };
-
-    drawSmallBtn(sidebarBounds_.x + 12.0f, "-12");
-    drawSmallBtn(sidebarBounds_.x + 50.0f, "-1");
-
-    drawRoundedRect(r, sidebarBounds_.x + 88.0f, btnY, 68.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-    drawText(r, "+- PITCH", sidebarBounds_.x + 100.0f, btnY + 5.0f, 10.0f, theme.primaryAccent);
-
-    drawSmallBtn(sidebarBounds_.x + 160.0f, "+1");
-    drawSmallBtn(sidebarBounds_.x + 198.0f, "+12");
-
-    float posSectionY = btnY + 34.0f;
-    drawText(r, "BATCH POSITION & DURATION", sidebarBounds_.x + 12.0f, posSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    float nudgeY = posSectionY + 14.0f;
-    drawRoundedRect(r, sidebarBounds_.x + 12.0f, nudgeY, 52.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-    drawText(r, "-STEP", sidebarBounds_.x + 18.0f, nudgeY + 5.0f, 9.5f, theme.textPrimary);
-
-    drawRoundedRect(r, sidebarBounds_.x + 68.0f, nudgeY, 52.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-    drawText(r, "+STEP", sidebarBounds_.x + 74.0f, nudgeY + 5.0f, 9.5f, theme.textPrimary);
-
-    drawRoundedRect(r, sidebarBounds_.x + 124.0f, nudgeY, 48.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-    drawText(r, "-LEN", sidebarBounds_.x + 130.0f, nudgeY + 5.0f, 9.5f, theme.textPrimary);
-
-    drawRoundedRect(r, sidebarBounds_.x + 176.0f, nudgeY, 48.0f, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-    drawText(r, "+LEN", sidebarBounds_.x + 182.0f, nudgeY + 5.0f, 9.5f, theme.textPrimary);
-
-    float velSectionY = nudgeY + 34.0f;
-    drawText(r, "BATCH VELOCITY PRESETS", sidebarBounds_.x + 12.0f, velSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    float velBtnY = velSectionY + 14.0f;
-    const char* vPresets[] = {"25%", "50%", "75%", "100%", "HUMAN"};
-    float vx = sidebarBounds_.x + 12.0f;
-    for (int i = 0; i < 5; ++i) {
-        float bw = (i == 4) ? 52.0f : 40.0f;
-        drawRoundedRect(r, vx, velBtnY, bw, 22.0f, 3.5f, theme.controlBackground, 0.9f);
-        drawText(r, vPresets[i], vx + 6.0f, velBtnY + 5.0f, 9.5f, theme.textPrimary);
-        vx += bw + 4.0f;
-    }
-
-    float utilSectionY = velBtnY + 34.0f;
-    drawText(r, "SELECTION UTILITIES", sidebarBounds_.x + 12.0f, utilSectionY, 9.5f, theme.textMuted, 0.85f);
-
-    float uY = utilSectionY + 14.0f;
-    auto drawUtilBtn = [&](float x, float y, float w, const std::string& lbl) {
-        drawRoundedRect(r, x, y, w, 24.0f, 3.5f, theme.controlBackground, 0.9f);
-        drawRoundedRectOutline(r, x, y, w, 24.0f, 3.5f, theme.borderSubtle, 0.8f, 1.0f);
-        drawText(r, lbl, x + 8.0f, y + 6.0f, 9.5f, theme.primaryAccent);
-    };
-
-    drawUtilBtn(sidebarBounds_.x + 12.0f, uY, 110.0f, "QUANTIZE (1/16)");
-    drawUtilBtn(sidebarBounds_.x + 128.0f, uY, 108.0f, "SET ALL BEND");
-
-    drawUtilBtn(sidebarBounds_.x + 12.0f, uY + 28.0f, 110.0f, "SELECT ALL");
-    drawUtilBtn(sidebarBounds_.x + 128.0f, uY + 28.0f, 108.0f, "INVERT");
-
-    drawUtilBtn(sidebarBounds_.x + 12.0f, uY + 56.0f, 110.0f, "RETROGRADE");
-    drawUtilBtn(sidebarBounds_.x + 128.0f, uY + 56.0f, 108.0f, "INVERT PITCH");
+void EditView::renderMultiNoteSidebar(const ViewContext&) {
+    // Delegated to data-driven NoteInspectorRegistry
 }
 
 bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
@@ -2351,68 +2335,40 @@ bool EditView::handlePointer(const PointerEvent& ev, const ViewContext& ctx) {
                 return true;
             }
 
-            float btnY = sidebarBounds_.y + 98.0f;
-            if (Rect2D(sidebarBounds_.x + 12.0f, btnY, 34.0f, 22.0f).contains(ev.x, ev.y)) { transposeSelectedNotes(-12); return true; }
-            if (Rect2D(sidebarBounds_.x + 50.0f, btnY, 34.0f, 22.0f).contains(ev.x, ev.y)) { transposeSelectedNotes(-1); return true; }
-            if (Rect2D(sidebarBounds_.x + 160.0f, btnY, 34.0f, 22.0f).contains(ev.x, ev.y)) { transposeSelectedNotes(1); return true; }
-            if (Rect2D(sidebarBounds_.x + 198.0f, btnY, 34.0f, 22.0f).contains(ev.x, ev.y)) { transposeSelectedNotes(12); return true; }
+            float cardY = sidebarBounds_.y + 40.0f;
+            float curY = cardY + 44.0f;
+            bool isSingle = (getSelectedNoteCount() == 1);
+            const auto& sections = NoteInspectorRegistry::instance().getSections();
 
-            float nudgeY = btnY + 48.0f;
-            if (Rect2D(sidebarBounds_.x + 130.0f, nudgeY, 38.0f, 22.0f).contains(ev.x, ev.y)) { nudgeSelectedNotes(-1.0f); return true; }
-            if (Rect2D(sidebarBounds_.x + 172.0f, nudgeY, 38.0f, 22.0f).contains(ev.x, ev.y)) { nudgeSelectedNotes(1.0f); return true; }
+            for (const auto& sec : sections) {
+                if (sec.visibility == "single" && !isSingle) continue;
+                if (sec.visibility == "multi" && isSingle) continue;
 
-            float durY = nudgeY + 48.0f;
-            if (Rect2D(sidebarBounds_.x + 130.0f, durY, 38.0f, 22.0f).contains(ev.x, ev.y)) { changeSelectedNotesDuration(-0.25f); return true; }
-            if (Rect2D(sidebarBounds_.x + 172.0f, durY, 38.0f, 22.0f).contains(ev.x, ev.y)) { changeSelectedNotesDuration(0.25f); return true; }
+                curY += 14.0f;
 
-            float audBtnX = sidebarBounds_.x + sidebarBounds_.w - 42.0f;
-            if (Rect2D(audBtnX, durY + 44.0f, 26.0f, 22.0f).contains(ev.x, ev.y)) {
-                for (size_t ni = 0; ni < notes_.size(); ++ni) {
-                    const auto& n = notes_[ni];
-                    if (n.isSelected) {
-                        int audPitch = (hasActiveChordFollowOrMidiFx() && ni < evaluatedFxNotes_.size()) ? evaluatedFxNotes_[ni].pitch : n.pitch;
-                        auditionPitch(audPitch, n.velocity, ctx, hasActiveChordFollowOrMidiFx());
-                        break;
+                for (const auto& row : sec.rows) {
+                    float itemX = sidebarBounds_.x + 12.0f;
+
+                    for (const auto& item : row.items) {
+                        if (item.visibility == "single" && !isSingle) continue;
+                        if (item.visibility == "multi" && isSingle) continue;
+
+                        float itemW = item.width > 0.0f ? item.width : 50.0f;
+                        Rect2D itemRect(itemX, curY, itemW, row.rowHeight);
+
+                        if (itemRect.contains(ev.x, ev.y)) {
+                            dispatchInspectorAction(item, ctx);
+                            return true;
+                        }
+
+                        itemX += itemW + 4.0f;
                     }
+                    curY += row.rowHeight + row.marginBottom;
                 }
-                return true;
+                curY += 6.0f;
             }
 
-            float typeBtnY = durY + 88.0f;
-            float typeBtnW = (sidebarBounds_.w - 28.0f) * 0.5f;
-            if (Rect2D(sidebarBounds_.x + 12.0f, typeBtnY, typeBtnW, 26.0f).contains(ev.x, ev.y)) { setSelectedNotesSlide(false); return true; }
-            if (Rect2D(sidebarBounds_.x + 16.0f + typeBtnW, typeBtnY, typeBtnW, 26.0f).contains(ev.x, ev.y)) { setSelectedNotesSlide(true); return true; }
-
-            float artSectionY = typeBtnY + 38.0f;
-            float chipX = sidebarBounds_.x + 12.0f;
-            float chipY = artSectionY + 14.0f;
-            const char* arts[] = {"NORMAL", "PIZZ", "STACC", "LEGATO", "SLAP", "FLAM"};
-            for (int i = 0; i < 6; ++i) {
-                if (Rect2D(chipX, chipY, 36.0f, 20.0f).contains(ev.x, ev.y)) {
-                    setSelectedNotesArticulation(arts[i]);
-                    return true;
-                }
-                chipX += 40.0f;
-                if (i == 2) {
-                    chipX = sidebarBounds_.x + 12.0f;
-                    chipY += 24.0f;
-                }
-            }
-
-            float velPresetY = btnY + 82.0f;
-            if (Rect2D(sidebarBounds_.x + 12.0f, velPresetY, 40.0f, 22.0f).contains(ev.x, ev.y)) { setSelectedNotesVelocity(0.25f); return true; }
-            if (Rect2D(sidebarBounds_.x + 56.0f, velPresetY, 40.0f, 22.0f).contains(ev.x, ev.y)) { setSelectedNotesVelocity(0.50f); return true; }
-            if (Rect2D(sidebarBounds_.x + 100.0f, velPresetY, 40.0f, 22.0f).contains(ev.x, ev.y)) { setSelectedNotesVelocity(0.75f); return true; }
-            if (Rect2D(sidebarBounds_.x + 144.0f, velPresetY, 40.0f, 22.0f).contains(ev.x, ev.y)) { setSelectedNotesVelocity(1.00f); return true; }
-            if (Rect2D(sidebarBounds_.x + 188.0f, velPresetY, 52.0f, 22.0f).contains(ev.x, ev.y)) { humanizeSelectedNotes(0.15f); return true; }
-
-            float uY = velPresetY + 48.0f;
-            if (Rect2D(sidebarBounds_.x + 12.0f, uY, 110.0f, 24.0f).contains(ev.x, ev.y)) { quantizeSelectedNotes(1.0f); return true; }
-            if (Rect2D(sidebarBounds_.x + 128.0f, uY, 108.0f, 24.0f).contains(ev.x, ev.y)) { setSelectedNotesSlide(true); return true; }
-            if (Rect2D(sidebarBounds_.x + 12.0f, uY + 28.0f, 110.0f, 24.0f).contains(ev.x, ev.y)) { selectAllNotes(); return true; }
-            if (Rect2D(sidebarBounds_.x + 128.0f, uY + 28.0f, 108.0f, 24.0f).contains(ev.x, ev.y)) { invertSelection(); return true; }
-            if (Rect2D(sidebarBounds_.x + 12.0f, uY + 56.0f, 110.0f, 24.0f).contains(ev.x, ev.y)) { retrogradeSelectedNotes(); return true; }
-            if (Rect2D(sidebarBounds_.x + 128.0f, uY + 56.0f, 108.0f, 24.0f).contains(ev.x, ev.y)) { invertSelectedNotesPitch(); return true; }
+            return true;
 
             return true;
         }

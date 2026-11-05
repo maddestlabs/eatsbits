@@ -51,12 +51,16 @@ void CommandPaletteDialog::setSelectedCategory(CommandCategory cat) noexcept {
     rebuildFilteredList();
 }
 
-void CommandPaletteDialog::executeSelected() noexcept {
+void CommandPaletteDialog::executeSelected(bool stageOnly) noexcept {
     if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(filteredCommands_.size())) {
         const auto* cmd = filteredCommands_[selectedIndex_];
         close();
-        if (cmd && cmd->onExecute) {
-            cmd->onExecute();
+        if (cmd) {
+            if (onCommandExecuted_) {
+                onCommandExecuted_(*cmd, stageOnly);
+            } else if (!stageOnly && cmd->onExecute) {
+                cmd->onExecute();
+            }
         }
     }
 }
@@ -442,7 +446,14 @@ bool CommandPaletteDialog::handleKey(int key, int scancode, int action, int mods
 
     // Enter (257 in GLFW)
     if (key == 257) {
-        executeSelected();
+        bool isShift = (mods & 1) != 0;
+        executeSelected(isShift /* stageOnly if Shift+Enter */);
+        return true;
+    }
+
+    // Tab (258 in GLFW): Stage command into terminal or prompt
+    if (key == 258) {
+        executeSelected(true /* stageOnly */);
         return true;
     }
 

@@ -479,6 +479,20 @@
                 navigator.serviceWorker.register('./sw.js')
                     .then(function(reg) {
                         console.log('[Eatsbits PWA] ServiceWorker registered with scope:', reg.scope);
+                        // Trigger immediate check for updated sw.js / cache version
+                        reg.update().catch(function() {});
+                        reg.addEventListener('updatefound', function() {
+                            var newWorker = reg.installing;
+                            if (newWorker) {
+                                newWorker.addEventListener('statechange', function() {
+                                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                        console.log('[Eatsbits PWA] New build detected and installed! Reloading...');
+                                        window.location.reload();
+                                    }
+                                });
+                            }
+                        });
+
                         // On static hosts like GitHub Pages that do not send COOP/COEP HTTP headers,
                         // reload once after service worker activation so sw.js injects headers and window.crossOriginIsolated becomes true.
                         if (!window.crossOriginIsolated && !sessionStorage.getItem('coi_reloaded')) {
@@ -497,6 +511,21 @@
                         console.warn('[Eatsbits PWA] ServiceWorker registration failed:', err);
                     });
             });
+
+            // Global helper to purge cache and reload without uninstalling PWA
+            window.purgePwaCache = async function() {
+                console.log('[Eatsbits PWA] Purging cache and unregistering service worker...');
+                if (window.caches) {
+                    var keys = await caches.keys();
+                    await Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                }
+                var regs = await navigator.serviceWorker.getRegistrations();
+                for (var r of regs) {
+                    await r.unregister();
+                }
+                sessionStorage.clear();
+                window.location.reload(true);
+            };
         }
     </script>
 

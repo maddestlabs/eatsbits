@@ -624,28 +624,39 @@ void drawKnobWidget(BatchRenderer2D& r,
             float chordCy = cy + dirY * chordDist;
             float chordHalfW = capR * std::sqrt(std::max(0.0f, 1.0f - chordDistRatio * chordDistRatio));
 
-            // Contextual 2.5D lighting:
+            // Contextual physically-modeled lighting:
             // The ramp slopes downwards from the chord towards the outer rim along (dirX, dirY).
-            // When (dirX, dirY) points towards the light source, the ramp is tilted into incoming light.
-            // When pointing away, the ramp falls into deep shadow (as seen on authentic TB-303 hardware).
+            // When (dirX, dirY) points towards the light source (dotRamp > 0), the ramp is tilted into incoming light.
+            // When pointing away (dotRamp < 0), the ramp falls into soft grazing shadow.
+            // To eliminate jarring jump discontinuities when the knob rotates through the lighting boundary,
+            // we use continuous smoothstep interpolation across the entire angle sweep.
             float dotRamp = dirX * lDir.x + dirY * lDir.y;
 
-            Color scoopCrest, scoopMid, scoopRim;
-            if (dotRamp < 0.0f) {
-                // Tilted away from light (shadowed ramp, e.g. Volume knob at 4:30):
-                // Pronounced ambient occlusion shadow at the chord cliff step deepening into shadowed satin metal
-                float shAmt = std::clamp(-dotRamp, 0.0f, 1.0f);
-                scoopCrest = capCol.darken(0.38f + shAmt * 0.32f); // Deep shadow near cliff
-                scoopMid   = capCol.darken(0.24f + shAmt * 0.22f);
-                scoopRim   = capCol.darken(0.16f + shAmt * 0.14f);
-            } else {
-                // Tilted towards light (illuminated ramp):
-                // Bright satin aluminum highlight and specular reflection
-                float hlAmt = std::clamp(dotRamp, 0.0f, 1.0f);
-                scoopCrest = capCol.lighten(0.22f + hlAmt * 0.24f);
-                scoopMid   = capCol.lighten(0.12f + hlAmt * 0.18f);
-                scoopRim   = capCol.darken(0.10f * (1.0f - hlAmt));
-            }
+            // Continuous S-curve modulation between grazing shadow and direct illumination
+            float rampWeight = std::clamp((dotRamp + 1.0f) * 0.5f, 0.0f, 1.0f);
+            float smoothRamp = rampWeight * rampWeight * (3.0f - 2.0f * rampWeight); // Smoothstep 0..1
+
+            // Shading endpoints:
+            // Tilted completely away (smoothRamp = 0): deep shadow in the recessed scoop
+            Color shadowCrest = capCol.darken(0.40f);
+            Color shadowMid   = capCol.darken(0.24f);
+            Color shadowRim   = capCol.darken(0.12f);
+
+            // Tilted completely towards (smoothRamp = 1): crisp satin metallic specular highlight
+            Color litCrest = capCol.lighten(0.28f);
+            Color litMid   = capCol.lighten(0.16f);
+            Color litRim   = capCol.darken(0.04f);
+
+            auto lerpColor = [](const Color& a, const Color& b, float t) {
+                return Color(a.r + (b.r - a.r) * t,
+                             a.g + (b.g - a.g) * t,
+                             a.b + (b.b - a.b) * t,
+                             a.a + (b.a - a.a) * t);
+            };
+
+            Color scoopCrest = lerpColor(shadowCrest, litCrest, smoothRamp);
+            Color scoopMid   = lerpColor(shadowMid, litMid, smoothRamp);
+            Color scoopRim   = lerpColor(shadowRim, litRim, smoothRamp);
 
             // Continuous, smooth Gouraud gradient mesh filling the exact circular segment
             r.drawDeclinedScoopGradient(cx, cy, capR, currentAngle, chordDistRatio,
@@ -660,25 +671,31 @@ void drawKnobWidget(BatchRenderer2D& r,
             float rightChordX = chordCx - perpX * chordHalfW * 0.96f;
             float rightChordY = chordCy - perpY * chordHalfW * 0.96f;
 
-            if (dotRamp < -0.05f) {
-                // Light is behind the plateau: cliff face is in shadow and casts a dark drop shadow onto the scoop floor
-                float shadowIntensity = std::clamp(-dotRamp, 0.0f, 1.0f);
-                // Plateau edge silhouette line
-                r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY,
-                           capSh.r * 0.45f, capSh.g * 0.45f, capSh.b * 0.45f, 0.90f, 1.2f);
-                // Soft cast shadow line forward onto ramp floor
-                r.drawLine(leftChordX + dirX * 1.3f, leftChordY + dirY * 1.3f,
-                           rightChordX + dirX * 1.3f, rightChordY + dirY * 1.3f,
-                           0.05f, 0.05f, 0.08f, 0.75f * shadowIntensity, 1.8f);
-            } else {
-                // Light directly strikes cliff edge: crisp specular gleam
-                float hlIntensity = std::clamp(dotRamp, 0.0f, 1.0f);
-                r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY,
-                           1.0f, 1.0f, 1.0f, 0.65f + 0.35f * hlIntensity, 1.5f);
-                // Secondary plateau reflection
+            // Smoothly blend the cliff ridge lighting across the light horizon
+            float cliffT = std::clamp((dotRamp + 0.25f) / 0.50f, 0.0f, 1.0f);
+            float cliffFactor = cliffT * cliffT * (3.0f - 2.0f * cliffT); // 0 (shadowed cliff) to 1 (illuminated cliff)
+
+            // When cliff is in shadow, draw soft forward cast shadow onto the ramp
+            if (cliffFactor < 0.95f) {
+                float shadowAlpha = (1.0f - cliffFactor) * 0.65f;
+                r.drawLine(leftChordX + dirX * 1.2f, leftChordY + dirY * 1.2f,
+                           rightChordX + dirX * 1.2f, rightChordY + dirY * 1.2f,
+                           0.05f, 0.05f, 0.08f, shadowAlpha, 1.6f);
+            }
+
+            // Cliff edge line smoothly transitions between shadow silhouette and specular gleam
+            Color darkCliffEdge = Color(capSh.r * 0.45f, capSh.g * 0.45f, capSh.b * 0.45f, 0.90f);
+            Color brightCliffEdge = Color(1.0f, 1.0f, 1.0f, 0.85f);
+            Color cliffEdge = lerpColor(darkCliffEdge, brightCliffEdge, cliffFactor);
+            float cliffWidth = 1.2f + 0.3f * cliffFactor;
+            r.drawLine(leftChordX, leftChordY, rightChordX, rightChordY,
+                       cliffEdge.r, cliffEdge.g, cliffEdge.b, cliffEdge.a, cliffWidth);
+
+            // Secondary plateau reflection when facing light
+            if (cliffFactor > 0.05f) {
                 r.drawLine(leftChordX - dirX * 0.8f, leftChordY - dirY * 0.8f,
                            rightChordX - dirX * 0.8f, rightChordY - dirY * 0.8f,
-                           capHl.r, capHl.g, capHl.b, 0.40f * hlIntensity, 1.0f);
+                           capHl.r, capHl.g, capHl.b, 0.35f * cliffFactor, 1.0f);
             }
 
             // 3. Etched dark pointer notch line centered down the scoop slope

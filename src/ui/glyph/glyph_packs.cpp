@@ -377,6 +377,11 @@ bool GlyphRegistry::render(BatchRenderer2D& r, uint32_t cp, float x, float y, fl
     if (isPackEnabled(GlyphPack::Score)) {
         if (renderScoreGlyph(r, cp, x, y, scale, red, green, blue, alpha)) return true;
     }
+    if (isPackEnabled(GlyphPack::VectorFont) && cp >= 32 && cp <= 126) {
+        float w = 7.5f * scale;
+        float h = 13.0f * scale;
+        if (renderVectorFontGlyph(r, cp, x, y, w, h, red, green, blue, alpha)) return true;
+    }
     return false;
 }
 

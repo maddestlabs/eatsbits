@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <string_view>
+#include <functional>
 #include "eatsbits/terminal/terminal_grid.hpp"
 #include "eatsbits/terminal/ansi_parser.hpp"
 #include "eatsbits/eatscript/repl.hpp"
@@ -24,6 +25,19 @@ namespace eatsbits::audio {
 
 namespace eatsbits::ui {
 
+struct TerminalCallbacks {
+    std::function<bool(const std::string& name, const std::string& engineType)> onTrackCreate;
+    std::function<bool(uint32_t trackIndex)> onTrackDelete;
+    std::function<std::vector<std::string>()> onTrackList;
+    std::function<bool(const std::string& macroId, std::string& outMessage)> onMacroRun;
+    std::function<int(int fromPitch, int toPitch, int trackIndex)> onNotesReplace;
+    std::function<void(int viewIndex)> onNavigateView;
+    std::function<bool()> onToggleLoop;
+    std::function<bool()> onToggleMetronome;
+    std::function<void()> onToggleKeyboard;
+    std::function<void()> onToggleBrowser;
+};
+
 /**
  * @brief Interactive In-DAW WebGPU Terminal & Live REPL Console Drawer.
  * Embedded directly in the GUI desktop and web DAW, docked above the bottom nav bar.
@@ -36,7 +50,7 @@ public:
     TerminalConsoleDrawer();
     ~TerminalConsoleDrawer() override;
 
-    void layout(float screenWidth, float bottomNavTopY, float uiScale = 1.0f);
+    void layout(float screenWidth, float bottomNavTopY, float uiScale = 1.0f, float customTabX = -1.0f, float customTabW = -1.0f);
     void update(const FrameTimeContext& time) noexcept;
     void render(BatchRenderer2D& r, const ThemeTokens& theme, float uiScale = 1.0f);
 
@@ -60,6 +74,7 @@ public:
     }
 
     void bindAudioEngine(audio::AudioEngine* engine);
+    void setCallbacks(TerminalCallbacks callbacks) noexcept;
 
     [[nodiscard]] bool isExpanded() const noexcept { return drawer_.isExpanded(); }
     void setExpanded(bool exp) noexcept;
@@ -76,6 +91,9 @@ public:
     [[nodiscard]] const SlidingDrawer& getDrawer() const noexcept { return drawer_; }
 
     void executeCommand(const std::string& command);
+    void setInputText(const std::string& text);
+    void logCommandExecution(const std::string& title);
+    [[nodiscard]] const std::string& getCurrentLine() const noexcept { return currentLine_; }
     void clear();
 
     [[nodiscard]] const terminal::TerminalGrid& getGrid() const noexcept { return grid_; }
@@ -86,10 +104,12 @@ public:
 private:
     void printWelcomeBanner();
     void printPrompt();
+    void printHelpGuide();
     void commitCurrentLine();
     void setupHostBindings();
+    bool dispatchShellCommand(const std::string& cmd);
 
-    static constexpr float kPullTabHeight{28.0f};
+    static constexpr float kPullTabHeight{20.0f};
     static constexpr float kDefaultDrawerHeight{260.0f};
     static constexpr float kCellWidth{8.0f};
     static constexpr float kCellHeight{16.0f};
@@ -106,6 +126,7 @@ private:
     abi::HostRegistry hostRegistry_{};
     eatscript::ReplEngine repl_{&hostRegistry_};
     audio::AudioEngine* audioEngine_{nullptr};
+    TerminalCallbacks callbacks_{};
 
     std::string currentLine_{};
     size_t cursorCol_{0};

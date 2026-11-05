@@ -21,6 +21,12 @@
 .PARAMETER Cli
     Launches eatsbits_cli.exe instead of the GUI.
 
+.PARAMETER Tui
+    Launches eatsbits_tui.exe (terminal DAW workstation).
+
+.PARAMETER Term
+    Launches eatsbits_term.exe (standalone GPU WebGPU terminal).
+
 .PARAMETER Test
     Compiles the test suite and runs automated tests. By default, tests are omitted to maximize build speed.
 
@@ -45,6 +51,7 @@ param (
     [switch]$NoRun,
     [switch]$Cli,
     [switch]$Tui,
+    [switch]$Term,
     [switch]$Test,
     [switch]$Open
 )
@@ -119,9 +126,9 @@ if ($Target -ne "all") {
     Write-Host "    Target: $Target" -ForegroundColor Gray
 } else {
     if ($Test) {
-        Write-Host "    Target: All targets (Core, GUI, CLI, Tests)" -ForegroundColor Gray
+        Write-Host "    Target: All targets (Core, GUI, CLI, TUI, Tests)" -ForegroundColor Gray
     } else {
-        Write-Host "    Target: Application targets (eatsbits_gui, eatsbits_cli)" -ForegroundColor Gray
+        Write-Host "    Target: Application targets (GUI, CLI, TUI, Term, CLAP)" -ForegroundColor Gray
     }
 }
 
@@ -138,62 +145,86 @@ if ($LASTEXITCODE -ne 0) {
 $elapsedSec = [math]::Round($stopwatch.Elapsed.TotalSeconds, 2)
 Write-Host "`n[+] Build completed successfully in ${elapsedSec}s!" -ForegroundColor Green
 
-# Locate output binaries
+# Locate output binaries and runtime assets
 $outDir = Join-Path $buildDir $Config
 if (-not (Test-Path $outDir)) {
     $outDir = $buildDir
 }
 
-$guiExe = Join-Path $outDir "eatsbits_gui.exe"
-$cliExe = Join-Path $outDir "eatsbits_cli.exe"
-$tuiExe = Join-Path $outDir "eatsbits_tui.exe"
+$guiExe       = Join-Path $outDir "eatsbits_gui.exe"
+$cliExe       = Join-Path $outDir "eatsbits_cli.exe"
+$tuiExe       = Join-Path $outDir "eatsbits_tui.exe"
+$termExe      = Join-Path $outDir "eatsbits_term.exe"
+$eatscriptExe = Join-Path $outDir "eatscript_cli.exe"
+$wgpuDll      = Join-Path $outDir "wgpu_native.dll"
+$clapPlugin   = Join-Path $outDir "eatsbits_eats303.clap"
+if (-not (Test-Path $clapPlugin)) {
+    $clapPlugin = Join-Path $outDir "eatsbits_tb303.clap"
+}
 
 # ------------------------------------------------------------------
 # Native Desktop Binary Footprint & Bloat Analysis
 # ------------------------------------------------------------------
 Write-Host "`n========================================================================================" -ForegroundColor Cyan
-Write-Host "  Eatsbits Native Binary Footprint Analysis ($Config Mode)" -ForegroundColor Cyan
+Write-Host "  Eatsbits Runtime Distribution Footprint Analysis ($Config Mode)" -ForegroundColor Cyan
 Write-Host "========================================================================================" -ForegroundColor Cyan
 
-$nativeBinaries = @()
-if (Test-Path $guiExe) {
-    $nativeBinaries += [PSCustomObject]@{ Target = "eatsbits_gui.exe"; Type = "GUI DAW Application"; Path = $guiExe }
-}
-if (Test-Path $cliExe) {
-    $nativeBinaries += [PSCustomObject]@{ Target = "eatsbits_cli.exe"; Type = "CLI Test Harness"; Path = $cliExe }
-}
-if (Test-Path $tuiExe) {
-    $nativeBinaries += [PSCustomObject]@{ Target = "eatsbits_tui.exe"; Type = "Terminal DAW Workstation"; Path = $tuiExe }
-}
-$testExes = Get-ChildItem -Path $outDir -Filter "test_*.exe" -ErrorAction SilentlyContinue
-foreach ($t in $testExes) {
-    $nativeBinaries += [PSCustomObject]@{ Target = $t.Name; Type = "Automated Unit Test"; Path = $t.FullName }
+$runtimeManifest = @(
+    @{ Target = "eatsbits_gui.exe";      Category = "GUI DAW Application";        Path = $guiExe },
+    @{ Target = "eatsbits_cli.exe";      Category = "CLI Audio Engine & Batch";   Path = $cliExe },
+    @{ Target = "eatsbits_tui.exe";      Category = "Terminal DAW Workstation";   Path = $tuiExe },
+    @{ Target = "eatsbits_term.exe";     Category = "WebGPU GPU Terminal Shell";  Path = $termExe },
+    @{ Target = "eatscript_cli.exe";     Category = "Eatscript Compiler & REPL";  Path = $eatscriptExe },
+    @{ Target = "wgpu_native.dll";       Category = "WebGPU Graphics Runtime";    Path = $wgpuDll },
+    @{ Target = "eatsbits_eats303.clap"; Category = "CLAP Audio Plugin (TB-303)"; Path = $clapPlugin }
+)
+
+$runtimeBinaries = @()
+foreach ($item in $runtimeManifest) {
+    if (Test-Path $item.Path) {
+        $runtimeBinaries += [PSCustomObject]@{
+            Target   = $item.Target
+            Category = $item.Category
+            Path     = $item.Path
+        }
+    }
 }
 
 $totalBytes = 0
 $rows = @()
-foreach ($bin in $nativeBinaries) {
+foreach ($bin in $runtimeBinaries) {
     $len = (Get-Item $bin.Path).Length
     $totalBytes += $len
     $rows += [PSCustomObject]@{
-        Target = $bin.Target
-        Type   = $bin.Type
-        Bytes  = $len
+        Target   = $bin.Target
+        Category = $bin.Category
+        Bytes    = $len
     }
 }
 
-Write-Host ("  {0,-26} {1,-24} {2,14} {3,12} {4,10}" -f "Binary Target", "Category", "Size (Bytes)", "Size (MB)", "Share (%)") -ForegroundColor Yellow
-Write-Host "  --------------------------------------------------------------------------------------" -ForegroundColor Gray
+Write-Host ("  {0,-26} {1,-26} {2,14} {3,12} {4,10}" -f "Component", "Role / Category", "Size (Bytes)", "Size (MB)", "Share (%)") -ForegroundColor Yellow
+Write-Host "  ----------------------------------------------------------------------------------------" -ForegroundColor Gray
 
 foreach ($r in $rows) {
     $sizeMb = [math]::Round($r.Bytes / 1MB, 2)
     $share = if ($totalBytes -gt 0) { [math]::Round(($r.Bytes / $totalBytes) * 100.0, 1) } else { 0.0 }
-    Write-Host ("  {0,-26} {1,-24} {2,14:N0} {3,11:N2} MB {4,9:N1}%" -f $r.Target, $r.Type, $r.Bytes, $sizeMb, $share) -ForegroundColor White
+    Write-Host ("  {0,-26} {1,-26} {2,14:N0} {3,11:N2} MB {4,9:N1}%" -f $r.Target, $r.Category, $r.Bytes, $sizeMb, $share) -ForegroundColor White
 }
 
-Write-Host "  --------------------------------------------------------------------------------------" -ForegroundColor Gray
+Write-Host "  ----------------------------------------------------------------------------------------" -ForegroundColor Gray
 $totMb = [math]::Round($totalBytes / 1MB, 2)
-Write-Host ("  {0,-26} {1,-24} {2,14:N0} {3,11:N2} MB {4,9:N1}%" -f "TOTAL NATIVE BINARIES", "All Executables", $totalBytes, $totMb, 100.0) -ForegroundColor Green
+Write-Host ("  {0,-26} {1,-26} {2,14:N0} {3,11:N2} MB {4,9:N1}%" -f "TOTAL RUNTIME DISTRIBUTION", "All Required Files", $totalBytes, $totMb, 100.0) -ForegroundColor Green
+
+if ($Test) {
+    $testExes = Get-ChildItem -Path $outDir -Filter "test_*.exe" -ErrorAction SilentlyContinue
+    if ($testExes.Count -gt 0) {
+        $testTotalBytes = ($testExes | Measure-Object -Property Length -Sum).Sum
+        $testTotalMb = [math]::Round($testTotalBytes / 1MB, 2)
+        Write-Host "  ----------------------------------------------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host ("  {0,-26} {1,-26} {2,14:N0} {3,11:N2} MB {4,10}" -f "Developer Test Suite", "$($testExes.Count) Test Binaries", $testTotalBytes, $testTotalMb, "[Dev Only]") -ForegroundColor DarkGray
+    }
+}
+
 Write-Host "========================================================================================`n" -ForegroundColor Cyan
 
 # ------------------------------------------------------------------
@@ -234,7 +265,14 @@ if ($Open) {
 # STEP 6: Run Executable (Default behavior unless -NoRun)
 # ------------------------------------------------------------------
 if (-not $NoRun) {
-    if ($Tui) {
+    if ($Term) {
+        if (Test-Path $termExe) {
+            Write-Host "`n[*] Launching Eatsbits WebGPU Terminal..." -ForegroundColor Cyan
+            Start-Process -FilePath $termExe
+        } else {
+            Write-Error "Terminal executable not found at: $termExe"
+        }
+    } elseif ($Tui) {
         if (Test-Path $tuiExe) {
             Write-Host "`n[*] Launching Eatsbits Terminal DAW..." -ForegroundColor Cyan
             & $tuiExe

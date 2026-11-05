@@ -7,6 +7,7 @@
 #include "eatsbits/eatscript/vm.hpp"
 #include "eatsbits/eatscript/transpiler.hpp"
 #include "eatsbits/eatscript/note_script.hpp"
+#include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/eatscript/dispatch_scanner.hpp"
 #include "eatsbits/eatscript/macro_runtime.hpp"
 #include "eatsbits/procgen/procedural_song_engine.hpp"
@@ -27,6 +28,7 @@
 #include "eatsbits/project/eats_builtin_presets.hpp"
 #include "eatsbits/project/sequence_catalog.hpp"
 #include "eatsbits/ui/widgets/track_properties_panel.hpp"
+#include "eatsbits/ui/widgets/terminal_console_drawer.hpp"
 #include "eatsbits/ui/svg_path.hpp"
 #include "eatsbits/ui/draw_utils.hpp"
 #include "eatsbits/ui/glyph/ebf_font.hpp"
@@ -2814,8 +2816,9 @@ void GuiWindow::updateLogicalDimensions() noexcept {
     float dpiScaleX = 1.0f;
 #if EATS_HAS_GLFW
 #if defined(__EMSCRIPTEN__)
+    constexpr float kMaxWebDpi = 1.5f;
     double dpr = EM_ASM_DOUBLE({ return window.devicePixelRatio || 1.0; });
-    dpiScaleX = static_cast<float>(dpr);
+    dpiScaleX = std::min(static_cast<float>(dpr), kMaxWebDpi);
     if (dpiScaleX <= 0.0f) dpiScaleX = 1.0f;
 #else
     if (window_ && windowWidth_ > 0 && fbWidth_ > 0) {
@@ -5891,6 +5894,94 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     modularMixerView_ = std::make_unique<MixerView>();
     modularDesignView_ = std::make_unique<DesignView>();
     virtualKeyboardDrawerWidget_ = std::make_unique<VirtualKeyboardDrawer>();
+    terminalConsoleDrawerWidget_ = std::make_unique<TerminalConsoleDrawer>();
+    if (engine_) {
+        terminalConsoleDrawerWidget_->bindAudioEngine(engine_);
+    }
+    {
+        TerminalCallbacks tcb;
+        tcb.onTrackCreate = [this](const std::string& name, const std::string& engineType) -> bool {
+            addTrackToProject(name, engineType, 0.4f, 0.7f, 1.0f);
+            recordProjectHistory("Add Track: " + name, "TRACK");
+            markNeedsRedraw();
+            return true;
+        };
+        tcb.onTrackDelete = [this](uint32_t trackIndex) -> bool {
+            if (!engine_ || trackIndex >= engine_->getSequencer().getNumTracks()) return false;
+            deleteTrack(trackIndex);
+            recordProjectHistory("Delete Track #" + std::to_string(trackIndex), "TRACK");
+            markNeedsRedraw();
+            return true;
+        };
+        tcb.onTrackList = [this]() -> std::vector<std::string> {
+            std::vector<std::string> res;
+            if (!engine_) return res;
+            size_t count = engine_->getSequencer().getNumTracks();
+            for (size_t i = 0; i < count; ++i) {
+                const auto* trk = engine_->getSequencer().getTrack(i);
+                std::string name = trk ? trk->getName() : ("Track " + std::to_string(i + 1));
+                std::string engineName = "synth";
+                if (modularArrangerView_ && i < modularArrangerView_->getTracks().size()) {
+                    engineName = modularArrangerView_->getTracks()[i].instrumentEngine;
+                }
+                res.push_back(name + " [" + engineName + "] (" + std::to_string(trk ? trk->getNumSteps() : 16) + " steps)");
+            }
+            return res;
+        };
+        tcb.onMacroRun = [this](const std::string& macroId, std::string& outMessage) -> bool {
+            if (!engine_) {
+                outMessage = "No active audio engine";
+                return false;
+            }
+            eatscript::MacroRuntime runtime;
+            std::map<std::string, float> numParams;
+            std::map<std::string, std::string> strParams;
+            auto res = runtime.executeParameterized(macroId, numParams, strParams, *engine_, engine_->getSequencer(), selectedTrackIndex_);
+            if (res.success) {
+                outMessage = res.message.empty() ? "Generated successfully" : res.message;
+                recordProjectHistory("Macro: " + macroId, "MACRO");
+                if (!res.generatedTracks.empty() && modularArrangerView_) {
+                    modularArrangerView_->getTracks() = res.generatedTracks;
+                    for (auto& trk : modularArrangerView_->getTracks()) {
+                        for (auto& clp : trk.clips) {
+                            modularArrangerView_->updateClipDetectedChords(clp);
+                        }
+                    }
+                }
+                markNeedsRedraw();
+                return true;
+            } else {
+                outMessage = res.message.empty() ? "Macro execution failed" : res.message;
+                return false;
+            }
+        };
+        tcb.onNotesReplace = [this](int fromPitch, int toPitch, int trackIndex) -> int {
+            return replaceNotesAcrossProject(fromPitch, toPitch, trackIndex);
+        };
+        tcb.onNavigateView = [this](int viewIndex) {
+            if (viewIndex >= 0 && viewIndex <= 4) {
+                setActiveView(static_cast<WorkspaceView>(viewIndex));
+                markNeedsRedraw();
+            }
+        };
+        tcb.onToggleLoop = [this]() -> bool {
+            toggleLoop();
+            return loopEnabled_;
+        };
+        tcb.onToggleMetronome = [this]() -> bool {
+            toggleMetronome();
+            return metronomeEnabled_;
+        };
+        tcb.onToggleKeyboard = [this]() {
+            toggleVirtualKeyboardDrawer();
+            markNeedsRedraw();
+        };
+        tcb.onToggleBrowser = [this]() {
+            toggleBrowser();
+            markNeedsRedraw();
+        };
+        terminalConsoleDrawerWidget_->setCallbacks(std::move(tcb));
+    }
     projectBrowserDrawerWidget_ = std::make_unique<ProjectBrowserDrawer>();
     transportHeaderWidget_ = std::make_unique<TransportHeader>();
     transportHeaderWidget_->setLoopActive(loopEnabled_);
@@ -6563,44 +6654,60 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 
     // Register Default Universal Quick Commands into CommandPaletteDialog
     commandPaletteDialog_.clearCommands();
-    commandPaletteDialog_.registerCommand({
-        "view.arranger", "Arranger View", "Full multi-track timeline, clips and automation",
-        CommandCategory::View, "1", [this]() { setActiveView(WorkspaceView::Arranger); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.edit", "Edit View (Piano Roll / Tracker)", "Note editing, step sequencer and chords",
-        CommandCategory::View, "2", [this]() { setActiveView(WorkspaceView::Edit); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.inspector", "Track Inspector", "Channel parameters, inserts and routing",
-        CommandCategory::View, "3", [this]() { setActiveView(WorkspaceView::Track); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.mixer", "Modular Mixer", "High-density 8-channel console with VU ballistics",
-        CommandCategory::View, "4", [this]() { setActiveView(WorkspaceView::Mixer); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.design", "Modular Rack & Design", "Synthesizer node graph and modular routing",
-        CommandCategory::View, "5", [this]() { setActiveView(WorkspaceView::Design); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.drawer.keyboard", "Toggle Piano / Drum Pad Drawer", "Slide-up interactive audition drawer",
-        CommandCategory::View, "K", [this]() { toggleVirtualKeyboardDrawer(); }
-    });
-    commandPaletteDialog_.registerCommand({
-        "view.drawer.arranger_mixer", "Toggle Arranger Mixer Drawer", "Slide-up bottom mixing console in Arranger timeline",
-        CommandCategory::View, "M", [this]() {
-            if (activeView_ != WorkspaceView::Arranger) {
-                setActiveView(WorkspaceView::Arranger);
+    commandPaletteDialog_.setCommandExecutionCallback([this](const QuickCommand& cmd, bool stageOnly) {
+        bool termActive = terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded();
+        if (termActive) {
+            if (!cmd.cliSyntax.empty()) {
+                if (stageOnly) {
+                    terminalConsoleDrawerWidget_->setInputText(cmd.cliSyntax);
+                } else {
+                    terminalConsoleDrawerWidget_->executeCommand(cmd.cliSyntax);
+                }
+            } else {
+                if (!stageOnly && cmd.onExecute) {
+                    cmd.onExecute();
+                    terminalConsoleDrawerWidget_->logCommandExecution(cmd.title);
+                }
             }
-            if (modularArrangerView_) {
-                modularArrangerView_->toggleMixerDrawer();
+            terminalConsoleDrawerWidget_->setFocused(true);
+        } else {
+            if (!stageOnly && cmd.onExecute) {
+                cmd.onExecute();
             }
         }
     });
+
+    commandPaletteDialog_.registerCommand({
+        "view.arranger", "Arranger View", "Full multi-track timeline, clips and automation",
+        CommandCategory::View, "1", [this]() { setActiveView(WorkspaceView::Arranger); }, "view arranger"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.edit", "Edit View (Piano Roll / Tracker)", "Note editing, step sequencer and chords",
+        CommandCategory::View, "2", [this]() { setActiveView(WorkspaceView::Edit); }, "view edit"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.inspector", "Track Inspector", "Channel parameters, inserts and routing",
+        CommandCategory::View, "3", [this]() { setActiveView(WorkspaceView::Track); }, "view inspector"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.mixer", "Modular Mixer", "High-density 8-channel console with VU ballistics",
+        CommandCategory::View, "4", [this]() { setActiveView(WorkspaceView::Mixer); }, "view mixer"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.design", "Modular Rack & Design", "Synthesizer node graph and modular routing",
+        CommandCategory::View, "5", [this]() { setActiveView(WorkspaceView::Design); }, "view design"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.drawer.keyboard", "Toggle Piano / Drum Pad Drawer", "Slide-up interactive audition drawer",
+        CommandCategory::View, "K", [this]() { toggleVirtualKeyboardDrawer(); }, "keyboard"
+    });
+    commandPaletteDialog_.registerCommand({
+        "view.drawer.terminal", "Toggle Terminal / CLI Console", "Built-in Eatscript REPL and DAW programming shell",
+        CommandCategory::View, "`", [this]() { toggleTerminalConsole(); }, "terminal"
+    });
     commandPaletteDialog_.registerCommand({
         "view.drawer.browser", "Toggle Project Browser Drawer", "Projects, presets, macros, and history timeline",
-        CommandCategory::View, "B", [this]() { toggleBrowser(); }
+        CommandCategory::View, "B", [this]() { toggleBrowser(); }, "browser"
     });
     commandPaletteDialog_.registerCommand({
         "action.play_pause", "Play / Pause Transport", "Toggle global transport playback",
@@ -6612,21 +6719,21 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
                     engine_->getSequencer().start();
                 }
             }
-        }
+        }, "play"
     });
     commandPaletteDialog_.registerCommand({
         "action.stop_panic", "Panic / All Notes Off", "Halt transport and kill all sounding voices",
         CommandCategory::Action, "Esc", [this]() {
             if (engine_) engine_->panic();
-        }
+        }, "panic"
     });
     commandPaletteDialog_.registerCommand({
         "action.loop", "Toggle Loop Cycle", "Enable or disable global arrangement cycle loop",
-        CommandCategory::Action, "L", [this]() { toggleLoop(); }
+        CommandCategory::Action, "L", [this]() { toggleLoop(); }, "loop"
     });
     commandPaletteDialog_.registerCommand({
         "action.metronome", "Toggle Metronome", "Audible click track on beats",
-        CommandCategory::Action, "M", [this]() { toggleMetronome(); }
+        CommandCategory::Action, "M", [this]() { toggleMetronome(); }, "metronome"
     });
     commandPaletteDialog_.registerCommand({
         "action.undo", "Undo Last Action", "Revert last project or parameter state",
@@ -6699,6 +6806,58 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
         CommandCategory::Preset, "", [this]() { if (presets_.size() > 3) loadPresetToSelectedTrack(3); }
     });
     commandPaletteDialog_.registerCommand({
+        "track.add_synth", "Add Track: Analog Synth", "Create new synthesizer track",
+        CommandCategory::Action, "", [this]() { addTrackToProject("Synth", "synth", 0.3f, 0.7f, 1.0f); }, "track add Synth synth"
+    });
+    commandPaletteDialog_.registerCommand({
+        "track.add_drums", "Add Track: 909 Drums", "Create new electronic drum machine track",
+        CommandCategory::Action, "", [this]() { addTrackToProject("Drums", "909", 0.9f, 0.3f, 0.4f); }, "track add Drums 909"
+    });
+    commandPaletteDialog_.registerCommand({
+        "track.add_dx7", "Add Track: FM DX7", "Create new FM synth electric piano track",
+        CommandCategory::Action, "", [this]() { addTrackToProject("DX7", "dx7", 0.2f, 0.8f, 0.6f); }, "track add DX7 dx7"
+    });
+    commandPaletteDialog_.registerCommand({
+        "track.list", "List Project Tracks", "Print summary of all project tracks",
+        CommandCategory::Action, "", [this]() {}, "track list"
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.acid", "Macro: 303 Acid Generator", "Generate procedural TB-303 acid bassline pattern",
+        CommandCategory::Action, "", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("macro acid");
+        }, "macro acid"
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.techno", "Macro: Techno Drum Groover", "Generate procedural 909 club rhythm section",
+        CommandCategory::Action, "", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("macro techno");
+        }, "macro techno"
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.song", "Macro: Full Song Architect", "Procedurally arrange multi-section song",
+        CommandCategory::Action, "", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("macro song");
+        }, "macro song"
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.chords", "Macro: Harmonic Progressions", "Generate procedural chord progression",
+        CommandCategory::Action, "", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("macro chords");
+        }, "macro chords"
+    });
+    commandPaletteDialog_.registerCommand({
+        "macro.humanize", "Macro: Humanize Velocities & Timing", "Apply natural subtle groove jitter across tracks",
+        CommandCategory::Action, "", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("macro humanize");
+        }, "macro humanize"
+    });
+    commandPaletteDialog_.registerCommand({
+        "terminal.help", "Terminal: Help & Command Reference", "Print comprehensive CLI command guide",
+        CommandCategory::Action, "?", [this]() {
+            if (terminalConsoleDrawerWidget_) terminalConsoleDrawerWidget_->executeCommand("help");
+        }, "help"
+    });
+    commandPaletteDialog_.registerCommand({
         "theme.browse", "Theme: Browse All Themes & Palettes", "Open filterable theme browser with live swatches and search",
         CommandCategory::Theme, "Ctrl+Shift+T", [this]() { openThemeBrowserDialog(); }
     });
@@ -6713,6 +6872,7 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
             "",
             [this, i]() {
                 setActiveThemePreset(static_cast<int>(i));
+                saveSettings();
                 setStatusMessage("Theme: " + getTheme().name);
             }
         });
@@ -6729,39 +6889,39 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
     });
     commandPaletteDialog_.registerCommand({
         "macro.procedural_song", "Macro: Procedural Song Architect", "Generate complete multi-track song arrangement",
-        CommandCategory::Macro, "Ctrl+Shift+G", [this]() { openMacroRunner("macro_song_gen"); }
+        CommandCategory::Macro, "Ctrl+Shift+G", [this]() { openMacroRunner("macro_song_gen"); }, "macro song"
     });
     commandPaletteDialog_.registerCommand({
         "macro.ensemble", "Macro: Dynamic Ensemble Arranger", "Multi-track arrangement across dynamic ensembles (RPG tavern, action theme, dungeon)",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_ensemble_arranger"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_ensemble_arranger"); }, "macro ensemble"
     });
     commandPaletteDialog_.registerCommand({
         "macro.procedural_acid", "Macro: Procedural Acid Bassline", "Generate algorithmic 16-step 303 pattern with slides & accents",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_acid_gen"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_acid_gen"); }, "macro acid"
     });
     commandPaletteDialog_.registerCommand({
         "macro.techno_groove", "Macro: Procedural Drum Groover", "Populate genre-authentic drum patterns with swing & fills",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_drum_techno"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_drum_techno"); }, "macro techno"
     });
     commandPaletteDialog_.registerCommand({
         "macro.piano_comp", "Macro: Procedural Piano Accompaniment", "Compose lush piano voicings with jazz chords & voice leading",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_piano_comp"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_piano_comp"); }, "macro piano"
     });
     commandPaletteDialog_.registerCommand({
         "macro.chords", "Macro: Harmonic Progression Generator", "Generate Roman numeral modal progressions across project chord track",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_harmonic_progression"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_harmonic_progression"); }, "macro chords"
     });
     commandPaletteDialog_.registerCommand({
         "macro.transpose", "Macro: Global Chord-Aware Transpose", "Transpose whole project with scale/chord adherence",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_global_transpose"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_global_transpose"); }, "macro transpose"
     });
     commandPaletteDialog_.registerCommand({
         "macro.humanize", "Macro: Humanize Velocities & Timing", "Apply organic micro-timing jitter to selected notes",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_humanize_all"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_humanize_all"); }, "macro humanize"
     });
     commandPaletteDialog_.registerCommand({
         "macro.arp_track", "Macro: Arpeggiate Active Track", "Transform active track notes into 16th-note arpeggio",
-        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_arp_track"); }
+        CommandCategory::Macro, "", [this]() { openMacroRunner("macro_arp_track"); }, "macro arp"
     });
 
     if (modularArrangerView_) {
@@ -8008,7 +8168,8 @@ bool GuiWindow::initialize(audio::AudioEngine& engine) {
 #endif
 #if defined(__EMSCRIPTEN__)
     g_activeGuiWindowForWeb = this;
-    double initDpr = EM_ASM_DOUBLE({ return window.devicePixelRatio || 1.0; });
+    constexpr double kMaxWebDpi = 1.5;
+    double initDpr = std::min(EM_ASM_DOUBLE({ return window.devicePixelRatio || 1.0; }), kMaxWebDpi);
     fbWidth_ = static_cast<int>(std::round(static_cast<double>(windowWidth_) * (hiDpiEnabled_ ? initDpr : 1.0)));
     fbHeight_ = static_cast<int>(std::round(static_cast<double>(windowHeight_) * (hiDpiEnabled_ ? initDpr : 1.0)));
     EM_ASM({
@@ -8395,7 +8556,8 @@ void GuiWindow::pollWebResize() noexcept {
     if (targetW < 320) targetW = 320;
     if (targetH < 240) targetH = 240;
 
-    float expectedDpi = hiDpiEnabled_ ? static_cast<float>(dpr) : 1.0f;
+    constexpr float kMaxWebDpi = 1.5f;
+    float expectedDpi = hiDpiEnabled_ ? std::min(static_cast<float>(dpr), kMaxWebDpi) : 1.0f;
     int targetFbW = static_cast<int>(std::round(static_cast<float>(targetW) * expectedDpi));
     int targetFbH = static_cast<int>(std::round(static_cast<float>(targetH) * expectedDpi));
 
@@ -8429,6 +8591,9 @@ void GuiWindow::pollWebResize() noexcept {
 
 bool GuiWindow::isAnyDrawerAnimating() const noexcept {
     if (std::abs(virtualKeyboardAnimProgress_ - (virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f)) > 0.001f) {
+        return true;
+    }
+    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->getDrawer().isAnimating()) {
         return true;
     }
     if (projectBrowserDrawerWidget_ && projectBrowserDrawerWidget_->isAnimating()) {
@@ -8934,10 +9099,28 @@ void GuiWindow::drawTopTransportBar() {
     drawTactileSquareBtnBase(cmdX, toolY, isCmdOpen);
     Color cmdCol = isCmdOpen ? theme.primaryAccent : buttonEtch.lighten(0.10f);
     float pY = toolY + 11.0f + (isCmdOpen ? 2.0f : 0.0f);
-    // Tactile command prompt glyph ">_"
-    drawLine(cmdX + 10.0f, pY + 3.0f, cmdX + 15.5f, pY + 7.5f, cmdCol, 1.8f);
-    drawLine(cmdX + 15.5f, pY + 7.5f, cmdX + 10.0f, pY + 12.0f, cmdCol, 1.8f);
-    drawLine(cmdX + 17.5f, pY + 12.0f, cmdX + 24.5f, pY + 12.0f, cmdCol, 1.8f);
+
+    // Tactile ⌘K glyph (Command loop icon + letter K)
+    const float gx = cmdX + 6.5f;
+    const float gy = pY + 1.0f;
+    // 4 Corner Loops of ⌘
+    drawRoundedRectOutline(gx, gy, 4.2f, 4.2f, 1.2f, cmdCol, 1.4f);
+    drawRoundedRectOutline(gx + 6.8f, gy, 4.2f, 4.2f, 1.2f, cmdCol, 1.4f);
+    drawRoundedRectOutline(gx, gy + 6.8f, 4.2f, 4.2f, 1.2f, cmdCol, 1.4f);
+    drawRoundedRectOutline(gx + 6.8f, gy + 6.8f, 4.2f, 4.2f, 1.2f, cmdCol, 1.4f);
+    // Inner square connecting lines
+    drawLine(gx + 3.8f, gy + 2.1f, gx + 7.2f, gy + 2.1f, cmdCol, 1.4f);
+    drawLine(gx + 3.8f, gy + 8.9f, gx + 7.2f, gy + 8.9f, cmdCol, 1.4f);
+    drawLine(gx + 2.1f, gy + 3.8f, gx + 2.1f, gy + 7.2f, cmdCol, 1.4f);
+    drawLine(gx + 8.9f, gy + 3.8f, gx + 8.9f, gy + 7.2f, cmdCol, 1.4f);
+    // Letter 'K'
+    const float kx = cmdX + 20.5f;
+    const float ky = pY + 1.0f;
+    const float kh = 11.0f;
+    const float kw = 6.0f;
+    drawLine(kx, ky, kx, ky + kh, cmdCol, 1.6f);
+    drawLine(kx + 0.5f, ky + kh * 0.52f, kx + kw, ky + 0.5f, cmdCol, 1.6f);
+    drawLine(kx + 1.2f, ky + kh * 0.45f, kx + kw, ky + kh - 0.5f, cmdCol, 1.6f);
     drawTactileSquareBtnOverlay(cmdX, toolY, isCmdOpen);
 
     // BUTTON 2: FULLSCREEN (Toggle Native / Workspace Fullscreen Mode)
@@ -9222,6 +9405,23 @@ void GuiWindow::renderFrame() {
 
         // Virtual Piano Keyboard Drawer (Horizontal collapsible drawer docking above bottom nav)
         drawVirtualKeyboardDrawer();
+
+        // Terminal & CLI REPL Drawer (docked alongside Piano drawer above bottom nav)
+        if (terminalConsoleDrawerWidget_) {
+            const float tabW = 135.0f;
+            const float tabGap = 10.0f;
+            const float totalTabsW = tabW * 2.0f + tabGap;
+            const float pianoTabX = (static_cast<float>(width_) - totalTabsW) * 0.5f;
+            const float termTabX = pianoTabX + tabW + tabGap;
+
+            FrameTimeContext ftc{};
+            ftc.deltaTime = frameDt_;
+            terminalConsoleDrawerWidget_->layout(static_cast<float>(width_), bPanelY, 1.0f, termTabX, tabW);
+            terminalConsoleDrawerWidget_->update(ftc);
+            if (batchRenderer_) {
+                terminalConsoleDrawerWidget_->render(*batchRenderer_, theme, 1.0f);
+            }
+        }
 
         // =========================================================================
         // 3. BOTTOM HARDWARE NAVIGATION CONTROL STRIP
@@ -9621,9 +9821,9 @@ void GuiWindow::renderFrame() {
 
                         drawRoundedRect(hubX + 34.0f + setBtnW, contentY + 108.0f, setBtnW, 28.0f, 4.0f, theme.controlWell);
                         drawRoundedRectOutline(hubX + 34.0f + setBtnW, contentY + 108.0f, setBtnW, 28.0f, 4.0f, theme.primaryAccent, 1.0f);
-                        drawVectorString("OPEN SETTINGS (JSON)", hubX + 48.0f + setBtnW, contentY + 115.0f, 0.75f, theme.primaryAccent);
+                        drawVectorString("OPEN SETTINGS (.EATS)", hubX + 46.0f + setBtnW, contentY + 115.0f, 0.75f, theme.primaryAccent);
 #endif
-                        drawVectorString("Settings stored natively in JSON (auto-saved on change)", hubX + 28.0f, contentY + 144.0f, 0.60f, theme.textMuted);
+                        drawVectorString("Settings configured via Eatscript (auto-saved with managed blocks)", hubX + 28.0f, contentY + 144.0f, 0.60f, theme.textMuted);
                     } else if (s == 2) {
                         // SECTION 2: DISPLAY & WORKSPACE
                         // UI Magnification / Scale Slider with 25% Increments (50% to 200%)
@@ -10435,7 +10635,7 @@ std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
     // 2. Right-Side Tactile Pushbuttons:
     // Command Palette Button [r - 122 to r - 83]
     if (x >= (r - 122.0f) && x < (r - 83.0f) && y >= 8.0f && y <= 48.0f) {
-        return commandPaletteDialog_.isOpen() ? "Close Command Palette (Ctrl+P)" : "Command Palette (Ctrl+P / Ctrl+K)";
+        return commandPaletteDialog_.isOpen() ? "Close Command Palette (Ctrl+P / Ctrl+K / ⌘K)" : "Command Palette (Ctrl+P / Ctrl+K / ⌘K)";
     }
 
     // Fullscreen Button [r - 83 to r - 43]
@@ -10458,29 +10658,6 @@ std::string GuiWindow::getTransportTooltip(float x, float y) const noexcept {
     // Secondary Timecode / Bar:Beat:Div Readout [r - 228 to r - 132] (Wide screens r >= 600)
     if (r >= 600.0f && x >= (r - 228.0f) && x < (r - 132.0f) && y >= 8.0f && y <= 48.0f) {
         return "Song Position (Bar : Beat : 16th)";
-    }
-
-    // 4. Desktop-only Selector Boxes (only on wide screens r >= 1000 to prevent collisions on mobile)
-    if (r >= 1000.0f) {
-        // Snap Selector Box [695, 11, 65, 34]
-        if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
-            return "Timeline Grid Snap (1/16)";
-        }
-
-        // Scale Selector Box [r - 345, 11, 72, 34]
-        if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
-            return "Musical Scale & Key Selector";
-        }
-
-        // Metronome Toggle [r - 265, 11, 75, 34]
-        if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
-            return "Metronome Click (C)";
-        }
-
-        // Loop Toggle [r - 180, 11, 65, 34]
-        if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
-            return "Loop Playback (L)";
-        }
     }
 
     return "";
@@ -10546,69 +10723,6 @@ HitTestTransportResult GuiWindow::hitTestTransport(float x, float y) const noexc
         res.hit = true;
         res.action = TransportAction::Bpm;
         return res;
-    }
-
-    // 4. Desktop-only Selector Boxes (only on wide screens r >= 1000 to prevent collisions on mobile)
-    if (r >= 1000.0f) {
-        // Snap Selector Box [695, 11, 65, 34]
-        if (x >= 695.0f && x <= 760.0f && y >= 11.0f && y <= 45.0f) {
-            res.hit = true;
-            res.action = TransportAction::SnapToggle;
-            return res;
-        }
-
-        // Scale Selector Box [r - 345, 11, 72, 34]
-        if (x >= (r - 345.0f) && x <= (r - 273.0f) && y >= 11.0f && y <= 45.0f) {
-            res.hit = true;
-            res.action = TransportAction::ScaleToggle;
-            return res;
-        }
-
-        // Metronome Toggle [r - 265, 11, 75, 34]
-        if (x >= (r - 265.0f) && x <= (r - 190.0f) && y >= 11.0f && y <= 45.0f) {
-            res.hit = true;
-            res.action = TransportAction::MetronomeToggle;
-            return res;
-        }
-
-        // Loop Toggle [r - 180, 11, 65, 34]
-        if (x >= (r - 180.0f) && x <= (r - 115.0f) && y >= 11.0f && y <= 45.0f) {
-            res.hit = true;
-            res.action = TransportAction::LoopToggle;
-            return res;
-        }
-
-        // Legacy tab positions (for wide displays backwards compatibility if invoked directly):
-        // Tab Rack [r - 430, 12, 68, 32]
-        if (x >= (r - 430.0f) && x <= (r - 362.0f) && y >= 12.0f && y <= 44.0f) {
-            res.hit = true;
-            res.action = TransportAction::TabRack;
-            return res;
-        }
-        // Tab Hardware Panel [r - 355, 12, 75, 32]
-        if (x >= (r - 355.0f) && x <= (r - 280.0f) && y >= 12.0f && y <= 44.0f) {
-            res.hit = true;
-            res.action = TransportAction::TabHardware;
-            return res;
-        }
-        // Tab Tracker [r - 274, 12, 80, 32]
-        if (x >= (r - 274.0f) && x <= (r - 194.0f) && y >= 12.0f && y <= 44.0f) {
-            res.hit = true;
-            res.action = TransportAction::TabTracker;
-            return res;
-        }
-        // Tab Mixer [r - 188, 12, 75, 32]
-        if (x >= (r - 188.0f) && x <= (r - 113.0f) && y >= 12.0f && y <= 44.0f) {
-            res.hit = true;
-            res.action = TransportAction::TabMixer;
-            return res;
-        }
-        // Tab Script [r - 106, 12, 75, 32]
-        if (x >= (r - 106.0f) && x <= (r - 31.0f) && y >= 12.0f && y <= 44.0f) {
-            res.hit = true;
-            res.action = TransportAction::TabEatscript;
-            return res;
-        }
     }
 
     // Preset switcher buttons (when activeView_ == HardwarePanel / Track):
@@ -10774,32 +10888,6 @@ void GuiWindow::executeTransportAction(TransportAction action, float x, float y)
             break;
         case TransportAction::SearchToggle:
             toggleCommandPalette();
-            break;
-        case TransportAction::SnapToggle:
-            break;
-        case TransportAction::ScaleToggle:
-            if (uiScale_ < 0.80f) setUiScale(0.85f);
-            else if (uiScale_ < 0.95f) setUiScale(1.0f);
-            else if (uiScale_ < 1.15f) setUiScale(1.25f);
-            else if (uiScale_ < 1.40f) setUiScale(1.50f);
-            else setUiScale(0.75f);
-            break;
-        case TransportAction::TabRack:
-            setActiveView(WorkspaceView::ModularRack);
-            break;
-        case TransportAction::TabHardware:
-            syncTrackToPreset(selectedTrackIndex_);
-            setActiveView(WorkspaceView::HardwarePanel);
-            break;
-        case TransportAction::TabTracker:
-            setActiveView(WorkspaceView::Tracker);
-            break;
-        case TransportAction::TabMixer:
-            setActiveView(WorkspaceView::Mixer);
-            break;
-        case TransportAction::TabEatscript:
-            setActiveView(WorkspaceView::Edit);
-            setEditSubView(EditSubView::Script);
             break;
         case TransportAction::PresetPrev:
             prevPreset();
@@ -14871,12 +14959,106 @@ void GuiWindow::setVirtualKeyboardBaseOctave(int octave) noexcept {
     }
 }
 
+void GuiWindow::setVirtualKeyboardDrawerOpen(bool open) noexcept {
+    virtualKeyboardDrawerOpen_ = open;
+    if (!guiAnimationsEnabled_) {
+        virtualKeyboardAnimProgress_ = open ? 1.0f : 0.0f;
+    }
+    if (virtualKeyboardDrawerWidget_) {
+        virtualKeyboardDrawerWidget_->setExpanded(open);
+    }
+    if (open && terminalConsoleDrawerWidget_) {
+        terminalConsoleDrawerWidget_->setExpanded(false);
+    }
+}
+
+void GuiWindow::toggleVirtualKeyboardDrawer() noexcept {
+    setVirtualKeyboardDrawerOpen(!virtualKeyboardDrawerOpen_);
+}
+
+bool GuiWindow::isTerminalConsoleOpen() const noexcept {
+    return terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded();
+}
+
+void GuiWindow::setTerminalConsoleOpen(bool open) noexcept {
+    if (terminalConsoleDrawerWidget_) {
+        if (open) {
+            setVirtualKeyboardDrawerOpen(false);
+        }
+        terminalConsoleDrawerWidget_->setExpanded(open);
+        markNeedsRedraw();
+    }
+}
+
+void GuiWindow::toggleTerminalConsole() noexcept {
+    if (terminalConsoleDrawerWidget_) {
+        setTerminalConsoleOpen(!terminalConsoleDrawerWidget_->isExpanded());
+    }
+}
+
+int GuiWindow::replaceNotesAcrossProject(int fromPitch, int toPitch, int trackIndex) {
+    if (!engine_ || fromPitch < 0 || toPitch < 0 || fromPitch > 127 || toPitch > 127) return 0;
+
+    int totalReplaced = 0;
+    auto& seq = engine_->getSequencer();
+    size_t numTracks = seq.getNumTracks();
+
+    size_t startTrack = (trackIndex >= 0 && static_cast<size_t>(trackIndex) < numTracks) ? static_cast<size_t>(trackIndex) : 0;
+    size_t endTrack = (trackIndex >= 0 && static_cast<size_t>(trackIndex) < numTracks) ? startTrack + 1 : numTracks;
+
+    // 1. Replace notes in StepSequencer
+    for (size_t t = startTrack; t < endTrack; ++t) {
+        auto* trk = seq.getTrack(t);
+        if (!trk) continue;
+        for (uint32_t s = 0; s < trk->getNumSteps(); ++s) {
+            auto& step = trk->getStep(s);
+            if (step.active) {
+                if (step.note == fromPitch) {
+                    step.note = static_cast<uint8_t>(toPitch);
+                    totalReplaced++;
+                }
+                for (auto& extra : step.extraNotes) {
+                    if (extra == fromPitch) {
+                        extra = static_cast<uint8_t>(toPitch);
+                        totalReplaced++;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Replace notes in modularArrangerView_ clips
+    if (modularArrangerView_) {
+        auto& arrTracks = modularArrangerView_->getTracks();
+        size_t arrEnd = std::min(endTrack, arrTracks.size());
+        for (size_t t = startTrack; t < arrEnd; ++t) {
+            for (auto& clip : arrTracks[t].clips) {
+                for (auto& n : clip.notes) {
+                    if (n.pitch == fromPitch) {
+                        n.pitch = static_cast<uint8_t>(toPitch);
+                    }
+                }
+                modularArrangerView_->updateClipDetectedChords(clip);
+            }
+        }
+    }
+
+    if (totalReplaced > 0) {
+        recordProjectHistory("Replace Notes (" + std::to_string(fromPitch) + " -> " + std::to_string(toPitch) + ")", "NOTE");
+        markNeedsRedraw();
+    }
+
+    return totalReplaced;
+}
+
 HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float mx, float my) const noexcept {
     HitTestVirtualKeyboardDrawerResult res{};
     const float bPanelY = static_cast<float>(height_) - 48.0f;
-    const float tabW = 140.0f;
+    const float tabW = 135.0f;
     const float tabH = 20.0f;
-    const float tabX = (static_cast<float>(width_) - tabW) * 0.5f;
+    const float tabGap = 10.0f;
+    const float totalTabsW = tabW * 2.0f + tabGap;
+    const float tabX = (static_cast<float>(width_) - totalTabsW) * 0.5f;
 
     float animProg = guiAnimationsEnabled_ ? virtualKeyboardAnimProgress_ : (virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f);
     float currentH = virtualKeyboardDrawerHeight_ * animProg;
@@ -14887,6 +15069,12 @@ HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float
     if (mx >= tabX && mx <= tabX + tabW && my >= tabY && my <= (currentH > 0.0f ? drawerY + 4.0f : bPanelY)) {
         res.hit = true;
         res.isPullTab = true;
+        return res;
+    }
+
+    // Terminal pull-tab region must never be consumed by the virtual keyboard drawer
+    const float termTabX = tabX + tabW + tabGap;
+    if (mx >= termTabX && mx <= termTabX + tabW && my >= (bPanelY - tabH) && my <= bPanelY + 4.0f) {
         return res;
     }
 
@@ -14932,9 +15120,11 @@ HitTestVirtualKeyboardDrawerResult GuiWindow::hitTestVirtualKeyboardDrawer(float
 
 void GuiWindow::drawVirtualKeyboardDrawer() {
     const float bPanelY = static_cast<float>(height_) - 48.0f;
-    const float tabW = 140.0f;
+    const float tabW = 135.0f;
     const float tabH = 20.0f;
-    const float tabX = (static_cast<float>(width_) - tabW) * 0.5f;
+    const float tabGap = 10.0f;
+    const float totalTabsW = tabW * 2.0f + tabGap;
+    const float tabX = (static_cast<float>(width_) - totalTabsW) * 0.5f;
     const auto& theme = getTheme();
 
     // Smooth ease-in animation step with exponential damping
@@ -14992,7 +15182,6 @@ void GuiWindow::drawVirtualKeyboardDrawer() {
 
     // Top Header / Toolbar inside Drawer
     drawVectorString("VIRTUAL PIANO KEYBOARD", 20.0f, drawerY + 6.0f, 0.85f, theme.primaryAccent);
-    drawVectorString("| TOUCH / DRAG GLISSANDO & VELOCITY", 210.0f, drawerY + 6.0f, 0.70f, theme.textMuted);
 
     // Octave controls
     // [< OCT] button
@@ -15153,151 +15342,43 @@ HitTestSelectionSidebarResult GuiWindow::hitTestSelectionSidebar(float mx, float
         return res;
     }
 
-    // Transpose buttons (y + 100)
-    float curY = y + 100.0f;
-    if (my >= curY && my <= curY + 26.0f) {
-        if (mx >= x + 10.0f && mx <= x + 50.0f) {
-            res.action = SelectionSidebarAction::TransposeOctDown;
-            res.paramValue = -12;
-            return res;
-        }
-        if (mx >= x + 54.0f && mx <= x + 90.0f) {
-            res.action = SelectionSidebarAction::TransposeSemiDown;
-            res.paramValue = -1;
-            return res;
-        }
-        if (mx >= x + width - 90.0f && mx <= x + width - 54.0f) {
-            res.action = SelectionSidebarAction::TransposeSemiUp;
-            res.paramValue = 1;
-            return res;
-        }
-        if (mx >= x + width - 50.0f && mx <= x + width - 10.0f) {
-            res.action = SelectionSidebarAction::TransposeOctUp;
-            res.paramValue = 12;
-            return res;
-        }
-    }
+    float sumY = y + 38.0f;
+    float curY = sumY + 46.0f;
+    bool isSingle = (track.getSelectedSteps().size() == 1);
+    const auto& sections = NoteInspectorRegistry::instance().getSections();
 
-    // Step nudge buttons (y + 144)
-    curY = y + 144.0f;
-    if (my >= curY && my <= curY + 30.0f) {
-        if (mx >= x + width - 128.0f && mx <= x + width - 72.0f) {
-            res.action = SelectionSidebarAction::NudgeLeft;
-            res.paramValue = -1;
-            return res;
-        }
-        if (mx >= x + width - 68.0f && mx <= x + width - 12.0f) {
-            res.action = SelectionSidebarAction::NudgeRight;
-            res.paramValue = 1;
-            return res;
-        }
-    }
+    for (const auto& sec : sections) {
+        if (sec.visibility == "single" && !isSingle) continue;
+        if (sec.visibility == "multi" && isSingle) continue;
 
-    // Duration buttons (y + 174..220)
-    curY = y + 174.0f;
-    if (my >= curY - 4.0f && my <= curY + 18.0f) {
-        if (mx >= x + width - 128.0f && mx <= x + width - 72.0f) {
-            res.action = SelectionSidebarAction::ShortenDuration;
-            res.floatValue = -0.25f;
-            return res;
-        }
-        if (mx >= x + width - 68.0f && mx <= x + width - 12.0f) {
-            res.action = SelectionSidebarAction::LengthenDuration;
-            res.floatValue = 0.25f;
-            return res;
-        }
-    }
+        curY += 16.0f;
 
-    // Quick duration chips (y + 196)
-    float chipY = curY + 22.0f;
-    if (my >= chipY && my <= chipY + 22.0f) {
-        if (mx >= x + 10.0f && mx <= x + 64.0f) {
-            res.action = SelectionSidebarAction::DurPreset25;
-            res.floatValue = 0.25f;
-            return res;
-        }
-        if (mx >= x + 68.0f && mx <= x + 122.0f) {
-            res.action = SelectionSidebarAction::DurPreset50;
-            res.floatValue = 0.50f;
-            return res;
-        }
-        if (mx >= x + 126.0f && mx <= x + 180.0f) {
-            res.action = SelectionSidebarAction::DurPreset75;
-            res.floatValue = 0.75f;
-            return res;
-        }
-        if (mx >= x + 184.0f && mx <= x + 238.0f) {
-            res.action = SelectionSidebarAction::DurPreset100;
-            res.floatValue = 1.00f;
-            return res;
-        }
-    }
+        for (const auto& row : sec.rows) {
+            float itemX = x + 10.0f;
 
-    // Velocity buttons (y + 244)
-    curY = y + 244.0f;
-    if (my >= curY && my <= curY + 22.0f) {
-        if (mx >= x + 10.0f && mx <= x + 52.0f) {
-            res.action = SelectionSidebarAction::Vel25;
-            res.floatValue = 0.25f;
-            return res;
-        }
-        if (mx >= x + 56.0f && mx <= x + 98.0f) {
-            res.action = SelectionSidebarAction::Vel50;
-            res.floatValue = 0.50f;
-            return res;
-        }
-        if (mx >= x + 102.0f && mx <= x + 144.0f) {
-            res.action = SelectionSidebarAction::Vel75;
-            res.floatValue = 0.75f;
-            return res;
-        }
-        if (mx >= x + 148.0f && mx <= x + 190.0f) {
-            res.action = SelectionSidebarAction::Vel100;
-            res.floatValue = 1.00f;
-            return res;
-        }
-        if (mx >= x + 194.0f && mx <= x + 254.0f) {
-            res.action = SelectionSidebarAction::Humanize;
-            return res;
-        }
-    }
+            for (const auto& item : row.items) {
+                if (item.visibility == "single" && !isSingle) continue;
+                if (item.visibility == "multi" && isSingle) continue;
 
-    // Expression (y + 294)
-    curY = y + 294.0f;
-    if (my >= curY && my <= curY + 26.0f) {
-        if (mx >= x + 10.0f && mx <= x + 125.0f) {
-            res.action = SelectionSidebarAction::ToggleSlide;
-            return res;
-        }
-        if (mx >= x + 135.0f && mx <= x + 250.0f) {
-            res.action = SelectionSidebarAction::ToggleAccent;
-            return res;
-        }
-    }
+                float itemW = item.width > 0.0f ? item.width : 50.0f;
 
-    // Selection utilities (y + 346..400)
-    curY = y + 346.0f;
-    if (my >= curY && my <= curY + 24.0f) {
-        if (mx >= x + 10.0f && mx <= x + 125.0f) {
-            res.action = SelectionSidebarAction::SelectAll;
-            return res;
+                if (item.type != InspectorItemType::Badge && item.type != InspectorItemType::Label) {
+                    if (mx >= itemX && mx <= itemX + itemW && my >= curY && my <= curY + row.rowHeight) {
+                        res.action = item.action;
+                        res.paramValue = item.intParam;
+                        res.floatValue = item.floatParam;
+                        res.stringParam = item.stringParam;
+                        res.scriptCode = item.scriptCode;
+                        res.customActionId = item.customActionId;
+                        res.actionName = item.label;
+                        return res;
+                    }
+                }
+                itemX += itemW + 4.0f;
+            }
+            curY += row.rowHeight + row.marginBottom;
         }
-        if (mx >= x + 135.0f && mx <= x + 250.0f) {
-            res.action = SelectionSidebarAction::Invert;
-            return res;
-        }
-    }
-
-    curY += 28.0f;
-    if (my >= curY && my <= curY + 24.0f) {
-        if (mx >= x + 10.0f && mx <= x + 125.0f) {
-            res.action = SelectionSidebarAction::Quantize;
-            return res;
-        }
-        if (mx >= x + 135.0f && mx <= x + 250.0f) {
-            res.action = SelectionSidebarAction::Clear;
-            return res;
-        }
+        curY += 6.0f;
     }
 
     return res;
@@ -15367,10 +15448,9 @@ void GuiWindow::drawNoteSelectionSidebar(float x, float y, float width, float he
         drawVectorString("BATCH MODE", badgeX + 8.0f, sumY + 14.0f, 0.70f, 1.0f, 0.85f, 0.20f);
     }
 
-    // 4. Section: PITCH TRANSPOSE (Y: y + 84)
-    float curY = y + 84.0f;
-    drawVectorString("PITCH TRANSPOSE", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    curY += 16.0f;
+    // Dynamic rendering from NoteInspectorRegistry
+    float curY = sumY + 46.0f;
+    const auto& sections = NoteInspectorRegistry::instance().getSections();
 
     auto drawBtn = [&](float bx, float by, float bw, float bh, const std::string& label, float tr, float tg, float tb) {
         drawRectGradient(bx, by, bw, bh, 0.12f, 0.14f, 0.18f, 0.07f, 0.08f, 0.11f);
@@ -15378,91 +15458,52 @@ void GuiWindow::drawNoteSelectionSidebar(float x, float y, float width, float he
         drawVectorString(label, bx + (bw - label.size() * 7.5f) * 0.5f, by + (bh - 10.0f) * 0.5f, 0.75f, tr, tg, tb);
     };
 
-    drawBtn(x + 10.0f, curY, 40.0f, 26.0f, "-12", 0.0f, 0.95f, 1.0f);
-    drawBtn(x + 54.0f, curY, 36.0f, 26.0f, "-1", 0.0f, 0.85f, 1.0f);
+    for (const auto& sec : sections) {
+        if (sec.visibility == "single" && !isSingle) continue;
+        if (sec.visibility == "multi" && isSingle) continue;
 
-    // Center badge
-    float badgeW = width - 188.0f;
-    float badgePosX = x + 94.0f;
-    drawRect(badgePosX, curY, badgeW, 26.0f, 0.05f, 0.07f, 0.10f);
-    drawRectOutline(badgePosX, curY, badgeW, 26.0f, 0.0f, 0.85f, 1.0f, 0.6f, 1.0f);
-    std::string pitchBadge = isSingle ? (std::string(kNoteNames[firstNote.note % 12]) + std::to_string(firstNote.note / 12 - 1)) : "+-PITCH";
-    drawVectorString(pitchBadge, badgePosX + (badgeW - pitchBadge.size() * 7.5f) * 0.5f, curY + 7.0f, 0.78f, 0.0f, 1.0f, 0.95f);
+        drawVectorString(sec.title, x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
+        curY += 16.0f;
 
-    drawBtn(x + width - 90.0f, curY, 36.0f, 26.0f, "+1", 0.0f, 0.85f, 1.0f);
-    drawBtn(x + width - 50.0f, curY, 40.0f, 26.0f, "+12", 0.0f, 0.95f, 1.0f);
-    curY += 34.0f;
+        for (const auto& row : sec.rows) {
+            float itemX = x + 10.0f;
 
-    // 5. Section: POSITION (STEP NUDGE)
-    drawVectorString("POSITION (STEP NUDGE)", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    std::string nudgeLabel = isSingle ? ("Step " + std::to_string(firstStep)) : "Shift in Time";
-    drawVectorString(nudgeLabel, x + 10.0f, curY + 16.0f, 0.75f, 1.0f, 0.85f, 0.20f);
-    drawBtn(x + width - 128.0f, curY + 10.0f, 56.0f, 24.0f, "-STEP", 1.0f, 0.85f, 0.20f);
-    drawBtn(x + width - 68.0f, curY + 10.0f, 56.0f, 24.0f, "+STEP", 1.0f, 0.85f, 0.20f);
-    curY += 40.0f;
+            for (const auto& item : row.items) {
+                if (item.visibility == "single" && !isSingle) continue;
+                if (item.visibility == "multi" && isSingle) continue;
 
-    // 6. Section: LENGTH / DURATION
-    drawVectorString("LENGTH / DURATION", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    drawBtn(x + width - 128.0f, curY - 4.0f, 56.0f, 22.0f, "-LEN", 0.0f, 0.90f, 1.0f);
-    drawBtn(x + width - 68.0f, curY - 4.0f, 56.0f, 22.0f, "+LEN", 0.0f, 0.90f, 1.0f);
-    curY += 22.0f;
+                float itemW = item.width > 0.0f ? item.width : 50.0f;
 
-    // Quick duration chips: [0.25] [0.50] [0.75] [1.00]
-    drawBtn(x + 10.0f, curY, 54.0f, 22.0f, "0.25", 0.75f, 0.80f, 0.90f);
-    drawBtn(x + 68.0f, curY, 54.0f, 22.0f, "0.50", 0.75f, 0.80f, 0.90f);
-    drawBtn(x + 126.0f, curY, 54.0f, 22.0f, "0.75", 0.75f, 0.80f, 0.90f);
-    drawBtn(x + 184.0f, curY, 54.0f, 22.0f, "1.00", 0.75f, 0.80f, 0.90f);
-    curY += 32.0f;
+                if (item.type == InspectorItemType::Badge) {
+                    drawRect(itemX, curY, itemW, row.rowHeight, 0.05f, 0.07f, 0.10f);
+                    drawRectOutline(itemX, curY, itemW, row.rowHeight, 0.0f, 0.85f, 1.0f, 0.6f, 1.0f);
+                    std::string pitchBadge = isSingle ? (std::string(kNoteNames[firstNote.note % 12]) + std::to_string(firstNote.note / 12 - 1)) : item.label;
+                    drawVectorString(pitchBadge, itemX + (itemW - pitchBadge.size() * 7.5f) * 0.5f, curY + 6.0f, 0.78f, 0.0f, 1.0f, 0.95f);
+                } else if (item.type == InspectorItemType::Toggle) {
+                    bool isActive = (item.action == SelectionSidebarAction::SetSlide)
+                                        ? (item.intParam == 1 ? firstNote.slide : !firstNote.slide)
+                                        : (item.action == SelectionSidebarAction::ToggleSlide ? firstNote.slide : firstNote.accent);
+                    if (isActive) {
+                        drawRectGradient(itemX, curY, itemW, row.rowHeight, 0.0f, 0.35f, 0.45f, 0.0f, 0.18f, 0.25f);
+                        drawRectOutline(itemX, curY, itemW, row.rowHeight, 0.0f, 0.95f, 1.0f, 1.0f, 1.4f);
+                        drawVectorString(item.label + ": ON", itemX + 16.0f, curY + 7.0f, 0.75f, 0.0f, 1.0f, 1.0f);
+                    } else {
+                        drawBtn(itemX, curY, itemW, row.rowHeight, item.label + ": OFF", 0.50f, 0.55f, 0.65f);
+                    }
+                } else if (item.type == InspectorItemType::Chip) {
+                    drawBtn(itemX, curY, itemW, row.rowHeight, item.label, 0.75f, 0.80f, 0.90f);
+                } else {
+                    float tr = 0.0f, tg = 0.90f, tb = 1.0f;
+                    if (item.action == SelectionSidebarAction::Script) { tr = 1.0f; tg = 0.85f; tb = 0.20f; }
+                    drawBtn(itemX, curY, itemW, row.rowHeight, item.label, tr, tg, tb);
+                }
 
-    // 7. Section: VELOCITY
-    float avgVel = 0.0f;
-    for (uint32_t s : selected) avgVel += track.getStep(s).velocity;
-    avgVel /= static_cast<float>(selected.size());
-    int avgVelPct = static_cast<int>(avgVel * 100.0f);
-    drawVectorString("VELOCITY (" + std::to_string(avgVelPct) + "% AVG)", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    curY += 16.0f;
-
-    drawBtn(x + 10.0f, curY, 42.0f, 22.0f, "25%", 0.0f, 0.85f, 1.0f);
-    drawBtn(x + 56.0f, curY, 42.0f, 22.0f, "50%", 0.0f, 0.85f, 1.0f);
-    drawBtn(x + 102.0f, curY, 42.0f, 22.0f, "75%", 0.0f, 0.85f, 1.0f);
-    drawBtn(x + 148.0f, curY, 42.0f, 22.0f, "100%", 0.0f, 0.85f, 1.0f);
-    drawBtn(x + 194.0f, curY, 60.0f, 22.0f, "HUMAN", 1.0f, 0.85f, 0.20f);
-    curY += 34.0f;
-
-    // 8. Section: EXPRESSION / TB-303
-    drawVectorString("EXPRESSION / TB-303", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    curY += 16.0f;
-
-    bool isSlide = firstNote.slide;
-    bool isAccent = firstNote.accent;
-
-    if (isSlide) {
-        drawRectGradient(x + 10.0f, curY, 115.0f, 26.0f, 0.0f, 0.35f, 0.45f, 0.0f, 0.18f, 0.25f);
-        drawRectOutline(x + 10.0f, curY, 115.0f, 26.0f, 0.0f, 0.95f, 1.0f, 1.0f, 1.4f);
-        drawVectorString("SLIDE: ON", x + 24.0f, curY + 7.0f, 0.75f, 0.0f, 1.0f, 1.0f);
-    } else {
-        drawBtn(x + 10.0f, curY, 115.0f, 26.0f, "SLIDE: OFF", 0.50f, 0.55f, 0.65f);
+                itemX += itemW + 4.0f;
+            }
+            curY += row.rowHeight + row.marginBottom;
+        }
+        curY += 6.0f;
     }
-
-    if (isAccent) {
-        drawRectGradient(x + 135.0f, curY, 115.0f, 26.0f, 0.35f, 0.25f, 0.05f, 0.18f, 0.12f, 0.02f);
-        drawRectOutline(x + 135.0f, curY, 115.0f, 26.0f, 1.0f, 0.85f, 0.10f, 1.0f, 1.4f);
-        drawVectorString("ACCENT: ON", x + 144.0f, curY + 7.0f, 0.75f, 1.0f, 0.88f, 0.20f);
-    } else {
-        drawBtn(x + 135.0f, curY, 115.0f, 26.0f, "ACCENT: OFF", 0.50f, 0.55f, 0.65f);
-    }
-    curY += 36.0f;
-
-    // 9. Section: SELECTION UTILITIES
-    drawVectorString("SELECTION UTILITIES", x + 10.0f, curY, 0.70f, 0.45f, 0.50f, 0.62f);
-    curY += 16.0f;
-
-    drawBtn(x + 10.0f, curY, 115.0f, 24.0f, "SELECT ALL", 0.75f, 0.85f, 0.95f);
-    drawBtn(x + 135.0f, curY, 115.0f, 24.0f, "INVERT", 0.75f, 0.85f, 0.95f);
-    curY += 28.0f;
-
-    drawBtn(x + 10.0f, curY, 115.0f, 24.0f, "QUANTIZE", 0.0f, 0.90f, 1.0f);
-    drawBtn(x + 135.0f, curY, 115.0f, 24.0f, "CLEAR", 0.80f, 0.45f, 0.45f);
 }
 
 HitTestTrackerResult GuiWindow::hitTestTracker(float x, float y) const noexcept {
@@ -17315,6 +17356,26 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
             }
         }
 
+        // 2c. Check Terminal Console Drawer Hit (Global across views)
+        if (terminalConsoleDrawerWidget_) {
+            PointerEvent pev;
+            pev.type = PointerType::Mouse;
+            pev.action = PointerAction::Down;
+            pev.button = (button == 0) ? PointerButton::Left : ((button == 1) ? PointerButton::Right : PointerButton::Middle);
+            pev.x = x;
+            pev.y = y;
+            pev.rawX = x;
+            pev.rawY = y;
+            bool wasExpanded = terminalConsoleDrawerWidget_->isExpanded();
+            if (terminalConsoleDrawerWidget_->handlePointer(pev)) {
+                if (!wasExpanded && terminalConsoleDrawerWidget_->isExpanded()) {
+                    setVirtualKeyboardDrawerOpen(false);
+                }
+                markNeedsRedraw();
+                return;
+            }
+        }
+
         // 3. Sub-bar Switchers (y: 56 .. 95)
         if (activeView_ == WorkspaceView::Edit || activeView_ == WorkspaceView::Tracker) {
             auto sn = hitTestEditSubNav(x, y);
@@ -17794,97 +17855,59 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                             recordProjectHistory("Delete Selected Notes on Track " + std::to_string(selectedTrackIndex_ + 1), "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::Transpose:
                         case SelectionSidebarAction::TransposeOctDown:
-                            activeTrk->transposeSelectedNotes(-12);
-                            recordProjectHistory("Transpose -1 Octave", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::TransposeSemiDown:
-                            activeTrk->transposeSelectedNotes(-1);
-                            recordProjectHistory("Transpose -1 Semitone", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::TransposeSemiUp:
-                            activeTrk->transposeSelectedNotes(1);
-                            recordProjectHistory("Transpose +1 Semitone", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::TransposeOctUp:
-                            activeTrk->transposeSelectedNotes(12);
-                            recordProjectHistory("Transpose +1 Octave", "NOTE");
+                            activeTrk->transposeSelectedNotes(sbHit.paramValue);
+                            recordProjectHistory("Transpose Notes", "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::Nudge:
                         case SelectionSidebarAction::NudgeLeft:
-                            activeTrk->nudgeSelectedNotes(-1);
-                            recordProjectHistory("Nudge Notes Left", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::NudgeRight:
-                            activeTrk->nudgeSelectedNotes(1);
-                            recordProjectHistory("Nudge Notes Right", "NOTE");
+                            activeTrk->nudgeSelectedNotes(sbHit.paramValue != 0 ? sbHit.paramValue : static_cast<int>(sbHit.floatValue));
+                            recordProjectHistory("Nudge Notes", "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::ChangeDuration:
                         case SelectionSidebarAction::ShortenDuration:
-                            activeTrk->changeSelectedNotesDuration(-0.25f);
-                            recordProjectHistory("Shorten Duration", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::LengthenDuration:
-                            activeTrk->changeSelectedNotesDuration(0.25f);
-                            recordProjectHistory("Lengthen Duration", "NOTE");
+                            activeTrk->changeSelectedNotesDuration(sbHit.floatValue);
+                            recordProjectHistory("Change Duration", "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::SetDuration:
                         case SelectionSidebarAction::DurPreset25:
-                            for (uint32_t s : activeTrk->getSelectedSteps()) {
-                                activeTrk->getStep(s).gateLength = 0.25f;
-                            }
-                            recordProjectHistory("Set Duration 0.25", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::DurPreset50:
-                            for (uint32_t s : activeTrk->getSelectedSteps()) {
-                                activeTrk->getStep(s).gateLength = 0.50f;
-                            }
-                            recordProjectHistory("Set Duration 0.50", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::DurPreset75:
-                            for (uint32_t s : activeTrk->getSelectedSteps()) {
-                                activeTrk->getStep(s).gateLength = 0.75f;
-                            }
-                            recordProjectHistory("Set Duration 0.75", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::DurPreset100:
                             for (uint32_t s : activeTrk->getSelectedSteps()) {
-                                activeTrk->getStep(s).gateLength = 1.00f;
+                                activeTrk->getStep(s).gateLength = sbHit.floatValue;
                             }
-                            recordProjectHistory("Set Duration 1.00", "NOTE");
+                            recordProjectHistory("Set Duration", "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::SetVelocity:
                         case SelectionSidebarAction::Vel25:
-                            activeTrk->setSelectedNotesVelocity(0.25f);
-                            recordProjectHistory("Set Velocity 25%", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::Vel50:
-                            activeTrk->setSelectedNotesVelocity(0.50f);
-                            recordProjectHistory("Set Velocity 50%", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::Vel75:
-                            activeTrk->setSelectedNotesVelocity(0.75f);
-                            recordProjectHistory("Set Velocity 75%", "NOTE");
-                            syncTrackToNoteScript();
-                            break;
                         case SelectionSidebarAction::Vel100:
-                            activeTrk->setSelectedNotesVelocity(1.00f);
-                            recordProjectHistory("Set Velocity 100%", "NOTE");
+                            activeTrk->setSelectedNotesVelocity(sbHit.floatValue);
+                            recordProjectHistory("Set Velocity", "NOTE");
                             syncTrackToNoteScript();
                             break;
                         case SelectionSidebarAction::Humanize:
-                            activeTrk->humanizeSelectedNotes(0.15f);
+                            activeTrk->humanizeSelectedNotes(sbHit.floatValue > 0.0f ? sbHit.floatValue : 0.15f);
                             recordProjectHistory("Humanize Velocity", "NOTE");
+                            syncTrackToNoteScript();
+                            break;
+                        case SelectionSidebarAction::SetSlide:
+                            for (uint32_t s : activeTrk->getSelectedSteps()) {
+                                activeTrk->getStep(s).slide = (sbHit.paramValue != 0);
+                            }
+                            recordProjectHistory("Set Slide", "NOTE");
                             syncTrackToNoteScript();
                             break;
                         case SelectionSidebarAction::ToggleSlide:
@@ -17914,6 +17937,80 @@ void GuiWindow::onMouseDown(int button, float x, float y) {
                             recordProjectHistory("Quantize Notes", "NOTE");
                             syncTrackToNoteScript();
                             break;
+                        case SelectionSidebarAction::Retrograde: {
+                            const auto& selSteps = activeTrk->getSelectedSteps();
+                            if (selSteps.size() >= 2) {
+                                std::vector<uint32_t> stepsList(selSteps.begin(), selSteps.end());
+                                size_t n = stepsList.size();
+                                for (size_t i = 0; i < n / 2; ++i) {
+                                    std::swap(activeTrk->getStep(stepsList[i]), activeTrk->getStep(stepsList[n - 1 - i]));
+                                }
+                                recordProjectHistory("Retrograde Notes", "NOTE");
+                                syncTrackToNoteScript();
+                            }
+                            break;
+                        }
+                        case SelectionSidebarAction::InvertPitch: {
+                            const auto& sel = activeTrk->getSelectedSteps();
+                            if (!sel.empty()) {
+                                float sum = 0.0f;
+                                for (uint32_t s : sel) sum += static_cast<float>(activeTrk->getStep(s).note);
+                                float avg = sum / static_cast<float>(sel.size());
+                                for (uint32_t s : sel) {
+                                    auto& st = activeTrk->getStep(s);
+                                    int inv = static_cast<int>(std::round(2.0f * avg - static_cast<float>(st.note)));
+                                    st.note = static_cast<uint8_t>(std::clamp(inv, 0, 127));
+                                }
+                                recordProjectHistory("Invert Note Pitch", "NOTE");
+                                syncTrackToNoteScript();
+                            }
+                            break;
+                        }
+                        case SelectionSidebarAction::Script: {
+                            eatscript::Evaluator eval;
+                            eval.registerMemberFunction("eat.transform", "reverse", [activeTrk](const auto&, const auto&) -> eatscript::Value {
+                                const auto& selSteps = activeTrk->getSelectedSteps();
+                                if (selSteps.size() >= 2) {
+                                    std::vector<uint32_t> stepsList(selSteps.begin(), selSteps.end());
+                                    size_t n = stepsList.size();
+                                    for (size_t i = 0; i < n / 2; ++i) {
+                                        std::swap(activeTrk->getStep(stepsList[i]), activeTrk->getStep(stepsList[n - 1 - i]));
+                                    }
+                                }
+                                return eatscript::Value(true);
+                            });
+                            eval.registerMemberFunction("eat.transform", "invert_pitch", [activeTrk](const auto&, const auto&) -> eatscript::Value {
+                                const auto& sel = activeTrk->getSelectedSteps();
+                                if (!sel.empty()) {
+                                    float sum = 0.0f;
+                                    for (uint32_t s : sel) sum += static_cast<float>(activeTrk->getStep(s).note);
+                                    float avg = sum / static_cast<float>(sel.size());
+                                    for (uint32_t s : sel) {
+                                        auto& st = activeTrk->getStep(s);
+                                        int inv = static_cast<int>(std::round(2.0f * avg - static_cast<float>(st.note)));
+                                        st.note = static_cast<uint8_t>(std::clamp(inv, 0, 127));
+                                    }
+                                }
+                                return eatscript::Value(true);
+                            });
+                            eval.registerMemberFunction("eat.transform", "octave_up", [activeTrk](const auto&, const auto&) -> eatscript::Value {
+                                activeTrk->transposeSelectedNotes(12);
+                                return eatscript::Value(true);
+                            });
+                            eval.registerMemberFunction("eat.transform", "octave_down", [activeTrk](const auto&, const auto&) -> eatscript::Value {
+                                activeTrk->transposeSelectedNotes(-12);
+                                return eatscript::Value(true);
+                            });
+                            eval.registerMemberFunction("eat.transform", "humanize", [activeTrk](const auto& args, const auto& kw) -> eatscript::Value {
+                                float amt = eatscript::resolveArg(args, kw, 0, "amt", eatscript::Value(0.15)).asFloat(0.15f);
+                                activeTrk->humanizeSelectedNotes(amt);
+                                return eatscript::Value(true);
+                            });
+                            eval.evaluateSource(sbHit.scriptCode);
+                            recordProjectHistory("Inspector Script", "NOTE");
+                            syncTrackToNoteScript();
+                            break;
+                        }
                         default:
                             break;
                     }
@@ -19292,6 +19389,18 @@ void GuiWindow::onPointerEvent(const PointerEvent& pev) {
         return;
     }
 
+    // 5b. Terminal Console Drawer
+    if (terminalConsoleDrawerWidget_) {
+        bool wasExpanded = terminalConsoleDrawerWidget_->isExpanded();
+        if (terminalConsoleDrawerWidget_->handlePointer(pev)) {
+            if (!wasExpanded && terminalConsoleDrawerWidget_->isExpanded()) {
+                setVirtualKeyboardDrawerOpen(false);
+            }
+            markNeedsRedraw();
+            return;
+        }
+    }
+
     // 6. Active Workspace Views (Mixer, Design, Arranger, Edit/Tracker, HardwarePanel)
     if (activeView_ == WorkspaceView::Mixer && modularMixerView_) {
         const float topY = 56.0f;
@@ -19365,9 +19474,17 @@ void GuiWindow::onKeyDown(int key, int mods) {
         return;
     }
 
+    // Backtick / Tilde or Ctrl+`: Toggle Terminal Console Drawer
+    if (key == 96 || (isCtrl && (key == 96 || key == 126 || key == 92))) {
+        toggleTerminalConsole();
+        markNeedsRedraw();
+        return;
+    }
+
     PluginSearchDialog* activePluginDialog = getActivePluginSearchDialog();
     ColorPickerDialog* activeColorPicker = getActiveColorPickerDialog();
     bool modalOrTerminalActive = projectHubOpen_ ||
+                                 (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) ||
                                  (activeColorPicker && activeColorPicker->isOpen()) ||
                                  valueEditDialog_.isOpen() ||
                                  (modularArrangerView_ && modularArrangerView_->getIconSearchDialog().isOpen()) ||
@@ -19376,6 +19493,23 @@ void GuiWindow::onKeyDown(int key, int mods) {
                                  macroRunnerDialog_.isOpen() ||
                                  themeBrowserDialog_.isOpen() ||
                                  (activePluginDialog && activePluginDialog->isOpen());
+
+    // Intercept keyboard input if Terminal Console Drawer is open
+    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
+        if (key == 256) { // Escape closes terminal
+            setTerminalConsoleOpen(false);
+            markNeedsRedraw();
+            return;
+        }
+        if (isCtrl && (key == 80 || key == 112 || key == 75 || key == 107)) { // Ctrl+P or Ctrl+K opens Command Palette
+            toggleCommandPalette();
+            return;
+        }
+        if (terminalConsoleDrawerWidget_->handleKey(key, 0, 1 /* GLFW_PRESS */, mods)) {
+            markNeedsRedraw();
+            return;
+        }
+    }
 
     // Intercept keyboard input if an element has active keyboard focus (and no modal is open)
     if (!modalOrTerminalActive && focusManager_.isAnyFocused()) {
@@ -19543,15 +19677,6 @@ void GuiWindow::onKeyDown(int key, int mods) {
     if (isCtrl && !isShift && (key == 77 || key == 109)) { // 'M'
         openAudioToMidiConverter();
         return;
-    }
-
-    // 'M' in Arranger View: Toggle Docked Bottom Mixer Drawer
-    if (activeView_ == WorkspaceView::Arranger && modularArrangerView_) {
-        if (!isCtrl && !isAlt && (key == 77 || key == 109)) {
-            modularArrangerView_->toggleMixerDrawer();
-            markNeedsRedraw();
-            return;
-        }
     }
 
     // Ctrl+P or Ctrl+K: Toggle Universal Quick Command Palette
@@ -20082,6 +20207,12 @@ void GuiWindow::onChar(unsigned int codepoint) {
         macroRunnerDialog_.handleChar(codepoint);
         return;
     }
+    if (terminalConsoleDrawerWidget_ && terminalConsoleDrawerWidget_->isExpanded()) {
+        if (terminalConsoleDrawerWidget_->handleChar(static_cast<char32_t>(codepoint))) {
+            markNeedsRedraw();
+            return;
+        }
+    }
     if (modularArrangerView_ && modularArrangerView_->getCircleOfFifthsDialog().isOpen()) {
         return;
     }
@@ -20243,6 +20374,28 @@ std::string GuiWindow::getSettingsFilePath() const {
     if (appData && *appData) {
         std::filesystem::path p(appData);
         p /= "Eatsbits";
+        p /= "settings.eats";
+        return p.string();
+    }
+#elif !defined(__EMSCRIPTEN__)
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        std::filesystem::path p(home);
+        p /= ".config";
+        p /= "eatsbits";
+        p /= "settings.eats";
+        return p.string();
+    }
+#endif
+    return "settings.eats";
+}
+
+std::string GuiWindow::getLegacySettingsJsonFilePath() const {
+#if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    if (appData && *appData) {
+        std::filesystem::path p(appData);
+        p /= "Eatsbits";
         p /= "settings.json";
         return p.string();
     }
@@ -20260,65 +20413,8 @@ std::string GuiWindow::getSettingsFilePath() const {
 }
 
 bool GuiWindow::saveSettings() {
-    using namespace eatsbits::json;
-    Object root;
-    root["uiScale"] = Value(uiScale_);
-    root["activeThemePreset"] = Value(activeThemePreset_);
-    root["themeBank"] = Value(getThemeBank());
-    root["antiAliasingMode"] = Value(antiAliasingMode_);
-    root["hiDpiEnabled"] = Value(hiDpiEnabled_);
-    root["crtShaderEnabled"] = Value(crtShaderEnabled_);
-    root["guiAnimationsEnabled"] = Value(guiAnimationsEnabled_);
-    root["autoRestoreSession"] = Value(autoRestoreSession_);
-    root["autoSaveEnabled"] = Value(autoSaveEnabled_);
-    root["includeBinaryClapPath"] = Value(audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled());
-    root["minimalGuiEnabled"] = Value(isMinimalGuiEnabled());
-
-    const auto& crt = dawnBridge_.getMaterialConfig();
-    Object crtObj;
-    crtObj["scanlineIntensity"] = Value(crt.scanlineIntensity);
-    crtObj["curvature"] = Value(crt.curvature);
-    crtObj["crtReflectionLevel"] = Value(crt.crtReflectionLevel);
-    crtObj["hsyncDistortion"] = Value(crt.hsyncDistortion);
-    crtObj["spotlightIntensity"] = Value(crt.spotlightIntensity);
-    crtObj["spotlightSize"] = Value(crt.spotlightSize);
-    crtObj["vignetteStrength"] = Value(crt.vignetteStrength);
-    crtObj["reflectionOpacity"] = Value(crt.reflectionOpacity);
-    crtObj["panelSoftness"] = Value(crt.panelSoftness);
-    crtObj["panelSaturation"] = Value(crt.panelSaturation);
-    crtObj["panelBlackLift"] = Value(crt.panelBlackLift);
-    root["crt"] = Value(std::move(crtObj));
-
-    std::string jsonStr = stringify(Value(std::move(root)), 2);
-
-#if defined(__EMSCRIPTEN__)
-    MAIN_THREAD_EM_ASM({
-        try {
-            localStorage.setItem("eatsbits_settings", UTF8ToString($0));
-        } catch (e) {
-            console.error("Failed to save settings to localStorage:", e);
-        }
-    }, jsonStr.c_str());
-    return true;
-#else
+    std::string existingContent;
     std::string filePath = getSettingsFilePath();
-    try {
-        std::filesystem::path p(filePath);
-        if (p.has_parent_path()) {
-            std::filesystem::create_directories(p.parent_path());
-        }
-        std::ofstream ofs(filePath);
-        if (ofs.is_open()) {
-            ofs << jsonStr;
-            return true;
-        }
-    } catch (...) {}
-    return false;
-#endif
-}
-
-bool GuiWindow::loadSettings() {
-    std::string jsonStr;
 #if defined(__EMSCRIPTEN__)
     char* jsVal = reinterpret_cast<char*>(MAIN_THREAD_EM_ASM_PTR({
         try {
@@ -20333,7 +20429,118 @@ bool GuiWindow::loadSettings() {
         }
     }));
     if (jsVal) {
-        jsonStr = jsVal;
+        existingContent = jsVal;
+        free(jsVal);
+    }
+#else
+    try {
+        std::ifstream ifs(filePath);
+        if (ifs.is_open()) {
+            std::stringstream ss;
+            ss << ifs.rdbuf();
+            existingContent = ss.str();
+        }
+    } catch (...) {}
+#endif
+
+    const std::string startTag = "# [EATSBITS MANAGED SETTINGS - DO NOT MANUALLY EDIT THIS BLOCK]";
+    const std::string endTag = "# [/EATSBITS MANAGED SETTINGS]";
+
+    std::ostringstream ss;
+    ss << startTag << "\n";
+    ss << "eat.config.set_ui_scale(" << std::fixed << std::setprecision(2) << uiScale_ << ")\n";
+    ss << "eat.config.set_theme(" << activeThemePreset_ << ") # " << getTheme().name << "\n";
+    ss << "eat.config.set_theme_bank(" << getThemeBank() << ")\n";
+    ss << "eat.config.set_anti_aliasing(" << antiAliasingMode_ << ")\n";
+    ss << "eat.config.set_hidpi(" << (hiDpiEnabled_ ? "True" : "False") << ")\n";
+    ss << "eat.config.set_crt_shader(" << (crtShaderEnabled_ ? "True" : "False") << ")\n";
+    ss << "eat.config.set_gui_animations(" << (guiAnimationsEnabled_ ? "True" : "False") << ")\n";
+    ss << "eat.config.set_auto_restore_session(" << (autoRestoreSession_ ? "True" : "False") << ")\n";
+    ss << "eat.config.set_auto_save(" << (autoSaveEnabled_ ? "True" : "False") << ")\n";
+    ss << "eat.config.set_include_binary_clap_path("
+       << (audio::ClapPluginLoader::instance().isIncludeBinaryPathEnabled() ? "True" : "False") << ")\n";
+    ss << "eat.config.set_minimal_gui(" << (isMinimalGuiEnabled() ? "True" : "False") << ")\n";
+
+    const auto& crt = dawnBridge_.getMaterialConfig();
+    ss << "eat.config.set_crt_params("
+       << std::fixed << std::setprecision(3)
+       << crt.scanlineIntensity << ", "
+       << crt.curvature << ", "
+       << crt.crtReflectionLevel << ", "
+       << crt.hsyncDistortion << ", "
+       << crt.spotlightIntensity << ", "
+       << crt.spotlightSize << ", "
+       << crt.vignetteStrength << ", "
+       << crt.reflectionOpacity << ", "
+       << crt.panelSoftness << ", "
+       << crt.panelSaturation << ", "
+       << crt.panelBlackLift << ")\n";
+    ss << endTag;
+
+    std::string managedBlock = ss.str();
+    std::string finalContent;
+
+    size_t startPos = existingContent.find(startTag);
+    size_t endPos = existingContent.find(endTag);
+
+    if (startPos != std::string::npos && endPos != std::string::npos && endPos >= startPos) {
+        size_t afterEnd = endPos + endTag.length();
+        finalContent = existingContent.substr(0, startPos) + managedBlock + existingContent.substr(afterEnd);
+    } else {
+        std::ostringstream full;
+        full << "# [EATSBITS USER CONFIGURATION]\n"
+             << "# Put custom Eatscript functions, macros, and Note Inspector extensions here.\n"
+             << "# User customizations in this section are preserved across GUI saves.\n"
+             << "\n"
+             << "# Example Note Inspector tool:\n"
+             << "# eat.inspector.add_button(\"CREATIVE\", \"RANDOM VEL\", \"humanize\", 0.2)\n"
+             << "# [/EATSBITS USER CONFIGURATION]\n\n"
+             << managedBlock << "\n";
+        finalContent = full.str();
+    }
+
+#if defined(__EMSCRIPTEN__)
+    MAIN_THREAD_EM_ASM({
+        try {
+            localStorage.setItem("eatsbits_settings", UTF8ToString($0));
+        } catch (e) {
+            console.error("Failed to save settings to localStorage:", e);
+        }
+    }, finalContent.c_str());
+    return true;
+#else
+    try {
+        std::filesystem::path p(filePath);
+        if (p.has_parent_path()) {
+            std::filesystem::create_directories(p.parent_path());
+        }
+        std::ofstream ofs(filePath);
+        if (ofs.is_open()) {
+            ofs << finalContent;
+            return true;
+        }
+    } catch (...) {}
+    return false;
+#endif
+}
+
+bool GuiWindow::loadSettings() {
+    std::string scriptStr;
+#if defined(__EMSCRIPTEN__)
+    char* jsVal = reinterpret_cast<char*>(MAIN_THREAD_EM_ASM_PTR({
+        try {
+            var s = localStorage.getItem("eatsbits_settings");
+            if (!s) return 0;
+            var len = lengthBytesUTF8(s) + 1;
+            var buf = _malloc(len);
+            stringToUTF8(s, buf, len);
+            return buf;
+        } catch (e) {
+            return 0;
+        }
+    }));
+    if (jsVal) {
+        scriptStr = jsVal;
         free(jsVal);
     }
 #else
@@ -20343,69 +20550,147 @@ bool GuiWindow::loadSettings() {
         if (ifs.is_open()) {
             std::stringstream ss;
             ss << ifs.rdbuf();
-            jsonStr = ss.str();
+            scriptStr = ss.str();
         }
     } catch (...) {}
+
+    // Legacy migration check: if settings.eats doesn't exist, check settings.json
+    if (scriptStr.empty()) {
+        std::string legacyPath = getLegacySettingsJsonFilePath();
+        try {
+            std::ifstream ifsLegacy(legacyPath);
+            if (ifsLegacy.is_open()) {
+                std::stringstream ss;
+                ss << ifsLegacy.rdbuf();
+                std::string legacyJson = ss.str();
+                if (!legacyJson.empty()) {
+                    auto root = eatsbits::json::Parser(legacyJson).parse();
+                    if (root.isObject()) {
+                        if (root.contains("uiScale")) setUiScale(root["uiScale"].asFloat(uiScale_));
+                        if (root.contains("activeThemePreset")) setActiveThemePreset(root["activeThemePreset"].asInt(activeThemePreset_));
+                        if (root.contains("themeBank")) setThemeBank(root["themeBank"].asInt(getThemeBank()));
+                        if (root.contains("antiAliasingMode")) antiAliasingMode_ = root["antiAliasingMode"].asInt(antiAliasingMode_);
+                        if (root.contains("hiDpiEnabled")) hiDpiEnabled_ = root["hiDpiEnabled"].asBool(hiDpiEnabled_);
+                        if (root.contains("crtShaderEnabled")) {
+                            crtShaderEnabled_ = root["crtShaderEnabled"].asBool(crtShaderEnabled_);
+                            dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
+                        }
+                        if (root.contains("guiAnimationsEnabled")) guiAnimationsEnabled_ = root["guiAnimationsEnabled"].asBool(guiAnimationsEnabled_);
+                        if (root.contains("autoRestoreSession")) autoRestoreSession_ = root["autoRestoreSession"].asBool(autoRestoreSession_);
+                        if (root.contains("autoSaveEnabled")) autoSaveEnabled_ = root["autoSaveEnabled"].asBool(autoSaveEnabled_);
+                        if (root.contains("includeBinaryClapPath")) audio::ClapPluginLoader::instance().setIncludeBinaryPath(root["includeBinaryClapPath"].asBool());
+                        if (root.contains("minimalGuiEnabled")) setMinimalGuiEnabled(root["minimalGuiEnabled"].asBool(false));
+                        // Automatically migrate into settings.eats!
+                        saveSettings();
+                        return true;
+                    }
+                }
+            }
+        } catch (...) {}
+    }
 #endif
 
-    if (jsonStr.empty()) return false;
+    if (scriptStr.empty()) {
+        saveSettings();
+        return false;
+    }
 
+    // Execute Eatscript settings
     try {
-        auto root = eatsbits::json::Parser(jsonStr).parse();
-        if (!root.isObject()) return false;
+        eatscript::Evaluator evaluator;
 
-        if (root.contains("uiScale")) {
-            setUiScale(root["uiScale"].asFloat(uiScale_));
-        }
-        if (root.contains("activeThemePreset")) {
-            activeThemePreset_ = root["activeThemePreset"].asInt(activeThemePreset_);
-        }
-        if (root.contains("themeBank")) {
-            setThemeBank(root["themeBank"].asInt(getThemeBank()));
-        }
-        if (root.contains("antiAliasingMode")) {
-            antiAliasingMode_ = root["antiAliasingMode"].asInt(antiAliasingMode_);
-        }
-        if (root.contains("hiDpiEnabled")) {
-            hiDpiEnabled_ = root["hiDpiEnabled"].asBool(hiDpiEnabled_);
-        }
-        if (root.contains("crtShaderEnabled")) {
-            crtShaderEnabled_ = root["crtShaderEnabled"].asBool(crtShaderEnabled_);
+        // Register eat.config.* methods
+        evaluator.registerMemberFunction("eat.config", "set_ui_scale", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            float s = eatscript::resolveArg(args, kw, 0, "val", eatscript::Value(1.0)).asFloat(1.0f);
+            setUiScale(s);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_theme", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            auto val = eatscript::resolveArg(args, kw, 0, "preset", eatscript::Value(0));
+            int targetPreset = 0;
+            if (val.isNumber()) {
+                targetPreset = val.asInt(0);
+            } else if (val.isString()) {
+                std::string s = val.asString();
+                const auto& cat = Theme::getPresetCatalog();
+                for (size_t i = 0; i < cat.size(); ++i) {
+                    if (cat[i].name == s || cat[i].subtitle == s) {
+                        targetPreset = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+            setActiveThemePreset(targetPreset);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_theme_bank", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            int b = eatscript::resolveArg(args, kw, 0, "bank", eatscript::Value(0)).asInt(0);
+            setThemeBank(b);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_anti_aliasing", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            antiAliasingMode_ = eatscript::resolveArg(args, kw, 0, "mode", eatscript::Value(2)).asInt(2);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_hidpi", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            hiDpiEnabled_ = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(true)).asBoolean(true);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_crt_shader", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            crtShaderEnabled_ = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(false)).asBoolean(false);
             dawnBridge_.setCrtShaderEnabled(crtShaderEnabled_);
-        }
-        if (root.contains("guiAnimationsEnabled")) {
-            guiAnimationsEnabled_ = root["guiAnimationsEnabled"].asBool(guiAnimationsEnabled_);
-        }
-        if (root.contains("autoRestoreSession")) {
-            autoRestoreSession_ = root["autoRestoreSession"].asBool(autoRestoreSession_);
-        }
-        if (root.contains("autoSaveEnabled")) {
-            autoSaveEnabled_ = root["autoSaveEnabled"].asBool(autoSaveEnabled_);
-        }
-        if (root.contains("includeBinaryClapPath")) {
-            audio::ClapPluginLoader::instance().setIncludeBinaryPath(root["includeBinaryClapPath"].asBool());
-        }
-        if (root.contains("minimalGuiEnabled")) {
-            setMinimalGuiEnabled(root["minimalGuiEnabled"].asBool(false));
-        }
-        if (root.contains("crt") && root["crt"].isObject()) {
-            const auto& crtObj = root["crt"];
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_gui_animations", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            guiAnimationsEnabled_ = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(true)).asBoolean(true);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_auto_restore_session", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            autoRestoreSession_ = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(true)).asBoolean(true);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_auto_save", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            autoSaveEnabled_ = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(true)).asBoolean(true);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_include_binary_clap_path", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            bool inc = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(false)).asBoolean(false);
+            audio::ClapPluginLoader::instance().setIncludeBinaryPath(inc);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_minimal_gui", [this](const auto& args, const auto& kw) -> eatscript::Value {
+            bool m = eatscript::resolveArg(args, kw, 0, "enabled", eatscript::Value(false)).asBoolean(false);
+            setMinimalGuiEnabled(m);
+            return eatscript::Value(true);
+        });
+        evaluator.registerMemberFunction("eat.config", "set_crt_params", [this](const auto& args, const auto&) -> eatscript::Value {
             auto cfg = dawnBridge_.getMaterialConfig();
-            if (crtObj.contains("scanlineIntensity")) cfg.scanlineIntensity = crtObj["scanlineIntensity"].asFloat(cfg.scanlineIntensity);
-            if (crtObj.contains("curvature")) cfg.curvature = crtObj["curvature"].asFloat(cfg.curvature);
-            if (crtObj.contains("crtReflectionLevel")) cfg.crtReflectionLevel = crtObj["crtReflectionLevel"].asFloat(cfg.crtReflectionLevel);
-            if (crtObj.contains("hsyncDistortion")) cfg.hsyncDistortion = crtObj["hsyncDistortion"].asFloat(cfg.hsyncDistortion);
-            if (crtObj.contains("spotlightIntensity")) cfg.spotlightIntensity = crtObj["spotlightIntensity"].asFloat(cfg.spotlightIntensity);
-            if (crtObj.contains("spotlightSize")) cfg.spotlightSize = crtObj["spotlightSize"].asFloat(cfg.spotlightSize);
-            if (crtObj.contains("vignetteStrength")) cfg.vignetteStrength = crtObj["vignetteStrength"].asFloat(cfg.vignetteStrength);
-            if (crtObj.contains("reflectionOpacity")) cfg.reflectionOpacity = crtObj["reflectionOpacity"].asFloat(cfg.reflectionOpacity);
-            if (crtObj.contains("panelSoftness")) cfg.panelSoftness = crtObj["panelSoftness"].asFloat(cfg.panelSoftness);
-            if (crtObj.contains("panelSaturation")) cfg.panelSaturation = crtObj["panelSaturation"].asFloat(cfg.panelSaturation);
-            if (crtObj.contains("panelBlackLift")) cfg.panelBlackLift = crtObj["panelBlackLift"].asFloat(cfg.panelBlackLift);
+            if (args.size() > 0) cfg.scanlineIntensity = args[0].asFloat(cfg.scanlineIntensity);
+            if (args.size() > 1) cfg.curvature = args[1].asFloat(cfg.curvature);
+            if (args.size() > 2) cfg.crtReflectionLevel = args[2].asFloat(cfg.crtReflectionLevel);
+            if (args.size() > 3) cfg.hsyncDistortion = args[3].asFloat(cfg.hsyncDistortion);
+            if (args.size() > 4) cfg.spotlightIntensity = args[4].asFloat(cfg.spotlightIntensity);
+            if (args.size() > 5) cfg.spotlightSize = args[5].asFloat(cfg.spotlightSize);
+            if (args.size() > 6) cfg.vignetteStrength = args[6].asFloat(cfg.vignetteStrength);
+            if (args.size() > 7) cfg.reflectionOpacity = args[7].asFloat(cfg.reflectionOpacity);
+            if (args.size() > 8) cfg.panelSoftness = args[8].asFloat(cfg.panelSoftness);
+            if (args.size() > 9) cfg.panelSaturation = args[9].asFloat(cfg.panelSaturation);
+            if (args.size() > 10) cfg.panelBlackLift = args[10].asFloat(cfg.panelBlackLift);
             dawnBridge_.setMaterialConfig(cfg);
+            return eatscript::Value(true);
+        });
+
+        // Register eat.inspector.* API
+        NoteInspectorRegistry::instance().registerEatscriptApi(evaluator);
+
+        evaluator.evaluateSource(scriptStr);
+        if (!evaluator.getLastError().empty()) {
+            std::cerr << "[Eatscript Settings] Warning: " << evaluator.getLastError() << std::endl;
         }
         return true;
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        std::cerr << "[Eatscript Settings] Error: " << e.what() << std::endl;
+    }
     return false;
 }
 
@@ -20457,11 +20742,11 @@ void GuiWindow::openLocalSettingsFile() {
     }
 #elif defined(__APPLE__)
     std::string path = getSettingsFilePath();
-    system(("open "" + path + """).c_str());
+    system(("open \"" + path + "\"").c_str());
     setStatusMessage("Opened settings file: " + path);
 #elif !defined(__EMSCRIPTEN__)
     std::string path = getSettingsFilePath();
-    system(("xdg-open "" + path + """).c_str());
+    system(("xdg-open \"" + path + "\"").c_str());
     setStatusMessage("Opened settings file: " + path);
 #else
     setStatusMessage("Settings stored in browser localStorage");
@@ -20471,7 +20756,8 @@ void GuiWindow::openLocalSettingsFile() {
 void GuiWindow::openThemeBrowserDialog() {
     themeBrowserDialog_.open();
     themeBrowserDialog_.onThemeApplied = [this](Theme::Preset preset) {
-        activeThemePreset_ = static_cast<int>(preset);
+        setActiveThemePreset(static_cast<int>(preset));
+        saveSettings();
         setStatusMessage("Theme applied: " + getTheme().name);
         markNeedsRedraw();
     };

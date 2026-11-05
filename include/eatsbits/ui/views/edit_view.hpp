@@ -29,6 +29,7 @@ namespace eatsbits::ui {
 #include "../widgets/tracker_cell_dialog.hpp"
 #include "../widgets/text_editor_widget.hpp"
 #include "../widgets/piano_keyboard.hpp"
+#include "../widgets/note_selection_sidebar.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include "eatsbits/eatscript/midi_fx_pipeline.hpp"
 
@@ -128,11 +129,15 @@ public:
     void transposeSelectedNotes(int semitones) noexcept;
     void nudgeSelectedNotes(float deltaSteps) noexcept;
     void changeSelectedNotesDuration(float deltaDuration) noexcept;
+    void setSelectedNotesDuration(float durationSteps) noexcept;
     void setSelectedNotesVelocity(float velocity) noexcept;
     void humanizeSelectedNotes(float amount = 0.15f) noexcept;
     void quantizeSelectedNotes(float snapSteps = 1.0f) noexcept;
     void setSelectedNotesSlide(bool slide) noexcept;
+    void toggleSelectedNotesSlide() noexcept;
     void setSelectedNotesArticulation(const std::string& art) noexcept;
+    void dispatchInspectorAction(const InspectorItem& item, const ViewContext& ctx);
+    void executeInspectorScript(const std::string& scriptCode, const ViewContext& ctx);
 
     void addNote(uint8_t pitch, float startStep, float durationSteps = 1.0f, float velocity = 0.85f, bool isSlide = false, bool isAccent = false);
     void deleteNoteAt(float step, uint8_t pitch);

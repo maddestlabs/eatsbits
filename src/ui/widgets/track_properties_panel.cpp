@@ -1253,7 +1253,10 @@ void populateCanonicalInstrumentGuiPanel(GuiPanelDef& guiPanel,
 }
 
 void TrackPropertiesPanel::syncGuiPanelFromTrackData(const TrackPropertiesDrawerData& data) {
-    if (data.knobs.empty()) {
+    if (data.knobs.size() <= 1 && (!data.instrumentEngine.empty() || !data.instrument.empty() || !data.eatscriptCode.empty())) {
+        const_cast<TrackPropertiesDrawerData&>(data).knobs.clear();
+        const_cast<TrackPropertiesDrawerData&>(data).syncKnobsIfEmpty();
+    } else if (data.knobs.empty()) {
         const_cast<TrackPropertiesDrawerData&>(data).syncKnobsIfEmpty();
     }
 
@@ -4734,6 +4737,7 @@ bool TrackPropertiesPanel::handlePointer(const PointerEvent& ev, TrackProperties
             }
 
             if (hit.area == TrackPropertiesHitArea::InstrumentKnob) {
+                const_cast<TrackPropertiesDrawerData&>(data).syncKnobsIfEmpty();
                 dragMode_ = DragMode::InstrumentKnob;
                 activeKnobIndex_ = hit.index;
                 dragStartY_ = ev.y;

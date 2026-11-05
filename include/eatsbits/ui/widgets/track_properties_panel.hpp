@@ -427,6 +427,9 @@ struct TrackPropertiesDrawerData {
     bool isDetached{false};
 
     void setKnobValue(const std::string& paramName, float val, const std::string& disp = "") {
+        if (knobs.empty()) {
+            syncKnobsIfEmpty();
+        }
         for (auto& k : knobs) {
             if (stringEqualsIgnoreCase(k.name, paramName) || stringEqualsIgnoreCase(k.label, paramName)) {
                 k.value = val;

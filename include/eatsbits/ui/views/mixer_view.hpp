@@ -94,7 +94,9 @@ struct MixerChannelStrip {
                 return;
             }
         }
-        knobs.push_back({paramName, paramName, val, disp.empty() ? std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%" : disp, ""});
+        if (!knobs.empty()) {
+            knobs.push_back({paramName, paramName, val, disp.empty() ? std::to_string(static_cast<int>(std::round(val * 100.0f))) + "%" : disp, ""});
+        }
     }
 };
 
@@ -297,8 +299,10 @@ private:
     void renderLedMeter(BatchRenderer2D& r, const ThemeTokens& theme, float mx, float my, float mw, float mh,
                         float levelL, float levelR, float holdL, float holdR);
     void renderBacklitLcd(BatchRenderer2D& r, const ThemeTokens& theme, float x, float y, float w, float h,
-                          const std::string& title, const std::string& leftText, const std::string& rightText,
-                          const Color& titleColor);
+                          const std::string& title, const Color& titleColor,
+                          const std::string& leftText = "", const std::string& rightText = "");
+    float getPanKnobCenterY(float stripY) const noexcept;
+    void updateStripWidths() noexcept;
     void renderRotaryPanKnob(BatchRenderer2D& r, const ThemeTokens& theme, float kx, float ky, float radius, float pan,
                              const Color& accentColor);
     void renderCenterButton(BatchRenderer2D& r, const ThemeTokens& theme, float bx, float by, float bw, float bh);

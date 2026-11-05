@@ -297,6 +297,7 @@ add_library(eats_render_wgpu STATIC
     src/ui/icon_registry.cpp
     src/ui/gui_panel_def.cpp
     src/ui/glyph/glyph_packs.cpp
+    src/ui/glyph/vector_font.cpp
     src/ui/glyph/ebf_font.cpp
     src/ui/glyph/ebf_converter.cpp
     src/ui/clay/clay_batch_bridge.cpp
@@ -348,7 +349,6 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/piano_keyboard.cpp
     src/ui/widgets/virtual_keyboard_drawer.cpp
     src/ui/widgets/sliding_dock.cpp
-    src/ui/widgets/arranger_mixer_drawer.cpp
     src/ui/widgets/drum_pad_grid_widget.cpp
     src/ui/widgets/project_browser_drawer.cpp
     src/ui/widgets/transport_header.cpp
@@ -368,6 +368,7 @@ add_library(eatsbits_gui_core STATIC
     src/ui/widgets/note_splitter_dialog.cpp
     src/ui/widgets/color_picker_dialog.cpp
     src/ui/widgets/theme_browser_dialog.cpp
+    src/ui/widgets/note_selection_sidebar.cpp
     src/ui/widgets/space_visualizer_widget.cpp
     src/ui/widgets/ai_assistant_dialog.cpp
     src/ui/widgets/macro_runner_dialog.cpp
@@ -517,8 +518,8 @@ if(NOT EMSCRIPTEN)
     )
 endif()
 
-# Tests
-option(BUILD_TESTING "Build automated test suite" ON)
+# Tests (Disabled by default to avoid building test suite unless explicitly requested)
+option(BUILD_TESTING "Build automated test suite" OFF)
 
 if(BUILD_TESTING)
     enable_testing()

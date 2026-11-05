@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string_view>
 #include "eatsbits/ui/batch_renderer_2d.hpp"
+#include "eatsbits/ui/glyph/vector_font.hpp"
 
 namespace eatsbits::ui::glyph {
 
@@ -17,6 +18,7 @@ enum class GlyphPack : uint32_t {
     Editor     = 1 << 1, // Code folding (▾, ▸), Breakpoints (●, ○), Diagnostics (✓, ✗, ⚠, ℹ), Pipeline arrows (→, ←)
     DspMath    = 1 << 2, // Audio math (π, τ, ±, °, ∞, μ, Ω, √, ≠, ≤, ≥), Waveforms (∿, ⊓, △, ⊿)
     Score      = 1 << 3, // Music score engraving (𝄞 Treble, 𝄢 Bass, ♭, ♯, ♮, 𝄽 rests, SMuFL noteheads)
+    VectorFont = 1 << 4, // Procedural ShareTech-style monospace vector font (ASCII 32..126)
     All        = 0xFFFFFFFF
 };
 

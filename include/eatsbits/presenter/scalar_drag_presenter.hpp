@@ -23,16 +23,16 @@ enum class DragDirection {
 namespace audio_taper {
 
 /**
- * @brief Converts linear gain [0.0, 1.5] to normalized fader travel [0.0, 1.0].
+ * @brief Converts linear gain [0.0, 2.0] to normalized fader travel [0.0, 1.0].
  * Unity gain (1.0, 0 dB) maps exactly to 0.75 (75% height).
- * Max gain (1.5, +3.52 dB) maps to 1.0 (100% height).
+ * Max gain (2.0, +6.02 dB) maps to 1.0 (100% height).
  * Lower travel [0.0, 0.75] maps logarithmically down to -inf (0.0 gain).
  */
 inline float gainToTravel(float gain) noexcept {
-    gain = std::clamp(gain, 0.0f, 1.5f);
+    gain = std::clamp(gain, 0.0f, 2.0f);
     if (gain <= 1e-4f) return 0.0f;
     if (gain >= 1.0f) {
-        float frac = std::clamp((gain - 1.0f) / 0.5f, 0.0f, 1.0f);
+        float frac = std::clamp((gain - 1.0f) / 1.0f, 0.0f, 1.0f);
         return 0.75f + frac * 0.25f;
     } else {
         float norm = std::cbrt(gain);
@@ -41,14 +41,14 @@ inline float gainToTravel(float gain) noexcept {
 }
 
 /**
- * @brief Converts normalized fader travel [0.0, 1.0] to linear gain [0.0, 1.5].
+ * @brief Converts normalized fader travel [0.0, 1.0] to linear gain [0.0, 2.0].
  */
 inline float travelToGain(float t) noexcept {
     t = std::clamp(t, 0.0f, 1.0f);
     if (t <= 0.001f) return 0.0f;
     if (t >= 0.75f) {
         float frac = (t - 0.75f) / 0.25f;
-        return 1.0f + frac * 0.5f;
+        return 1.0f + frac * 1.0f;
     } else {
         float norm = t / 0.75f;
         return norm * norm * norm;

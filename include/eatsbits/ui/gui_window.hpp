@@ -706,10 +706,11 @@ public:
     [[nodiscard]] ProjectBrowserDrawer* getProjectBrowserDrawerWidget() noexcept { return projectBrowserDrawerWidget_.get(); }
     [[nodiscard]] TransportHeader* getTransportHeaderWidget() noexcept { return transportHeaderWidget_.get(); }
     [[nodiscard]] BottomNavBar* getBottomNavBarWidget() noexcept { return bottomNavBarWidget_.get(); }
-    [[nodiscard]] TerminalConsoleDrawer* getTerminalConsoleDrawerWidget() noexcept { return nullptr; }
-    [[nodiscard]] bool isTerminalConsoleOpen() const noexcept { return false; }
-    void toggleTerminalConsole() noexcept {}
-    void setTerminalConsoleOpen(bool open) noexcept { (void)open; }
+    [[nodiscard]] TerminalConsoleDrawer* getTerminalConsoleDrawerWidget() noexcept { return terminalConsoleDrawerWidget_.get(); }
+    [[nodiscard]] bool isTerminalConsoleOpen() const noexcept;
+    void toggleTerminalConsole() noexcept;
+    void setTerminalConsoleOpen(bool open) noexcept;
+    [[nodiscard]] int replaceNotesAcrossProject(int fromPitch, int toPitch, int trackIndex = -1);
     [[nodiscard]] KineticScroller& getKineticScroller() noexcept { return kineticScroller_; }
     [[nodiscard]] GestureRecognizer& getGestureRecognizer() noexcept { return gestureRecognizer_; }
     [[nodiscard]] ViewContext createViewContext() noexcept;
@@ -751,8 +752,9 @@ public:
     [[nodiscard]] ColorPickerDialog* getActiveColorPickerDialog() noexcept;
     [[nodiscard]] bool isAnyModalActive() const noexcept;
 
-    // Application Settings & JSON Persistence
+    // Application Settings & Eatscript Persistence
     [[nodiscard]] std::string getSettingsFilePath() const;
+    [[nodiscard]] std::string getLegacySettingsJsonFilePath() const;
     bool saveSettings();
     bool loadSettings();
     void revertSettingsToDefault();
@@ -808,24 +810,8 @@ public:
 
     // Collapsible Virtual Piano Keyboard Drawer (Horizontal)
     [[nodiscard]] bool isVirtualKeyboardDrawerOpen() const noexcept { return virtualKeyboardDrawerOpen_; }
-    void setVirtualKeyboardDrawerOpen(bool open) noexcept {
-        virtualKeyboardDrawerOpen_ = open;
-        if (!guiAnimationsEnabled_) {
-            virtualKeyboardAnimProgress_ = open ? 1.0f : 0.0f;
-        }
-        if (virtualKeyboardDrawerWidget_) {
-            virtualKeyboardDrawerWidget_->setExpanded(open);
-        }
-    }
-    void toggleVirtualKeyboardDrawer() noexcept {
-        virtualKeyboardDrawerOpen_ = !virtualKeyboardDrawerOpen_;
-        if (!guiAnimationsEnabled_) {
-            virtualKeyboardAnimProgress_ = virtualKeyboardDrawerOpen_ ? 1.0f : 0.0f;
-        }
-        if (virtualKeyboardDrawerWidget_) {
-            virtualKeyboardDrawerWidget_->setExpanded(virtualKeyboardDrawerOpen_);
-        }
-    }
+    void setVirtualKeyboardDrawerOpen(bool open) noexcept;
+    void toggleVirtualKeyboardDrawer() noexcept;
     [[nodiscard]] float getVirtualKeyboardAnimProgress() const noexcept { return virtualKeyboardAnimProgress_; }
     [[nodiscard]] float getVirtualKeyboardDrawerHeight() const noexcept { return virtualKeyboardDrawerHeight_; }
     void setVirtualKeyboardDrawerHeight(float h) noexcept { virtualKeyboardDrawerHeight_ = std::clamp(h, 120.0f, 280.0f); }
@@ -1395,7 +1381,7 @@ private:
     std::unique_ptr<ProjectBrowserDrawer> projectBrowserDrawerWidget_;
     std::unique_ptr<TransportHeader> transportHeaderWidget_;
     std::unique_ptr<BottomNavBar> bottomNavBarWidget_;
-    // terminalConsoleDrawerWidget_ disabled for now
+    std::unique_ptr<TerminalConsoleDrawer> terminalConsoleDrawerWidget_;
     ValueEditDialog valueEditDialog_;
     CommandPaletteDialog commandPaletteDialog_;
     AudioToMidiDialog audioToMidiDialog_;

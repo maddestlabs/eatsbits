@@ -28,6 +28,7 @@ struct QuickCommand {
     CommandCategory category{CommandCategory::Action};
     std::string shortcutHint;
     std::function<void()> onExecute;
+    std::string cliSyntax{""};
 };
 
 /**
@@ -68,10 +69,13 @@ public:
 
     [[nodiscard]] size_t getFilteredCount() const noexcept { return filteredCommands_.size(); }
     [[nodiscard]] int getSelectedIndex() const noexcept { return selectedIndex_; }
-    void executeSelected() noexcept;
+    void executeSelected(bool stageOnly = false) noexcept;
 
     // Callbacks
     std::function<void()> onClose;
+    void setCommandExecutionCallback(std::function<void(const QuickCommand&, bool stageOnly)> cb) noexcept {
+        onCommandExecuted_ = std::move(cb);
+    }
 
 private:
     void rebuildFilteredList() noexcept;
@@ -79,6 +83,7 @@ private:
     static std::string getCategoryName(CommandCategory cat) noexcept;
 
     bool isOpen_{false};
+    std::function<void(const QuickCommand&, bool stageOnly)> onCommandExecuted_{nullptr};
     std::string searchQuery_;
     CommandCategory selectedCategory_{CommandCategory::All};
     int selectedIndex_{0};

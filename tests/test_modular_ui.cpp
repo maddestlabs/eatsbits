@@ -13,7 +13,6 @@
 #include "eatsbits/ui/views/mixer_view.hpp"
 #include "eatsbits/ui/views/design_view.hpp"
 #include "eatsbits/ui/widgets/virtual_keyboard_drawer.hpp"
-#include "eatsbits/ui/widgets/arranger_mixer_drawer.hpp"
 #include "eatsbits/ui/widgets/project_browser_drawer.hpp"
 #include "eatsbits/ui/widgets/transport_header.hpp"
 #include "eatsbits/ui/widgets/bottom_nav_bar.hpp"
@@ -2472,111 +2471,6 @@ void testTextEditorWidgetAndMinimap() {
     std::cout << "  [PASS] TextEditorWidget, Code Minimap & Script Workstations validated." << std::endl;
 }
 
-void testArrangerMixerDrawer() {
-    std::cout << "[Test 18] ArrangerMixerDrawer Docked Bottom Console & Composition Parity..." << std::endl;
-
-    ArrangerMixerDrawer drawer;
-    assert(!drawer.isExpanded());
-    assert(drawer.getAnimProgress() == 0.0f);
-
-    Rect2D bounds(0.0f, 56.0f, 1280.0f, 720.0f - 56.0f - 48.0f);
-    drawer.layout(bounds, 0.0f);
-
-    assert(drawer.getPullTabBounds().w == ArrangerMixerDrawer::kPullTabWidth);
-    assert(drawer.getPullTabBounds().h == ArrangerMixerDrawer::kPullTabHeight);
-
-    // Toggle expansion
-    drawer.toggle();
-    assert(drawer.isExpanded());
-
-    // Step animation to completion
-    for (int i = 0; i < 30; ++i) {
-        drawer.update(0.016f);
-    }
-    assertNear(drawer.getAnimProgress(), 1.0f, 0.01f);
-    drawer.layout(bounds, 0.0f);
-
-    assert(drawer.getDrawerBounds().h > 100.0f);
-    assert(drawer.getCloseButtonBounds().w > 0.0f);
-
-    // Setup mock tracks
-    std::vector<ArrangerTimelineTrack> tracks;
-    ArrangerTimelineTrack t1;
-    t1.name = "Kick"; t1.volume = 0.8f; t1.pan = 0.0f; t1.mute = false; t1.solo = false;
-    ArrangerTimelineTrack t2;
-    t2.name = "Bass"; t2.volume = 0.7f; t2.pan = -0.3f; t2.mute = false; t2.solo = false;
-    tracks.push_back(t1);
-    tracks.push_back(t2);
-
-    uint32_t activeTrack = 0;
-    float masterVol = 1.0f;
-    float masterPan = 0.0f;
-    bool masterMute = false;
-
-    BatchRenderer2D renderer;
-    ThemeTokens theme = Theme::current();
-    ViewContext ctx;
-    ctx.renderer = &renderer;
-    ctx.theme = &theme;
-
-    // Render pass without crashes
-    renderer.beginFrame(1280.0f, 720.0f);
-    float chPeaksL[2] = {0.5f, 0.3f};
-    float chPeaksR[2] = {0.5f, 0.3f};
-    drawer.render(renderer, theme, tracks, activeTrack, masterVol, masterPan, masterMute,
-                  0.6f, 0.6f, chPeaksL, chPeaksR, 2);
-    renderer.endFrame();
-
-    // Hotkey 'M' toggles drawer
-    bool handledM = drawer.handleKey('M', 0, 1, 0, ctx);
-    assert(handledM);
-    assert(!drawer.isExpanded()); // Toggled closed
-
-    drawer.handleKey('M', 0, 1, 0, ctx);
-    assert(drawer.isExpanded()); // Toggled open
-
-    // Hotkey Escape closes drawer
-    bool handledEsc = drawer.handleKey(256, 0, 1, 0, ctx);
-    assert(handledEsc);
-    assert(!drawer.isExpanded()); // Closed via Escape
-
-    drawer.setExpanded(true);
-    for (int i = 0; i < 30; ++i) drawer.update(0.016f);
-    drawer.layout(bounds, 0.0f);
-
-    // Pull-tab click toggles closed
-    PointerEvent tabClick = makePointer(drawer.getPullTabBounds().x + 10.0f, drawer.getPullTabBounds().y + 5.0f, PointerAction::Down);
-    bool hitTab = drawer.handlePointer(tabClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
-    assert(hitTab);
-    assert(!drawer.isExpanded());
-
-    // Pull-tab click toggles open
-    hitTab = drawer.handlePointer(tabClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
-    assert(hitTab);
-    assert(drawer.isExpanded());
-
-    // Test close button
-    for (int i = 0; i < 30; ++i) drawer.update(0.016f);
-    drawer.layout(bounds, 0.0f);
-    PointerEvent closeClick = makePointer(drawer.getCloseButtonBounds().x + 5.0f, drawer.getCloseButtonBounds().y + 5.0f, PointerAction::Down);
-    bool hitClose = drawer.handlePointer(closeClick, tracks, activeTrack, masterVol, masterPan, masterMute, ctx);
-    assert(hitClose);
-    assert(!drawer.isExpanded());
-
-    // Re-open and test ArrangerView integration
-    ArrangerView arranger;
-    arranger.layout(bounds, ctx);
-    assert(!arranger.isMixerDrawerOpen());
-
-    arranger.toggleMixerDrawer();
-    assert(arranger.isMixerDrawerOpen());
-
-    arranger.handleKey('M', 0, 1, 0, ctx);
-    assert(!arranger.isMixerDrawerOpen());
-
-    std::cout << "  [PASS] ArrangerMixerDrawer Docked Bottom Console & Hotkeys verified." << std::endl;
-}
-
 void testPluginSearchDialog() {
     std::cout << "Running Test 19: PluginSearchDialog Refined Text Filtering & Scissored Scrolling..." << std::endl;
 
@@ -4374,7 +4268,6 @@ int main() {
     testFileDragAndDrop();
     testCircularGradients();
     testTextEditorWidgetAndMinimap();
-    testArrangerMixerDrawer();
     testPluginSearchDialog();
     testTooltips();
     testTrackPropertiesActionsAndMuteSoloFix();

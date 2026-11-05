@@ -5,7 +5,6 @@
 #include "../widgets/circle_of_fifths_dialog.hpp"
 #include "../widgets/icon_search_dialog.hpp"
 #include "../widgets/track_properties_drawer.hpp"
-#include "../widgets/arranger_mixer_drawer.hpp"
 #include "../icon_registry.hpp"
 #include "eatsbits/theory/chord_model.hpp"
 #include <vector>
@@ -168,12 +167,6 @@ public:
     [[nodiscard]] TrackPropertiesDrawerData& getDrawerData() noexcept { return drawerData_; }
     [[nodiscard]] const TrackPropertiesDrawerData& getDrawerData() const noexcept { return drawerData_; }
 
-    // Docked Bottom Mixer Drawer Controls
-    [[nodiscard]] bool isMixerDrawerOpen() const noexcept { return mixerDrawer_.isExpanded(); }
-    void setMixerDrawerOpen(bool open) noexcept { mixerDrawer_.setExpanded(open); }
-    void toggleMixerDrawer() noexcept { mixerDrawer_.toggle(); }
-    [[nodiscard]] ArrangerMixerDrawer& getMixerDrawer() noexcept { return mixerDrawer_; }
-    [[nodiscard]] const ArrangerMixerDrawer& getMixerDrawer() const noexcept { return mixerDrawer_; }
     void setMasterLevels(float masterVol, float masterPan, bool masterMute, float masterPeakL, float masterPeakR,
                          const float* chPeaksL = nullptr, const float* chPeaksR = nullptr, size_t numPeaks = 0);
     void setMasterLevels(float masterVol, float masterPan, bool masterMute, float masterPeakL, float masterPeakR,
@@ -401,8 +394,6 @@ private:
     TrackPropertiesDrawer propertiesDrawer_;
     TrackPropertiesDrawerData drawerData_;
 
-    // Docked Bottom Mixer Drawer
-    ArrangerMixerDrawer mixerDrawer_;
     float masterVolume_{0.85f};
     float masterPan_{0.0f};
     bool masterMute_{false};
