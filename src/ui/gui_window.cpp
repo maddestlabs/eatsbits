@@ -8534,30 +8534,26 @@ ViewContext GuiWindow::createViewContext() noexcept {
     return ctx;
 }
 
+#if defined(__EMSCRIPTEN__)
+namespace {
+    bool s_webResizePending = false;
+    int s_webPendingCssW = 0;
+    int s_webPendingCssH = 0;
+    float s_webPendingDpr = 1.0f;
+}
+#endif
+
 void GuiWindow::pollWebResize() noexcept {
 #if defined(__EMSCRIPTEN__)
-    if (!window_) return;
+    if (!window_ || !s_webResizePending) return;
+    s_webResizePending = false;
 
-    double cssW = EM_ASM_DOUBLE({
-        var container = document.getElementById('canvas-container');
-        return (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
-    });
-    double cssH = EM_ASM_DOUBLE({
-        var container = document.getElementById('canvas-container');
-        return (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 800);
-    });
-    double dpr = EM_ASM_DOUBLE({
-        return window.devicePixelRatio || 1.0;
-    });
-
-    int targetW = static_cast<int>(std::round(cssW));
-    int targetH = static_cast<int>(std::round(cssH));
-
-    if (targetW < 320) targetW = 320;
-    if (targetH < 240) targetH = 240;
+    int targetW = std::max(320, s_webPendingCssW);
+    int targetH = std::max(240, s_webPendingCssH);
+    float dpr = (s_webPendingDpr > 0.0f) ? s_webPendingDpr : 1.0f;
 
     constexpr float kMaxWebDpi = 1.5f;
-    float expectedDpi = hiDpiEnabled_ ? std::min(static_cast<float>(dpr), kMaxWebDpi) : 1.0f;
+    float expectedDpi = hiDpiEnabled_ ? std::min(dpr, kMaxWebDpi) : 1.0f;
     int targetFbW = static_cast<int>(std::round(static_cast<float>(targetW) * expectedDpi));
     int targetFbH = static_cast<int>(std::round(static_cast<float>(targetH) * expectedDpi));
 
@@ -8628,7 +8624,29 @@ bool GuiWindow::isIdle() const noexcept {
 void GuiWindow::runEventLoop() {
 #if defined(__EMSCRIPTEN__)
     if (!window_) return;
-    std::cout << "[GUI] Registering requestAnimationFrame main loop with responsive auto-resize..." << std::endl;
+    std::cout << "[GUI] Registering ResizeObserver and requestAnimationFrame main loop..." << std::endl;
+    EM_ASM({
+        if (!window._eatsResizeHooked) {
+            window._eatsResizeHooked = true;
+            var notifyResize = function() {
+                var container = document.getElementById('canvas-container');
+                var w = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
+                var h = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 800);
+                var dpr = window.devicePixelRatio || 1.0;
+                if (typeof Module !== 'undefined' && Module._eatsbits_on_web_resize) {
+                    Module._eatsbits_on_web_resize(Math.round(w), Math.round(h), dpr);
+                }
+            };
+            if (typeof ResizeObserver !== 'undefined') {
+                var c = document.getElementById('canvas-container');
+                if (c) {
+                    new ResizeObserver(notifyResize).observe(c);
+                }
+            }
+            window.addEventListener('resize', notifyResize);
+            notifyResize();
+        }
+    });
     pollWebResize();
     emscripten_set_main_loop_arg([](void* arg) {
         auto* self = static_cast<GuiWindow*>(arg);
@@ -20768,4 +20786,18 @@ void GuiWindow::openThemeBrowserDialog() {
 }
 
 } // namespace eatsbits::ui
+
+#if defined(__EMSCRIPTEN__)
+extern "C" {
+EMSCRIPTEN_KEEPALIVE
+void eatsbits_on_web_resize(int cssW, int cssH, double dpr) {
+    if (cssW > 0 && cssH > 0) {
+        eatsbits::ui::s_webPendingCssW = cssW;
+        eatsbits::ui::s_webPendingCssH = cssH;
+        eatsbits::ui::s_webPendingDpr = (dpr > 0.0) ? static_cast<float>(dpr) : 1.0f;
+        eatsbits::ui::s_webResizePending = true;
+    }
+}
+}
+#endif
 

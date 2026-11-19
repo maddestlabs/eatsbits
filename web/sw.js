@@ -1,5 +1,5 @@
 // Eatsbits Modular Workstation - Offline PWA Service Worker
-const CACHE_NAME = 'eatsbits-pwa-v2';
+const CACHE_NAME = 'eatsbits-pwa-v3';
 
 const PRECACHE_ASSETS = [
     './',

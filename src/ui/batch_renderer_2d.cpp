@@ -1604,6 +1604,12 @@ public:
             wgpuBufferRelease(uniformBuffer_);
             uniformBuffer_ = nullptr;
         }
+        if (vertexBuffer_) {
+            wgpuBufferDestroy(vertexBuffer_);
+            wgpuBufferRelease(vertexBuffer_);
+            vertexBuffer_ = nullptr;
+        }
+        vertexBufferSize_ = 0;
         if (fontSampler_) {
             wgpuSamplerRelease(fontSampler_);
             fontSampler_ = nullptr;
@@ -1745,6 +1751,8 @@ public:
     }
 
     void beginPass(float width, float height) override {
+        frameDraws_.clear();
+        frameVertices_.clear();
         width_ = static_cast<uint32_t>(std::round(width));
         height_ = static_cast<uint32_t>(std::round(height));
         if (device_ && uniformBuffer_) {
@@ -1782,9 +1790,17 @@ public:
         wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, data, totalDataSize, &layout, &writeSize);
     }
 
-    void renderBatch(const std::vector<Vertex2D>& vertices) override {
-        if (vertices.empty() || !device_ || !pipeline_) return;
-        if (!customTargetView_ && !surface_) return;
+    void flushPendingDraws() {
+        if (frameDraws_.empty() || frameVertices_.empty() || !device_ || !pipeline_) {
+            frameDraws_.clear();
+            frameVertices_.clear();
+            return;
+        }
+        if (!customTargetView_ && !surface_) {
+            frameDraws_.clear();
+            frameVertices_.clear();
+            return;
+        }
 
         if (customTargetView_) {
             currentBackBufferView_ = customTargetView_;
@@ -1792,6 +1808,8 @@ public:
             wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
             if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                 currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                frameDraws_.clear();
+                frameVertices_.clear();
                 return;
             }
 
@@ -1805,8 +1823,31 @@ public:
             viewDesc.aspect = WGPUTextureAspect_All;
 
             currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
-            if (!currentBackBufferView_) return;
+            if (!currentBackBufferView_) {
+                frameDraws_.clear();
+                frameVertices_.clear();
+                return;
+            }
         }
+
+        const uint64_t bufferSize = static_cast<uint64_t>(frameVertices_.size()) * sizeof(Vertex2D);
+        if (bufferSize > vertexBufferSize_ || !vertexBuffer_) {
+            if (vertexBuffer_) {
+                wgpuBufferRelease(vertexBuffer_);
+                vertexBuffer_ = nullptr;
+            }
+            uint64_t newCap = std::max<uint64_t>(bufferSize, 65536ULL);
+            if (newCap < vertexBufferSize_ * 2) {
+                newCap = vertexBufferSize_ * 2;
+            }
+            WGPUBufferDescriptor bufDesc{};
+            bufDesc.size = newCap;
+            bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &bufDesc);
+            vertexBufferSize_ = newCap;
+        }
+        WGPUQueue queue = wgpuDeviceGetQueue(device_);
+        wgpuQueueWriteBuffer(queue, vertexBuffer_, 0, frameVertices_.data(), bufferSize);
 
         WGPUCommandEncoderDescriptor encDesc{};
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
@@ -1836,47 +1877,77 @@ public:
         if (bindGroup_) {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
         }
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
 
-        if (hasScissor_ && scissorW_ > 0 && scissorH_ > 0) {
-            uint32_t sx = std::min(scissorX_, width_ > 0 ? width_ - 1 : 0);
-            uint32_t sy = std::min(scissorY_, height_ > 0 ? height_ - 1 : 0);
-            uint32_t sw = std::min(scissorW_, width_ - sx);
-            uint32_t sh = std::min(scissorH_, height_ - sy);
-            if (sw > 0 && sh > 0) {
-                wgpuRenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+        bool curScissorActive = false;
+        uint32_t curSx = 0, curSy = 0, curSw = width_, curSh = height_;
+        for (const auto& d : frameDraws_) {
+            const uint32_t targetSx = d.hasScissor ? d.scissorX : 0;
+            const uint32_t targetSy = d.hasScissor ? d.scissorY : 0;
+            const uint32_t targetSw = d.hasScissor ? d.scissorW : width_;
+            const uint32_t targetSh = d.hasScissor ? d.scissorH : height_;
+            if (targetSw == 0 || targetSh == 0) {
+                continue;
             }
-        }
-
-        // Dynamic vertex upload
-        uint64_t bufferSize = vertices.size() * sizeof(Vertex2D);
-        if (bufferSize > 0) {
-            WGPUBufferDescriptor bufDesc{};
-            bufDesc.size = bufferSize;
-            bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-            WGPUBuffer vbo = wgpuDeviceCreateBuffer(device_, &bufDesc);
-            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), vbo, 0, vertices.data(), bufferSize);
-
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbo, 0, bufferSize);
-            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-
-            wgpuBufferRelease(vbo);
+            if (!curScissorActive ||
+                curSx != targetSx || curSy != targetSy ||
+                curSw != targetSw || curSh != targetSh) {
+                wgpuRenderPassEncoderSetScissorRect(pass, targetSx, targetSy, targetSw, targetSh);
+                curScissorActive = true;
+                curSx = targetSx;
+                curSy = targetSy;
+                curSw = targetSw;
+                curSh = targetSh;
+            }
+            wgpuRenderPassEncoderDraw(pass, d.vertexCount, 1, d.firstVertex, 0);
         }
 
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
 
+        frameDraws_.clear();
+        frameVertices_.clear();
+
         WGPUCommandBufferDescriptor cmdBufDesc{};
         WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
         wgpuCommandEncoderRelease(encoder);
 
-        WGPUQueue queue = wgpuDeviceGetQueue(device_);
         wgpuQueueSubmit(queue, 1, &commands);
         wgpuCommandBufferRelease(commands);
+    }
+
+    void renderBatch(const std::vector<Vertex2D>& vertices) override {
+        if (vertices.empty() || !device_ || !pipeline_) return;
+        if (!customTargetView_ && !surface_) return;
+
+        PendingDraw draw{};
+        draw.firstVertex = static_cast<uint32_t>(frameVertices_.size());
+        draw.vertexCount = static_cast<uint32_t>(vertices.size());
+        draw.hasScissor = (hasScissor_ && scissorW_ > 0 && scissorH_ > 0);
+        if (draw.hasScissor) {
+            uint32_t sx = std::min(scissorX_, width_ > 0 ? width_ - 1 : 0);
+            uint32_t sy = std::min(scissorY_, height_ > 0 ? height_ - 1 : 0);
+            uint32_t sw = std::min(scissorW_, width_ - sx);
+            uint32_t sh = std::min(scissorH_, height_ - sy);
+            if (sw == 0 || sh == 0) {
+                return;
+            }
+            draw.scissorX = sx;
+            draw.scissorY = sy;
+            draw.scissorW = sw;
+            draw.scissorH = sh;
+        }
+        frameVertices_.insert(frameVertices_.end(), vertices.begin(), vertices.end());
+        frameDraws_.push_back(draw);
     }
 
     void renderRgbaRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
                           float u0, float v0, float u1, float v1, float opacity) override {
         if (!device_ || !rgbaTexture_ || !rgba || imgW <= 0 || imgH <= 0 || w <= 0.0f || h <= 0.0f) return;
+
+        if (!frameDraws_.empty()) {
+            flushPendingDraws();
+        }
 
         uint32_t uploadW = static_cast<uint32_t>(std::min(imgW, 256));
         uint32_t uploadH = static_cast<uint32_t>(std::min(imgH, 256));
@@ -1921,6 +1992,9 @@ public:
     }
 
     void endPass() override {
+        if (!frameDraws_.empty()) {
+            flushPendingDraws();
+        }
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
         }
@@ -2209,6 +2283,19 @@ private:
     WGPUTexture rgbaTexture_{nullptr};
     WGPUTextureView rgbaTextureView_{nullptr};
     WGPUBuffer uniformBuffer_{nullptr};
+    WGPUBuffer vertexBuffer_{nullptr};
+    uint64_t vertexBufferSize_{0};
+    struct PendingDraw {
+        uint32_t firstVertex{0};
+        uint32_t vertexCount{0};
+        bool hasScissor{false};
+        uint32_t scissorX{0};
+        uint32_t scissorY{0};
+        uint32_t scissorW{0};
+        uint32_t scissorH{0};
+    };
+    std::vector<Vertex2D> frameVertices_;
+    std::vector<PendingDraw> frameDraws_;
     WGPUBindGroup bindGroup1x_{nullptr};
     WGPUBindGroup bindGroup4x_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
@@ -2377,7 +2464,9 @@ void BatchRenderer2D::endFrame() {
 
 void BatchRenderer2D::setBlendMode(BlendMode mode) {
     if (blendMode_ == mode) return;
-    flush();
+    if (getBackendType() != RenderBackendType::WebGPU) {
+        flush();
+    }
     blendMode_ = mode;
     if (backend_) {
         backend_->setBlendMode(mode);
